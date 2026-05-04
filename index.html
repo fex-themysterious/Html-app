@@ -8,8 +8,6 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <title>Syllabus Tracker</title>
   <link rel="stylesheet" href="./style.css"/>
-  <link rel="manifest" href="./manifest.json"/>
-  <link rel="apple-touch-icon" href="./icons/icon-192.svg"/>
 </head>
 <body>
   <div id="app">
@@ -56,13 +54,6 @@
     <div id="lock-overlay" class="lock-overlay hidden"></div>
   </div>
 
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js').catch(() => {});
-      });
-    }
-  </script>
   <script src="./script.js"></script>
 </body>
 </html>
