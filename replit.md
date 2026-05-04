@@ -1,43 +1,80 @@
 # Syllabus Tracker PWA
 
-A clean, offline-capable Progressive Web App for tracking study progress — pure HTML + CSS + Vanilla JS, no frameworks or build tools.
+A clean, offline-capable Progressive Web App for tracking study progress.
+**Stack: pure HTML + CSS + Vanilla JS only — NO TypeScript, React, frameworks, or build tools.**
 
-## Stack
-- **Frontend**: Single-file HTML + CSS + Vanilla JS (no React, no bundler)
-- **Server**: Node.js `http` module (`server.js`), port 5000, host `0.0.0.0`
+## Tech Stack
+- **Frontend**: `index.html` + `style.css` + `script.js` — all plain, runs directly in browser
+- **Server**: `server.js` — Node.js `http` module, port 5000, host `0.0.0.0`
 - **Storage**: `localStorage` (key: `syllabus_tracker_v2`)
-- **PWA**: `manifest.json` + `sw.js` (cache-first strategy)
+- **PWA**: `manifest.json` (SVG icons) + `sw.js` (cache-first, cache name: `syllabus-v4`)
+- **Zoom**: enabled (`user-scalable=no` removed)
 
-## Files
-| File | Purpose |
-|------|---------|
-| `index.html` | App shell — views, nav, modal/toast anchors |
-| `style.css` | All styles (dark theme, responsive, animations) |
-| `script.js` | Complete app logic — state, render, events, init (single IIFE) |
-| `manifest.json` | PWA manifest with inline SVG icon |
-| `sw.js` | Service worker — caches 5 core files, handles notifications |
-| `server.js` | Static file server (Node.js http module) |
+## File Structure
+```
+index.html        # App shell — 6 views, bottom nav, modal/toast anchors, lock-overlay
+style.css         # All styles (dark theme, responsive, mobile landscape/portrait)
+script.js         # Complete app logic — single IIFE, ~700 lines
+manifest.json     # PWA manifest with SVG icons
+sw.js             # Service worker — caches 7 files
+server.js         # Static file server (unchanged)
+icons/
+  icon-192.svg    # PWA icon 192×192
+  icon-512.svg    # PWA icon 512×512
+```
 
 ## Tabs / Views
 | Tab | View ID | Description |
 |-----|---------|-------------|
 | Home | `view-home` | Hero cards (exam countdown + progress ring), Today's Plan, Plan Adder |
-| Dashboard | `view-dashboard` | Goals, Smart Suggestions, Weak Areas, Burnout Banner |
+| Dashboard (Board) | `view-dashboard` | Goals, Smart Suggestions, Weak Areas, Burnout Banner |
 | Syllabus | `view-syllabus` | Subject/Chapter/Topic CRUD with expandable tree |
-| Focus | `view-focus` | Pomodoro timer (Work 25m / Short 5m / Long 15m) |
-| Revision | `view-revision` | Spaced repetition schedule (due today + upcoming) |
+| Focus | `view-focus` | Sub-tabs: Timer (Pomodoro) + Classroom (YouTube) |
+| Revision (Revise) | `view-revision` | Spaced repetition — due today + upcoming |
 | Stats | `view-stats` | Activity bars, overall stats, per-subject breakdown |
 
+## Focus Tab Features
+- **Sub-tabs**: ⏱ Timer | 🎓 Classroom (toggle via `focus-sub-btn`)
+- **Pomodoro Timer**: editable Work/Short/Long durations (click inputs), animated ring, Start/Pause/Reset
+- **Lock Mode**: prevents switching tabs while timer runs; `beforeunload` warning
+- **Ambient Sounds**: Web Audio API — Rain (lowpass white noise), Cafe (brown noise), Nature (bandpass), Focus (binaural 200/210Hz), White noise, Off. Volume slider.
+- **Today's Tasks connector**: pick an incomplete task; prompted to mark done after work session
+- **Session counter**: tracks sessions × work duration = minutes focused
+
+## Classroom System
+- **Groups**: create named groups (stored in `state.classroom.groups`)
+- **Add videos/playlists**: paste any YouTube URL — `youtu.be/`, `?v=`, `?list=`
+- **Thumbnails**: auto-loaded from `img.youtube.com/vi/{videoId}/mqdefault.jpg`
+- **Playback**: iframe embed modal (autoplay); fallback to `window.open`
+- **Storage**: `localStorage` under `state.classroom`
+
 ## Key Architecture
-- **Navigation**: `switchTab(tab)` — hides all `.view`, shows `#view-{tab}`, updates `.nav-btn.active`, sets `body.tab-{tab}`
-- **Settings gear**: only visible on Dashboard tab via `body:not(.tab-dashboard) .settings-btn { display: none }`
-- **Event delegation**: single `document.addEventListener('click', ...)` routes via `data-act` attributes
-- **State**: `state` object with subjects, exams, goals, revisions, dailyPlans, streak, activity, smartReminder, motivationReminders, motivationQuotes, burnout
+- **Navigation**: `switchTab(tab)` — hides all `.view`, shows `#view-{tab}`, sets `body.tab-{tab}`
+- **Lock Mode guard**: `switchTab` checks `focusLocked && focusRunning` before allowing tab change
+- **Settings gear**: only visible on Dashboard via `body:not(.tab-dashboard) .settings-btn { display: none }`
+- **Event delegation**: single `document.addEventListener('click', …)` routes via `data-act` attributes
 - **Spaced repetition**: offsets [1, 3, 7] days after topic marked done
-- **Burnout detector**: checks inactivity, broken streaks, low weekly activity
-- **Weak topic detector**: topics skipped ≥3 times OR ≥7 days old and not done
-- **PWA cache**: only caches `./, ./index.html, ./style.css, ./script.js, ./manifest.json`
-- **No calendar tab** — removed entirely; `migrate()` deletes `calendarTasks` from saved state
+- **Burnout detector**: inactivity ≥2 days or ≤1 active day in last 7
+- **Weak topic**: skipped ≥3 times OR ≥7 days stale and not done
+- **PWA cache**: caches `./`, `index.html`, `style.css`, `script.js`, `manifest.json`, both icons
+
+## State Shape
+```js
+{
+  subjects: [{ id, name, color, notes, priority, chapters: [{ id, name, topics: [...] }] }],
+  exams: [{ id, name, date }],
+  motivationQuotes: [...],
+  streak: { count, lastDate },
+  activity: { 'YYYY-MM-DD': count },
+  dailyPlans: { 'YYYY-MM-DD': { auto, removed, custom, generated } },
+  smartReminder: { enabled, times, lastFired },
+  motivationReminders: { enabled, times, lastFired },
+  revisions: [...],
+  burnout: { installDate, popupDismissedDate, bannerDismissedDate },
+  goals: [...],
+  classroom: { groups: [{ id, name, items: [{ id, title, url, videoId, playlistId, type, addedAt }] }] }
+}
+```
 
 ## Running
-The `Start application` workflow runs `node server.js` on port 5000.
+Workflow: `Start application` → `node server.js` → port 5000
