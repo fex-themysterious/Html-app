@@ -134,7 +134,8 @@
         videoId: it.videoId || null, playlistId: it.playlistId || null,
         type: it.type || 'video', addedAt: it.addedAt || todayKey(),
         description: it.description || '',
-        thumbnailUrl: it.thumbnailUrl || (it.videoId ? `https://img.youtube.com/vi/${it.videoId}/mqdefault.jpg` : '')
+        thumbnailUrl: it.thumbnailUrl || (it.videoId ? `https://img.youtube.com/vi/${it.videoId}/mqdefault.jpg` : ''),
+        notes: Array.isArray(it.notes) ? it.notes.map(n => ({ id: n.id || uid(), ts: typeof n.ts === 'number' ? n.ts : 0, label: n.label || '' })) : []
       })) : []
     }));
     return s;
@@ -634,7 +635,7 @@
   function ytThumb(videoId) { return `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`; }
   function ytEmbedUrl(item) {
     if (item.type === 'playlist' && item.playlistId) return `https://www.youtube.com/embed/videoseries?list=${item.playlistId}&autoplay=1`;
-    if (item.videoId) return `https://www.youtube.com/embed/${item.videoId}?autoplay=1`;
+    if (item.videoId) return `https://www.youtube.com/embed/${item.videoId}?autoplay=1&enablejsapi=1`;
     return '';
   }
   async function fetchYouTubeTitle(url) {
@@ -1302,6 +1303,97 @@
   const SVG_EXTLINK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
   const SVG_PLAY = `<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
 
+  /* ── Bookmark / YT-API helpers ── */
+  let _ytPlayer = null;
+
+  function loadYTApi() {
+    if (window._ytApiRequested) return;
+    window._ytApiRequested = true;
+    const s = document.createElement('script');
+    s.src = 'https://www.youtube.com/iframe_api';
+    document.head.appendChild(s);
+  }
+  window.onYouTubeIframeAPIReady = function () { tryBindYTPlayer(); };
+
+  function tryBindYTPlayer() {
+    const iframe = document.getElementById('vp-iframe');
+    if (!iframe || !window.YT || !YT.Player) { _ytPlayer = null; return; }
+    try {
+      _ytPlayer = new YT.Player('vp-iframe', { events: { onReady: () => {} } });
+    } catch (e) { _ytPlayer = null; }
+  }
+
+  function getCurrentYTTime() {
+    try {
+      if (_ytPlayer && typeof _ytPlayer.getCurrentTime === 'function') {
+        const t = _ytPlayer.getCurrentTime();
+        return isFinite(t) ? Math.floor(t) : null;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function seekVideoPlayer(seconds) {
+    try {
+      if (_ytPlayer && typeof _ytPlayer.seekTo === 'function') {
+        _ytPlayer.seekTo(seconds, true); return;
+      }
+    } catch (e) {}
+    const iframe = document.getElementById('vp-iframe');
+    if (!iframe) return;
+    try {
+      const url = new URL(iframe.src);
+      url.searchParams.set('start', String(seconds));
+      url.searchParams.set('autoplay', '1');
+      iframe.src = url.toString();
+    } catch (e) {}
+  }
+
+  function formatVpTs(s) {
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+    return `${m}:${String(sec).padStart(2,'0')}`;
+  }
+
+  function parseTsInput(str) {
+    const parts = str.trim().split(':').map(Number);
+    if (parts.some(isNaN) || parts.length < 2) return null;
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    return parts[0] * 60 + parts[1];
+  }
+
+  function vpNoteCardHTML(groupId, itemId, n) {
+    return `<div class="vp-note-card" data-act="vp-seek-note" data-gid="${groupId}" data-iid="${itemId}" data-ts="${n.ts}">
+      <span class="vp-note-ts">${formatVpTs(n.ts)}</span>
+      <span class="vp-note-label">${escapeHTML(n.label)}</span>
+      <button class="vp-note-del" data-act="vp-del-note" data-gid="${groupId}" data-iid="${itemId}" data-nid="${n.id}" aria-label="Delete">×</button>
+    </div>`;
+  }
+
+  function vpNotesHTML(groupId, item) {
+    const notes = (item.notes || []).slice().sort((a, b) => a.ts - b.ts);
+    return `<div class="vp-notes-section" id="vp-notes-section">
+      <div class="vp-notes-head">
+        <span class="vp-notes-title">📍 Saved Notes</span>
+        <button class="vp-bookmark-btn" data-act="vp-bookmark" data-gid="${groupId}" data-iid="${item.id}">🔖 Bookmark</button>
+      </div>
+      <div id="vp-bookmark-form" class="vp-bookmark-form" data-gid="${groupId}" data-iid="${item.id}">
+        <div class="vp-bm-row">
+          <input id="vp-bm-time" class="vp-bm-input vp-bm-time" placeholder="0:00" maxlength="9" inputmode="text" autocomplete="off"/>
+          <input id="vp-bm-label" class="vp-bm-input vp-bm-label" placeholder="What is this part about?" maxlength="80"/>
+        </div>
+        <div class="vp-bm-actions">
+          <button class="btn btn-sm" data-act="vp-bm-save">Save Note</button>
+          <button class="btn btn-ghost btn-sm" data-act="vp-bm-cancel">Cancel</button>
+        </div>
+      </div>
+      <div id="vp-notes-list">${notes.length
+        ? notes.map(n => vpNoteCardHTML(groupId, item.id, n)).join('')
+        : '<div class="vp-notes-empty">No bookmarks yet — tap Bookmark to save a moment</div>'
+      }</div>
+    </div>`;
+  }
+
   function vpPlaylistItemHTML(it, groupId, isActive) {
     const thumb = it.thumbnailUrl || (it.videoId ? ytThumb(it.videoId) : null);
     const thumbEl = thumb
@@ -1353,12 +1445,15 @@
           ${item.description ? `<div class="vp-info-desc">${escapeHTML(item.description)}</div>` : ''}
         </div>
         ${playlistHTML}
+        ${vpNotesHTML(groupId, item)}
       </div>`;
     document.body.appendChild(el);
     document.body.style.overflow = 'hidden';
+    if (item.videoId) { loadYTApi(); setTimeout(tryBindYTPlayer, 900); }
   }
 
   function closeVideoPlayer() {
+    _ytPlayer = null;
     const el = document.getElementById('vp-overlay'); if (!el) return;
     el.classList.add('vp-closing');
     setTimeout(() => { el.remove(); document.body.style.overflow = ''; }, 210);
@@ -1398,6 +1493,14 @@
         ? `<div class="vp-now-playing"><div class="vp-now-playing-dot"></div>Playing</div>`
         : `<div class="vp-playlist-play">${SVG_PLAY}</div>`;
     });
+
+    // Update notes section for new video
+    const oldNotes = document.getElementById('vp-notes-section');
+    if (oldNotes) oldNotes.outerHTML = vpNotesHTML(groupId, item);
+
+    // Rebind YT player to new video
+    _ytPlayer = null;
+    if (item.videoId) setTimeout(tryBindYTPlayer, 900);
 
     // Scroll embed back into view
     document.querySelector('#vp-overlay .vp-body')?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2017,6 +2120,76 @@
     if (act === 'vp-close')    { closeVideoPlayer(); return; }
     if (act === 'vp-switch')   { switchVideoInPlayer(el.dataset.gid, el.dataset.iid); return; }
     if (act === 'edit-classroom-item') { modalEditClassroomItem(el.dataset.gid, el.dataset.iid); return; }
+
+    // Bookmark Moment
+    if (act === 'vp-bookmark') {
+      const form = document.getElementById('vp-bookmark-form');
+      if (!form) return;
+      const isOpen = form.style.display === 'flex';
+      if (isOpen) { form.style.display = 'none'; return; }
+      const curTime = getCurrentYTTime();
+      const timeInput = document.getElementById('vp-bm-time');
+      if (timeInput) timeInput.value = curTime !== null ? formatVpTs(curTime) : '';
+      form.style.display = 'flex';
+      setTimeout(() => { document.getElementById('vp-bm-label')?.focus(); }, 60);
+      return;
+    }
+    if (act === 'vp-bm-cancel') {
+      const form = document.getElementById('vp-bookmark-form');
+      if (form) {
+        form.style.display = 'none';
+        const t = document.getElementById('vp-bm-time'); if (t) t.value = '';
+        const l = document.getElementById('vp-bm-label'); if (l) l.value = '';
+      }
+      return;
+    }
+    if (act === 'vp-bm-save') {
+      const form = document.getElementById('vp-bookmark-form');
+      if (!form) return;
+      const gid = form.dataset.gid, iid = form.dataset.iid;
+      const timeVal = (document.getElementById('vp-bm-time')?.value || '').trim();
+      const label   = (document.getElementById('vp-bm-label')?.value || '').trim();
+      if (!label) { toast('Enter a label for this moment', 'warn'); return; }
+      const ts = timeVal ? (parseTsInput(timeVal) ?? 0) : (getCurrentYTTime() ?? 0);
+      const group = (state.classroom.groups || []).find(g => g.id === gid);
+      const item  = group?.items.find(i => i.id === iid);
+      if (!item) return;
+      if (!Array.isArray(item.notes)) item.notes = [];
+      item.notes.push({ id: uid(), ts, label });
+      saveState();
+      const notesList = document.getElementById('vp-notes-list');
+      if (notesList) {
+        const notes = item.notes.slice().sort((a, b) => a.ts - b.ts);
+        notesList.innerHTML = notes.map(n => vpNoteCardHTML(gid, iid, n)).join('');
+      }
+      form.style.display = 'none';
+      const t = document.getElementById('vp-bm-time'); if (t) t.value = '';
+      const l = document.getElementById('vp-bm-label'); if (l) l.value = '';
+      toast('Note saved ✓', 'success');
+      return;
+    }
+    if (act === 'vp-seek-note') {
+      const ts = parseInt(el.dataset.ts, 10);
+      if (!isNaN(ts)) seekVideoPlayer(ts);
+      return;
+    }
+    if (act === 'vp-del-note') {
+      e.stopPropagation();
+      const { gid, iid, nid } = el.dataset;
+      const group = (state.classroom.groups || []).find(g => g.id === gid);
+      const item  = group?.items.find(i => i.id === iid);
+      if (!item || !Array.isArray(item.notes)) return;
+      item.notes = item.notes.filter(n => n.id !== nid);
+      saveState();
+      const notesList = document.getElementById('vp-notes-list');
+      if (notesList) {
+        const notes = item.notes.slice().sort((a, b) => a.ts - b.ts);
+        notesList.innerHTML = notes.length
+          ? notes.map(n => vpNoteCardHTML(gid, iid, n)).join('')
+          : '<div class="vp-notes-empty">No bookmarks yet — tap Bookmark to save a moment</div>';
+      }
+      return;
+    }
 
     // Calendar
     if (act === 'calendar-day') { modalCalendarDay(el.dataset.date); return; }
