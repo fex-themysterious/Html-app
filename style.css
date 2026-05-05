@@ -73,7 +73,7 @@
 }
 
 /* ── Base ────────────────────────────────────────────────────── */
-html, body { height: 100%; overflow-x: hidden; }
+html, body { height: 100%; overflow-x: hidden; overflow-y: auto; }
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: var(--bg);
@@ -2080,3 +2080,23 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   transition: all 0.15s;
 }
 .brb-dismiss:hover { background: rgba(255,255,255,0.12); color: var(--text); }
+
+/* ── General landscape: tablets & larger phones (height > 500px) ─ */
+@media (orientation: landscape) and (min-height: 501px) {
+  /* Ensure every view can scroll freely — no fixed height cuts off content */
+  .view {
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* App shell adapts without forced height */
+  #app {
+    min-height: 100dvh;
+    height: auto;
+  }
+  /* Bottom nav stays visible; give content clearance */
+  .bottom-nav {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+  }
+}

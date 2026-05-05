@@ -2672,6 +2672,26 @@
 
   window.addEventListener('beforeunload', e => { if (focusRunning && focusLocked) { e.preventDefault(); e.returnValue = 'Focus timer is running. Leave?'; } });
 
+  // Orientation & resize — force layout recalculation so CSS media queries reapply cleanly
+  function onOrientationChange() {
+    setTimeout(() => {
+      // Sync --vh for any CSS that needs exact viewport height
+      document.documentElement.style.setProperty('--vh', (window.innerHeight * 0.01) + 'px');
+      // Re-render the active view so grid/flex layouts recalculate
+      const active = document.querySelector('.view.active');
+      if (active) {
+        if (active.id === 'view-focus') renderFocus();
+        else if (active.id === 'view-stats') renderStats();
+      }
+    }, 350);
+  }
+  window.addEventListener('orientationchange', onOrientationChange);
+  window.addEventListener('resize', () => {
+    document.documentElement.style.setProperty('--vh', (window.innerHeight * 0.01) + 'px');
+  });
+  // Set initial value
+  document.documentElement.style.setProperty('--vh', (window.innerHeight * 0.01) + 'px');
+
   // Mobile keyboard adjustment
   if (typeof window !== 'undefined' && window.visualViewport) {
     window.visualViewport.addEventListener('resize', () => {
