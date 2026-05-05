@@ -474,68 +474,29 @@
   let focusCurrentTaskKey = null;
   const customDurations = { work: 25, short: 5, long: 15 };
 
-  // ========== Ambient Sound ==========
-  let audioCtx = null, ambientNodes = null;
-  let ambientMode = 'none', ambientVolume = 0.35;
+  // ========== Ambient Sound (MP3-based) ==========
+  let ambientAudio = null;
+  let ambientMode = 'none', ambientVolume = 0.5;
 
-  function getAudioCtx() {
-    if (!audioCtx) {
-      try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; }
-    }
-    return audioCtx;
-  }
   function stopAmbient() {
-    if (ambientNodes) {
-      try { ambientNodes.forEach(n => { if (n.stop) n.stop(); if (n.disconnect) n.disconnect(); }); } catch (e) {}
-      ambientNodes = null;
+    if (ambientAudio) {
+      ambientAudio.pause();
+      ambientAudio.currentTime = 0;
+      ambientAudio = null;
     }
   }
   function startAmbient(mode) {
     stopAmbient();
     if (mode === 'none') return;
-    const ctx = getAudioCtx(); if (!ctx) return;
-    if (ctx.state === 'suspended') ctx.resume();
-    const masterGain = ctx.createGain();
-    masterGain.gain.value = ambientVolume;
-    masterGain.connect(ctx.destination);
-    const nodes = [masterGain];
-    if (mode === 'rain' || mode === 'cafe' || mode === 'white') {
-      const bufferSize = ctx.sampleRate * 3;
-      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      if (mode === 'cafe') {
-        let lastOut = 0;
-        for (let i = 0; i < bufferSize; i++) { const w = Math.random() * 2 - 1; data[i] = (lastOut + 0.02 * w) / 1.02; lastOut = data[i]; data[i] *= 3.5; }
-      } else {
-        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
-      }
-      const src = ctx.createBufferSource(); src.buffer = buffer; src.loop = true;
-      if (mode === 'rain') {
-        const filter = ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 450;
-        src.connect(filter); filter.connect(masterGain); nodes.push(filter);
-      } else { src.connect(masterGain); }
-      src.start(); nodes.push(src);
-    } else if (mode === 'nature') {
-      const bufferSize = ctx.sampleRate * 3;
-      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * 0.6;
-      const src = ctx.createBufferSource(); src.buffer = buffer; src.loop = true;
-      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 800; f.Q.value = 0.5;
-      src.connect(f); f.connect(masterGain); src.start(); nodes.push(src, f);
-    } else if (mode === 'binaural') {
-      const osc1 = ctx.createOscillator(); osc1.frequency.value = 200; osc1.type = 'sine';
-      const osc2 = ctx.createOscillator(); osc2.frequency.value = 210; osc2.type = 'sine';
-      const g1 = ctx.createGain(); g1.gain.value = 0.15;
-      const g2 = ctx.createGain(); g2.gain.value = 0.15;
-      osc1.connect(g1); osc2.connect(g2); g1.connect(masterGain); g2.connect(masterGain);
-      osc1.start(); osc2.start(); nodes.push(osc1, osc2, g1, g2);
-    }
-    ambientNodes = nodes;
+    const src = mode === 'rain' ? './sounds/rain.mp3' : './sounds/soft.mp3';
+    ambientAudio = new Audio(src);
+    ambientAudio.loop = true;
+    ambientAudio.volume = ambientVolume;
+    ambientAudio.play().catch(() => toast('Tap the timer first to enable audio', 'info', 4000));
   }
   function setAmbientVolume(vol) {
-    ambientVolume = vol;
-    if (ambientNodes && ambientNodes[0]) { try { ambientNodes[0].gain.value = vol; } catch (e) {} }
+    ambientVolume = Math.max(0, Math.min(1, vol));
+    if (ambientAudio) ambientAudio.volume = ambientVolume;
   }
 
   // ========== YouTube / Classroom ==========
@@ -562,6 +523,7 @@
   const openSubjects = new Set(), openChapters = new Set();
   let activeDropdown = null;
   let _justPoppedKey = null, _justCompletedDay = null;
+  let calendarViewDate = new Date();
 
   function switchTab(tab) {
     if (focusLocked && focusRunning && tab !== 'focus') {
@@ -608,7 +570,7 @@
       `<article class="hero-card empty"><div class="hero-eyebrow">${ic('cal')}<span>NEXT EXAM</span></div><h2 class="hero-title">No exam yet</h2><div class="hero-sub">Add one to start the countdown.</div><button class="btn" style="margin-top:12px" data-act="add-exam">${ic('plus')} Add Exam</button></article>`;
     const progressHero = `<article class="hero-card" data-act="open-dashboard" role="button"><div class="hero-eyebrow">${ic('check')}<span>OVERALL</span></div><div class="ring-wrap">${progressRingSVG(overall)}<div class="ring-center"><div class="ring-pct">${overall}<span>%</span></div><div class="ring-lbl">complete</div></div></div><div class="hero-progress-foot"><span><strong>${state.streak.count}</strong> day streak 🔥</span><span>${doneCount}/${totalCount} today</span></div></article>`;
     const achievedBadge = allDone ? `<div class="daily-achieved" role="status">${_justCompletedDay === todayKey() ? renderConfettiBurst() : ''}<span class="da-glyph">🏆</span><div><div class="da-title">Daily Goal Achieved!</div><div class="da-sub">All ${totalCount} task${totalCount === 1 ? '' : 's'} done!</div></div></div>` : '';
-    view.innerHTML = `<div class="page-header"><h1>Home</h1><div class="subtitle">${greeting()}, let's study</div><div class="motivation-line ${overall >= 80 ? 'is-hot' : overall < 20 ? 'is-cold' : ''}">${escapeHTML(progressMessage(overall, totalCount > 0, allDone))}</div></div><div class="hero-grid">${examHero}${progressHero}</div><button type="button" class="dashboard-cta" data-act="open-dashboard"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg></span><span class="body"><span class="title">Open Dashboard</span><span class="meta">Goals · Smart Suggestions · Weak Areas</span></span><span class="arrow">›</span></button>${achievedBadge}<div class="section-head"><h2>Today's Plan</h2><button class="btn-link" data-act="regen-plan">↻ Regenerate</button></div>${renderTasksList(tasks)}${renderPlanAdder()}`;
+    view.innerHTML = `<div class="page-header"><h1>Home</h1><div class="subtitle">${greeting()}, let's study</div><div class="motivation-line ${overall >= 80 ? 'is-hot' : overall < 20 ? 'is-cold' : ''}">${escapeHTML(progressMessage(overall, totalCount > 0, allDone))}</div></div><div class="hero-grid">${examHero}${progressHero}</div><button type="button" class="dashboard-cta" data-act="open-dashboard"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg></span><span class="body"><span class="title">Open Dashboard</span><span class="meta">Plan · Goals · Calendar · Suggestions</span></span><span class="arrow">›</span></button>${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${renderTasksList(tasks)}`;
     if (_justPoppedKey) requestAnimationFrame(() => { _justPoppedKey = null; });
     if (_justCompletedDay) setTimeout(() => { _justCompletedDay = null; }, 1800);
   }
@@ -628,7 +590,9 @@
   // ========== Dashboard ==========
   function renderDashboard() {
     const view = document.getElementById('view-dashboard'); if (!view) return;
-    view.innerHTML = `<div class="page-header"><h1>Dashboard</h1><div class="subtitle">Your study control center</div></div>${renderBurnoutBanner()}${renderGoals()}${renderSmartSuggestions()}${renderWeakAreas()}`;
+    const tasks = getActivePlanTasks(), doneCount = tasks.filter(t => t.done).length;
+    view.innerHTML = `<div class="page-header"><h1>Dashboard</h1><div class="subtitle">Your study control center</div></div>${renderBurnoutBanner()}<div class="section-head"><h2>Today's Plan</h2><div style="display:flex;gap:8px;align-items:center"><span class="muted" style="font-size:13px">${doneCount}/${tasks.length} done</span><button class="btn-link" data-act="regen-plan">↻ Regen</button></div></div>${renderTasksList(tasks)}${renderPlanAdder()}<div class="section-head" style="margin-top:20px"><h2>Study Calendar</h2></div>${renderCalendar()}${renderGoals()}${renderSmartSuggestions()}${renderWeakAreas()}`;
+    bindPlanPickers();
   }
 
   // Goals
@@ -712,6 +676,51 @@
   function renderWeakAreas() {
     const weak = getWeakTopics();
     return `<div class="section-head"><h2>Weak Areas</h2>${weak.length ? `<span class="muted">${weak.length} flagged</span>` : ''}</div>${weak.length ? `<div class="list">${weak.map(w => `<div class="card" style="padding:11px 13px"><div class="row" style="align-items:flex-start"><div style="font-size:18px">⚠️</div><div style="flex:1;min-width:0"><div class="title">${escapeHTML(w.topic.name)}</div><div class="meta">${escapeHTML(w.sub.name)} · ${escapeHTML(w.ch.name)}</div><div style="display:flex;gap:4px;margin-top:5px">${(w.skips>=WEAK_SKIP_THRESHOLD)?`<span class="pill pill-weak">Skip ×${w.skips}</span>`:''} ${(w.age>=WEAK_AGE_DAYS)?`<span class="pill pill-stale">${w.age}d</span>`:''}</div></div><div style="display:flex;gap:4px"><button class="menu-btn" data-act="weak-mark-done" data-sub="${w.sub.id}" data-ch="${w.ch.id}" data-t="${w.topic.id}">${ic('check')}</button><button class="menu-btn" data-act="weak-reset" data-sub="${w.sub.id}" data-ch="${w.ch.id}" data-t="${w.topic.id}">${ic('refresh')}</button></div></div></div>`).join('')}</div>` : `<div class="empty">No weak topics — keep it up!</div>`}`;
+  }
+
+  // ========== Calendar ==========
+  function renderCalendar() {
+    const year = calendarViewDate.getFullYear();
+    const month = calendarViewDate.getMonth();
+    const today = todayKey();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startDow = firstDay.getDay();
+    const monthLabel = firstDay.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    const dowLabels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    let cells = '';
+    for (let i = 0; i < startDow; i++) cells += `<div class="cal-cell cal-empty"></div>`;
+    for (let d = 1; d <= lastDay.getDate(); d++) {
+      const dateISO = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const isToday = dateISO === today;
+      const isPast = dateISO < today;
+      const plan = state.dailyPlans[dateISO];
+      const customTasks = plan ? (plan.custom || []) : [];
+      const total = customTasks.length;
+      const done = customTasks.filter(t => t.done).length;
+      let dotHtml = '';
+      if (total > 0) {
+        const allDone = done === total;
+        dotHtml = `<span class="cal-dot${allDone ? ' cal-dot-done' : ''}"></span>`;
+      }
+      cells += `<div class="cal-cell${isToday ? ' cal-today' : ''}${isPast && !isToday ? ' cal-past' : ''}" data-act="calendar-day" data-date="${dateISO}" role="button" aria-label="${dateISO}${total ? `, ${total} task${total>1?'s':''}` : ''}"><span class="cal-day-num">${d}</span>${dotHtml}</div>`;
+    }
+    return `<div class="cal-wrap"><div class="cal-nav"><button class="cal-nav-btn" data-act="cal-prev" aria-label="Previous month">‹</button><span class="cal-title">${monthLabel}</span><button class="cal-nav-btn" data-act="cal-next" aria-label="Next month">›</button></div><div class="cal-grid"><div class="cal-dow-row">${dowLabels.map(d=>`<div class="cal-dow">${d}</div>`).join('')}</div><div class="cal-cells">${cells}</div></div></div>`;
+  }
+
+  function modalCalendarDay(dateISO) {
+    const today = todayKey();
+    const isPast = dateISO < today;
+    const label = dateISO === today ? 'Today — ' + formatDate(dateISO) : formatDate(dateISO);
+    if (!state.dailyPlans[dateISO]) state.dailyPlans[dateISO] = { auto: [], removed: [], custom: [], generated: false };
+    const plan = state.dailyPlans[dateISO];
+    const tasks = plan.custom || [];
+    const taskRows = tasks.length ? tasks.map((t, i) => `<div class="card card-row plan-task${t.done ? ' is-done' : ''}" style="margin-bottom:6px"><input type="checkbox" class="check" ${t.done ? 'checked' : ''} data-act="toggle-cal-task" data-date="${dateISO}" data-i="${i}"/><div style="flex:1;min-width:0;font-size:14px;padding:0 8px;${t.done ? 'text-decoration:line-through;color:var(--text-muted)' : ''}">${escapeHTML(t.text)}</div><button class="menu-btn" data-act="del-cal-task" data-date="${dateISO}" data-i="${i}">${ic('trash')}</button></div>`).join('') : `<div class="empty" style="padding:10px 0">No tasks planned for this day.</div>`;
+    openModal(`<h3>📅 ${escapeHTML(label)}</h3><div style="max-height:240px;overflow-y:auto;margin-bottom:10px">${taskRows}</div><div class="row" style="gap:7px"><input id="cal-new-task" placeholder="Add a task for this day…" maxlength="120" style="flex:1;background:#0b1327;border:1px solid var(--border);color:var(--text);padding:9px 11px;border-radius:9px;font:inherit;font-size:14px" autofocus/><button class="btn" data-act="add-cal-task" data-date="${dateISO}">${ic('plus')}</button></div><div class="actions" style="margin-top:12px"><button class="btn btn-ghost" data-close>Done</button>${dateISO === today ? `<button class="btn" data-act="regen-plan" data-close>↻ Regen Today</button>` : ''}</div>`,
+      root => {
+        const inp = root.querySelector('#cal-new-task');
+        if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') { root.querySelector('[data-act="add-cal-task"]').click(); } });
+      });
   }
 
   // ========== Syllabus ==========
@@ -813,8 +822,8 @@
     const tasks = getActivePlanTasks().filter(t => !t.done);
     const taskOptions = tasks.map(t => `<option value="${t.key}" ${focusCurrentTaskKey === t.key ? 'selected' : ''}>${escapeHTML(t.text)}</option>`).join('');
     const currentTask = focusCurrentTaskKey ? tasks.find(t => t.key === focusCurrentTaskKey) : null;
-    const ambientOpts = ['none', 'rain', 'cafe', 'nature', 'binaural', 'white'];
-    const ambientLabels = { none: '🔇 Off', rain: '🌧 Rain', cafe: '☕ Cafe', nature: '🌿 Nature', binaural: '🎵 Focus', white: '🌊 White' };
+    const ambientOpts = ['none', 'rain', 'soft'];
+    const ambientLabels = { none: '🔇 Off', rain: '🌧 Rain Music', soft: '🎵 Soft Music' };
     return `<div class="focus-view">
       <div class="focus-mode-tabs">
         <button class="focus-mode-btn ${focusMode === 'work' ? 'active' : ''}" data-act="focus-mode" data-mode="work">Work</button>
@@ -1025,22 +1034,22 @@
     if (act === 'edit-goal') { const g = (state.goals || []).find(g => g.id === el.dataset.id); if (g) modalAddGoal(g); return; }
 
     // Plan
-    if (act === 'regen-plan') { const k = todayKey(); if (state.dailyPlans[k]) { state.dailyPlans[k].generated = false; state.dailyPlans[k].auto = []; } saveState(); renderHome(); toast('Plan regenerated', 'info'); return; }
+    if (act === 'regen-plan') { const k = todayKey(); if (state.dailyPlans[k]) { state.dailyPlans[k].generated = false; state.dailyPlans[k].auto = []; } saveState(); renderHome(); renderDashboard(); toast('Plan regenerated', 'info'); return; }
     if (act === 'toggle-plan-task') {
       const type = el.dataset.type;
       if (type === 'auto') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { const wasDone = t.done; t.done = !t.done; if (t.done) { bumpActivity(); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); _justPoppedKey = `auto:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`; } else onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, false); const tasks = getActivePlanTasks(); if (tasks.length > 0 && tasks.every(x => x.done) && !wasDone) _justCompletedDay = todayKey(); saveState(); renderHome(); renderSyllabus(); renderRevision(); } }
-      else { const plan = state.dailyPlans[todayKey()]; if (plan) { const ct = plan.custom.find(c => c.id === el.dataset.id); if (ct) { ct.done = !ct.done; if (ct.done) bumpActivity(); saveState(); renderHome(); } } }
+      else { const plan = state.dailyPlans[todayKey()]; if (plan) { const ct = plan.custom.find(c => c.id === el.dataset.id); if (ct) { ct.done = !ct.done; if (ct.done) bumpActivity(); saveState(); renderHome(); renderDashboard(); } } }
       return;
     }
-    if (act === 'remove-plan-task') { const type = el.dataset.type, plan = state.dailyPlans[todayKey()]; if (!plan) return; if (type === 'auto') { const key = autoKey(el.dataset.sub, el.dataset.ch, el.dataset.t); const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.skipCount = (t.skipCount || 0) + 1; t.lastSkippedAt = todayKey(); } if (!plan.removed.includes(key)) plan.removed.push(key); } else plan.custom = plan.custom.filter(c => c.id !== el.dataset.id); saveState(); renderHome(); return; }
-    if (act === 'add-plan-task') { const input = document.getElementById('plan-new-task'), text = input ? input.value.trim() : ''; if (!text) { toast('Enter a task first', 'warn'); return; } ensureTodayPlan().custom.push({ id: uid(), text, done: false }); saveState(); renderHome(); return; }
+    if (act === 'remove-plan-task') { const type = el.dataset.type, plan = state.dailyPlans[todayKey()]; if (!plan) return; if (type === 'auto') { const key = autoKey(el.dataset.sub, el.dataset.ch, el.dataset.t); const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.skipCount = (t.skipCount || 0) + 1; t.lastSkippedAt = todayKey(); } if (!plan.removed.includes(key)) plan.removed.push(key); } else plan.custom = plan.custom.filter(c => c.id !== el.dataset.id); saveState(); renderHome(); renderDashboard(); return; }
+    if (act === 'add-plan-task') { const input = document.getElementById('plan-new-task'), text = input ? input.value.trim() : ''; if (!text) { toast('Enter a task first', 'warn'); return; } ensureTodayPlan().custom.push({ id: uid(), text, done: false }); saveState(); renderHome(); renderDashboard(); return; }
     if (act === 'add-plan-from-syllabus') {
       const subId = document.getElementById('plan-pick-sub')?.value, chId = document.getElementById('plan-pick-ch')?.value, tId = document.getElementById('plan-pick-t')?.value;
       if (!subId || !chId) { toast('Select at least a subject and chapter', 'warn'); return; }
       const plan = ensureTodayPlan();
       if (tId) { const key = autoKey(subId, chId, tId); plan.removed = plan.removed.filter(k => k !== key); if (!plan.auto.find(a => a.subId === subId && a.chId === chId && a.tId === tId)) plan.auto.push({ subId, chId, tId }); }
       else { const ch = findChapter(subId, chId); if (ch) for (const t of ch.topics) { const key = autoKey(subId, chId, t.id); plan.removed = plan.removed.filter(k => k !== key); if (!plan.auto.find(a => a.tId === t.id)) plan.auto.push({ subId, chId, tId: t.id }); } }
-      saveState(); renderHome(); toast('Added to plan', 'success'); return;
+      saveState(); renderHome(); renderDashboard(); toast('Added to plan', 'success'); return;
     }
 
     // Subjects
@@ -1094,6 +1103,33 @@
     if (act === 'del-classroom-group') { const gid = el.dataset.gid; confirmModal('Delete this group and all its videos?', () => { state.classroom.groups = state.classroom.groups.filter(g => g.id !== gid); saveState(); renderFocus(); toast('Group deleted', 'danger'); }); return; }
     if (act === 'del-classroom-item') { e.stopPropagation(); const group = (state.classroom.groups || []).find(g => g.id === el.dataset.gid); if (group) { group.items = group.items.filter(i => i.id !== el.dataset.iid); saveState(); renderFocus(); toast('Video removed', 'info'); } return; }
     if (act === 'play-video') { modalPlayVideo(el.dataset.gid, el.dataset.iid); return; }
+
+    // Calendar
+    if (act === 'calendar-day') { modalCalendarDay(el.dataset.date); return; }
+    if (act === 'cal-prev') { calendarViewDate.setMonth(calendarViewDate.getMonth() - 1); renderDashboard(); return; }
+    if (act === 'cal-next') { calendarViewDate.setMonth(calendarViewDate.getMonth() + 1); renderDashboard(); return; }
+    if (act === 'add-cal-task') {
+      const date = el.dataset.date;
+      const inp = document.getElementById('cal-new-task');
+      const text = inp ? inp.value.trim() : '';
+      if (!text) { toast('Enter a task', 'warn'); return; }
+      if (!state.dailyPlans[date]) state.dailyPlans[date] = { auto: [], removed: [], custom: [], generated: false };
+      state.dailyPlans[date].custom.push({ id: uid(), text, done: false });
+      saveState(); modalCalendarDay(date); renderDashboard(); renderHome();
+      return;
+    }
+    if (act === 'toggle-cal-task') {
+      const date = el.dataset.date, i = parseInt(el.dataset.i, 10);
+      const plan = state.dailyPlans[date];
+      if (plan && plan.custom[i]) { plan.custom[i].done = !plan.custom[i].done; saveState(); modalCalendarDay(date); renderDashboard(); renderHome(); }
+      return;
+    }
+    if (act === 'del-cal-task') {
+      const date = el.dataset.date, i = parseInt(el.dataset.i, 10);
+      const plan = state.dailyPlans[date];
+      if (plan) { plan.custom.splice(i, 1); saveState(); modalCalendarDay(date); renderDashboard(); }
+      return;
+    }
 
     // Revision
     if (act === 'rev-done') { completeRevisionStep(el.dataset.rev, parseInt(el.dataset.off, 10)); renderRevision(); renderDashboard(); toast('Revision marked done', 'success'); return; }
