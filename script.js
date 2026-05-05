@@ -472,6 +472,7 @@
   let focusSubTab = 'timer';
   let focusLocked = false;
   let focusCurrentTaskKey = null;
+  let fsSessionActive = false;
   const customDurations = { work: 25, short: 5, long: 15 };
 
   // ========== Ambient Sound (MP3-based) ==========
@@ -859,6 +860,7 @@
       </div>
       ${tasks.length ? `<div class="focus-task-bar"><label>Working on</label>${currentTask ? `<div class="focus-current-task"><span class="dot"></span>${escapeHTML(currentTask.text)}<button class="btn-link" style="margin-left:auto" data-act="focus-task-clear">Change</button></div>` : `<select data-act="focus-task-select"><option value="">— Pick a task —</option>${taskOptions}</select>`}</div>` : ''}
       <div class="focus-sessions-info"><div class="grid"><div><div class="v">${focusSessions}</div><div class="k">Sessions today</div></div><div><div class="v">${focusSessions * customDurations.work}</div><div class="k">Minutes focused</div></div></div></div>
+      <button class="btn fs-enter-btn" data-act="enter-full-session">⛶ Full Screen Session</button>
     </div>`;
   }
 
@@ -868,6 +870,8 @@
     if (focusSeconds > 0) { focusSeconds--; updateFocusDisplay(); }
     else {
       clearInterval(focusTimer); focusTimer = null; focusRunning = false;
+      // Exit full screen mode before showing dialogs
+      if (fsSessionActive) { exitFullSession(); }
       if (focusMode === 'work') {
         focusSessions++; bumpActivity(); saveState();
         const task = focusCurrentTaskKey ? getActivePlanTasks().find(t => t.key === focusCurrentTaskKey) : null;
@@ -895,7 +899,84 @@
       const r = 96, c = 2 * Math.PI * r;
       circle.setAttribute('stroke-dashoffset', (c * (1 - focusSeconds / (customDurations[focusMode] * 60))).toFixed(2));
     }
+    // Sync full-screen display
+    const fsTime = document.getElementById('fs-time-display');
+    if (fsTime) fsTime.textContent = formatFocusTime(focusSeconds);
+    const fsCircle = document.getElementById('fs-ring-circle');
+    if (fsCircle) {
+      const r = 130, c = 2 * Math.PI * r;
+      fsCircle.setAttribute('stroke-dashoffset', (c * (1 - Math.max(0, focusSeconds) / (customDurations[focusMode] * 60))).toFixed(2));
+    }
     document.title = focusRunning ? `${formatFocusTime(focusSeconds)} — Study` : 'Syllabus Tracker';
+  }
+
+  // ========== Full Screen Session ==========
+  function enterFullSession() {
+    fsSessionActive = true;
+    if (ambientMode === 'none') { ambientMode = 'rain'; startAmbient('rain'); }
+    if (!focusRunning) { focusRunning = true; focusTimer = setInterval(focusTick, 1000); }
+    if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+    renderFullSession();
+  }
+
+  function exitFullSession() {
+    fsSessionActive = false;
+    const ov = document.getElementById('fs-overlay'); if (ov) ov.remove();
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    renderFocus();
+  }
+
+  function renderFullSession() {
+    let ov = document.getElementById('fs-overlay');
+    if (!ov) { ov = document.createElement('div'); ov.id = 'fs-overlay'; document.getElementById('app').appendChild(ov); }
+    const r = 130, c = 2 * Math.PI * r;
+    const total = customDurations[focusMode] * 60;
+    const off = c * (1 - Math.max(0, Math.min(1, focusSeconds / total)));
+    const isBreak = focusMode !== 'work';
+    const allTasks = getActivePlanTasks();
+    const pendingTasks = allTasks.filter(t => !t.done);
+    const currentTask = focusCurrentTaskKey ? allTasks.find(t => t.key === focusCurrentTaskKey) : null;
+    const modeLabel = focusMode === 'work' ? 'Focus Time' : focusMode === 'short' ? 'Short Break' : 'Long Break';
+    const modeEmoji = focusMode === 'work' ? '🍅' : focusMode === 'short' ? '☕' : '🌙';
+    const sessionDots = Array.from({ length: Math.min(focusSessions, 8) }, () => `<span class="fs-dot"></span>`).join('');
+    const ambientIcon = ambientMode === 'rain' ? '🌧' : ambientMode === 'soft' ? '🎵' : '🔇';
+    let taskHtml;
+    if (currentTask) {
+      taskHtml = `<div class="fs-task-box"><div class="fs-task-label">Working on</div><div class="fs-task-name">${escapeHTML(currentTask.text)}</div>${currentTask.meta ? `<div class="fs-task-meta">${escapeHTML(currentTask.meta)}</div>` : ''}</div>`;
+    } else if (pendingTasks.length) {
+      taskHtml = `<div class="fs-task-box"><div class="fs-task-label">Pick a task</div><select class="fs-task-select" data-act="focus-task-select"><option value="">— Select task —</option>${pendingTasks.map(t => `<option value="${t.key}">${escapeHTML(t.text)}</option>`).join('')}</select></div>`;
+    } else {
+      taskHtml = `<div class="fs-task-box fs-task-empty">No pending tasks — just focus!</div>`;
+    }
+    const playPauseIcon = focusRunning
+      ? `<svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>`
+      : `<svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
+    ov.innerHTML = `
+      <div class="fs-bg"></div>
+      <div class="fs-content">
+        <div class="fs-top">
+          <div class="fs-mode-badge${isBreak ? ' fs-mode-break' : ''}">${modeEmoji} ${modeLabel}</div>
+          <div class="fs-session-dots">${sessionDots}${focusSessions > 0 ? `<span class="fs-sessions-label">${focusSessions} session${focusSessions !== 1 ? 's' : ''} done</span>` : '<span class="fs-sessions-label">First session</span>'}</div>
+        </div>
+        <div class="fs-timer-wrap">
+          <svg class="fs-ring-svg" viewBox="0 0 290 290" aria-hidden="true">
+            <defs><linearGradient id="fsRingGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="${isBreak ? '#34d399' : '#38bdf8'}"/><stop offset="100%" stop-color="${isBreak ? '#059669' : '#a78bfa'}"/></linearGradient></defs>
+            <circle class="fs-ring-track" cx="145" cy="145" r="${r}"/>
+            <circle class="fs-ring-fill" id="fs-ring-circle" cx="145" cy="145" r="${r}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/>
+          </svg>
+          <div class="fs-ring-center">
+            <div class="fs-time" id="fs-time-display">${formatFocusTime(focusSeconds)}</div>
+            <div class="fs-ring-sub">${modeLabel}</div>
+          </div>
+        </div>
+        ${taskHtml}
+        <div class="fs-controls">
+          <button class="fs-ctrl-btn fs-side-btn" data-act="fs-cycle-ambient" title="Cycle ambient sound">${ambientIcon}</button>
+          <button class="fs-ctrl-btn fs-main-btn" data-act="fs-toggle">${playPauseIcon}</button>
+          <button class="fs-ctrl-btn fs-side-btn fs-exit-btn" data-act="exit-full-session" title="Exit full screen">✕</button>
+        </div>
+        <div class="fs-hint">Press Esc to exit · ${ambientMode !== 'none' ? '🎵 Sound on' : '🔇 Sound off'}</div>
+      </div>`;
   }
 
   // ========== Classroom ==========
@@ -1097,6 +1178,20 @@
     // Ambient sound
     if (act === 'ambient-select') { ambientMode = el.dataset.amode; startAmbient(ambientMode); renderFocus(); return; }
 
+    // Full Screen Session
+    if (act === 'enter-full-session') { enterFullSession(); return; }
+    if (act === 'exit-full-session') { exitFullSession(); stopAmbient(); ambientMode = 'none'; return; }
+    if (act === 'fs-toggle') {
+      if (focusRunning) { clearInterval(focusTimer); focusTimer = null; focusRunning = false; }
+      else { focusRunning = true; focusTimer = setInterval(focusTick, 1000); }
+      renderFullSession(); return;
+    }
+    if (act === 'fs-cycle-ambient') {
+      const modes = ['none', 'rain', 'soft'];
+      ambientMode = modes[(modes.indexOf(ambientMode) + 1) % modes.length];
+      startAmbient(ambientMode); renderFullSession(); return;
+    }
+
     // Classroom
     if (act === 'add-classroom-group') { modalAddClassroomGroup(); return; }
     if (act === 'add-classroom-item') { modalAddClassroomItem(el.dataset.gid); return; }
@@ -1158,7 +1253,7 @@
   // Focus duration change (input)
   document.addEventListener('change', e => {
     const el = e.target;
-    if (el.dataset.act === 'focus-task-select') { focusCurrentTaskKey = el.value || null; renderFocus(); return; }
+    if (el.dataset.act === 'focus-task-select') { focusCurrentTaskKey = el.value || null; if (fsSessionActive) renderFullSession(); else renderFocus(); return; }
     if (el.id === 'ambient-vol-slider') { setAmbientVolume(parseFloat(el.value)); return; }
   });
   document.addEventListener('input', e => {
@@ -1183,7 +1278,17 @@
   });
 
   // Keyboard
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      if (fsSessionActive) { exitFullSession(); stopAmbient(); ambientMode = 'none'; }
+      else closeModal();
+    }
+  });
+
+  // Exit FS session when browser leaves fullscreen (e.g. user presses Esc natively)
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && fsSessionActive) { exitFullSession(); }
+  });
 
   // beforeunload warning when timer is running
   window.addEventListener('beforeunload', e => { if (focusRunning && focusLocked) { e.preventDefault(); e.returnValue = 'Focus timer is running. Leave?'; } });
