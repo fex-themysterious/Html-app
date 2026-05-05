@@ -1,8 +1,20 @@
-const CACHE_NAME = 'syllabus-tracker-v3';
-const STATIC = ['/', '/index.html', '/style.css?v=3', '/script.js?v=3', '/manifest.json'];
+const CACHE_NAME = 'syllabus-tracker-v4';
+const STATIC = [
+  '/',
+  '/index.html',
+  '/style.css?v=4',
+  '/script.js?v=4',
+  '/manifest.json',
+  '/icon-192.png',
+  '/icon-512.png'
+];
+
+let deferredPrompt = null;
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(STATIC)));
+  e.waitUntil(
+    caches.open(CACHE_NAME).then(c => c.addAll(STATIC)).catch(() => {})
+  );
   self.skipWaiting();
 });
 
@@ -12,13 +24,13 @@ self.addEventListener('activate', e => {
       Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
     )
   );
-  return self.clients.claim();
+  self.clients.claim();
 });
 
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
-  // Don't cache large audio files — stream them live
   if (e.request.url.includes('/sounds/')) return;
+  if (e.request.url.includes('noembed.com') || e.request.url.includes('youtube.com')) return;
   e.respondWith(
     caches.match(e.request).then(cached => {
       if (cached) return cached;

@@ -1,7 +1,6 @@
 (() => {
   'use strict';
 
-  // ========== Storage key ==========
   const STORAGE_KEY = 'syllabus_tracker_v2';
   const todayKey = () => new Date().toISOString().slice(0, 10);
   const uid = () => Math.random().toString(36).slice(2, 10);
@@ -57,7 +56,12 @@
         "Discipline beats motivation.",
         "You don't have to be perfect, just consistent.",
         "Future you is watching. Make them proud.",
-        "One topic at a time. Keep going."
+        "One topic at a time. Keep going.",
+        "Hard work beats talent when talent doesn't work hard.",
+        "Every expert was once a beginner.",
+        "The secret to success is to start.",
+        "Push yourself — no one else will do it for you.",
+        "Study now, shine later."
       ],
       streak: { count: 1, lastDate: todayKey() },
       activity: { [todayKey()]: 0 },
@@ -128,7 +132,8 @@
       items: Array.isArray(g.items) ? g.items.map(it => ({
         id: it.id || uid(), title: it.title || 'Video', url: it.url || '',
         videoId: it.videoId || null, playlistId: it.playlistId || null,
-        type: it.type || 'video', addedAt: it.addedAt || todayKey()
+        type: it.type || 'video', addedAt: it.addedAt || todayKey(),
+        description: it.description || ''
       })) : []
     }));
     return s;
@@ -193,6 +198,7 @@
       const yk = addDaysISO(k, -1);
       state.streak.count = state.streak.lastDate === yk ? state.streak.count + 1 : 1;
       state.streak.lastDate = k;
+      if (!state.streak.best || state.streak.count > state.streak.best) state.streak.best = state.streak.count;
     }
     checkGoalCompletions();
   }
@@ -467,8 +473,43 @@
     lock: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
     unlock: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>`,
     play: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>`,
+    note: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>`,
+    star: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
   };
   const ic = n => ICONS[n] || '';
+
+  // ========== Motivation Rotation ==========
+  let _motivationIdx = Math.floor(Math.random() * 10);
+  let _motivationRotateTimer = null;
+
+  function getRotatingQuote() {
+    const quotes = state.motivationQuotes;
+    if (!quotes || !quotes.length) return "Keep going!";
+    _motivationIdx = _motivationIdx % quotes.length;
+    return quotes[_motivationIdx];
+  }
+  function nextMotivationQuote() {
+    const quotes = state.motivationQuotes;
+    if (!quotes || !quotes.length) return;
+    _motivationIdx = (_motivationIdx + 1) % quotes.length;
+    // Refresh motivation line in home if on home tab
+    const homeView = document.getElementById('view-home');
+    if (homeView && homeView.classList.contains('active')) {
+      const line = homeView.querySelector('.motivation-line');
+      if (line) {
+        const overall = overallProgress();
+        const tasks = getActivePlanTasks();
+        const allDone = tasks.length > 0 && tasks.every(t => t.done);
+        const newMsg = getRotatingQuote();
+        line.className = `motivation-line ${overall >= 80 ? 'is-hot' : overall < 20 ? 'is-cold' : ''}`;
+        line.textContent = newMsg;
+      }
+    }
+  }
+  function startMotivationRotation() {
+    clearInterval(_motivationRotateTimer);
+    _motivationRotateTimer = setInterval(nextMotivationQuote, 30000);
+  }
 
   // ========== Focus Timer State ==========
   let focusMode = 'work', focusSeconds = 25 * 60;
@@ -498,7 +539,13 @@
     ambientAudio = new Audio(src);
     ambientAudio.loop = true;
     ambientAudio.volume = ambientVolume;
-    ambientAudio.play().catch(() => toast('Tap the timer first to enable audio', 'info', 4000));
+    // Attempt playback — triggered by a direct user gesture so should succeed
+    const playPromise = ambientAudio.play();
+    if (playPromise) playPromise.catch(() => {});
+  }
+  function resumeAmbientIfNeeded() {
+    if (ambientMode === 'none') return;
+    if (!ambientAudio || ambientAudio.paused) startAmbient(ambientMode);
   }
   function setAmbientVolume(vol) {
     ambientVolume = Math.max(0, Math.min(1, vol));
@@ -524,6 +571,15 @@
     if (item.videoId) return `https://www.youtube.com/embed/${item.videoId}?autoplay=1`;
     return '';
   }
+  async function fetchYouTubeTitle(url) {
+    try {
+      const endpoint = `https://noembed.com/embed?url=${encodeURIComponent(url)}`;
+      const resp = await fetch(endpoint, { signal: AbortSignal.timeout ? AbortSignal.timeout(5000) : undefined });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      return data && data.title ? data.title : null;
+    } catch (e) { return null; }
+  }
 
   // ========== Navigation ==========
   const openSubjects = new Set(), openChapters = new Set();
@@ -541,6 +597,8 @@
     const btn = document.querySelector(`.nav-btn[data-tab="${tab}"]`); if (btn) btn.classList.add('active');
     document.body.className = 'tab-' + tab;
     closeDropdown();
+    // Rotate motivation quote when returning to home
+    if (tab === 'home') nextMotivationQuote();
   }
   function closeDropdown() { if (activeDropdown) { activeDropdown.remove(); activeDropdown = null; } }
 
@@ -557,14 +615,6 @@
     for (let i = 0; i < 16; i++) { const w = 5 + Math.floor(Math.random() * 5); p += `<i style="left:${Math.random()*100}%;background:${colors[i%colors.length]};width:${w}px;height:${w*1.6}px;animation-delay:${(Math.random()*0.25).toFixed(2)}s;animation-duration:${(1+Math.random()*0.8).toFixed(2)}s"></i>`; }
     return `<div class="confetti" aria-hidden="true">${p}</div>`;
   }
-  function progressMessage(pct, hasTasks, allDone) {
-    if (hasTasks && allDone) return "Daily goal achieved — well done!";
-    if (pct < 20) return "Time to kickstart!";
-    if (pct < 50) return "Building momentum, keep going.";
-    if (pct < 80) return "Great pace — stay focused.";
-    if (pct < 100) return "Almost there, legend!";
-    return "Syllabus complete — incredible!";
-  }
   function renderHome() {
     const view = document.getElementById('view-home'); if (!view) return;
     const exam = nextExam(), overall = overallProgress();
@@ -576,7 +626,8 @@
       `<article class="hero-card empty"><div class="hero-eyebrow">${ic('cal')}<span>NEXT EXAM</span></div><h2 class="hero-title">No exam yet</h2><div class="hero-sub">Add one to start the countdown.</div><button class="btn" style="margin-top:12px" data-act="add-exam">${ic('plus')} Add Exam</button></article>`;
     const progressHero = `<article class="hero-card" data-act="open-dashboard" role="button"><div class="hero-eyebrow">${ic('check')}<span>OVERALL</span></div><div class="ring-wrap">${progressRingSVG(overall)}<div class="ring-center"><div class="ring-pct">${overall}<span>%</span></div><div class="ring-lbl">complete</div></div></div><div class="hero-progress-foot"><span><strong>${state.streak.count}</strong> day streak 🔥</span><span>${doneCount}/${totalCount} today</span></div></article>`;
     const achievedBadge = allDone ? `<div class="daily-achieved" role="status">${_justCompletedDay === todayKey() ? renderConfettiBurst() : ''}<span class="da-glyph">🏆</span><div><div class="da-title">Daily Goal Achieved!</div><div class="da-sub">All ${totalCount} task${totalCount === 1 ? '' : 's'} done!</div></div></div>` : '';
-    view.innerHTML = `<div class="page-header"><h1>Home</h1><div class="subtitle">${greeting()}, let's study</div><div class="motivation-line ${overall >= 80 ? 'is-hot' : overall < 20 ? 'is-cold' : ''}">${escapeHTML(progressMessage(overall, totalCount > 0, allDone))}</div></div><div class="hero-grid">${examHero}${progressHero}</div><button type="button" class="dashboard-cta" data-act="open-dashboard"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg></span><span class="body"><span class="title">Open Dashboard</span><span class="meta">Plan · Goals · Calendar · Suggestions</span></span><span class="arrow">›</span></button>${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${renderTasksList(tasks)}`;
+    const motivationMsg = getRotatingQuote();
+    view.innerHTML = `<div class="page-header"><h1>Home</h1><div class="subtitle">${greeting()}, let's study</div><div class="motivation-line ${overall >= 80 ? 'is-hot' : overall < 20 ? 'is-cold' : ''}">${escapeHTML(motivationMsg)}</div></div><div class="hero-grid">${examHero}${progressHero}</div><button type="button" class="dashboard-cta" data-act="open-dashboard"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg></span><span class="body"><span class="title">Open Dashboard</span><span class="meta">Plan · Goals · Calendar · Suggestions</span></span><span class="arrow">›</span></button>${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${renderTasksList(tasks)}`;
     if (_justPoppedKey) requestAnimationFrame(() => { _justPoppedKey = null; });
     if (_justCompletedDay) setTimeout(() => { _justCompletedDay = null; }, 1800);
   }
@@ -590,7 +641,7 @@
   }
   function renderPlanAdder() {
     const subjOptions = state.subjects.map(s => `<option value="${s.id}">${escapeHTML(s.name)}</option>`).join('');
-    return `<div class="plan-add-card"><div class="plan-add-title">Add to Today's Plan</div><div class="plan-add-grid"><select class="plan-sel" id="plan-pick-sub"><option value="">Subject…</option>${subjOptions}</select><select class="plan-sel" id="plan-pick-ch" disabled><option value="">Chapter…</option></select><select class="plan-sel" id="plan-pick-t" disabled><option value="">Topic…</option></select></div><div class="plan-add-actions"><button class="btn btn-block" data-act="add-plan-from-syllabus">${ic('plus')} Add from Syllabus</button></div><div class="plan-add-divider"><span>or custom task</span></div><div class="row" style="gap:7px;margin-top:4px"><input id="plan-new-task" placeholder="Custom task for today…" maxlength="120" style="flex:1;background:#0b1327;border:1px solid var(--border);color:var(--text);padding:10px 11px;border-radius:9px;font:inherit;font-size:14px"/><button class="btn" data-act="add-plan-task">${ic('plus')}</button></div></div>`;
+    return `<div class="plan-add-card"><div class="plan-add-title">Add to Today's Plan</div><div class="plan-add-grid"><select class="plan-sel" id="plan-pick-sub"><option value="">Subject…</option>${subjOptions}</select><select class="plan-sel" id="plan-pick-ch" disabled><option value="">Chapter…</option></select><select class="plan-sel" id="plan-pick-t" disabled><option value="">Topic (optional)…</option></select></div><div class="plan-add-actions"><button class="btn btn-block" data-act="add-plan-from-syllabus">${ic('plus')} Add from Syllabus</button></div><div class="plan-add-divider"><span>or custom task</span></div><div class="row" style="gap:7px;margin-top:4px"><input id="plan-new-task" placeholder="Custom task for today…" maxlength="120" style="flex:1;background:#0b1327;border:1px solid var(--border);color:var(--text);padding:10px 11px;border-radius:9px;font:inherit;font-size:14px"/><button class="btn" data-act="add-plan-task">${ic('plus')}</button></div></div>`;
   }
 
   // ========== Dashboard ==========
@@ -716,16 +767,15 @@
 
   function modalCalendarDay(dateISO) {
     const today = todayKey();
-    const isPast = dateISO < today;
     const label = dateISO === today ? 'Today — ' + formatDate(dateISO) : formatDate(dateISO);
     if (!state.dailyPlans[dateISO]) state.dailyPlans[dateISO] = { auto: [], removed: [], custom: [], generated: false };
     const plan = state.dailyPlans[dateISO];
     const tasks = plan.custom || [];
     const taskRows = tasks.length ? tasks.map((t, i) => `<div class="card card-row plan-task${t.done ? ' is-done' : ''}" style="margin-bottom:6px"><input type="checkbox" class="check" ${t.done ? 'checked' : ''} data-act="toggle-cal-task" data-date="${dateISO}" data-i="${i}"/><div style="flex:1;min-width:0;font-size:14px;padding:0 8px;${t.done ? 'text-decoration:line-through;color:var(--text-muted)' : ''}">${escapeHTML(t.text)}</div><button class="menu-btn" data-act="del-cal-task" data-date="${dateISO}" data-i="${i}">${ic('trash')}</button></div>`).join('') : `<div class="empty" style="padding:10px 0">No tasks planned for this day.</div>`;
-    openModal(`<h3>📅 ${escapeHTML(label)}</h3><div style="max-height:240px;overflow-y:auto;margin-bottom:10px">${taskRows}</div><div class="row" style="gap:7px"><input id="cal-new-task" placeholder="Add a task for this day…" maxlength="120" style="flex:1;background:#0b1327;border:1px solid var(--border);color:var(--text);padding:9px 11px;border-radius:9px;font:inherit;font-size:14px" autofocus/><button class="btn" data-act="add-cal-task" data-date="${dateISO}">${ic('plus')}</button></div><div class="actions" style="margin-top:12px"><button class="btn btn-ghost" data-close>Done</button>${dateISO === today ? `<button class="btn" data-act="regen-plan" data-close>↻ Regen Today</button>` : ''}</div>`,
+    openModal(`<h3>📅 ${escapeHTML(label)}</h3><div style="max-height:200px;overflow-y:auto;margin-bottom:10px">${taskRows}</div><div class="cal-add-row"><input id="cal-new-task" placeholder="Add a task for this day…" maxlength="120" autofocus/><button class="btn" data-act="add-cal-task" data-date="${dateISO}">${ic('plus')}</button></div><div class="actions" style="margin-top:12px"><button class="btn btn-ghost" data-close>Done</button>${dateISO === today ? `<button class="btn" data-act="regen-plan" data-close>↻ Regen Today</button>` : ''}</div>`,
       root => {
         const inp = root.querySelector('#cal-new-task');
-        if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') { root.querySelector('[data-act="add-cal-task"]').click(); } });
+        if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') { const btn = root.querySelector('[data-act="add-cal-task"]'); if (btn) btn.click(); } });
       });
   }
 
@@ -741,16 +791,16 @@
     const tot = sub.chapters.length, done = sub.chapters.filter(c => isChapterEffectivelyDone(c)).length;
     const pct = tot ? Math.round((done/tot)*100) : 0;
     const pp = sub.priority ? `<span class="pill pill-${sub.priority === 'high' ? 'high' : sub.priority === 'medium' ? 'med' : 'low'}">${sub.priority}</span>` : '';
-    return `<div class="card subject-card" data-sub-id="${sub.id}"><div class="subject-head" data-act="toggle-subject" data-id="${sub.id}"><span class="color-dot" style="background:${sub.color}"></span><span class="subject-name">${escapeHTML(sub.name)}</span>${pp}<span class="muted">${done}/${tot}</span><button class="menu-btn" data-act="open-subject-menu" data-id="${sub.id}" style="z-index:2" onclick="event.stopPropagation()">${ic('dots')}</button><span class="chevron ${isOpen ? 'open' : ''}">${ic('chev')}</span></div><div class="progress" style="margin-bottom:${isOpen?'7px':'3px'}"><span style="width:${pct}%"></span></div>${sub.notes ? `<div class="notes">${escapeHTML(sub.notes)}</div>` : ''}${isOpen ? `<div class="chapter-list">${sub.chapters.map(ch => renderChapterCard(sub, ch)).join('')}<button class="btn btn-ghost btn-block" style="margin-top:4px" data-act="add-chapter" data-sub="${sub.id}">${ic('plus')} Add Chapter</button></div>` : ''}</div>`;
+    return `<div class="card subject-card" data-sub-id="${sub.id}" style="position:relative"><div class="subject-head" data-act="toggle-subject" data-id="${sub.id}"><span class="color-dot" style="background:${sub.color}"></span><span class="subject-name">${escapeHTML(sub.name)}</span>${pp}<span class="muted">${done}/${tot}</span><button class="menu-btn" data-act="open-subject-menu" data-id="${sub.id}" style="z-index:2" onclick="event.stopPropagation()">${ic('dots')}</button><span class="chevron ${isOpen ? 'open' : ''}">${ic('chev')}</span></div><div class="progress" style="margin-bottom:${isOpen?'7px':'3px'}"><span style="width:${pct}%"></span></div>${sub.notes ? `<div class="notes">${escapeHTML(sub.notes)}</div>` : ''}${isOpen ? `<div class="chapter-list">${sub.chapters.map(ch => renderChapterCard(sub, ch)).join('')}<button class="btn btn-ghost btn-block" style="margin-top:4px" data-act="add-chapter" data-sub="${sub.id}">${ic('plus')} Add Chapter</button></div>` : ''}</div>`;
   }
   function renderChapterCard(sub, ch) {
     const isOpen = openChapters.has(ch.id), isDone = isChapterEffectivelyDone(ch), pct = chapterProgress(ch), today = todayKey();
     const pp = ch.priority ? `<span class="pill pill-${ch.priority === 'high' ? 'high' : ch.priority === 'medium' ? 'med' : 'low'}">${ch.priority}</span>` : '';
-    return `<div class="chapter" data-ch-id="${ch.id}"><div class="chapter-row"><input type="checkbox" class="check" ${isDone ? 'checked' : ''} data-act="toggle-chapter-done" data-sub="${sub.id}" data-ch="${ch.id}"/><div style="flex:1;min-width:0"><div class="row" style="cursor:pointer" data-act="toggle-chapter" data-id="${ch.id}"><span class="name ${isDone ? 'done' : ''}">${escapeHTML(ch.name)}</span><span class="chevron ${isOpen ? 'open' : ''}">${ic('chev')}</span></div><div class="badges">${pp}${ch.scheduledDate === today ? `<span class="pill pill-today">Today</span>` : ''}${pct > 0 && pct < 100 ? `<span class="muted">${pct}%</span>` : ''}</div>${ch.notes ? `<div class="notes">${escapeHTML(ch.notes)}</div>` : ''}</div><button class="menu-btn" data-act="open-chapter-menu" data-sub="${sub.id}" data-ch="${ch.id}">${ic('dots')}</button></div>${isOpen && ch.topics.length ? `<div class="topic-list">${ch.topics.map(t => renderTopicRow(sub, ch, t)).join('')}</div>` : ''}${isOpen ? `<div style="padding-left:26px;margin-top:6px"><button class="btn-link" data-act="add-topic" data-sub="${sub.id}" data-ch="${ch.id}">${ic('plus')} Add Topic</button></div>` : ''}</div>`;
+    return `<div class="chapter" data-ch-id="${ch.id}" style="position:relative"><div class="chapter-row"><input type="checkbox" class="check" ${isDone ? 'checked' : ''} data-act="toggle-chapter-done" data-sub="${sub.id}" data-ch="${ch.id}"/><div style="flex:1;min-width:0"><div class="row" style="cursor:pointer" data-act="toggle-chapter" data-id="${ch.id}"><span class="name ${isDone ? 'done' : ''}">${escapeHTML(ch.name)}</span><span class="chevron ${isOpen ? 'open' : ''}">${ic('chev')}</span></div><div class="badges">${pp}${ch.scheduledDate === today ? `<span class="pill pill-today">Today</span>` : ''}${pct > 0 && pct < 100 ? `<span class="muted">${pct}%</span>` : ''}</div>${ch.notes ? `<div class="notes">${escapeHTML(ch.notes)}</div>` : ''}</div><button class="menu-btn" data-act="open-chapter-menu" data-sub="${sub.id}" data-ch="${ch.id}" onclick="event.stopPropagation()">${ic('dots')}</button></div>${isOpen && ch.topics.length ? `<div class="topic-list">${ch.topics.map(t => renderTopicRow(sub, ch, t)).join('')}</div>` : ''}${isOpen ? `<div style="padding-left:26px;margin-top:6px"><button class="btn-link" data-act="add-topic" data-sub="${sub.id}" data-ch="${ch.id}">${ic('plus')} Add Topic</button></div>` : ''}</div>`;
   }
   function renderTopicRow(sub, ch, t) {
     const pp = t.priority ? `<span class="pill pill-${t.priority === 'high' ? 'high' : t.priority === 'medium' ? 'med' : 'low'}">${t.priority}</span>` : '';
-    return `<div class="topic"><input type="checkbox" class="check" ${t.done ? 'checked' : ''} data-act="toggle-topic-done" data-sub="${sub.id}" data-ch="${ch.id}" data-t="${t.id}"/><div style="flex:1;min-width:0"><div class="name ${t.done ? 'done' : ''}">${escapeHTML(t.name)}</div>${t.notes ? `<div class="notes">${escapeHTML(t.notes)}</div>` : ''}${pp || isWeakTopic(t) ? `<div style="display:flex;gap:4px;margin-top:3px">${pp}${isWeakTopic(t) ? `<span class="pill pill-weak">Weak</span>` : ''}</div>` : ''}</div><button class="menu-btn" data-act="open-topic-menu" data-sub="${sub.id}" data-ch="${ch.id}" data-t="${t.id}">${ic('dots')}</button></div>`;
+    return `<div class="topic" style="position:relative"><input type="checkbox" class="check" ${t.done ? 'checked' : ''} data-act="toggle-topic-done" data-sub="${sub.id}" data-ch="${ch.id}" data-t="${t.id}"/><div style="flex:1;min-width:0"><div class="name ${t.done ? 'done' : ''}">${escapeHTML(t.name)}</div>${t.notes ? `<div class="notes">${escapeHTML(t.notes)}</div>` : ''}${pp || isWeakTopic(t) ? `<div style="display:flex;gap:4px;margin-top:3px">${pp}${isWeakTopic(t) ? `<span class="pill pill-weak">Weak</span>` : ''}</div>` : ''}</div><button class="menu-btn" data-act="open-topic-menu" data-sub="${sub.id}" data-ch="${ch.id}" data-t="${t.id}" onclick="event.stopPropagation()">${ic('dots')}</button></div>`;
   }
 
   // Syllabus modals
@@ -793,40 +843,73 @@
       });
   }
 
+  // ========== 3-Dot Menus (Separate Notes & Priority) ==========
   function showSubjectMenu(subId) {
-    closeDropdown(); const btn = document.querySelector(`[data-act="open-subject-menu"][data-id="${subId}"]`); if (!btn) return;
+    closeDropdown();
+    const btn = document.querySelector(`[data-act="open-subject-menu"][data-id="${subId}"]`);
+    if (!btn) return;
     const d = document.createElement('div'); d.className = 'dropdown';
-    d.innerHTML = `<button data-act="edit-subject" data-id="${subId}">${ic('edit')} Edit Subject</button><button data-act="open-subject-notes" data-id="${subId}">📝 Notes &amp; Priority</button><button data-act="add-chapter" data-sub="${subId}">${ic('plus')} Add Chapter</button><button data-act="del-subject" data-id="${subId}" class="danger">${ic('trash')} Delete</button>`;
-    btn.closest('.card').appendChild(d); activeDropdown = d;
+    d.innerHTML = `
+      <button data-act="edit-subject" data-id="${subId}">${ic('edit')} Edit Subject</button>
+      <button data-act="open-subject-notes" data-id="${subId}">${ic('note')} Notes</button>
+      <button data-act="open-subject-priority" data-id="${subId}">${ic('star')} Priority</button>
+      <button data-act="add-chapter" data-sub="${subId}">${ic('plus')} Add Chapter</button>
+      <button data-act="del-subject" data-id="${subId}" class="danger">${ic('trash')} Delete</button>`;
+    const card = btn.closest('.card') || btn.closest('.subject-card') || document.body;
+    card.appendChild(d); activeDropdown = d;
     setTimeout(() => document.addEventListener('click', closeDropdown, { once: true }), 0);
   }
   function showChapterMenu(subId, chId) {
-    closeDropdown(); const btn = document.querySelector(`[data-act="open-chapter-menu"][data-sub="${subId}"][data-ch="${chId}"]`); if (!btn) return;
+    closeDropdown();
+    const btn = document.querySelector(`[data-act="open-chapter-menu"][data-sub="${subId}"][data-ch="${chId}"]`);
+    if (!btn) return;
     const d = document.createElement('div'); d.className = 'dropdown';
-    d.innerHTML = `<button data-act="edit-chapter" data-sub="${subId}" data-ch="${chId}">${ic('edit')} Edit Chapter</button><button data-act="open-chapter-notes" data-sub="${subId}" data-ch="${chId}">📝 Notes &amp; Priority</button><button data-act="add-topic" data-sub="${subId}" data-ch="${chId}">${ic('plus')} Add Topic</button><button data-act="schedule-chapter" data-sub="${subId}" data-ch="${chId}">${ic('cal')} Schedule</button><button data-act="del-chapter" data-sub="${subId}" data-ch="${chId}" class="danger">${ic('trash')} Delete</button>`;
-    btn.closest('.chapter').appendChild(d); activeDropdown = d;
+    d.innerHTML = `
+      <button data-act="edit-chapter" data-sub="${subId}" data-ch="${chId}">${ic('edit')} Edit Chapter</button>
+      <button data-act="open-chapter-notes" data-sub="${subId}" data-ch="${chId}">${ic('note')} Notes</button>
+      <button data-act="open-chapter-priority" data-sub="${subId}" data-ch="${chId}">${ic('star')} Priority</button>
+      <button data-act="add-topic" data-sub="${subId}" data-ch="${chId}">${ic('plus')} Add Topic</button>
+      <button data-act="schedule-chapter" data-sub="${subId}" data-ch="${chId}">${ic('cal')} Schedule</button>
+      <button data-act="del-chapter" data-sub="${subId}" data-ch="${chId}" class="danger">${ic('trash')} Delete</button>`;
+    const parent = btn.closest('.chapter') || document.body;
+    parent.appendChild(d); activeDropdown = d;
     setTimeout(() => document.addEventListener('click', closeDropdown, { once: true }), 0);
   }
   function showTopicMenu(subId, chId, tId) {
-    closeDropdown(); const btn = document.querySelector(`[data-act="open-topic-menu"][data-sub="${subId}"][data-ch="${chId}"][data-t="${tId}"]`); if (!btn) return;
+    closeDropdown();
+    const btn = document.querySelector(`[data-act="open-topic-menu"][data-sub="${subId}"][data-ch="${chId}"][data-t="${tId}"]`);
+    if (!btn) return;
     const d = document.createElement('div'); d.className = 'dropdown';
-    d.innerHTML = `<button data-act="edit-topic" data-sub="${subId}" data-ch="${chId}" data-t="${tId}">${ic('edit')} Edit Topic</button><button data-act="open-topic-notes" data-sub="${subId}" data-ch="${chId}" data-t="${tId}">📝 Notes &amp; Priority</button><button data-act="del-topic" data-sub="${subId}" data-ch="${chId}" data-t="${tId}" class="danger">${ic('trash')} Delete</button>`;
-    btn.closest('.topic').appendChild(d); activeDropdown = d;
+    d.innerHTML = `
+      <button data-act="edit-topic" data-sub="${subId}" data-ch="${chId}" data-t="${tId}">${ic('edit')} Edit Topic</button>
+      <button data-act="open-topic-notes" data-sub="${subId}" data-ch="${chId}" data-t="${tId}">${ic('note')} Notes</button>
+      <button data-act="open-topic-priority" data-sub="${subId}" data-ch="${chId}" data-t="${tId}">${ic('star')} Priority</button>
+      <button data-act="del-topic" data-sub="${subId}" data-ch="${chId}" data-t="${tId}" class="danger">${ic('trash')} Delete</button>`;
+    const parent = btn.closest('.topic') || document.body;
+    parent.appendChild(d); activeDropdown = d;
     setTimeout(() => document.addEventListener('click', closeDropdown, { once: true }), 0);
   }
 
   function modalQuickNote(obj, label, afterSave) {
-    const cur = obj.priority || '';
-    openModal(`<h3>📝 ${escapeHTML(label)}</h3>
-      <div class="field"><label>Priority</label>${makePriorityRow(obj)}</div>
-      <div class="field"><label>Notes</label><textarea id="m-notes" rows="5" maxlength="500" placeholder="Add notes, formulas, key points…">${escapeHTML(obj.notes || '')}</textarea></div>
-      <div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn" id="m-save">Save</button></div>`,
+    openModal(`<h3>${ic('note')} Notes — ${escapeHTML(label)}</h3>
+      <div class="field"><label>Notes</label><textarea id="m-notes" rows="6" maxlength="500" placeholder="Add notes, formulas, key points…">${escapeHTML(obj.notes || '')}</textarea></div>
+      <div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn" id="m-save">Save Notes</button></div>`,
+      root => {
+        root.querySelector('#m-save').onclick = () => {
+          obj.notes = root.querySelector('#m-notes').value.trim();
+          saveState(); closeModal(); afterSave(); toast('Notes saved', 'success');
+        };
+      });
+  }
+  function modalQuickPriority(obj, label, afterSave) {
+    openModal(`<h3>${ic('star')} Priority — ${escapeHTML(label)}</h3>
+      <div class="field"><label>Set Priority</label>${makePriorityRow(obj)}</div>
+      <div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn" id="m-save">Save Priority</button></div>`,
       root => {
         const getPrio = bindPriorityRow(root);
         root.querySelector('#m-save').onclick = () => {
-          obj.notes = root.querySelector('#m-notes').value.trim();
           obj.priority = getPrio() || null;
-          saveState(); closeModal(); afterSave(); toast('Saved', 'success');
+          saveState(); closeModal(); afterSave(); toast('Priority updated', 'success');
         };
       });
   }
@@ -845,7 +928,7 @@
     const taskOptions = tasks.map(t => `<option value="${t.key}" ${focusCurrentTaskKey === t.key ? 'selected' : ''}>${escapeHTML(t.text)}</option>`).join('');
     const currentTask = focusCurrentTaskKey ? tasks.find(t => t.key === focusCurrentTaskKey) : null;
     const ambientOpts = ['none', 'rain', 'soft'];
-    const ambientLabels = { none: '🔇 Off', rain: '🌧 Rain Music', soft: '🎵 Soft Music' };
+    const ambientLabels = { none: '🔇 Off', rain: '🌧 Rain', soft: '🎵 Soft' };
     return `<div class="focus-view">
       <div class="focus-mode-tabs">
         <button class="focus-mode-btn ${focusMode === 'work' ? 'active' : ''}" data-act="focus-mode" data-mode="work">Work</button>
@@ -875,129 +958,111 @@
       <div class="ambient-bar">
         ${ambientOpts.map(m => `<button class="ambient-btn ${ambientMode === m ? 'active' : ''}" data-act="ambient-select" data-amode="${m}">${ambientLabels[m]}</button>`).join('')}
         <div class="ambient-vol" style="${ambientMode !== 'none' ? '' : 'display:none'}">
-          <span style="font-size:12px;color:var(--text-muted)">Vol</span>
-          <input type="range" min="0" max="1" step="0.05" value="${ambientVolume}" id="ambient-vol-slider"/>
+          <span style="font-size:11px;color:var(--text-muted)">Vol</span>
+          <input id="ambient-vol-slider" type="range" min="0" max="1" step="0.05" value="${ambientVolume}"/>
         </div>
       </div>
-      ${tasks.length ? `<div class="focus-task-bar"><label>Working on</label>${currentTask ? `<div class="focus-current-task"><span class="dot"></span>${escapeHTML(currentTask.text)}<button class="btn-link" style="margin-left:auto" data-act="focus-task-clear">Change</button></div>` : `<select data-act="focus-task-select"><option value="">— Pick a task —</option>${taskOptions}</select>`}</div>` : ''}
-      <div class="focus-sessions-info"><div class="grid"><div><div class="v">${focusSessions}</div><div class="k">Sessions today</div></div><div><div class="v">${focusSessions * customDurations.work}</div><div class="k">Minutes focused</div></div></div></div>
-      <button class="btn fs-enter-btn" data-act="enter-full-session">⛶ Full Screen Session</button>
+      <div class="focus-task-bar">
+        <label>Current Task</label>
+        ${currentTask ? `<div class="focus-current-task"><span class="dot"></span>${escapeHTML(currentTask.text)}<button class="btn-link" data-act="focus-task-clear" style="margin-left:auto;font-size:12px">Clear</button></div>` :
+          tasks.length ? `<select data-act="focus-task-select"><option value="">— Pick a task —</option>${taskOptions}</select>` :
+          `<div style="color:var(--text-muted);font-size:13px">No tasks for today yet.</div>`}
+      </div>
+      <div class="focus-sessions-info">
+        <div class="grid">
+          <div><div class="v">${focusSessions}</div><div class="k">Sessions today</div></div>
+          <div><div class="v">${state.focusStats.minutesByDate[todayKey()] || 0}m</div><div class="k">Minutes focused</div></div>
+        </div>
+      </div>
+      <button class="btn fs-enter-btn" data-act="enter-full-session">🚀 Enter Full Focus Mode</button>
     </div>`;
   }
 
-  function formatFocusTime(secs) { const m = Math.floor(secs / 60), s = secs % 60; return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`; }
-
-  function focusTick() {
-    if (focusSeconds > 0) { focusSeconds--; updateFocusDisplay(); }
-    else {
-      clearInterval(focusTimer); focusTimer = null; focusRunning = false;
-      // Exit full screen mode before showing dialogs
-      if (fsSessionActive) { exitFullSession(); }
-      if (focusMode === 'work') {
-        focusSessions++;
-        state.focusStats.sessions[todayKey()] = focusSessions;
-        state.focusStats.minutesByDate[todayKey()] = (state.focusStats.minutesByDate[todayKey()] || 0) + customDurations.work;
-        if (!state.streak.best || state.streak.count > state.streak.best) state.streak.best = state.streak.count;
-        bumpActivity(); saveState();
-        const task = focusCurrentTaskKey ? getActivePlanTasks().find(t => t.key === focusCurrentTaskKey) : null;
-        const msg = task ? `Session done! Mark "${task.text}" as complete?` : 'Focus session complete! 🎉 Take a break.';
-        if (task && confirm(msg)) {
-          if (task.type === 'auto') { const t = findTopic(task.subId, task.chId, task.tId); if (t) { t.done = true; bumpActivity(); onTopicDoneChanged(task.subId, task.chId, task.tId, true); saveState(); } }
-          else { const plan = state.dailyPlans[todayKey()]; if (plan) { const ct = plan.custom.find(c => c.id === task.id); if (ct) ct.done = true; saveState(); } }
-          focusCurrentTaskKey = null;
-        }
-        toast('Focus session complete! 🎉', 'success', 5000);
-        if (notifPermission() === 'granted') showWebNotification('Session complete! 🎉', 'Great work — take a break.', { tag: 'focus-done' });
-      } else {
-        toast('Break over — time to focus!', 'info', 3000);
-        if (notifPermission() === 'granted') showWebNotification('Break over', 'Ready for the next focus session?', { tag: 'break-done' });
-      }
-      renderFocus(); document.title = 'Syllabus Tracker';
-    }
-  }
+  function formatFocusTime(sec) { const m = Math.floor(sec / 60), s = sec % 60; return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; }
 
   function updateFocusDisplay() {
-    const timeEl = document.getElementById('focus-time-display');
-    if (timeEl) timeEl.textContent = formatFocusTime(focusSeconds);
-    const circle = document.getElementById('focus-ring-circle');
-    if (circle) {
-      const r = 96, c = 2 * Math.PI * r;
-      circle.setAttribute('stroke-dashoffset', (c * (1 - focusSeconds / (customDurations[focusMode] * 60))).toFixed(2));
+    const el = document.getElementById('focus-time-display'); if (el) el.textContent = formatFocusTime(focusSeconds);
+    const total = customDurations[focusMode] * 60;
+    const r = 96, c = 2 * Math.PI * r, off = c * (1 - Math.max(0, Math.min(1, focusSeconds / total)));
+    const ring = document.getElementById('focus-ring-circle'); if (ring) ring.style.strokeDashoffset = off.toFixed(2);
+    const m = Math.floor(focusSeconds / 60), s = focusSeconds % 60;
+    document.title = focusRunning ? `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')} — Focus` : 'Syllabus Tracker';
+  }
+
+  function focusTick() {
+    if (focusSeconds > 0) { focusSeconds--; updateFocusDisplay(); return; }
+    clearInterval(focusTimer); focusTimer = null; focusRunning = false;
+    document.title = 'Syllabus Tracker';
+    if (focusMode === 'work') {
+      focusSessions++;
+      const todayStr = todayKey();
+      state.focusStats.sessions[todayStr] = (state.focusStats.sessions[todayStr] || 0) + 1;
+      state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + customDurations.work;
+      bumpActivity(); saveState();
+      const task = focusCurrentTaskKey ? getActivePlanTasks().find(t => t.key === focusCurrentTaskKey) : null;
+      if (task && !task.done) {
+        confirmModal(`Session complete! Mark "${task.text}" as done?`, () => {
+          if (task.type === 'auto') { const t = findTopic(task.subId, task.chId, task.tId); if (t) { t.done = true; bumpActivity(); onTopicDoneChanged(task.subId, task.chId, task.tId, true); saveState(); renderAll(); } }
+          else { const plan = state.dailyPlans[todayKey()]; if (plan) { const ct = plan.custom.find(c => c.id === task.id); if (ct) { ct.done = true; bumpActivity(); saveState(); renderAll(); } } }
+        }, { title: 'Session done!', yesLabel: 'Mark done', yesClass: 'btn' });
+      } else {
+        toast(`Session ${focusSessions} complete! 🎉`, 'success', 4000);
+      }
     }
-    // Sync full-screen display
-    const fsTime = document.getElementById('fs-time-display');
-    if (fsTime) fsTime.textContent = formatFocusTime(focusSeconds);
-    const fsCircle = document.getElementById('fs-ring-circle');
-    if (fsCircle) {
-      const r = 130, c = 2 * Math.PI * r;
-      fsCircle.setAttribute('stroke-dashoffset', (c * (1 - Math.max(0, focusSeconds) / (customDurations[focusMode] * 60))).toFixed(2));
-    }
-    document.title = focusRunning ? `${formatFocusTime(focusSeconds)} — Study` : 'Syllabus Tracker';
+    focusMode = focusMode === 'work' ? (focusSessions % 4 === 0 ? 'long' : 'short') : 'work';
+    focusSeconds = customDurations[focusMode] * 60;
+    if (fsSessionActive) renderFullSession(); else renderFocus();
   }
 
   // ========== Full Screen Session ==========
   function enterFullSession() {
     fsSessionActive = true;
-    if (ambientMode === 'none') { ambientMode = 'rain'; startAmbient('rain'); }
-    if (!focusRunning) { focusRunning = true; focusTimer = setInterval(focusTick, 1000); }
-    if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+    let overlay = document.getElementById('fs-overlay');
+    if (!overlay) { overlay = document.createElement('div'); overlay.id = 'fs-overlay'; document.body.appendChild(overlay); }
     renderFullSession();
+    if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
   }
-
   function exitFullSession() {
     fsSessionActive = false;
-    const ov = document.getElementById('fs-overlay'); if (ov) ov.remove();
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    const overlay = document.getElementById('fs-overlay'); if (overlay) overlay.remove();
+    document.title = 'Syllabus Tracker';
+    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
     renderFocus();
   }
-
   function renderFullSession() {
-    let ov = document.getElementById('fs-overlay');
-    if (!ov) { ov = document.createElement('div'); ov.id = 'fs-overlay'; document.getElementById('app').appendChild(ov); }
-    const r = 130, c = 2 * Math.PI * r;
+    const overlay = document.getElementById('fs-overlay'); if (!overlay) return;
     const total = customDurations[focusMode] * 60;
-    const off = c * (1 - Math.max(0, Math.min(1, focusSeconds / total)));
+    const r = 120, c = 2 * Math.PI * r, off = c * (1 - Math.max(0, Math.min(1, focusSeconds / total)));
     const isBreak = focusMode !== 'work';
-    const allTasks = getActivePlanTasks();
-    const pendingTasks = allTasks.filter(t => !t.done);
-    const currentTask = focusCurrentTaskKey ? allTasks.find(t => t.key === focusCurrentTaskKey) : null;
-    const modeLabel = focusMode === 'work' ? 'Focus Time' : focusMode === 'short' ? 'Short Break' : 'Long Break';
-    const modeEmoji = focusMode === 'work' ? '🍅' : focusMode === 'short' ? '☕' : '🌙';
-    const sessionDots = Array.from({ length: Math.min(focusSessions, 8) }, () => `<span class="fs-dot"></span>`).join('');
-    const ambientIcon = ambientMode === 'rain' ? '🌧' : ambientMode === 'soft' ? '🎵' : '🔇';
-    let taskHtml;
-    if (currentTask) {
-      taskHtml = `<div class="fs-task-box"><div class="fs-task-label">Working on</div><div class="fs-task-name">${escapeHTML(currentTask.text)}</div>${currentTask.meta ? `<div class="fs-task-meta">${escapeHTML(currentTask.meta)}</div>` : ''}</div>`;
-    } else if (pendingTasks.length) {
-      taskHtml = `<div class="fs-task-box"><div class="fs-task-label">Pick a task</div><select class="fs-task-select" data-act="focus-task-select"><option value="">— Select task —</option>${pendingTasks.map(t => `<option value="${t.key}">${escapeHTML(t.text)}</option>`).join('')}</select></div>`;
-    } else {
-      taskHtml = `<div class="fs-task-box fs-task-empty">No pending tasks — just focus!</div>`;
-    }
-    const playPauseIcon = focusRunning
-      ? `<svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>`
-      : `<svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
-    ov.innerHTML = `
-      <div class="fs-bg"></div>
+    const tasks = getActivePlanTasks().filter(t => !t.done);
+    const currentTask = focusCurrentTaskKey ? tasks.find(t => t.key === focusCurrentTaskKey) : null;
+    const taskOpts = tasks.map(t => `<option value="${t.key}" ${focusCurrentTaskKey === t.key ? 'selected':''}>${escapeHTML(t.text)}</option>`).join('');
+    const ambientLabels = { none: '🔇', rain: '🌧', soft: '🎵' };
+    const sessionDots = Array.from({length: Math.min(focusSessions, 8)}, () => `<span class="fs-dot"></span>`).join('');
+    overlay.innerHTML = `<div class="fs-bg"></div>
       <div class="fs-content">
         <div class="fs-top">
-          <div class="fs-mode-badge${isBreak ? ' fs-mode-break' : ''}">${modeEmoji} ${modeLabel}</div>
-          <div class="fs-session-dots">${sessionDots}${focusSessions > 0 ? `<span class="fs-sessions-label">${focusSessions} session${focusSessions !== 1 ? 's' : ''} done</span>` : '<span class="fs-sessions-label">First session</span>'}</div>
+          <div class="fs-mode-badge ${isBreak ? 'fs-mode-break' : ''}">${focusMode === 'work' ? '🎯 Focus Time' : focusMode === 'short' ? '☕ Short Break' : '🛌 Long Break'}</div>
+          ${focusSessions > 0 ? `<div class="fs-session-dots">${sessionDots}<span class="fs-sessions-label">${focusSessions} session${focusSessions !== 1 ? 's' : ''}</span></div>` : ''}
         </div>
         <div class="fs-timer-wrap">
           <svg class="fs-ring-svg" viewBox="0 0 290 290" aria-hidden="true">
-            <defs><linearGradient id="fsRingGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="${isBreak ? '#34d399' : '#38bdf8'}"/><stop offset="100%" stop-color="${isBreak ? '#059669' : '#a78bfa'}"/></linearGradient></defs>
+            <defs><linearGradient id="fsRingGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="${isBreak ? '#34d399' : '#38bdf8'}"/><stop offset="100%" stop-color="${isBreak ? '#86efac' : '#a78bfa'}"/></linearGradient></defs>
             <circle class="fs-ring-track" cx="145" cy="145" r="${r}"/>
             <circle class="fs-ring-fill" id="fs-ring-circle" cx="145" cy="145" r="${r}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/>
           </svg>
           <div class="fs-ring-center">
             <div class="fs-time" id="fs-time-display">${formatFocusTime(focusSeconds)}</div>
-            <div class="fs-ring-sub">${modeLabel}</div>
+            <div class="fs-ring-sub">${formatFocusTime(customDurations[focusMode] * 60)} total</div>
           </div>
         </div>
-        ${taskHtml}
+        <div class="fs-task-box">
+          <div class="fs-task-label">Current Task</div>
+          ${currentTask ? `<div class="fs-task-name">${escapeHTML(currentTask.text)}</div>${currentTask.meta ? `<div class="fs-task-meta">${escapeHTML(currentTask.meta)}</div>` : ''}` : (tasks.length ? `<select class="fs-task-select" data-act="focus-task-select"><option value="">— Pick a task —</option>${taskOpts}</select>` : `<div class="fs-task-empty">No tasks today</div>`)}
+        </div>
         <div class="fs-controls">
-          <button class="fs-ctrl-btn fs-side-btn" data-act="fs-cycle-ambient" title="Cycle ambient sound">${ambientIcon}</button>
-          <button class="fs-ctrl-btn fs-main-btn" data-act="fs-toggle">${playPauseIcon}</button>
+          <button class="fs-ctrl-btn fs-side-btn" data-act="fs-cycle-ambient" title="Toggle sound">${ambientLabels[ambientMode] || '🔇'}</button>
+          <button class="fs-ctrl-btn fs-main-btn" data-act="fs-toggle">${focusRunning ? '⏸' : '▶'}</button>
           <button class="fs-ctrl-btn fs-side-btn fs-exit-btn" data-act="exit-full-session" title="Exit full screen">✕</button>
         </div>
         <div class="fs-hint">Press Esc to exit · ${ambientMode !== 'none' ? '🎵 Sound on' : '🔇 Sound off'}</div>
@@ -1018,7 +1083,11 @@
       <button class="video-del-btn" data-act="del-classroom-item" data-gid="${groupId}" data-iid="${item.id}" onclick="event.stopPropagation()" title="Remove">×</button>
       <button class="video-edit-btn" data-act="edit-classroom-item" data-gid="${groupId}" data-iid="${item.id}" onclick="event.stopPropagation()" title="Edit">✏️</button>
       ${thumb ? `<img class="video-thumb" src="${thumb}" alt="${escapeHTML(item.title)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/><div class="video-thumb-placeholder" style="display:none">${item.type === 'playlist' ? '📋' : '▶️'}</div>` : `<div class="video-thumb-placeholder">${item.type === 'playlist' ? '📋' : '▶️'}</div>`}
-      <div class="video-info"><div class="video-title">${escapeHTML(item.title)}</div><div class="video-type">${item.type === 'playlist' ? '📋 Playlist' : '🎬 Video'}</div></div>
+      <div class="video-info">
+        <div class="video-title">${escapeHTML(item.title)}</div>
+        ${item.description ? `<div class="video-desc">${escapeHTML(item.description)}</div>` : ''}
+        <div class="video-type">${item.type === 'playlist' ? '📋 Playlist' : '🎬 Video'}</div>
+      </div>
     </div>`;
   }
   function modalEditClassroomItem(groupId, itemId) {
@@ -1027,6 +1096,7 @@
     openModal(`<h3>✏️ Edit Video / Playlist</h3>
       <div class="field"><label>Title</label><input id="m-title" value="${escapeHTML(item.title)}" maxlength="120" placeholder="Custom title"/></div>
       <div class="field"><label>YouTube URL</label><input id="m-url" type="url" value="${escapeHTML(item.url)}" placeholder="https://youtube.com/watch?v=..."/></div>
+      <div class="field"><label>Description / Notes (optional)</label><textarea id="m-desc" maxlength="300" placeholder="Add notes, timestamps, what to focus on…">${escapeHTML(item.description || '')}</textarea></div>
       <div class="field"><label>Preview</label>${item.videoId ? `<img src="${ytThumb(item.videoId)}" style="width:100%;border-radius:8px;margin-top:4px" alt="thumb"/>` : '<span style="color:var(--text-muted);font-size:13px">No preview (playlist or no video ID)</span>'}</div>
       <div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn" id="m-save">Save Changes</button></div>`,
       root => {
@@ -1039,6 +1109,7 @@
           item.title = title; item.url = url;
           item.videoId = videoId || null; item.playlistId = playlistId || null;
           item.type = (playlistId && !videoId) ? 'playlist' : 'video';
+          item.description = root.querySelector('#m-desc').value.trim();
           saveState(); closeModal(); renderFocus(); toast('Updated', 'success');
         };
       });
@@ -1049,17 +1120,56 @@
   }
   function modalAddClassroomItem(groupId) {
     const group = (state.classroom.groups || []).find(g => g.id === groupId); if (!group) return;
-    openModal(`<h3>Add Video / Playlist</h3><div class="add-video-form"><div class="field"><label>YouTube URL</label><input id="m-url" type="url" placeholder="https://youtube.com/watch?v=... or youtu.be/..."/></div><div class="field"><label>Custom title (optional)</label><input id="m-title" placeholder="Leave blank to use URL"/></div></div><div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn" id="m-save">Add</button></div>`,
+    openModal(`<h3>Add Video / Playlist</h3>
+      <div class="add-video-form">
+        <div class="field">
+          <label>YouTube URL</label>
+          <input id="m-url" type="url" placeholder="https://youtube.com/watch?v=... or youtu.be/..."/>
+        </div>
+        <div class="field">
+          <label>Title <span id="m-title-status" style="font-size:10px;color:var(--text-muted)"></span></label>
+          <input id="m-title" placeholder="Auto-fetched or enter manually…" maxlength="120"/>
+        </div>
+        <div class="field">
+          <label>Description / Notes (optional)</label>
+          <textarea id="m-desc" maxlength="300" placeholder="Notes, timestamps, topics covered…"></textarea>
+        </div>
+      </div>
+      <div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn" id="m-save">Add</button></div>`,
       root => {
+        const urlInput = root.querySelector('#m-url');
+        const titleInput = root.querySelector('#m-title');
+        const statusEl = root.querySelector('#m-title-status');
+        let fetchTimeout = null;
+
+        urlInput.addEventListener('input', () => {
+          clearTimeout(fetchTimeout);
+          fetchTimeout = setTimeout(async () => {
+            const url = urlInput.value.trim();
+            if (!url || (!url.includes('youtube.com') && !url.includes('youtu.be'))) return;
+            statusEl.textContent = '⏳ Fetching title…';
+            const title = await fetchYouTubeTitle(url);
+            if (title && !titleInput.value.trim()) {
+              titleInput.value = title;
+              statusEl.textContent = '✅ Auto-fetched';
+            } else if (!title) {
+              statusEl.textContent = '⚠️ Could not fetch — enter manually';
+            } else {
+              statusEl.textContent = '';
+            }
+          }, 600);
+        });
+
         root.querySelector('#m-save').onclick = () => {
-          const url = root.querySelector('#m-url').value.trim();
+          const url = urlInput.value.trim();
           if (!url) { toast('Enter a YouTube URL', 'warn'); return; }
           const { videoId, playlistId } = parseYouTubeUrl(url);
           if (!videoId && !playlistId) { toast('Could not find a YouTube video or playlist ID in that URL', 'danger'); return; }
           const type = (playlistId && !videoId) ? 'playlist' : 'video';
-          const titleInput = root.querySelector('#m-title').value.trim();
-          const title = titleInput || (type === 'playlist' ? `Playlist` : `Video`);
-          group.items.push({ id: uid(), title, url, videoId: videoId || null, playlistId: playlistId || null, type, addedAt: todayKey() });
+          const titleVal = titleInput.value.trim();
+          const title = titleVal || (type === 'playlist' ? 'Playlist' : 'Video');
+          const description = root.querySelector('#m-desc').value.trim();
+          group.items.push({ id: uid(), title, url, videoId: videoId || null, playlistId: playlistId || null, type, addedAt: todayKey(), description });
           saveState(); closeModal(); renderFocus(); toast('Added to classroom', 'success');
         };
       });
@@ -1069,7 +1179,7 @@
     const item = group.items.find(i => i.id === itemId); if (!item) return;
     const embedUrl = ytEmbedUrl(item);
     if (!embedUrl) { window.open(item.url, '_blank', 'noopener'); return; }
-    openModal(`<h3>${escapeHTML(item.title)}</h3><div class="yt-embed-wrap"><iframe src="${embedUrl}" allow="autoplay; encrypted-media; fullscreen" allowfullscreen title="${escapeHTML(item.title)}"></iframe></div><div class="actions" style="margin-top:12px"><button class="btn btn-ghost" data-close>Close</button><a href="${escapeHTML(item.url)}" target="_blank" rel="noopener" class="btn">Open in YouTube</a></div>`);
+    openModal(`<h3>${escapeHTML(item.title)}</h3>${item.description ? `<div style="color:var(--text-muted);font-size:13px;margin:-8px 0 10px;font-style:italic">${escapeHTML(item.description)}</div>` : ''}<div class="yt-embed-wrap"><iframe src="${embedUrl}" allow="autoplay; encrypted-media; fullscreen" allowfullscreen title="${escapeHTML(item.title)}"></iframe></div><div class="actions" style="margin-top:12px"><button class="btn btn-ghost" data-close>Close</button><a href="${escapeHTML(item.url)}" target="_blank" rel="noopener" class="btn">Open in YouTube</a></div>`);
   }
 
   // ========== Revision ==========
@@ -1079,7 +1189,7 @@
     view.innerHTML = `<div class="page-header"><h1>Revision</h1><div class="subtitle">Spaced repetition schedule</div></div><div class="section-head"><h2>Due Today${dueItems.length ? ` (${dueItems.length})` : ''}</h2></div>${!dueItems.length ? `<div class="empty">No revisions due — great work!</div>` : `<div class="list">${dueItems.map(item => `<div class="card card-row revision-item is-overdue"><span class="color-dot" style="background:${item.sub ? item.sub.color : 'var(--primary)'}"></span><div style="flex:1;min-width:0"><div class="title">${escapeHTML(item.topic ? item.topic.name : '?')}</div><div class="meta">${escapeHTML(item.sub ? item.sub.name : '')} · ${escapeHTML(item.ch ? item.ch.name : '')}</div><div style="margin-top:4px">${item.daysOverdue > 0 ? `<span class="pill pill-overdue">${item.daysOverdue}d overdue</span>` : `<span class="pill pill-today">Due today</span>`}</div></div><div style="display:flex;gap:6px"><button class="btn btn-sm" data-act="rev-done" data-rev="${item.revisionId}" data-off="${item.step.offset}">${ic('check')}</button><button class="menu-btn" data-act="rev-dismiss" data-rev="${item.revisionId}">${ic('trash')}</button></div></div>`).join('')}</div>`}<div class="section-head"><h2>Upcoming</h2></div>${!upcoming.length ? `<div class="empty">No upcoming revisions scheduled.</div>` : `<div class="list">${upcoming.map(item => `<div class="card card-row revision-item upcoming"><span class="color-dot" style="background:${item.sub ? item.sub.color : 'var(--primary)'}"></span><div style="flex:1;min-width:0"><div class="title">${escapeHTML(item.topic ? item.topic.name : '?')}</div><div class="meta">${escapeHTML(item.sub ? item.sub.name : '')} · ${escapeHTML(item.ch ? item.ch.name : '')}</div><div style="margin-top:4px"><span class="pill pill-upcoming">In ${item.daysUntil}d · ${formatDate(item.step.dueDate)}</span></div></div></div>`).join('')}</div>`}`;
   }
 
-  // ========== Stats ==========
+  // ========== Stats (Enhanced A-Z Analysis) ==========
   function renderStats() {
     const view = document.getElementById('view-stats'); if (!view) return;
     const overall = overallProgress();
@@ -1109,6 +1219,14 @@
     const totalRevDone = state.revisions.reduce((a, r) => a + r.schedule.filter(s => s.done).length, 0);
     const totalRevPending = dueRevisionItems().length;
 
+    // Most studied (by completed topics count)
+    const subjectRankings = state.subjects.map(sub => {
+      let topTot = 0, topDn = 0, revCount = 0;
+      for (const ch of sub.chapters) for (const t of ch.topics) { topTot++; if (t.done) topDn++; }
+      for (const r of state.revisions) if (r.subId === sub.id) revCount += r.schedule.filter(s => s.done).length;
+      return { sub, topTot, topDn, revCount, score: topDn + revCount };
+    }).sort((a, b) => b.score - a.score);
+
     // Per-subject detailed stats
     const subjectCards = state.subjects.length ? state.subjects.map(sub => {
       let tot = 0, dn = 0, topTot = 0, topDn = 0, weakCount = 0, revCount = 0;
@@ -1121,25 +1239,59 @@
       const tpct = topTot ? Math.round((topDn/topTot)*100) : 0;
       const pri = sub.priority;
       const priPill = pri ? `<span class="pill pill-${pri === 'high' ? 'high' : pri === 'medium' ? 'med' : 'low'}">${pri}</span>` : '';
-      return `<div class="card stats-subject-card" style="padding:13px 14px;margin-bottom:10px">
+      return `<div class="card stats-subject-card" style="padding:13px 14px;margin-bottom:10px;border-left:3px solid ${sub.color}">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
           <span class="color-dot" style="background:${sub.color}"></span>
           <span style="font-weight:700;flex:1;font-size:15px">${escapeHTML(sub.name)}</span>
           ${priPill}<span style="font-weight:800;color:var(--primary);font-size:17px">${pct}%</span>
         </div>
-        <div class="progress" style="margin-bottom:8px"><span style="width:${pct}%"></span></div>
+        <div class="progress" style="margin-bottom:4px"><span style="width:${pct}%"></span></div>
+        <div style="font-size:10px;color:var(--text-muted);margin-bottom:8px">${dn}/${tot} chapters · ${topDn}/${topTot} topics</div>
         <div class="stats-subject-grid">
-          <div class="stat-mini"><div class="v">${dn}/${tot}</div><div class="k">Chapters</div></div>
-          <div class="stat-mini"><div class="v">${topDn}/${topTot}</div><div class="k">Topics</div></div>
+          <div class="stat-mini"><div class="v">${tpct}%</div><div class="k">Topics</div></div>
           <div class="stat-mini"><div class="v" style="${weakCount > 0 ? 'color:#f59e0b' : ''}">${weakCount}</div><div class="k">Weak</div></div>
           <div class="stat-mini"><div class="v" style="color:var(--primary)">${revCount}</div><div class="k">Revisions</div></div>
+          <div class="stat-mini"><div class="v">${dn}/${tot}</div><div class="k">Chapters</div></div>
         </div>
         ${sub.notes ? `<div class="notes" style="margin-top:8px;font-size:12px">${escapeHTML(sub.notes)}</div>` : ''}
       </div>`;
     }).join('') : `<div class="empty">No subjects yet.</div>`;
 
+    // Most studied subjects chart
+    const mostStudiedHtml = subjectRankings.length ? `
+      <h2 style="margin:16px 0 10px">Most Studied Subjects</h2>
+      <div class="card" style="padding:13px 14px">
+        ${subjectRankings.map((sr, i) => {
+          const pct = sr.topTot ? Math.round((sr.topDn / sr.topTot) * 100) : 0;
+          return `<div style="margin-bottom:${i < subjectRankings.length - 1 ? '12px' : '0'}">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+              <span style="font-size:13px;font-weight:700;flex:1">${i+1}. ${escapeHTML(sr.sub.name)}</span>
+              <span style="font-size:12px;color:var(--text-muted)">${sr.topDn}/${sr.topTot} done</span>
+              <span style="font-size:13px;font-weight:800;color:${sr.sub.color}">${pct}%</span>
+            </div>
+            <div class="progress"><span style="width:${pct}%;background:${sr.sub.color}"></span></div>
+          </div>`;
+        }).join('')}
+      </div>` : '';
+
+    // A-Z Syllabus Progress
+    const syllabusProgressHtml = `
+      <h2 style="margin:16px 0 10px">A–Z Syllabus Progress</h2>
+      <div class="card" style="padding:13px 14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <span style="font-size:14px;font-weight:700">Overall Completion</span>
+          <span style="font-size:22px;font-weight:900;color:var(--primary)">${overall}%</span>
+        </div>
+        <div class="progress" style="height:10px;margin-bottom:10px"><span style="width:${overall}%"></span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center">
+          <div><div style="font-size:18px;font-weight:800">${doneTopics}</div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Topics Done</div></div>
+          <div><div style="font-size:18px;font-weight:800">${totalTopics - doneTopics}</div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Remaining</div></div>
+          <div><div style="font-size:18px;font-weight:800">${doneChapters}/${totalChapters}</div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Chapters</div></div>
+        </div>
+      </div>`;
+
     view.innerHTML = `
-      <div class="page-header"><h1>Stats</h1><div class="subtitle">Your study progress at a glance</div></div>
+      <div class="page-header"><h1>Stats</h1><div class="subtitle">A–Z study analysis</div></div>
 
       <div class="stats-row">
         <div class="stat-tile"><div class="v">${overall}%</div><div class="k">Overall</div></div>
@@ -1168,6 +1320,10 @@
         <div class="stat-tile"><div class="v">${(state.goals||[]).filter(g=>g.completedAt).length}/${(state.goals||[]).length}</div><div class="k">Goals Done</div></div>
         <div class="stat-tile"><div class="v">${state.exams.length}</div><div class="k">Exams</div></div>
       </div>
+
+      ${syllabusProgressHtml}
+
+      ${mostStudiedHtml}
 
       <h2 style="margin:16px 0 8px">Activity (14 days)</h2>
       <div class="card" style="padding:13px 14px">
@@ -1211,7 +1367,7 @@
         root.querySelectorAll('[data-tp]').forEach(btn => { let ti=null,ri=null; const fn=()=>{const tp=btn.dataset.tp;if(tp==='h-up')h++;else if(tp==='h-down')h--;else if(tp==='m-up')m++;else m--;update();}; btn.addEventListener('pointerdown',e=>{e.preventDefault();fn();ti=setTimeout(()=>{ri=setInterval(fn,80);},350);}); const stop=()=>{clearTimeout(ti);clearInterval(ri);}; btn.addEventListener('pointerup',stop);btn.addEventListener('pointerleave',stop);btn.addEventListener('pointercancel',stop); });
         root.querySelectorAll('[data-tp-ampm]').forEach(btn=>btn.addEventListener('click',()=>{const t=btn.dataset.tpAmpm;if(t==='AM'&&h>=12)h-=12;if(t==='PM'&&h<12)h+=12;update();}));
         root.querySelectorAll('[data-tp-set]').forEach(btn=>btn.addEventListener('click',()=>{const[hh,mm]=btn.dataset.tpSet.split(':').map(Number);h=hh;m=mm;update();}));
-        root.querySelector('#tp-save').addEventListener('click',()=>{const v=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;if(isAdd){if(!target.times.includes(v))target.times.push(v);}else target.times[index]=v;target.times.sort();target.times=[...new Set(target.times)];saveState();closeModal();modalSettings();toast(`${titlePrefix} time ${isAdd?'added':'updated'}`,  'success');});
+        root.querySelector('#tp-save').addEventListener('click',()=>{const v=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;if(isAdd){if(!target.times.includes(v))target.times.push(v);}else target.times[index]=v;target.times.sort();target.times=[...new Set(target.times)];saveState();closeModal();modalSettings();toast(`${titlePrefix} time ${isAdd?'added':'updated'}`, 'success');});
       });
   }
 
@@ -1228,8 +1384,23 @@
   function bindPlanPickers() {
     const selSub = document.getElementById('plan-pick-sub'), selCh = document.getElementById('plan-pick-ch'), selT = document.getElementById('plan-pick-t');
     if (!selSub) return;
-    selSub.onchange = () => { const subId = selSub.value; selCh.innerHTML = '<option value="">Chapter…</option>'; selT.innerHTML = '<option value="">Topic…</option>'; selCh.disabled = !subId; selT.disabled = true; if (!subId) return; const sub = findSubject(subId); if (sub) for (const ch of sub.chapters) selCh.innerHTML += `<option value="${ch.id}">${escapeHTML(ch.name)}</option>`; };
-    selCh.onchange = () => { const subId = selSub.value, chId = selCh.value; selT.innerHTML = '<option value="">All topics…</option>'; selT.disabled = !chId; if (!chId) return; const ch = findChapter(subId, chId); if (ch) for (const t of ch.topics) selT.innerHTML += `<option value="${t.id}">${escapeHTML(t.name)}${t.done ? ' ✓' : ''}</option>`; };
+    selSub.onchange = () => {
+      const subId = selSub.value;
+      selCh.innerHTML = '<option value="">Chapter…</option>';
+      selT.innerHTML = '<option value="">Topic (optional)…</option>';
+      selCh.disabled = !subId; selT.disabled = true;
+      if (!subId) return;
+      const sub = findSubject(subId);
+      if (sub) for (const ch of sub.chapters) selCh.innerHTML += `<option value="${ch.id}">${escapeHTML(ch.name)}</option>`;
+    };
+    selCh.onchange = () => {
+      const subId = selSub.value, chId = selCh.value;
+      selT.innerHTML = '<option value="">All topics…</option>';
+      selT.disabled = !chId;
+      if (!chId) return;
+      const ch = findChapter(subId, chId);
+      if (ch) for (const t of ch.topics) selT.innerHTML += `<option value="${t.id}">${escapeHTML(t.name)}${t.done ? ' ✓' : ''}</option>`;
+    };
   }
 
   // ========== Event Delegation ==========
@@ -1244,7 +1415,6 @@
     if (el.hasAttribute('data-close')) { closeModal(); return; }
     if (act === 'open-settings') { modalSettings(); return; }
 
-    // Tab navigation (handled by bottom nav listener too, but keep for programmatic calls)
     if (act === 'open-dashboard') { switchTab('dashboard'); renderDashboard(); return; }
     if (act === 'open-plan') { closeModal(); switchTab('home'); renderHome(); return; }
     if (act === 'burnout-go-plan') { closeModal(); switchTab('home'); renderHome(); return; }
@@ -1268,7 +1438,7 @@
       return;
     }
     if (act === 'remove-plan-task') { const type = el.dataset.type, plan = state.dailyPlans[todayKey()]; if (!plan) return; if (type === 'auto') { const key = autoKey(el.dataset.sub, el.dataset.ch, el.dataset.t); const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.skipCount = (t.skipCount || 0) + 1; t.lastSkippedAt = todayKey(); } if (!plan.removed.includes(key)) plan.removed.push(key); } else plan.custom = plan.custom.filter(c => c.id !== el.dataset.id); saveState(); renderHome(); renderDashboard(); return; }
-    if (act === 'add-plan-task') { const input = document.getElementById('plan-new-task'), text = input ? input.value.trim() : ''; if (!text) { toast('Enter a task first', 'warn'); return; } ensureTodayPlan().custom.push({ id: uid(), text, done: false }); saveState(); renderHome(); renderDashboard(); return; }
+    if (act === 'add-plan-task') { const input = document.getElementById('plan-new-task'), text = input ? input.value.trim() : ''; if (!text) { toast('Enter a task first', 'warn'); return; } ensureTodayPlan().custom.push({ id: uid(), text, done: false }); if (input) input.value = ''; saveState(); renderHome(); renderDashboard(); return; }
     if (act === 'add-plan-from-syllabus') {
       const subId = document.getElementById('plan-pick-sub')?.value,
             chId  = document.getElementById('plan-pick-ch')?.value,
@@ -1278,9 +1448,23 @@
       const sub = findSubject(subId), ch = findChapter(subId, chId);
       if (!ch) { toast('Chapter not found', 'warn'); return; }
       let added = 0;
+
+      // Chapter with no topics — add chapter as custom task directly
+      if (!ch.topics.length) {
+        const label = `📖 ${ch.name}`;
+        const meta = sub ? sub.name : '';
+        const full = meta ? `${label} (${meta})` : label;
+        if (!plan.custom.find(c => c.text === full)) {
+          plan.custom.push({ id: uid(), text: full, done: false });
+          added++;
+        }
+        saveState(); renderHome(); renderDashboard();
+        toast(added > 0 ? `Chapter task added to plan` : 'Already in today\'s plan', added > 0 ? 'success' : 'info');
+        return;
+      }
+
       const addOneTopic = t => {
         if (t.done) {
-          // Already completed → add as a fresh revision custom task so it appears undone
           const label = `📖 Revise: ${t.name}`;
           const meta  = `${sub ? sub.name : ''} · ${ch.name}`;
           const full  = `${label} (${meta})`;
@@ -1289,7 +1473,6 @@
             added++;
           }
         } else {
-          // Not yet done → add as linked auto task (checking it off marks the topic done)
           const key = autoKey(subId, chId, t.id);
           plan.removed = plan.removed.filter(k => k !== key);
           if (!plan.auto.find(a => a.subId === subId && a.chId === chId && a.tId === t.id)) {
@@ -1298,7 +1481,7 @@
         }
       };
       if (tId) { const t = findTopic(subId, chId, tId); if (t) addOneTopic(t); }
-      else { if (!ch.topics.length) { toast('No topics in this chapter yet', 'warn'); return; } for (const t of ch.topics) addOneTopic(t); }
+      else { for (const t of ch.topics) addOneTopic(t); }
       saveState(); renderHome(); renderDashboard();
       toast(added > 0 ? `${added} task${added > 1 ? 's' : ''} added to plan` : 'Already in today\'s plan', added > 0 ? 'success' : 'info');
       return;
@@ -1327,10 +1510,13 @@
     if (act === 'edit-topic') { closeDropdown(); const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) modalAddTopic(el.dataset.sub, el.dataset.ch, t); return; }
     if (act === 'del-topic') { closeDropdown(); const ch = findChapter(el.dataset.sub, el.dataset.ch); if (ch) { ch.topics = ch.topics.filter(t => t.id !== el.dataset.t); saveState(); renderAll(); toast('Topic deleted', 'danger'); } return; }
 
-    // Notes & Priority quick-edit
+    // Notes & Priority — separated
     if (act === 'open-subject-notes') { closeDropdown(); const sub = findSubject(el.dataset.id); if (sub) modalQuickNote(sub, sub.name, renderSyllabus); return; }
+    if (act === 'open-subject-priority') { closeDropdown(); const sub = findSubject(el.dataset.id); if (sub) modalQuickPriority(sub, sub.name, renderSyllabus); return; }
     if (act === 'open-chapter-notes') { closeDropdown(); const ch = findChapter(el.dataset.sub, el.dataset.ch); if (ch) modalQuickNote(ch, ch.name, renderSyllabus); return; }
+    if (act === 'open-chapter-priority') { closeDropdown(); const ch = findChapter(el.dataset.sub, el.dataset.ch); if (ch) modalQuickPriority(ch, ch.name, renderSyllabus); return; }
     if (act === 'open-topic-notes') { closeDropdown(); const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) modalQuickNote(t, t.name, renderSyllabus); return; }
+    if (act === 'open-topic-priority') { closeDropdown(); const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) modalQuickPriority(t, t.name, renderSyllabus); return; }
 
     // Focus sub-tab
     if (act === 'focus-subtab') { focusSubTab = el.dataset.stab; renderFocus(); return; }
@@ -1343,8 +1529,14 @@
       return;
     }
     if (act === 'focus-toggle') {
-      if (focusRunning) { clearInterval(focusTimer); focusTimer = null; focusRunning = false; }
-      else { focusRunning = true; focusTimer = setInterval(focusTick, 1000); }
+      if (focusRunning) {
+        clearInterval(focusTimer); focusTimer = null; focusRunning = false;
+      } else {
+        focusRunning = true;
+        focusTimer = setInterval(focusTick, 1000);
+        // Resume ambient sound on Start (user gesture = autoplay allowed)
+        resumeAmbientIfNeeded();
+      }
       renderFocus(); return;
     }
     if (act === 'focus-reset') { clearInterval(focusTimer); focusTimer = null; focusRunning = false; focusSeconds = customDurations[focusMode] * 60; renderFocus(); document.title = 'Syllabus Tracker'; return; }
@@ -1359,7 +1551,10 @@
     if (act === 'exit-full-session') { exitFullSession(); stopAmbient(); ambientMode = 'none'; return; }
     if (act === 'fs-toggle') {
       if (focusRunning) { clearInterval(focusTimer); focusTimer = null; focusRunning = false; }
-      else { focusRunning = true; focusTimer = setInterval(focusTick, 1000); }
+      else {
+        focusRunning = true; focusTimer = setInterval(focusTick, 1000);
+        resumeAmbientIfNeeded();
+      }
       renderFullSession(); return;
     }
     if (act === 'fs-cycle-ambient') {
@@ -1462,12 +1657,10 @@
     }
   });
 
-  // Exit FS session when browser leaves fullscreen (e.g. user presses Esc natively)
   document.addEventListener('fullscreenchange', () => {
     if (!document.fullscreenElement && fsSessionActive) { exitFullSession(); }
   });
 
-  // beforeunload warning when timer is running
   window.addEventListener('beforeunload', e => { if (focusRunning && focusLocked) { e.preventDefault(); e.returnValue = 'Focus timer is running. Leave?'; } });
 
   // Mobile keyboard adjustment
@@ -1479,12 +1672,23 @@
     });
   }
 
+  // Page visibility — refresh quote when tab becomes visible again
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      const homeView = document.getElementById('view-home');
+      if (homeView && homeView.classList.contains('active')) {
+        nextMotivationQuote();
+      }
+    }
+  });
+
   // ========== Init ==========
   function init() {
     switchTab('home');
     renderAll();
     renderFocus();
     startTimers();
+    startMotivationRotation();
     setTimeout(maybeAutoShowBurnoutPopup, 2500);
   }
 
