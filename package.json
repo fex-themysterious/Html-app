@@ -1,0 +1,12 @@
+{
+  "name": "syllabus-tracker-pwa",
+  "version": "1.0.0",
+  "description": "Offline-capable PWA for tracking study progress",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
