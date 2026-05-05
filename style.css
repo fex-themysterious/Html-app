@@ -1484,3 +1484,112 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   border-radius: 7px;
   border: 1px solid rgba(110,231,183,0.18);
 }
+
+/* ── Classroom Quick Launch Bar ──────────────────────────────── */
+.cls-quicklaunch {
+  background: linear-gradient(135deg, rgba(77,168,255,0.08), rgba(167,139,250,0.06));
+  border: 1px solid rgba(77,168,255,0.22);
+  border-radius: 18px;
+  padding: 16px 17px 13px;
+  margin-bottom: 18px;
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  box-shadow: 0 2px 20px rgba(77,168,255,0.07), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+.cls-ql-label {
+  font-size: 10px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: #4da8ff; margin-bottom: 10px;
+}
+.cls-ql-row {
+  display: flex; gap: 8px; align-items: center;
+}
+.cls-url-input {
+  flex: 1; min-width: 0;
+  background: rgba(255,255,255,0.06);
+  border: 1.5px solid rgba(77,168,255,0.28);
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 14px; font-family: inherit;
+  padding: 11px 14px;
+  outline: none;
+  transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
+  -webkit-appearance: none;
+}
+.cls-url-input:focus {
+  border-color: rgba(77,168,255,0.65);
+  background: rgba(77,168,255,0.07);
+  box-shadow: 0 0 0 3px rgba(77,168,255,0.10);
+}
+.cls-url-input::placeholder { color: var(--text-muted); }
+.cls-open-btn {
+  background: linear-gradient(135deg, #4da8ff, #818cf8);
+  color: #fff; border: none;
+  border-radius: 12px; padding: 11px 18px;
+  font-size: 14px; font-weight: 700; font-family: inherit;
+  cursor: pointer; flex-shrink: 0;
+  transition: filter 0.18s, transform 0.12s, box-shadow 0.18s;
+  box-shadow: 0 3px 14px rgba(77,168,255,0.30);
+}
+.cls-open-btn:hover  { filter: brightness(1.12); box-shadow: 0 4px 20px rgba(77,168,255,0.45); }
+.cls-open-btn:active { transform: scale(0.94); }
+.cls-ql-last {
+  font-size: 11px; color: var(--text-muted); margin-top: 9px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cls-ql-last span { color: rgba(167,139,250,0.85); font-weight: 600; }
+
+/* ── External video card thumbnail ──────────────────────────── */
+.video-thumb-external {
+  background: linear-gradient(135deg, rgba(77,168,255,0.12), rgba(167,139,250,0.10));
+  border: 1px solid rgba(77,168,255,0.15);
+  font-size: 26px;
+}
+
+/* ── Split-Screen Player Layout ─────────────────────────────── */
+.vp-split {
+  flex: 1; display: flex; flex-direction: column;
+  overflow: hidden; min-height: 0;
+}
+.vp-main {
+  flex: 1; overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+}
+.vp-notes-col {
+  display: none;
+  overflow-y: auto; flex-shrink: 0;
+  overscroll-behavior-y: contain;
+  border-top: 1px solid var(--border);
+  background: rgba(255,255,255,0.015);
+}
+.vp-notes-mobile { display: block; }
+
+/* Desktop / landscape: show notes as right column */
+@media (min-width: 700px) {
+  .vp-split { flex-direction: row; }
+  .vp-main  { min-width: 0; }
+  .vp-notes-col {
+    display: block;
+    width: 340px; border-top: none;
+    border-left: 1px solid var(--border);
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+  }
+  .vp-notes-mobile { display: none; }
+}
+@media (min-width: 900px) {
+  .vp-notes-col { width: 380px; }
+}
+
+/* ── Embedding blocked hint ──────────────────────────────────── */
+.vp-ext-hint {
+  display: flex; align-items: flex-start; gap: 8px;
+  margin: 10px 15px 0;
+  padding: 10px 13px;
+  background: rgba(245,158,11,0.08);
+  border: 1px solid rgba(245,158,11,0.22);
+  border-radius: 10px;
+  font-size: 12px; line-height: 1.5;
+  color: rgba(245,158,11,0.9);
+}
+.vp-ext-hint strong { color: rgba(245,158,11,1); }

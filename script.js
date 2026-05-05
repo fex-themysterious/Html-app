@@ -648,11 +648,19 @@
     return { videoId: videoId ? videoId.trim() : null, playlistId: playlistId ? playlistId.trim() : null };
   }
   function ytThumb(videoId) { return `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`; }
-  function ytEmbedUrl(item) {
+  function ytEmbedUrl(item) { return buildEmbedUrl(item); }
+  function buildEmbedUrl(item) {
     if (item.type === 'playlist' && item.playlistId) return `https://www.youtube.com/embed/videoseries?list=${item.playlistId}&autoplay=1`;
     if (item.videoId) return `https://www.youtube.com/embed/${item.videoId}?autoplay=1&enablejsapi=1`;
+    if (item.url) return item.url;
     return '';
   }
+  function extractSiteName(url) {
+    try { return new URL(url).hostname.replace(/^www\./, ''); } catch(e) { return 'External'; }
+  }
+
+  let _classroomLastUrl = '';
+  try { _classroomLastUrl = localStorage.getItem('cls_last_url') || ''; } catch(e) {}
   async function fetchYouTubeTitle(url) {
     try {
       const endpoint = `https://noembed.com/embed?url=${encodeURIComponent(url)}`;
@@ -1253,30 +1261,41 @@
   // ========== Classroom ==========
   function renderClassroom() {
     const groups = (state.classroom && state.classroom.groups) || [];
-    return `<div class="classroom-view"><div class="section-head"><h2>Classroom</h2><button class="btn" data-act="add-classroom-group">${ic('plus')} New Group</button></div>${!groups.length ? `<div class="classroom-empty"><div style="font-size:32px;margin-bottom:8px">🎓</div><div>Save YouTube videos and playlists for quick access during study sessions.</div><button class="btn" style="margin-top:12px" data-act="add-classroom-group">${ic('plus')} Create a group</button></div>` : groups.map(g => renderClassroomGroup(g)).join('')}</div>`;
+    const lastShort = _classroomLastUrl ? (_classroomLastUrl.length > 52 ? _classroomLastUrl.slice(0, 52) + '…' : _classroomLastUrl) : '';
+    const quickLaunch = `<div class="cls-quicklaunch">
+      <div class="cls-ql-label">⚡ Quick Launch</div>
+      <div class="cls-ql-row">
+        <input class="cls-url-input" id="cls-url-input" type="url" placeholder="Paste any video or course URL (YouTube, Udemy, Khan Academy…)" value="${escapeHTML(_classroomLastUrl)}"/>
+        <button class="cls-open-btn" data-act="cls-open-url">▶ Open</button>
+      </div>
+      ${lastShort ? `<div class="cls-ql-last">Last opened: <span>${escapeHTML(lastShort)}</span></div>` : ''}
+    </div>`;
+    return `<div class="classroom-view">${quickLaunch}<div class="section-head" style="margin-top:4px"><h2>Saved Content</h2><button class="btn" data-act="add-classroom-group">${ic('plus')} New Group</button></div>${!groups.length ? `<div class="classroom-empty"><div style="font-size:32px;margin-bottom:8px">🎓</div><div>Save YouTube videos, playlists, or course links for quick access.</div><button class="btn" style="margin-top:12px" data-act="add-classroom-group">${ic('plus')} Create a group</button></div>` : groups.map(g => renderClassroomGroup(g)).join('')}</div>`;
   }
   function renderClassroomGroup(group) {
     return `<div class="classroom-group"><div class="classroom-group-head"><span class="classroom-group-icon">📂</span><h3>${escapeHTML(group.name)}</h3><button class="menu-btn" data-act="add-classroom-item" data-gid="${group.id}" title="Add video">${ic('plus')}</button><button class="menu-btn" data-act="del-classroom-group" data-gid="${group.id}" title="Delete group">${ic('trash')}</button></div>${!group.items.length ? `<div class="muted" style="font-size:13px;padding:8px 0">No videos yet. Click + to add one.</div>` : `<div class="video-grid">${group.items.map(item => renderVideoCard(group.id, item)).join('')}</div>`}</div>`;
   }
   function renderVideoCard(groupId, item) {
     const thumb = item.thumbnailUrl || (item.videoId ? ytThumb(item.videoId) : null);
+    const typeLabel = item.type === 'playlist' ? '📋 Playlist' : item.type === 'external' ? `🌐 ${extractSiteName(item.url)}` : '🎬 Video';
+    const thumbIcon = item.type === 'playlist' ? '📋' : item.type === 'external' ? '🌐' : '▶️';
     return `<div class="video-card" data-act="play-video" data-gid="${groupId}" data-iid="${item.id}">
       <button class="video-del-btn" data-act="del-classroom-item" data-gid="${groupId}" data-iid="${item.id}" title="Remove">×</button>
       <button class="video-edit-btn" data-act="edit-classroom-item" data-gid="${groupId}" data-iid="${item.id}" title="Edit">✏️</button>
-      ${thumb ? `<img class="video-thumb" src="${thumb}" alt="${escapeHTML(item.title)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/><div class="video-thumb-placeholder" style="display:none">${item.type === 'playlist' ? '📋' : '▶️'}</div>` : `<div class="video-thumb-placeholder">${item.type === 'playlist' ? '📋' : '▶️'}</div>`}
+      ${thumb ? `<img class="video-thumb" src="${thumb}" alt="${escapeHTML(item.title)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/><div class="video-thumb-placeholder" style="display:none">${thumbIcon}</div>` : `<div class="video-thumb-placeholder ${item.type === 'external' ? 'video-thumb-external' : ''}">${thumbIcon}</div>`}
       <div class="video-info">
         <div class="video-title">${escapeHTML(item.title)}</div>
         ${item.description ? `<div class="video-desc">${escapeHTML(item.description)}</div>` : ''}
-        <div class="video-type">${item.type === 'playlist' ? '📋 Playlist' : '🎬 Video'}</div>
+        <div class="video-type">${typeLabel}</div>
       </div>
     </div>`;
   }
   function modalEditClassroomItem(groupId, itemId) {
     const group = (state.classroom.groups || []).find(g => g.id === groupId); if (!group) return;
     const item = group.items.find(i => i.id === itemId); if (!item) return;
-    openModal(`<h3>✏️ Edit Video / Playlist</h3>
+    openModal(`<h3>✏️ Edit Content</h3>
       <div class="field"><label>Title</label><input id="m-title" value="${escapeHTML(item.title)}" maxlength="120" placeholder="Custom title"/></div>
-      <div class="field"><label>YouTube URL</label><input id="m-url" type="url" value="${escapeHTML(item.url)}" placeholder="https://youtube.com/watch?v=..."/></div>
+      <div class="field"><label>URL <span style="color:var(--text-muted);font-weight:400;font-size:11px">— YouTube, course site, any video link</span></label><input id="m-url" type="url" value="${escapeHTML(item.url)}" placeholder="https://…"/></div>
       <div class="field"><label>Description / Notes (optional)</label><textarea id="m-desc" maxlength="300" placeholder="Add notes, timestamps, what to focus on…">${escapeHTML(item.description || '')}</textarea></div>
       <div class="field"><label>Preview</label>${(item.thumbnailUrl || item.videoId) ? `<img src="${item.thumbnailUrl || ytThumb(item.videoId)}" style="width:100%;border-radius:8px;margin-top:4px" alt="thumb" onerror="this.style.display='none'"/>` : '<span style="color:var(--text-muted);font-size:13px">No preview available</span>'}</div>
       <div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn" id="m-save">Save Changes</button></div>`,
@@ -1287,11 +1306,12 @@
           if (!title) { toast('Title required', 'warn'); return; }
           if (!url) { toast('URL required', 'warn'); return; }
           const { videoId, playlistId } = parseYouTubeUrl(url);
+          const prevUrl = item.url;
           item.title = title; item.url = url;
           item.videoId = videoId || null; item.playlistId = playlistId || null;
-          item.type = (playlistId && !videoId) ? 'playlist' : 'video';
+          item.type = (playlistId && !videoId) ? 'playlist' : videoId ? 'video' : 'external';
           item.description = root.querySelector('#m-desc').value.trim();
-          if (url !== item.url || !item.thumbnailUrl) {
+          if (url !== prevUrl || !item.thumbnailUrl) {
             const { thumbnailUrl } = await fetchYouTubeTitle(url);
             item.thumbnailUrl = thumbnailUrl || item.thumbnailUrl || (videoId ? ytThumb(videoId) : '');
           }
@@ -1305,11 +1325,11 @@
   }
   function modalAddClassroomItem(groupId) {
     const group = (state.classroom.groups || []).find(g => g.id === groupId); if (!group) return;
-    openModal(`<h3>Add Video / Playlist</h3>
+    openModal(`<h3>Add Video / Course Link</h3>
       <div class="add-video-form">
         <div class="field">
-          <label>YouTube URL</label>
-          <input id="m-url" type="url" placeholder="https://youtube.com/watch?v=... or youtu.be/..."/>
+          <label>URL <span style="color:var(--text-muted);font-weight:400;font-size:11px">— YouTube, Udemy, Coursera, any link</span></label>
+          <input id="m-url" type="url" placeholder="https://…"/>
         </div>
         <div class="field">
           <label>Title <span id="m-title-status" style="font-size:10px;color:var(--text-muted)"></span></label>
@@ -1326,39 +1346,40 @@
         const titleInput = root.querySelector('#m-title');
         const statusEl = root.querySelector('#m-title-status');
         let fetchTimeout = null;
-
         let _fetchedThumb = null;
 
         urlInput.addEventListener('input', () => {
           clearTimeout(fetchTimeout);
           fetchTimeout = setTimeout(async () => {
             const url = urlInput.value.trim();
-            if (!url || (!url.includes('youtube.com') && !url.includes('youtu.be'))) return;
-            statusEl.textContent = '⏳ Fetching title…';
-            const { title, thumbnailUrl } = await fetchYouTubeTitle(url);
-            _fetchedThumb = thumbnailUrl || null;
-            if (title && !titleInput.value.trim()) {
-              titleInput.value = title;
-              statusEl.textContent = '✅ Auto-fetched';
-            } else if (!title) {
-              statusEl.textContent = '⚠️ Could not fetch — enter manually';
+            if (!url) return;
+            if (url.includes('youtube.com') || url.includes('youtu.be')) {
+              statusEl.textContent = '⏳ Fetching title…';
+              const { title, thumbnailUrl } = await fetchYouTubeTitle(url);
+              _fetchedThumb = thumbnailUrl || null;
+              if (title && !titleInput.value.trim()) { titleInput.value = title; statusEl.textContent = '✅ Auto-fetched'; }
+              else if (!title) { statusEl.textContent = '⚠️ Could not fetch — enter manually'; }
+              else { statusEl.textContent = ''; }
             } else {
-              statusEl.textContent = '';
+              // For external sites, suggest the domain as title
+              if (!titleInput.value.trim()) {
+                try { titleInput.value = new URL(url).hostname.replace(/^www\./, ''); } catch(e) {}
+              }
+              statusEl.textContent = '🌐 External course link';
             }
-          }, 600);
+          }, 500);
         });
 
         root.querySelector('#m-save').onclick = () => {
           const url = urlInput.value.trim();
-          if (!url) { toast('Enter a YouTube URL', 'warn'); return; }
+          if (!url) { toast('Enter a URL', 'warn'); return; }
           const { videoId, playlistId } = parseYouTubeUrl(url);
-          if (!videoId && !playlistId) { toast('Could not find a YouTube video or playlist ID in that URL', 'danger'); return; }
-          const type = (playlistId && !videoId) ? 'playlist' : 'video';
+          const type = (playlistId && !videoId) ? 'playlist' : videoId ? 'video' : 'external';
           const titleVal = titleInput.value.trim();
-          const title = titleVal || (type === 'playlist' ? 'Playlist' : 'Video');
+          const title = titleVal || (type === 'playlist' ? 'Playlist' : type === 'external' ? extractSiteName(url) : 'Video');
           const description = root.querySelector('#m-desc').value.trim();
           const thumbnailUrl = _fetchedThumb || (videoId ? ytThumb(videoId) : '');
-          group.items.push({ id: uid(), title, url, videoId: videoId || null, playlistId: playlistId || null, type, addedAt: todayKey(), description, thumbnailUrl });
+          group.items.push({ id: uid(), title, url, videoId: videoId || null, playlistId: playlistId || null, type, addedAt: todayKey(), description, thumbnailUrl, notes: [] });
           saveState(); closeModal(); renderFocus(); toast('Added to classroom', 'success');
         };
       });
@@ -1497,44 +1518,72 @@
     </div>`;
   }
 
-  function openVideoPlayer(groupId, itemId) {
-    const group = (state.classroom.groups || []).find(g => g.id === groupId); if (!group) return;
-    const item = group.items.find(i => i.id === itemId); if (!item) return;
-    const embedUrl = ytEmbedUrl(item);
-    if (!embedUrl) { window.open(item.url, '_blank', 'noopener'); return; }
+  function _buildPlayerOverlay(item, group, groupId, itemId) {
+    const embedUrl = buildEmbedUrl(item);
+    const isExternal = item.type === 'external';
+    const typeLabel = item.type === 'playlist' ? '📋 Playlist' : isExternal ? `🌐 ${extractSiteName(item.url)}` : '🎬 Video';
+    const extHint = isExternal
+      ? `<div class="vp-ext-hint">💡 If this page doesn't load, the site may block embedding. Use the <strong>↗ Open</strong> button to open it in your browser.</div>`
+      : '';
 
-    document.getElementById('vp-overlay')?.remove();
-
-    const playlistHTML = group.items.length > 1
+    const playlistHTML = (group && group.items.length > 1)
       ? `<div class="vp-playlist-section">
            <div class="vp-playlist-label">${escapeHTML(group.name)}</div>
            <div class="vp-playlist">${group.items.map(it => vpPlaylistItemHTML(it, groupId, it.id === itemId)).join('')}</div>
          </div>`
       : '';
 
+    const notesSection = vpNotesHTML(groupId || '__quick__', item);
+
+    return `
+      <div class="vp-header">
+        <button class="vp-back-btn" data-act="vp-close" aria-label="Back">${SVG_BACK}</button>
+        <div class="vp-header-title">${escapeHTML(item.title)}</div>
+        <a href="${escapeHTML(item.url)}" target="_blank" rel="noopener" class="vp-yt-btn" title="Open externally">${SVG_EXTLINK}</a>
+      </div>
+      <div class="vp-split">
+        <div class="vp-main">
+          <div class="vp-embed-wrap">
+            <iframe id="vp-iframe" src="${embedUrl}" allow="autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write" allowfullscreen sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation" title="${escapeHTML(item.title)}"></iframe>
+          </div>
+          ${extHint}
+          <div class="vp-info">
+            <div class="vp-info-type">${typeLabel}</div>
+            <div class="vp-info-title">${escapeHTML(item.title)}</div>
+            ${item.description ? `<div class="vp-info-desc">${escapeHTML(item.description)}</div>` : ''}
+          </div>
+          ${playlistHTML}
+          <div class="vp-notes-mobile">${notesSection}</div>
+        </div>
+        <div class="vp-notes-col" id="vp-notes-col">${notesSection}</div>
+      </div>`;
+  }
+
+  function openVideoPlayer(groupId, itemId, _directItem) {
+    let group = null, item = null;
+    if (_directItem) {
+      item = _directItem;
+    } else {
+      group = (state.classroom.groups || []).find(g => g.id === groupId); if (!group) return;
+      item = group.items.find(i => i.id === itemId); if (!item) return;
+    }
+    if (!item.url) return;
+
+    document.getElementById('vp-overlay')?.remove();
     const el = document.createElement('div');
     el.id = 'vp-overlay';
-    el.innerHTML = `
-      <div class="vp-header">
-        <button class="vp-back-btn" data-act="vp-close" aria-label="Back to classroom">${SVG_BACK}</button>
-        <div class="vp-header-title">${escapeHTML(item.title)}</div>
-        <a href="${escapeHTML(item.url)}" target="_blank" rel="noopener" class="vp-yt-btn" title="Open in YouTube">${SVG_EXTLINK}</a>
-      </div>
-      <div class="vp-body">
-        <div class="vp-embed-wrap">
-          <iframe id="vp-iframe" src="${embedUrl}" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscreen title="${escapeHTML(item.title)}"></iframe>
-        </div>
-        <div class="vp-info">
-          <div class="vp-info-type">${item.type === 'playlist' ? '📋 Playlist' : '🎬 Video'}</div>
-          <div class="vp-info-title">${escapeHTML(item.title)}</div>
-          ${item.description ? `<div class="vp-info-desc">${escapeHTML(item.description)}</div>` : ''}
-        </div>
-        ${playlistHTML}
-        ${vpNotesHTML(groupId, item)}
-      </div>`;
+    el.innerHTML = _buildPlayerOverlay(item, group, groupId, itemId);
     document.body.appendChild(el);
     document.body.style.overflow = 'hidden';
     if (item.videoId) { loadYTApi(); setTimeout(tryBindYTPlayer, 900); }
+  }
+
+  function openQuickPlayer(url) {
+    const { videoId, playlistId } = parseYouTubeUrl(url);
+    const type = (playlistId && !videoId) ? 'playlist' : videoId ? 'video' : 'external';
+    const title = type === 'external' ? extractSiteName(url) : type === 'playlist' ? 'Playlist' : 'Video';
+    const item = { id: '__quick__', title, url, videoId: videoId || null, playlistId: playlistId || null, type, notes: [], description: '' };
+    openVideoPlayer(null, null, item);
   }
 
   function closeVideoPlayer() {
@@ -1547,8 +1596,10 @@
   function switchVideoInPlayer(groupId, itemId) {
     const group = (state.classroom.groups || []).find(g => g.id === groupId); if (!group) return;
     const item = group.items.find(i => i.id === itemId); if (!item) return;
-    const embedUrl = ytEmbedUrl(item);
+    const embedUrl = buildEmbedUrl(item);
     if (!embedUrl) { window.open(item.url, '_blank', 'noopener'); return; }
+    const isExternal = item.type === 'external';
+    const typeLabel = item.type === 'playlist' ? '📋 Playlist' : isExternal ? `🌐 ${extractSiteName(item.url)}` : '🎬 Video';
 
     // Swap iframe
     const iframe = document.getElementById('vp-iframe');
@@ -1564,7 +1615,7 @@
     const infoType  = document.querySelector('.vp-info-type');
     const infoTitle = document.querySelector('.vp-info-title');
     const infoDesc  = document.querySelector('.vp-info-desc');
-    if (infoType)  infoType.textContent  = item.type === 'playlist' ? '📋 Playlist' : '🎬 Video';
+    if (infoType)  infoType.textContent  = typeLabel;
     if (infoTitle) infoTitle.textContent = item.title;
     if (infoDesc)  { infoDesc.textContent = item.description || ''; infoDesc.style.display = item.description ? '' : 'none'; }
 
@@ -1579,16 +1630,19 @@
         : `<div class="vp-playlist-play">${SVG_PLAY}</div>`;
     });
 
-    // Update notes section for new video
-    const oldNotes = document.getElementById('vp-notes-section');
-    if (oldNotes) oldNotes.outerHTML = vpNotesHTML(groupId, item);
+    // Update both notes columns (desktop col + mobile)
+    const newNotes = vpNotesHTML(groupId, item);
+    const desktopCol = document.getElementById('vp-notes-col');
+    if (desktopCol) desktopCol.innerHTML = newNotes;
+    const mobileNotes = document.querySelector('.vp-notes-mobile');
+    if (mobileNotes) mobileNotes.innerHTML = newNotes;
 
     // Rebind YT player to new video
     _ytPlayer = null; _ytPlayerReady = false; _ytPlayerState = -1;
     if (item.videoId) setTimeout(tryBindYTPlayer, 900);
 
-    // Scroll embed back into view
-    document.querySelector('#vp-overlay .vp-body')?.scrollTo({ top: 0, behavior: 'smooth' });
+    // Scroll main panel back to top
+    document.querySelector('#vp-overlay .vp-main')?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   // ========== Revision ==========
@@ -2209,6 +2263,27 @@
       startAmbient(ambientMode); renderFullSession(); return;
     }
 
+    // Classroom — quick launch
+    if (act === 'cls-open-url') {
+      const input = document.getElementById('cls-url-input');
+      const url = (input && input.value.trim()) || _classroomLastUrl;
+      if (!url) { toast('Paste a URL first', 'warn'); return; }
+      _classroomLastUrl = url;
+      try { localStorage.setItem('cls_last_url', url); } catch(e) {}
+      openQuickPlayer(url);
+      return;
+    }
+    // Also handle Enter key in the URL input
+    if (act === 'cls-url-go') {
+      const input = document.getElementById('cls-url-input');
+      const url = input && input.value.trim();
+      if (!url) return;
+      _classroomLastUrl = url;
+      try { localStorage.setItem('cls_last_url', url); } catch(e) {}
+      openQuickPlayer(url);
+      return;
+    }
+
     // Classroom
     if (act === 'add-classroom-group') { modalAddClassroomGroup(); return; }
     if (act === 'add-classroom-item') { modalAddClassroomItem(el.dataset.gid); return; }
@@ -2269,11 +2344,8 @@
       if (!Array.isArray(item.notes)) item.notes = [];
       item.notes.push({ id: uid(), ts, label });
       saveState();
-      const notesList = document.getElementById('vp-notes-list');
-      if (notesList) {
-        const notes = item.notes.slice().sort((a, b) => a.ts - b.ts);
-        notesList.innerHTML = notes.map(n => vpNoteCardHTML(gid, iid, n)).join('');
-      }
+      const notes = item.notes.slice().sort((a, b) => a.ts - b.ts);
+      document.querySelectorAll('#vp-notes-list').forEach(nl => { nl.innerHTML = notes.map(n => vpNoteCardHTML(gid, iid, n)).join(''); });
       form.style.display = 'none';
       const t = document.getElementById('vp-bm-time'); if (t) t.value = '';
       const l = document.getElementById('vp-bm-label'); if (l) l.value = '';
@@ -2293,13 +2365,11 @@
       if (!item || !Array.isArray(item.notes)) return;
       item.notes = item.notes.filter(n => n.id !== nid);
       saveState();
-      const notesList = document.getElementById('vp-notes-list');
-      if (notesList) {
-        const notes = item.notes.slice().sort((a, b) => a.ts - b.ts);
-        notesList.innerHTML = notes.length
-          ? notes.map(n => vpNoteCardHTML(gid, iid, n)).join('')
-          : '<div class="vp-notes-empty">No bookmarks yet — tap Bookmark to save a moment</div>';
-      }
+      const notes = item.notes.slice().sort((a, b) => a.ts - b.ts);
+      const emptyMsg = '<div class="vp-notes-empty">No bookmarks yet — tap Bookmark to save a moment</div>';
+      document.querySelectorAll('#vp-notes-list').forEach(nl => {
+        nl.innerHTML = notes.length ? notes.map(n => vpNoteCardHTML(gid, iid, n)).join('') : emptyMsg;
+      });
       return;
     }
 
@@ -2387,6 +2457,14 @@
       if (document.getElementById('vp-overlay')) { closeVideoPlayer(); return; }
       if (fsSessionActive) { exitFullSession(); stopAmbient(); ambientMode = 'none'; }
       else closeModal();
+    }
+    if (e.key === 'Enter' && e.target && e.target.id === 'cls-url-input') {
+      e.preventDefault();
+      const url = e.target.value.trim();
+      if (!url) return;
+      _classroomLastUrl = url;
+      try { localStorage.setItem('cls_last_url', url); } catch(ex) {}
+      openQuickPlayer(url);
     }
   });
 

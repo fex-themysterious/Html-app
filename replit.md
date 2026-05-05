@@ -4,20 +4,19 @@ A clean, offline-capable Progressive Web App for tracking study progress.
 **Stack: pure HTML + CSS + Vanilla JS only — NO TypeScript, React, frameworks, or build tools.**
 
 ## Tech Stack
-- **Frontend**: `index.html` + `style.css?v=7` + `script.js?v=7` — all plain, runs directly in browser
+- **Frontend**: `index.html` + `style.css?v=9` + `script.js?v=9` — all plain, runs directly in browser
 - **Server**: `server.js` — Node.js `http` module, port 5000, host `0.0.0.0`
-- **Storage**: `localStorage` (key: `syllabus_tracker_v2`)
-- **PWA**: `manifest.json` + `sw.js` (cache-first, cache name: `syllabus-tracker-v12`)
+- **Storage**: `localStorage` (key: `syllabus_tracker_v2`); `cls_last_url` for Quick Launch memory
+- **PWA**: `manifest.json` + `sw.js` (cache-first, cache name: `syllabus-tracker-v14`)
 - **Charts**: Chart.js 4.4.7 loaded from CDN (jsdelivr) — degrades gracefully offline
-- **Zoom**: enabled (`user-scalable=no` removed)
 
 ## File Structure
 ```
 index.html        # App shell — 6 views, bottom nav, modal/toast anchors, lock-overlay
-style.css         # All styles (dark theme, responsive, mobile landscape/portrait)
-script.js         # Complete app logic — single IIFE, ~2100 lines
+style.css         # All styles (dark theme, responsive, split-screen player, quick-launch bar)
+script.js         # Complete app logic — single IIFE, ~2510 lines
 manifest.json     # PWA manifest with SVG icons
-sw.js             # Service worker — cache-first, cache name v11
+sw.js             # Service worker — cache-first, cache name v14
 server.js         # Static file server (unchanged)
 sounds/           # Ambient audio files (.mp3, .m4a)
 ```
@@ -28,66 +27,48 @@ sounds/           # Ambient audio files (.mp3, .m4a)
 | Home | `view-home` | Hero cards (exam countdown + progress ring), Today's Plan, Plan Adder |
 | Dashboard (Board) | `view-dashboard` | Goals, Smart Suggestions, Weak Areas, Burnout Banner |
 | Syllabus | `view-syllabus` | Subject/Chapter/Topic CRUD with expandable tree |
-| Focus | `view-focus` | Sub-tabs: Timer (Pomodoro) + Classroom (YouTube) |
+| Focus | `view-focus` | Sub-tabs: Timer (Pomodoro) + Classroom |
 | Revision (Revise) | `view-revision` | Spaced repetition — due today + upcoming |
 | Stats | `view-stats` | **Premium dashboard** — glass cards, Chart.js charts, heatmap, doughnut |
 
-## Stats / Analytics Features (Premium)
-- **3 Glassmorphism metric cards**: Total Focus Time, Pomodoros count, Student Rank
-- **Rank system**: Rookie (<5h) → Scholar (5h) → Aviator (15h) → Captain (30h) → Commander (60h) → Ace Student (100h)
-- **Weekly Focus Chart**: Chart.js bar chart, last 7 days of focus minutes (today highlighted)
-- **Focus Heatmap**: 35-cell CSS grid (5 weeks, Sun–Sat aligned), color-coded by focus minutes
-- **Subject Distribution Doughnut**: Chart.js doughnut chart by completed topic count per subject
-- **Compact stat tiles**: 3 rows of 4 tiles each (overall %, streak, consistency, active days, topics, weak, revisions, sessions)
-- **Study Consistency card**, **Exam Readiness**, **By Subject** cards all retained
-- `initStatsCharts(days7, pieSubjects)` — called after `view.innerHTML` set; uses `Chart.getChart()` to destroy stale instances before re-creating
+## Classroom: Universal Web-Player
+- **Quick Launch bar** (`cls-quicklaunch`): Glassmorphic URL input at top of Classroom — paste any URL (YouTube, Udemy, Coursera, etc.) → press Enter or ▶ Open
+- **Remember Last Link**: `_classroomLastUrl` backed by `localStorage.getItem('cls_last_url')` — pre-fills input on revisit
+- **`buildEmbedUrl(item)`**: returns YT embed URL for YouTube items, raw `item.url` for `type:'external'`
+- **`openQuickPlayer(url)`**: detects YouTube vs external, builds synthetic item, calls `openVideoPlayer`
+- **`openVideoPlayer(groupId, itemId, _directItem?)`**: 3rd optional param allows direct item (no state lookup) for quick-launch
+- **Split-Screen Player**: `#vp-overlay` → `.vp-header` + `.vp-split` → `.vp-main` (scrollable, left) + `.vp-notes-col` (right, 340–380px on ≥700px screens); `.vp-notes-mobile` shown on mobile, hidden on desktop
+- **External type**: `type:'external'` stored for non-YouTube links; shown with 🌐 icon + domain name; iframe `sandbox` attribute added for safety; embedding-blocked hint shown (`vp-ext-hint`)
+- **Add/Edit modals**: Accept any URL, auto-detect YouTube vs external; external links auto-fill domain as title
 
 ## Classroom: Bookmark Moment Feature
-- **`🔖 Bookmark` button** appears in a `📍 Saved Notes` section below the video in the scrollable `.vp-body` (never covers the player on mobile)
-- **YT IFrame API**: `loadYTApi()` injects `youtube.com/iframe_api` script once; `window.onYouTubeIframeAPIReady` → `tryBindYTPlayer()` creates a `YT.Player` wrapping `#vp-iframe`; `getCurrentYTTime()` reads current playback seconds
-- **Embed URL**: `&enablejsapi=1` appended to all single-video embed URLs
-- **Auto-capture time**: tapping Bookmark pre-fills the time input from `YT.Player.getCurrentTime()` (falls back to empty if API not ready)
-- **Seek on click**: clicking a note card calls `seekVideoPlayer(ts)` — tries `YT.Player.seekTo()`, falls back to reloading iframe src with `?start=seconds`
-- **Delete**: `×` button on each card removes the note from state and re-renders the list
-- **Storage**: notes stored as `item.notes: [{ id, ts (seconds), label }]` inside each classroom item; migrated safely in `migrate()` with shape validation
-- **Player lifecycle**: `_ytPlayer` is nulled in `closeVideoPlayer()` and rebound after `switchVideoInPlayer()` with `setTimeout(tryBindYTPlayer, 900)`
-- **CSS classes**: `.vp-notes-section`, `.vp-notes-head`, `.vp-bookmark-btn`, `.vp-bookmark-form`, `.vp-bm-row`, `.vp-bm-input`, `.vp-bm-time`, `.vp-bm-label`, `.vp-bm-actions`, `.vp-note-card`, `.vp-note-ts`, `.vp-note-label`, `.vp-note-del`, `.vp-notes-empty`
+- **`🔖 Bookmark` button** in `.vp-notes-section` (inside `.vp-notes-col` on desktop, `.vp-notes-mobile` on mobile)
+- **YT IFrame API**: `loadYTApi()` → `tryBindYTPlayer()` → `YT.Player` on `#vp-iframe`; auto-capture time from `getCurrentYTTime()`
+- **Dual-column sync**: `document.querySelectorAll('#vp-notes-list')` — both desktop col and mobile section updated on save/delete
+- **Storage**: `item.notes: [{ id, ts, label }]`
 
-## Full Screen Focus Mode (In-Flight Animations)
-- **`.fs-bg-earth`**: slow-rotating Earth background on overlay
-- **`_genFsParticles()`**: floating star/cloud particles
-- **`.fs-is-running` class**: added to `#fs-overlay` when timer is running — triggers subtle jitter on `.fs-timer-wrap`
-- **`fs-time-glow` keyframe**: pulsing text glow on `.fs-time`
-- `updateFocusDisplay()` updates `#fs-time-display` and `#fs-ring-circle` for the overlay timer
+## Full Screen Focus Mode
+- **`.fs-bg-earth`** rotating Earth, `_genFsParticles()` stars, `.fs-is-running` jitter, `fs-time-glow` pulse
+- Mini floating timer bubble (`#focus-mini-timer`) shown when Multitask Mode is active
 
 ## Key Architecture
 - **Navigation**: `switchTab(tab)` — hides all `.view`, shows `#view-{tab}`, sets `body.tab-{tab}`
-- **Lock Mode guard**: `switchTab` checks `focusLocked && focusRunning` before allowing tab change
-- **Settings gear**: only visible on Dashboard via `body:not(.tab-dashboard) .settings-btn { display: none }`
-- **Event delegation**: single `document.addEventListener('click', …)` routes via `data-act` attributes
-- **Spaced repetition**: offsets [1, 3, 7] days after topic marked done
-- **Burnout detector**: inactivity ≥2 days or ≤1 active day in last 7
-- **Weak topic**: skipped ≥3 times OR ≥7 days stale and not done
-- **PWA cache**: cache-first for local assets; CDN resources (Chart.js, fonts) fetch from network
+- **Lock Mode guard**: `switchTab` checks `focusLocked && focusRunning`
+- **Event delegation**: single `document.addEventListener('click', …)` routes via `data-act`
+- **Enter key** on `#cls-url-input` triggers quick-launch via `keydown` listener
+- **Spaced repetition**: offsets [1, 3, 7] days; **Burnout detector**: inactivity ≥2 days
+- **PWA cache**: cache-first local; CDN fetch from network
 
-## State Shape
+## State Shape (key fields)
 ```js
 {
-  subjects: [{ id, name, color, notes, priority, chapters: [{ id, name, topics: [...] }] }],
-  exams: [{ id, name, date }],
-  motivationQuotes: [...],
-  streak: { count, lastDate },
-  activity: { 'YYYY-MM-DD': count },
-  dailyPlans: { 'YYYY-MM-DD': { auto, removed, custom, generated } },
-  smartReminder: { enabled, times, lastFired },
-  motivationReminders: { enabled, times, lastFired },
-  revisions: [...],
-  burnout: { installDate, popupDismissedDate, bannerDismissedDate },
-  goals: [...],
-  classroom: { groups: [{ id, name, items: [{ id, title, url, videoId, playlistId, type, addedAt, description, thumbnailUrl, notes: [{ id, ts, label }] }] }] },
+  classroom: { groups: [{ id, name, items: [{ id, title, url, videoId, playlistId,
+    type ('video'|'playlist'|'external'), addedAt, description, thumbnailUrl,
+    notes: [{ id, ts, label }] }] }] },
   focusStats: { sessions: { 'YYYY-MM-DD': count }, minutesByDate: { 'YYYY-MM-DD': minutes } }
 }
 ```
+`cls_last_url` stored separately in localStorage (not in state).
 
 ## Running
 Workflow: `Start application` → `node server.js` → port 5000
