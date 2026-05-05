@@ -937,16 +937,235 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .add-video-form input:focus { border-color: var(--border-focus); }
 
 /* ================================================================
-   LANDSCAPE / RESPONSIVE
+   LANDSCAPE MODE — FULL NO-SCROLL REDESIGN
+   Samsung Galaxy F23 5G and all phones in landscape (max-height ≤ 500px)
    ================================================================ */
 @media (orientation: landscape) and (max-height: 500px) {
-  .focus-ring-wrap { width: 150px; height: 150px; }
-  .focus-ring-time { font-size: 38px; }
-  .hero-grid { grid-template-columns: 1fr 1fr; }
-  .hero-card { min-height: 165px; padding: 15px; }
-  .hero-bignum { font-size: 50px; }
-  .ring-wrap { width: 120px; height: 120px; }
-  .ring-pct { font-size: 30px; }
+
+  /* ── Layout token reset ──────────────────────────────────────── */
+  :root { --nav-h: 0px; }
+  html, body { height: 100dvh; overflow: hidden; }
+
+  /* ── Left Navigation Rail ───────────────────────────────────── */
+  .bottom-nav {
+    position: fixed;
+    left: 0; top: 0; bottom: 0; right: auto;
+    width: 52px; height: 100dvh;
+    display: flex; flex-direction: column;
+    border-top: none;
+    border-right: 1px solid rgba(255,255,255,0.08);
+    padding: env(safe-area-inset-top, 6px) 0 env(safe-area-inset-bottom, 6px);
+    grid-template-columns: unset;
+    z-index: 50;
+  }
+  .nav-btn {
+    flex: 1;
+    padding: 4px 2px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    min-width: 0;
+  }
+  .nav-btn span { display: none; }
+  .nav-btn svg  { width: 20px; height: 20px; }
+  .nav-btn.active::after {
+    bottom: auto; left: 0; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 20px;
+    border-radius: 0 3px 3px 0;
+  }
+
+  /* ── App shell ──────────────────────────────────────────────── */
+  #app {
+    padding-left: 52px;
+    padding-bottom: 0;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  /* ── All views: scrollable within remaining viewport ────────── */
+  .view {
+    height: 100dvh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 8px 14px 12px;
+    max-width: none;
+    margin: 0;
+    -webkit-overflow-scrolling: touch;
+  }
+  .page-header { padding-top: 4px; margin-bottom: 8px; }
+  .page-header h1 { font-size: 18px; }
+  .page-header .subtitle { font-size: 11px; margin-top: 1px; }
+
+  /* ── Settings gear ──────────────────────────────────────────── */
+  .settings-btn { top: 8px; right: 10px; }
+
+  /* ── Backup reminder banner ─────────────────────────────────── */
+  .backup-reminder-banner { left: 52px; padding: 7px 12px; }
+  .brb-title { font-size: 12px; }
+  .brb-sub   { font-size: 10px; }
+
+  /* ── Mini floating timer bubble ─────────────────────────────── */
+  #focus-mini-timer { bottom: 10px; right: 12px; }
+
+  /* ═══════════════════════════════════════════════════════════════
+     HOME TAB — two-column hero cards
+     ═══════════════════════════════════════════════════════════════ */
+  .home-profile { padding-top: 4px; padding-bottom: 10px; gap: 10px; }
+  .home-profile-avatar { width: 38px; height: 38px; font-size: 16px; border-radius: 12px; }
+  .home-profile-name { font-size: 20px; letter-spacing: -0.5px; }
+  .home-profile-sub { font-size: 11px; margin-top: 1px; }
+  .home-profile-greeting { font-size: 11px; }
+  .motivation-line { font-size: 11px; margin-top: 2px; }
+
+  .hero-grid { grid-template-columns: 1fr 1fr !important; gap: 10px; margin-bottom: 10px; }
+  .hero-card { min-height: 120px; padding: 14px 14px 12px; }
+  .hero-bignum { font-size: 44px; }
+  .hero-bignum-unit { font-size: 16px; }
+  .hero-title { font-size: 15px; }
+  .hero-sub   { font-size: 11px; }
+
+  .ring-wrap { width: 100px; height: 100px; margin: 2px auto; }
+  .ring-pct  { font-size: 26px; }
+  .ring-pct span { font-size: 13px; }
+
+  /* ═══════════════════════════════════════════════════════════════
+     FOCUS TAB — TIMER: two-column, no-scroll
+     Left  → mode tabs + ring timer + controls
+     Right → current task + sessions + ambient sound
+     ═══════════════════════════════════════════════════════════════ */
+  body.tab-focus #view-focus.active {
+    height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    padding: 6px 12px 6px;
+    gap: 0;
+  }
+  .focus-sub-nav { margin-bottom: 7px; padding: 3px; flex-shrink: 0; }
+  .focus-sub-btn { padding: 6px 10px; font-size: 12px; }
+
+  /* 2-column grid for the timer view */
+  .focus-view {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto auto auto auto;
+    column-gap: 12px;
+    row-gap: 5px;
+    flex: 1;
+    overflow: hidden;
+    align-items: start;
+    min-height: 0;
+  }
+  /* LEFT column: mode tabs → edit → ring → buttons */
+  .focus-view .focus-mode-tabs  { grid-column: 1; grid-row: 1; margin-bottom: 0; flex-wrap: nowrap; }
+  .focus-view .focus-mode-edit  { grid-column: 1; grid-row: 2; margin-bottom: 0; }
+  .focus-view .focus-ring-wrap  { grid-column: 1; grid-row: 3; margin: 0 auto; width: 148px; height: 148px; }
+  .focus-view .focus-buttons    { grid-column: 1; grid-row: 4; margin-bottom: 0; }
+  /* RIGHT column: task → sessions → ambient → enter btn */
+  .focus-view .focus-task-bar           { grid-column: 2; grid-row: 1; margin-bottom: 0; }
+  .focus-view .focus-sessions-info      { grid-column: 2; grid-row: 2; }
+  .focus-view .ambient-panel            { grid-column: 2; grid-row: 3; margin-bottom: 0; }
+  .focus-view .fs-enter-btn             { grid-column: 2; grid-row: 4; padding: 9px; font-size: 12px; }
+  .focus-view .focus-multitask-toggle   { grid-column: 2; grid-row: 1; margin-bottom: 0; }
+  .focus-view .focus-multitask-card     { grid-column: 2; grid-row: 2; }
+
+  /* Timer ring + text scaling */
+  .focus-ring-wrap { background: rgba(255,255,255,0.02); }
+  .focus-ring-time { font-size: 36px; letter-spacing: -2px; }
+  .focus-ring-mode { font-size: 9px; margin-top: 3px; }
+  .focus-mode-btn  { padding: 5px 10px; font-size: 11px; }
+  .focus-mode-edit-item { padding: 4px 7px; }
+  .focus-mode-edit-item input { font-size: 12px; width: 34px; }
+  .focus-mode-edit-item label, .focus-mode-edit-item span { font-size: 9px; }
+  .focus-buttons button { padding: 8px 12px; font-size: 12px; min-width: 70px; }
+  .focus-lock-btn { padding: 7px 11px; font-size: 11px; }
+
+  /* Right-col items */
+  .focus-sessions-info { padding: 10px 13px; }
+  .focus-sessions-info .v { font-size: 18px; }
+  .focus-sessions-info .k { font-size: 10px; }
+  .focus-task-bar  { padding: 9px 12px; }
+  .focus-task-bar select { font-size: 12px; padding: 7px 10px; }
+  .ambient-panel-top { margin-bottom: 5px; min-height: 20px; }
+  .ambient-now-label { font-size: 11px; }
+  .ambient-track-list { gap: 4px; }
+  .ambient-btn  { padding: 4px 9px; font-size: 11px; }
+  .ambient-cat-label { font-size: 9px; margin-top: 4px; }
+  .ambient-vol input[type=range] { width: 60px; }
+
+  /* ═══════════════════════════════════════════════════════════════
+     FULLSCREEN FOCUS OVERLAY — 2-column landscape layout
+     Left  → mode badge + giant timer ring
+     Right → current task + controls + hint
+     ═══════════════════════════════════════════════════════════════ */
+  #fs-overlay .fs-content {
+    display: grid !important;
+    flex-direction: unset;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: auto auto auto;
+    column-gap: 28px;
+    row-gap: 10px;
+    max-width: 100%;
+    padding: 14px 32px;
+    align-items: center;
+    justify-items: center;
+  }
+  #fs-overlay .fs-top        { grid-column: 1; grid-row: 1; justify-self: center; }
+  #fs-overlay .fs-timer-wrap { grid-column: 1; grid-row: 2 / 4; width: 186px; height: 186px; }
+  #fs-overlay .fs-task-box   { grid-column: 2; grid-row: 1; max-width: none; width: 100%; }
+  #fs-overlay .fs-controls   { grid-column: 2; grid-row: 2; margin-top: 0; }
+  #fs-overlay .fs-hint       { grid-column: 2; grid-row: 3; font-size: 10px; }
+  #fs-overlay .fs-time       { font-size: 56px !important; }
+
+  /* ═══════════════════════════════════════════════════════════════
+     CLASSROOM VIDEO PLAYER — 70% video / 30% notes
+     (vp-overlay is full-screen; landscape width triggers split)
+     ═══════════════════════════════════════════════════════════════ */
+  .vp-split { flex-direction: row !important; }
+  .vp-main  { flex: 7; min-width: 0; }
+  .vp-notes-col {
+    display: flex !important;
+    flex-direction: column;
+    flex: 3; width: auto !important;
+    border-left: 1px solid var(--border);
+    border-top: none !important;
+  }
+  .vp-notes-mobile { display: none !important; }
+
+  /* ═══════════════════════════════════════════════════════════════
+     STATS TAB — compact horizontal layout
+     ═══════════════════════════════════════════════════════════════ */
+  body.tab-stats #view-stats.active { padding: 6px 12px 16px; }
+
+  /* All 6 glass metric cards in one row */
+  .stats-glass-row {
+    grid-template-columns: repeat(6, 1fr);
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .stats-glass-card { padding: 10px 4px 8px; border-radius: 12px; }
+  .sgc-icon  { font-size: 14px; margin-bottom: 4px; }
+  .sgc-value { font-size: clamp(10px, 2.6vw, 15px); }
+  .sgc-rank  { font-size: clamp(8px, 1.9vw, 11px) !important; }
+  .sgc-label { font-size: 7.5px; margin-top: 3px; letter-spacing: 0.06em; }
+
+  /* Weekly Focus + Subject Distribution charts: side by side */
+  .stats-chart-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .stats-chart-half { min-width: 0; }
+  .stats-section-head { margin: 10px 0 6px; }
+  .stats-chart-wrap { height: 110px; }
+  .stats-pie-wrap   { height: 150px; }
+  .stats-chart-card { padding: 12px; }
+  .stats-heatmap-card { padding: 10px 10px 8px; }
+
+  /* Stat tiles: 4-across instead of 2-across */
+  .stats-row { grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px !important; }
+  .stat-tile { padding: 9px 7px; }
+  .stat-tile .v { font-size: 15px; }
+  .stat-tile .k { font-size: 9.5px; }
 }
 
 /* ================================================================

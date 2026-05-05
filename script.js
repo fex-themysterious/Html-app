@@ -1919,8 +1919,18 @@
         </div>
       </div>
 
-      <div class="stats-section-head"><span>Weekly Focus</span><span class="stats-section-meta">${days7.reduce((a, b) => a + b.min, 0)}m this week</span></div>
-      <div class="stats-chart-card"><div class="stats-chart-wrap"><canvas id="stats-weekly-chart"></canvas></div></div>
+      <div class="stats-chart-pair">
+        <div class="stats-chart-half">
+          <div class="stats-section-head"><span>Weekly Focus</span><span class="stats-section-meta">${days7.reduce((a, b) => a + b.min, 0)}m this week</span></div>
+          <div class="stats-chart-card"><div class="stats-chart-wrap"><canvas id="stats-weekly-chart"></canvas></div></div>
+        </div>
+        <div class="stats-chart-half">
+          <div class="stats-section-head"><span>Subject Distribution</span><span class="stats-section-meta">by topics done</span></div>
+          <div class="stats-chart-card">${pieSubjects.length
+            ? `<div class="stats-pie-wrap"><canvas id="stats-pie-chart"></canvas></div>`
+            : `<div class="stats-empty-chart">Complete topics to see distribution</div>`}</div>
+        </div>
+      </div>
 
       <div class="stats-section-head"><span>Focus Heatmap</span><span class="stats-section-meta">Last 5 weeks</span></div>
       <div class="stats-chart-card stats-heatmap-card">
@@ -1928,11 +1938,6 @@
         <div class="stats-heatmap">${heatmapCells.map(c => `<div class="shm-cell ${c.lvl}${c.isToday ? ' shm-today' : ''}" title="${c.title}"></div>`).join('')}</div>
         <div class="stats-hm-legend"><span>Less</span><div class="shm-cell lv0"></div><div class="shm-cell lv1"></div><div class="shm-cell lv2"></div><div class="shm-cell lv3"></div><div class="shm-cell lv4"></div><span>More</span></div>
       </div>
-
-      <div class="stats-section-head"><span>Subject Distribution</span><span class="stats-section-meta">by topics done</span></div>
-      <div class="stats-chart-card">${pieSubjects.length
-        ? `<div class="stats-pie-wrap"><canvas id="stats-pie-chart"></canvas></div>`
-        : `<div class="stats-empty-chart">Complete topics to see distribution</div>`}</div>
 
       <div class="stats-row" style="margin-top:16px">
         <div class="stat-tile"><div class="v">${overall}%</div><div class="k">Overall</div></div>

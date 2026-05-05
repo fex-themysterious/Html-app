@@ -4,10 +4,10 @@ A clean, offline-capable Progressive Web App for tracking study progress.
 **Stack: pure HTML + CSS + Vanilla JS only — NO TypeScript, React, frameworks, or build tools.**
 
 ## Tech Stack
-- **Frontend**: `index.html` + `style.css?v=9` + `script.js?v=9` — all plain, runs directly in browser
+- **Frontend**: `index.html` + `style.css?v=11` + `script.js?v=11` — all plain, runs directly in browser
 - **Server**: `server.js` — Node.js `http` module, port 5000, host `0.0.0.0`
 - **Storage**: `localStorage` (key: `syllabus_tracker_v2`); `cls_last_url` for Quick Launch memory
-- **PWA**: `manifest.json` + `sw.js` (cache-first, cache name: `syllabus-tracker-v14`)
+- **PWA**: `manifest.json` + `sw.js` (cache-first, cache name: `syllabus-tracker-v15`)
 - **Charts**: Chart.js 4.4.7 loaded from CDN (jsdelivr) — degrades gracefully offline
 
 ## File Structure
@@ -69,6 +69,16 @@ sounds/           # Ambient audio files (.mp3, .m4a)
 }
 ```
 `cls_last_url` stored separately in localStorage (not in state).
+
+## Landscape Mode (No-Scroll Design)
+`@media (orientation: landscape) and (max-height: 500px)` — targets Samsung Galaxy F23 5G and all phones in landscape (~852×360px usable):
+- **Nav Rail**: `.bottom-nav` becomes a left-side 52px vertical icon-only rail; active indicator moves to left edge
+- **#app**: `padding-left: 52px`, no bottom padding; each `.view` gets `height: 100dvh; overflow-y: auto`
+- **Focus Timer** (`.focus-view`): CSS grid 2-col — left (mode tabs + ring + buttons), right (task + sessions + ambient)
+- **Fullscreen Focus** (`#fs-overlay .fs-content`): CSS grid 2-col — left (badge + ring), right (task + controls + hint)
+- **Stats**: 6-col glass card row; `.stats-chart-pair` (Weekly Focus + Subject Distribution) renders side-by-side via grid; stat tiles go 4-across
+- **Stats JS**: `renderStats()` wraps Weekly Focus + Subject Distribution in `<div class="stats-chart-pair"><div class="stats-chart-half">…</div></div>`; Heatmap stays full-width below
+- **Video Player**: `.vp-split` forced `flex-direction: row`, 70/30 ratio; `.vp-notes-mobile` hidden
 
 ## Running
 Workflow: `Start application` → `node server.js` → port 5000
