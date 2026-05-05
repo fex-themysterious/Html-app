@@ -2,6 +2,7 @@
   'use strict';
 
   const STORAGE_KEY = 'syllabus_tracker_v2';
+  const BACKUP_DATE_KEY = 'backup_last_date';
   const todayKey = () => new Date().toISOString().slice(0, 10);
   const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -206,15 +207,52 @@
   }
 
   // ========== Export / Import ==========
-  function exportData() {
+  function exportData(silent = false) {
     try {
       const blob = new Blob([JSON.stringify({ app: 'syllabus-tracker', version: 1, exportedAt: new Date().toISOString(), state }, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = Object.assign(document.createElement('a'), { href: url, download: `syllabus-backup-${todayKey()}.json` });
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1500);
-      toast('Backup exported', 'success');
+      localStorage.setItem(BACKUP_DATE_KEY, todayKey());
+      dismissBackupBanner();
+      if (!silent) toast('✅ Backup downloaded! Your progress is safe.', 'success', 4500);
     } catch (e) { toast('Export failed', 'danger'); }
+  }
+
+  function hasBackupToday() {
+    return localStorage.getItem(BACKUP_DATE_KEY) === todayKey();
+  }
+
+  function dismissBackupBanner() {
+    const banner = document.getElementById('backup-reminder-banner');
+    if (banner) { banner.style.opacity = '0'; banner.style.transform = 'translateY(-10px)'; setTimeout(() => banner.remove(), 300); }
+  }
+
+  function showBackupReminderBanner() {
+    if (hasBackupToday()) return;
+    if (document.getElementById('backup-reminder-banner')) return;
+    const banner = document.createElement('div');
+    banner.id = 'backup-reminder-banner';
+    banner.className = 'backup-reminder-banner';
+    banner.innerHTML = `
+      <div class="brb-icon">🛡️</div>
+      <div class="brb-text">
+        <div class="brb-title">Keep your progress safe, Tajwar!</div>
+        <div class="brb-sub">No backup taken today. Download one to prevent data loss.</div>
+      </div>
+      <button class="brb-btn" id="brb-download-btn">Download</button>
+      <button class="brb-dismiss" id="brb-dismiss-btn" aria-label="Dismiss">×</button>
+    `;
+    document.getElementById('app').prepend(banner);
+    requestAnimationFrame(() => { banner.style.opacity = '1'; banner.style.transform = 'translateY(0)'; });
+    document.getElementById('brb-download-btn').onclick = () => exportData();
+    document.getElementById('brb-dismiss-btn').onclick = () => dismissBackupBanner();
+  }
+
+  function maybeShowBackupReminder() {
+    if (hasBackupToday()) return;
+    setTimeout(showBackupReminderBanner, 4000);
   }
   function importData(file) {
     if (!file) return;
@@ -1167,6 +1205,17 @@
       } else {
         toast(`Session ${focusSessions} complete! 🎉`, 'success', 4000);
       }
+
+      // Auto-backup: after completing a full Pomodoro cycle (every 4th session)
+      if (focusSessions > 0 && focusSessions % 4 === 0 && !hasBackupToday()) {
+        setTimeout(() => {
+          confirmModal(
+            `You've completed ${focusSessions} focus sessions today — amazing work! 🚀\n\nAuto-downloading your backup now to keep your progress safe.`,
+            () => exportData(),
+            { title: '🛡️ Backup Your Progress', yesLabel: 'Download Backup', yesClass: 'btn', noLabel: 'Skip' }
+          );
+        }, 1200);
+      }
     } else {
       // Break ended notification
       showWebNotification('🚀 Break Over!', 'Time to get back to work. You\'ve got this!', { tag: 'focus-break-end', requireInteraction: false });
@@ -1949,7 +1998,32 @@
       </div>
 
       <h2 style="margin:16px 0 10px">By Subject</h2>
-      ${subjectCards}`;
+      ${subjectCards}
+
+      <div class="backup-glass-card">
+        <div class="bgc-header">
+          <span class="bgc-icon">🛡️</span>
+          <div>
+            <div class="bgc-title">Data Backup &amp; Restore</div>
+            <div class="bgc-sub">${hasBackupToday() ? '✅ Backed up today — your progress is safe.' : '⚠️ No backup today — protect your progress.'}</div>
+          </div>
+        </div>
+        <div class="bgc-status-bar ${hasBackupToday() ? 'backed' : 'not-backed'}">
+          ${hasBackupToday() ? `Last backup: ${todayKey()}` : 'Tap Download Backup to save your data'}
+        </div>
+        <div class="bgc-actions">
+          <button class="bgc-btn bgc-btn-primary" data-act="backup-export">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download Backup
+          </button>
+          <label class="bgc-btn bgc-btn-ghost" style="cursor:pointer">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Restore Backup
+            <input type="file" accept=".json" style="display:none" id="stats-import-file"/>
+          </label>
+        </div>
+        <div class="bgc-hint">Exports all subjects, topics, focus stats, goals &amp; classroom data as a JSON file you can restore anytime.</div>
+      </div>`;
 
     initStatsCharts(days7, pieSubjects);
   }
@@ -2433,6 +2507,7 @@
     if (act === 'del-quote') { state.motivationQuotes.splice(parseInt(el.dataset.i, 10), 1); saveState(); refreshSettingsIfOpen(); return; }
     if (act === 'add-quote') { const input = document.getElementById('set-new-quote'), text = input ? input.value.trim() : ''; if (!text) { toast('Enter a quote first', 'warn'); return; } state.motivationQuotes.push(text); saveState(); refreshSettingsIfOpen(); return; }
     if (act === 'export-data') { closeModal(); exportData(); return; }
+    if (act === 'backup-export') { exportData(); return; }
   });
 
   // Focus duration change (input)
@@ -2440,6 +2515,7 @@
     const el = e.target;
     if (el.dataset.act === 'focus-task-select') { focusCurrentTaskKey = el.value || null; if (fsSessionActive) renderFullSession(); else renderFocus(); return; }
     if (el.id === 'ambient-vol-slider') { setAmbientVolume(parseFloat(el.value)); return; }
+    if (el.id === 'stats-import-file') { importData(el.files[0]); el.value = ''; return; }
   });
   document.addEventListener('input', e => {
     const el = e.target;
@@ -2522,6 +2598,7 @@
     startTimers();
     startMotivationRotation();
     setTimeout(maybeAutoShowBurnoutPopup, 2500);
+    maybeShowBackupReminder();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
