@@ -335,7 +335,7 @@ hr.sep { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
   color: var(--text-muted); font-size: 10px; display: block;
   margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.6px; font-weight: 700;
 }
-.modal input, .modal textarea, .modal select {
+.modal input:not([type="checkbox"]), .modal textarea, .modal select {
   width: 100%;
   background: var(--surface-2);
   border: 1px solid var(--border-strong);
@@ -344,7 +344,7 @@ hr.sep { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
   font: inherit; font-size: 15px; outline: none;
   transition: border-color var(--t-fast), box-shadow var(--t-fast);
 }
-.modal input:focus, .modal textarea:focus, .modal select:focus {
+.modal input:not([type="checkbox"]):focus, .modal textarea:focus, .modal select:focus {
   border-color: var(--border-focus);
   box-shadow: 0 0 0 3px rgba(77,168,255,0.12);
 }
@@ -1370,35 +1370,42 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
    CALENDAR TASK MODAL — PREMIUM GLASSMORPHIC REDESIGN
    ================================================================ */
 
-/* Scrollable task list */
+/* Scrollable task list — flex column so cards never overlap */
 .cal-task-list {
-  max-height: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 300px;
   overflow-y: auto;
-  margin-bottom: 12px;
+  overflow-x: hidden;
+  margin-bottom: 14px;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  padding-right: 2px;
 }
 
 /* Glassmorphic task card */
 .cal-task-card {
   display: flex;
   align-items: center;
-  gap: 12px;
-  background: linear-gradient(135deg, rgba(255,255,255,0.045), rgba(255,255,255,0.012));
-  border: 1px solid rgba(255,255,255,0.1);
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  background: linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.015));
+  border: 1px solid rgba(255,255,255,0.12);
   border-radius: 12px;
-  padding: 11px 12px;
-  margin-bottom: 7px;
+  padding: 12px 12px;
+  flex-shrink: 0;
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 2px 12px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.05);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.06);
   transition: border-color 0.18s, opacity 0.2s, background 0.18s;
 }
 .cal-task-card:hover {
-  border-color: rgba(77,168,255,0.28);
-  background: linear-gradient(135deg, rgba(77,168,255,0.06), rgba(255,255,255,0.02));
+  border-color: rgba(77,168,255,0.3);
+  background: linear-gradient(135deg, rgba(77,168,255,0.07), rgba(255,255,255,0.02));
 }
-.cal-task-card:last-child { margin-bottom: 0; }
 .cal-task-card.cal-task-done { opacity: 0.52; }
 
 /* Task text */
