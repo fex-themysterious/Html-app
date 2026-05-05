@@ -133,7 +133,8 @@
         id: it.id || uid(), title: it.title || 'Video', url: it.url || '',
         videoId: it.videoId || null, playlistId: it.playlistId || null,
         type: it.type || 'video', addedAt: it.addedAt || todayKey(),
-        description: it.description || ''
+        description: it.description || '',
+        thumbnailUrl: it.thumbnailUrl || (it.videoId ? `https://img.youtube.com/vi/${it.videoId}/mqdefault.jpg` : '')
       })) : []
     }));
     return s;
@@ -575,10 +576,13 @@
     try {
       const endpoint = `https://noembed.com/embed?url=${encodeURIComponent(url)}`;
       const resp = await fetch(endpoint, { signal: AbortSignal.timeout ? AbortSignal.timeout(5000) : undefined });
-      if (!resp.ok) return null;
+      if (!resp.ok) return { title: null, thumbnailUrl: null };
       const data = await resp.json();
-      return data && data.title ? data.title : null;
-    } catch (e) { return null; }
+      return {
+        title: (data && data.title) ? data.title : null,
+        thumbnailUrl: (data && data.thumbnail_url) ? data.thumbnail_url : null
+      };
+    } catch (e) { return { title: null, thumbnailUrl: null }; }
   }
 
   // ========== Navigation ==========
@@ -791,16 +795,16 @@
     const tot = sub.chapters.length, done = sub.chapters.filter(c => isChapterEffectivelyDone(c)).length;
     const pct = tot ? Math.round((done/tot)*100) : 0;
     const pp = sub.priority ? `<span class="pill pill-${sub.priority === 'high' ? 'high' : sub.priority === 'medium' ? 'med' : 'low'}">${sub.priority}</span>` : '';
-    return `<div class="card subject-card" data-sub-id="${sub.id}" style="position:relative"><div class="subject-head" data-act="toggle-subject" data-id="${sub.id}"><span class="color-dot" style="background:${sub.color}"></span><span class="subject-name">${escapeHTML(sub.name)}</span>${pp}<span class="muted">${done}/${tot}</span><button class="menu-btn" data-act="open-subject-menu" data-id="${sub.id}" style="z-index:2" onclick="event.stopPropagation()">${ic('dots')}</button><span class="chevron ${isOpen ? 'open' : ''}">${ic('chev')}</span></div><div class="progress" style="margin-bottom:${isOpen?'7px':'3px'}"><span style="width:${pct}%"></span></div>${sub.notes ? `<div class="notes">${escapeHTML(sub.notes)}</div>` : ''}${isOpen ? `<div class="chapter-list">${sub.chapters.map(ch => renderChapterCard(sub, ch)).join('')}<button class="btn btn-ghost btn-block" style="margin-top:4px" data-act="add-chapter" data-sub="${sub.id}">${ic('plus')} Add Chapter</button></div>` : ''}</div>`;
+    return `<div class="card subject-card" data-sub-id="${sub.id}" style="position:relative"><div class="subject-head" data-act="toggle-subject" data-id="${sub.id}"><span class="color-dot" style="background:${sub.color}"></span><span class="subject-name">${escapeHTML(sub.name)}</span>${pp}<span class="muted">${done}/${tot}</span><button class="menu-btn" data-act="open-subject-menu" data-id="${sub.id}" style="z-index:2">${ic('dots')}</button><span class="chevron ${isOpen ? 'open' : ''}">${ic('chev')}</span></div><div class="progress" style="margin-bottom:${isOpen?'7px':'3px'}"><span style="width:${pct}%"></span></div>${sub.notes ? `<div class="notes">${escapeHTML(sub.notes)}</div>` : ''}${isOpen ? `<div class="chapter-list">${sub.chapters.map(ch => renderChapterCard(sub, ch)).join('')}<button class="btn btn-ghost btn-block" style="margin-top:4px" data-act="add-chapter" data-sub="${sub.id}">${ic('plus')} Add Chapter</button></div>` : ''}</div>`;
   }
   function renderChapterCard(sub, ch) {
     const isOpen = openChapters.has(ch.id), isDone = isChapterEffectivelyDone(ch), pct = chapterProgress(ch), today = todayKey();
     const pp = ch.priority ? `<span class="pill pill-${ch.priority === 'high' ? 'high' : ch.priority === 'medium' ? 'med' : 'low'}">${ch.priority}</span>` : '';
-    return `<div class="chapter" data-ch-id="${ch.id}" style="position:relative"><div class="chapter-row"><input type="checkbox" class="check" ${isDone ? 'checked' : ''} data-act="toggle-chapter-done" data-sub="${sub.id}" data-ch="${ch.id}"/><div style="flex:1;min-width:0"><div class="row" style="cursor:pointer" data-act="toggle-chapter" data-id="${ch.id}"><span class="name ${isDone ? 'done' : ''}">${escapeHTML(ch.name)}</span><span class="chevron ${isOpen ? 'open' : ''}">${ic('chev')}</span></div><div class="badges">${pp}${ch.scheduledDate === today ? `<span class="pill pill-today">Today</span>` : ''}${pct > 0 && pct < 100 ? `<span class="muted">${pct}%</span>` : ''}</div>${ch.notes ? `<div class="notes">${escapeHTML(ch.notes)}</div>` : ''}</div><button class="menu-btn" data-act="open-chapter-menu" data-sub="${sub.id}" data-ch="${ch.id}" onclick="event.stopPropagation()">${ic('dots')}</button></div>${isOpen && ch.topics.length ? `<div class="topic-list">${ch.topics.map(t => renderTopicRow(sub, ch, t)).join('')}</div>` : ''}${isOpen ? `<div style="padding-left:26px;margin-top:6px"><button class="btn-link" data-act="add-topic" data-sub="${sub.id}" data-ch="${ch.id}">${ic('plus')} Add Topic</button></div>` : ''}</div>`;
+    return `<div class="chapter" data-ch-id="${ch.id}" style="position:relative"><div class="chapter-row"><input type="checkbox" class="check" ${isDone ? 'checked' : ''} data-act="toggle-chapter-done" data-sub="${sub.id}" data-ch="${ch.id}"/><div style="flex:1;min-width:0"><div class="row" style="cursor:pointer" data-act="toggle-chapter" data-id="${ch.id}"><span class="name ${isDone ? 'done' : ''}">${escapeHTML(ch.name)}</span><span class="chevron ${isOpen ? 'open' : ''}">${ic('chev')}</span></div><div class="badges">${pp}${ch.scheduledDate === today ? `<span class="pill pill-today">Today</span>` : ''}${pct > 0 && pct < 100 ? `<span class="muted">${pct}%</span>` : ''}</div>${ch.notes ? `<div class="notes">${escapeHTML(ch.notes)}</div>` : ''}</div><button class="menu-btn" data-act="open-chapter-menu" data-sub="${sub.id}" data-ch="${ch.id}">${ic('dots')}</button></div>${isOpen && ch.topics.length ? `<div class="topic-list">${ch.topics.map(t => renderTopicRow(sub, ch, t)).join('')}</div>` : ''}${isOpen ? `<div style="padding-left:26px;margin-top:6px"><button class="btn-link" data-act="add-topic" data-sub="${sub.id}" data-ch="${ch.id}">${ic('plus')} Add Topic</button></div>` : ''}</div>`;
   }
   function renderTopicRow(sub, ch, t) {
     const pp = t.priority ? `<span class="pill pill-${t.priority === 'high' ? 'high' : t.priority === 'medium' ? 'med' : 'low'}">${t.priority}</span>` : '';
-    return `<div class="topic" style="position:relative"><input type="checkbox" class="check" ${t.done ? 'checked' : ''} data-act="toggle-topic-done" data-sub="${sub.id}" data-ch="${ch.id}" data-t="${t.id}"/><div style="flex:1;min-width:0"><div class="name ${t.done ? 'done' : ''}">${escapeHTML(t.name)}</div>${t.notes ? `<div class="notes">${escapeHTML(t.notes)}</div>` : ''}${pp || isWeakTopic(t) ? `<div style="display:flex;gap:4px;margin-top:3px">${pp}${isWeakTopic(t) ? `<span class="pill pill-weak">Weak</span>` : ''}</div>` : ''}</div><button class="menu-btn" data-act="open-topic-menu" data-sub="${sub.id}" data-ch="${ch.id}" data-t="${t.id}" onclick="event.stopPropagation()">${ic('dots')}</button></div>`;
+    return `<div class="topic" style="position:relative"><input type="checkbox" class="check" ${t.done ? 'checked' : ''} data-act="toggle-topic-done" data-sub="${sub.id}" data-ch="${ch.id}" data-t="${t.id}"/><div style="flex:1;min-width:0"><div class="name ${t.done ? 'done' : ''}">${escapeHTML(t.name)}</div>${t.notes ? `<div class="notes">${escapeHTML(t.notes)}</div>` : ''}${pp || isWeakTopic(t) ? `<div style="display:flex;gap:4px;margin-top:3px">${pp}${isWeakTopic(t) ? `<span class="pill pill-weak">Weak</span>` : ''}</div>` : ''}</div><button class="menu-btn" data-act="open-topic-menu" data-sub="${sub.id}" data-ch="${ch.id}" data-t="${t.id}">${ic('dots')}</button></div>`;
   }
 
   // Syllabus modals
@@ -1078,10 +1082,10 @@
     return `<div class="classroom-group"><div class="classroom-group-head"><span class="classroom-group-icon">📂</span><h3>${escapeHTML(group.name)}</h3><button class="menu-btn" data-act="add-classroom-item" data-gid="${group.id}" title="Add video">${ic('plus')}</button><button class="menu-btn" data-act="del-classroom-group" data-gid="${group.id}" title="Delete group">${ic('trash')}</button></div>${!group.items.length ? `<div class="muted" style="font-size:13px;padding:8px 0">No videos yet. Click + to add one.</div>` : `<div class="video-grid">${group.items.map(item => renderVideoCard(group.id, item)).join('')}</div>`}</div>`;
   }
   function renderVideoCard(groupId, item) {
-    const thumb = item.videoId ? ytThumb(item.videoId) : null;
+    const thumb = item.thumbnailUrl || (item.videoId ? ytThumb(item.videoId) : null);
     return `<div class="video-card" data-act="play-video" data-gid="${groupId}" data-iid="${item.id}">
-      <button class="video-del-btn" data-act="del-classroom-item" data-gid="${groupId}" data-iid="${item.id}" onclick="event.stopPropagation()" title="Remove">×</button>
-      <button class="video-edit-btn" data-act="edit-classroom-item" data-gid="${groupId}" data-iid="${item.id}" onclick="event.stopPropagation()" title="Edit">✏️</button>
+      <button class="video-del-btn" data-act="del-classroom-item" data-gid="${groupId}" data-iid="${item.id}" title="Remove">×</button>
+      <button class="video-edit-btn" data-act="edit-classroom-item" data-gid="${groupId}" data-iid="${item.id}" title="Edit">✏️</button>
       ${thumb ? `<img class="video-thumb" src="${thumb}" alt="${escapeHTML(item.title)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/><div class="video-thumb-placeholder" style="display:none">${item.type === 'playlist' ? '📋' : '▶️'}</div>` : `<div class="video-thumb-placeholder">${item.type === 'playlist' ? '📋' : '▶️'}</div>`}
       <div class="video-info">
         <div class="video-title">${escapeHTML(item.title)}</div>
@@ -1097,10 +1101,10 @@
       <div class="field"><label>Title</label><input id="m-title" value="${escapeHTML(item.title)}" maxlength="120" placeholder="Custom title"/></div>
       <div class="field"><label>YouTube URL</label><input id="m-url" type="url" value="${escapeHTML(item.url)}" placeholder="https://youtube.com/watch?v=..."/></div>
       <div class="field"><label>Description / Notes (optional)</label><textarea id="m-desc" maxlength="300" placeholder="Add notes, timestamps, what to focus on…">${escapeHTML(item.description || '')}</textarea></div>
-      <div class="field"><label>Preview</label>${item.videoId ? `<img src="${ytThumb(item.videoId)}" style="width:100%;border-radius:8px;margin-top:4px" alt="thumb"/>` : '<span style="color:var(--text-muted);font-size:13px">No preview (playlist or no video ID)</span>'}</div>
+      <div class="field"><label>Preview</label>${(item.thumbnailUrl || item.videoId) ? `<img src="${item.thumbnailUrl || ytThumb(item.videoId)}" style="width:100%;border-radius:8px;margin-top:4px" alt="thumb" onerror="this.style.display='none'"/>` : '<span style="color:var(--text-muted);font-size:13px">No preview available</span>'}</div>
       <div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn" id="m-save">Save Changes</button></div>`,
       root => {
-        root.querySelector('#m-save').onclick = () => {
+        root.querySelector('#m-save').onclick = async () => {
           const title = root.querySelector('#m-title').value.trim();
           const url = root.querySelector('#m-url').value.trim();
           if (!title) { toast('Title required', 'warn'); return; }
@@ -1110,6 +1114,10 @@
           item.videoId = videoId || null; item.playlistId = playlistId || null;
           item.type = (playlistId && !videoId) ? 'playlist' : 'video';
           item.description = root.querySelector('#m-desc').value.trim();
+          if (url !== item.url || !item.thumbnailUrl) {
+            const { thumbnailUrl } = await fetchYouTubeTitle(url);
+            item.thumbnailUrl = thumbnailUrl || item.thumbnailUrl || (videoId ? ytThumb(videoId) : '');
+          }
           saveState(); closeModal(); renderFocus(); toast('Updated', 'success');
         };
       });
@@ -1142,13 +1150,16 @@
         const statusEl = root.querySelector('#m-title-status');
         let fetchTimeout = null;
 
+        let _fetchedThumb = null;
+
         urlInput.addEventListener('input', () => {
           clearTimeout(fetchTimeout);
           fetchTimeout = setTimeout(async () => {
             const url = urlInput.value.trim();
             if (!url || (!url.includes('youtube.com') && !url.includes('youtu.be'))) return;
             statusEl.textContent = '⏳ Fetching title…';
-            const title = await fetchYouTubeTitle(url);
+            const { title, thumbnailUrl } = await fetchYouTubeTitle(url);
+            _fetchedThumb = thumbnailUrl || null;
             if (title && !titleInput.value.trim()) {
               titleInput.value = title;
               statusEl.textContent = '✅ Auto-fetched';
@@ -1169,7 +1180,8 @@
           const titleVal = titleInput.value.trim();
           const title = titleVal || (type === 'playlist' ? 'Playlist' : 'Video');
           const description = root.querySelector('#m-desc').value.trim();
-          group.items.push({ id: uid(), title, url, videoId: videoId || null, playlistId: playlistId || null, type, addedAt: todayKey(), description });
+          const thumbnailUrl = _fetchedThumb || (videoId ? ytThumb(videoId) : '');
+          group.items.push({ id: uid(), title, url, videoId: videoId || null, playlistId: playlistId || null, type, addedAt: todayKey(), description, thumbnailUrl });
           saveState(); closeModal(); renderFocus(); toast('Added to classroom', 'success');
         };
       });
@@ -1257,47 +1269,108 @@
       </div>`;
     }).join('') : `<div class="empty">No subjects yet.</div>`;
 
+    // Study consistency (% of last 30 days active)
+    const consistencyPct = Math.round((activeDays30 / 30) * 100);
+    const consistencyLabel = consistencyPct >= 80 ? '🔥 Excellent' : consistencyPct >= 50 ? '👍 Good' : consistencyPct >= 25 ? '📈 Building' : '🌱 Just Starting';
+
+    // Topic health breakdown
+    let topicDone = 0, topicWeak = 0, topicRemaining = 0;
+    for (const sub of state.subjects) for (const ch of sub.chapters) for (const t of ch.topics) {
+      if (t.done) topicDone++;
+      else if (isWeakTopic(t)) topicWeak++;
+      else topicRemaining++;
+    }
+    const topicTotal = topicDone + topicWeak + topicRemaining || 1;
+
+    // 7-day focus trend
+    const days7 = []; const todayD = new Date(todayKey() + 'T00:00:00');
+    for (let i = 6; i >= 0; i--) { const d = new Date(todayD); d.setDate(d.getDate() - i); const k = d.toISOString().slice(0, 10); days7.push({ k, min: state.focusStats.minutesByDate[k] || 0, label: d.toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 3) }); }
+    const maxFocus7 = Math.max(1, ...days7.map(d => d.min));
+    const avgFocusMin = days7.length ? Math.round(days7.reduce((a, b) => a + b.min, 0) / days7.length) : 0;
+
+    // Best study day of week (last 60 days)
+    const dayTotals = [0,0,0,0,0,0,0]; const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    for (let i = 0; i < 60; i++) { const d = new Date(todayD); d.setDate(d.getDate()-i); const k = d.toISOString().slice(0,10); dayTotals[d.getDay()] += (state.activity[k]||0); }
+    const bestDayIdx = dayTotals.indexOf(Math.max(...dayTotals));
+    const bestDay = dayNames[bestDayIdx];
+
+    // Exam readiness cards
+    const examCards = state.exams.length ? state.exams.map(ex => {
+      const daysLeft = Math.ceil((new Date(ex.date + 'T00:00:00') - new Date(todayKey() + 'T00:00:00')) / 86400000);
+      const risk = daysLeft < 7 ? 'high' : daysLeft < 21 ? 'medium' : 'low';
+      const riskColor = risk === 'high' ? '#f47364' : risk === 'medium' ? '#f59e0b' : '#22c55e';
+      const riskLabel = risk === 'high' ? '⚠️ Urgent' : risk === 'medium' ? '⏳ On Track' : '✅ Comfortable';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:13px">${escapeHTML(ex.name)}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${ex.date} · ${daysLeft > 0 ? daysLeft + 'd left' : daysLeft === 0 ? 'Today!' : Math.abs(daysLeft) + 'd ago'}</div>
+        </div>
+        <span style="font-size:11px;font-weight:700;color:${riskColor};background:${riskColor}18;border-radius:99px;padding:3px 9px">${riskLabel}</span>
+      </div>`;
+    }).join('') : '';
+
+    // Best & worst subject
+    const rankedByPct = state.subjects.map(sub => {
+      let tot = sub.chapters.length, dn = sub.chapters.filter(c => isChapterEffectivelyDone(c)).length;
+      return { sub, pct: tot ? Math.round((dn/tot)*100) : 0 };
+    }).filter(x => x.sub.chapters.length > 0).sort((a, b) => b.pct - a.pct);
+    const bestSub = rankedByPct[0];
+    const worstSub = rankedByPct[rankedByPct.length - 1];
+
     // Most studied subjects chart
     const mostStudiedHtml = subjectRankings.length ? `
-      <h2 style="margin:16px 0 10px">Most Studied Subjects</h2>
+      <h2 style="margin:16px 0 10px">Subject Progress</h2>
       <div class="card" style="padding:13px 14px">
         ${subjectRankings.map((sr, i) => {
           const pct = sr.topTot ? Math.round((sr.topDn / sr.topTot) * 100) : 0;
-          return `<div style="margin-bottom:${i < subjectRankings.length - 1 ? '12px' : '0'}">
+          const chPct = sr.sub.chapters.length ? Math.round((sr.sub.chapters.filter(c => isChapterEffectivelyDone(c)).length / sr.sub.chapters.length) * 100) : 0;
+          return `<div style="margin-bottom:${i < subjectRankings.length - 1 ? '14px' : '0'}">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-              <span style="font-size:13px;font-weight:700;flex:1">${i+1}. ${escapeHTML(sr.sub.name)}</span>
-              <span style="font-size:12px;color:var(--text-muted)">${sr.topDn}/${sr.topTot} done</span>
-              <span style="font-size:13px;font-weight:800;color:${sr.sub.color}">${pct}%</span>
+              <span class="color-dot" style="background:${sr.sub.color}"></span>
+              <span style="font-size:13px;font-weight:700;flex:1">${escapeHTML(sr.sub.name)}</span>
+              <span style="font-size:11px;color:var(--text-muted)">${sr.topDn}/${sr.topTot} topics</span>
+              <span style="font-size:13px;font-weight:800;color:${sr.sub.color}">${chPct}%</span>
             </div>
-            <div class="progress"><span style="width:${pct}%;background:${sr.sub.color}"></span></div>
+            <div class="progress"><span style="width:${chPct}%;background:${sr.sub.color}"></span></div>
           </div>`;
         }).join('')}
       </div>` : '';
 
     // A-Z Syllabus Progress
     const syllabusProgressHtml = `
-      <h2 style="margin:16px 0 10px">A–Z Syllabus Progress</h2>
+      <h2 style="margin:16px 0 10px">Syllabus Overview</h2>
       <div class="card" style="padding:13px 14px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <span style="font-size:14px;font-weight:700">Overall Completion</span>
           <span style="font-size:22px;font-weight:900;color:var(--primary)">${overall}%</span>
         </div>
-        <div class="progress" style="height:10px;margin-bottom:10px"><span style="width:${overall}%"></span></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center">
-          <div><div style="font-size:18px;font-weight:800">${doneTopics}</div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Topics Done</div></div>
-          <div><div style="font-size:18px;font-weight:800">${totalTopics - doneTopics}</div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Remaining</div></div>
-          <div><div style="font-size:18px;font-weight:800">${doneChapters}/${totalChapters}</div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Chapters</div></div>
+        <div class="progress" style="height:10px;margin-bottom:12px"><span style="width:${overall}%"></span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;margin-bottom:14px">
+          <div><div style="font-size:18px;font-weight:800;color:#22c55e">${doneTopics}</div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Topics Done</div></div>
+          <div><div style="font-size:18px;font-weight:800;color:#f59e0b">${totalWeak}</div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Weak</div></div>
+          <div><div style="font-size:18px;font-weight:800">${totalTopics - doneTopics - totalWeak}</div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Not Started</div></div>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:5px;font-weight:600">TOPIC HEALTH</div>
+        <div style="display:flex;height:10px;border-radius:99px;overflow:hidden;gap:2px">
+          <div style="flex:${topicDone};background:#22c55e;border-radius:99px;transition:flex 0.4s"></div>
+          <div style="flex:${topicWeak};background:#f59e0b;border-radius:99px;transition:flex 0.4s"></div>
+          <div style="flex:${topicRemaining};background:#334155;border-radius:99px;transition:flex 0.4s"></div>
+        </div>
+        <div style="display:flex;gap:12px;margin-top:6px;font-size:10px;color:var(--text-muted)">
+          <span><span style="color:#22c55e">■</span> Done ${Math.round(topicDone/topicTotal*100)}%</span>
+          <span><span style="color:#f59e0b">■</span> Weak ${Math.round(topicWeak/topicTotal*100)}%</span>
+          <span><span style="color:#475569">■</span> Remaining ${Math.round(topicRemaining/topicTotal*100)}%</span>
         </div>
       </div>`;
 
     view.innerHTML = `
-      <div class="page-header"><h1>Stats</h1><div class="subtitle">A–Z study analysis</div></div>
+      <div class="page-header"><h1>Stats</h1><div class="subtitle">Full study analytics</div></div>
 
       <div class="stats-row">
         <div class="stat-tile"><div class="v">${overall}%</div><div class="k">Overall</div></div>
         <div class="stat-tile"><div class="v">${state.streak.count} 🔥</div><div class="k">Streak</div></div>
         <div class="stat-tile"><div class="v">${bestStreak}</div><div class="k">Best Streak</div></div>
-        <div class="stat-tile"><div class="v">${activeDays30}</div><div class="k">Active / 30d</div></div>
+        <div class="stat-tile" style="${consistencyPct >= 50 ? 'border-color:#22c55e33' : ''}"><div class="v" style="${consistencyPct >= 50 ? 'color:#22c55e' : ''}">${consistencyPct}%</div><div class="k">Consistency</div></div>
       </div>
 
       <div class="stats-row" style="margin-top:8px">
@@ -1316,12 +1389,59 @@
 
       <div class="stats-row" style="margin-top:8px">
         <div class="stat-tile"><div class="v">${totalRevDone}</div><div class="k">Revisions Done</div></div>
-        <div class="stat-tile"><div class="v">${state.revisions.length}</div><div class="k">Tracked Topics</div></div>
-        <div class="stat-tile"><div class="v">${(state.goals||[]).filter(g=>g.completedAt).length}/${(state.goals||[]).length}</div><div class="k">Goals Done</div></div>
-        <div class="stat-tile"><div class="v">${state.exams.length}</div><div class="k">Exams</div></div>
+        <div class="stat-tile"><div class="v">${avgFocusMin}m</div><div class="k">Avg Focus/Day</div></div>
+        <div class="stat-tile"><div class="v">${bestDay}</div><div class="k">Best Day</div></div>
+        <div class="stat-tile"><div class="v">${activeDays30}/30</div><div class="k">Active Days</div></div>
       </div>
 
       ${syllabusProgressHtml}
+
+      ${bestSub || worstSub ? `
+      <h2 style="margin:16px 0 10px">Subject Highlights</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        ${bestSub ? `<div class="card" style="padding:12px 13px;border-left:3px solid #22c55e">
+          <div style="font-size:10px;color:#22c55e;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Leading</div>
+          <div style="font-weight:700;font-size:13px">${escapeHTML(bestSub.sub.name)}</div>
+          <div style="font-size:20px;font-weight:900;color:#22c55e;margin-top:2px">${bestSub.pct}%</div>
+        </div>` : ''}
+        ${worstSub && worstSub !== bestSub ? `<div class="card" style="padding:12px 13px;border-left:3px solid #f59e0b">
+          <div style="font-size:10px;color:#f59e0b;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Needs Focus</div>
+          <div style="font-weight:700;font-size:13px">${escapeHTML(worstSub.sub.name)}</div>
+          <div style="font-size:20px;font-weight:900;color:#f59e0b;margin-top:2px">${worstSub.pct}%</div>
+        </div>` : ''}
+      </div>` : ''}
+
+      <h2 style="margin:16px 0 10px">Study Consistency</h2>
+      <div class="card" style="padding:13px 14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div><div style="font-size:13px;font-weight:700">Last 30 Days</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px">${consistencyLabel}</div></div>
+          <div style="font-size:24px;font-weight:900;color:var(--primary)">${consistencyPct}%</div>
+        </div>
+        <div class="progress" style="height:8px"><span style="width:${consistencyPct}%"></span></div>
+        <div style="display:flex;justify-content:space-between;margin-top:5px;font-size:10px;color:var(--text-muted)">
+          <span>${activeDays30} active days out of 30</span>
+          <span>Best day: ${bestDay}</span>
+        </div>
+      </div>
+
+      <h2 style="margin:16px 0 10px">Focus Trend (7 days)</h2>
+      <div class="card" style="padding:13px 14px">
+        <div style="display:flex;align-items:flex-end;gap:4px;height:64px">
+          ${days7.map(d => `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px">
+            <div style="flex:1;width:100%;display:flex;align-items:flex-end">
+              <div style="width:100%;height:${Math.max(4, Math.round((d.min/maxFocus7)*100))}%;background:var(--primary);opacity:${d.min?0.9:0.2};border-radius:4px 4px 0 0;min-height:4px" title="${d.k}: ${d.min}min"></div>
+            </div>
+          </div>`).join('')}
+        </div>
+        <div style="display:flex;gap:4px;margin-top:4px">
+          ${days7.map(d => `<div style="flex:1;text-align:center;font-size:9px;color:var(--text-muted)">${d.label}</div>`).join('')}
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Avg: <strong>${avgFocusMin}m/day</strong> · Total this week: <strong>${days7.reduce((a,b)=>a+b.min,0)}m</strong></div>
+      </div>
+
+      ${state.exams.length ? `
+      <h2 style="margin:16px 0 10px">Exam Readiness</h2>
+      <div class="card" style="padding:4px 14px">${examCards}</div>` : ''}
 
       ${mostStudiedHtml}
 
