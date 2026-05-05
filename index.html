@@ -6,8 +6,12 @@
   <meta name="theme-color" content="#0f172a"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Study"/>
+  <meta name="description" content="Study planner with Pomodoro timer, spaced revision and syllabus tracking"/>
+  <link rel="manifest" href="/manifest.json"/>
+  <link rel="apple-touch-icon" href="/icon-192.png"/>
   <title>Syllabus Tracker</title>
-  <link rel="stylesheet" href="./style.css?v=3"/>
+  <link rel="stylesheet" href="./style.css?v=4"/>
 </head>
 <body>
   <div id="app">
@@ -54,6 +58,13 @@
     <div id="lock-overlay" class="lock-overlay hidden"></div>
   </div>
 
-  <script src="./script.js?v=3"></script>
+  <script src="./script.js?v=4"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      });
+    }
+  </script>
 </body>
 </html>

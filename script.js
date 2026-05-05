@@ -67,7 +67,8 @@
       revisions: [],
       burnout: { installDate: todayKey(), popupDismissedDate: null, bannerDismissedDate: null },
       goals: [],
-      classroom: { groups: [] }
+      classroom: { groups: [] },
+      focusStats: { sessions: {}, minutesByDate: {} }
     };
   }
 
@@ -117,6 +118,9 @@
       completedAt: r.completedAt || todayKey(),
       schedule: (r.schedule || []).map(st => ({ offset: st.offset, dueDate: st.dueDate, done: !!st.done, completedAt: st.completedAt || null }))
     }));
+    if (!s.focusStats || typeof s.focusStats !== 'object') s.focusStats = { sessions: {}, minutesByDate: {} };
+    if (!s.focusStats.sessions) s.focusStats.sessions = {};
+    if (!s.focusStats.minutesByDate) s.focusStats.minutesByDate = {};
     if (!s.classroom || typeof s.classroom !== 'object') s.classroom = { groups: [] };
     if (!Array.isArray(s.classroom.groups)) s.classroom.groups = [];
     s.classroom.groups = s.classroom.groups.map(g => ({
@@ -468,7 +472,8 @@
 
   // ========== Focus Timer State ==========
   let focusMode = 'work', focusSeconds = 25 * 60;
-  let focusRunning = false, focusTimer = null, focusSessions = 0;
+  let focusRunning = false, focusTimer = null;
+  let focusSessions = state.focusStats.sessions[todayKey()] || 0;
   let focusSubTab = 'timer';
   let focusLocked = false;
   let focusCurrentTaskKey = null;
@@ -791,23 +796,39 @@
   function showSubjectMenu(subId) {
     closeDropdown(); const btn = document.querySelector(`[data-act="open-subject-menu"][data-id="${subId}"]`); if (!btn) return;
     const d = document.createElement('div'); d.className = 'dropdown';
-    d.innerHTML = `<button data-act="edit-subject" data-id="${subId}">${ic('edit')} Edit Subject</button><button data-act="add-chapter" data-sub="${subId}">${ic('plus')} Add Chapter</button><button data-act="del-subject" data-id="${subId}" class="danger">${ic('trash')} Delete</button>`;
+    d.innerHTML = `<button data-act="edit-subject" data-id="${subId}">${ic('edit')} Edit Subject</button><button data-act="open-subject-notes" data-id="${subId}">📝 Notes &amp; Priority</button><button data-act="add-chapter" data-sub="${subId}">${ic('plus')} Add Chapter</button><button data-act="del-subject" data-id="${subId}" class="danger">${ic('trash')} Delete</button>`;
     btn.closest('.card').appendChild(d); activeDropdown = d;
     setTimeout(() => document.addEventListener('click', closeDropdown, { once: true }), 0);
   }
   function showChapterMenu(subId, chId) {
     closeDropdown(); const btn = document.querySelector(`[data-act="open-chapter-menu"][data-sub="${subId}"][data-ch="${chId}"]`); if (!btn) return;
     const d = document.createElement('div'); d.className = 'dropdown';
-    d.innerHTML = `<button data-act="edit-chapter" data-sub="${subId}" data-ch="${chId}">${ic('edit')} Edit</button><button data-act="add-topic" data-sub="${subId}" data-ch="${chId}">${ic('plus')} Add Topic</button><button data-act="schedule-chapter" data-sub="${subId}" data-ch="${chId}">${ic('cal')} Schedule</button><button data-act="del-chapter" data-sub="${subId}" data-ch="${chId}" class="danger">${ic('trash')} Delete</button>`;
+    d.innerHTML = `<button data-act="edit-chapter" data-sub="${subId}" data-ch="${chId}">${ic('edit')} Edit Chapter</button><button data-act="open-chapter-notes" data-sub="${subId}" data-ch="${chId}">📝 Notes &amp; Priority</button><button data-act="add-topic" data-sub="${subId}" data-ch="${chId}">${ic('plus')} Add Topic</button><button data-act="schedule-chapter" data-sub="${subId}" data-ch="${chId}">${ic('cal')} Schedule</button><button data-act="del-chapter" data-sub="${subId}" data-ch="${chId}" class="danger">${ic('trash')} Delete</button>`;
     btn.closest('.chapter').appendChild(d); activeDropdown = d;
     setTimeout(() => document.addEventListener('click', closeDropdown, { once: true }), 0);
   }
   function showTopicMenu(subId, chId, tId) {
     closeDropdown(); const btn = document.querySelector(`[data-act="open-topic-menu"][data-sub="${subId}"][data-ch="${chId}"][data-t="${tId}"]`); if (!btn) return;
     const d = document.createElement('div'); d.className = 'dropdown';
-    d.innerHTML = `<button data-act="edit-topic" data-sub="${subId}" data-ch="${chId}" data-t="${tId}">${ic('edit')} Edit</button><button data-act="del-topic" data-sub="${subId}" data-ch="${chId}" data-t="${tId}" class="danger">${ic('trash')} Delete</button>`;
+    d.innerHTML = `<button data-act="edit-topic" data-sub="${subId}" data-ch="${chId}" data-t="${tId}">${ic('edit')} Edit Topic</button><button data-act="open-topic-notes" data-sub="${subId}" data-ch="${chId}" data-t="${tId}">📝 Notes &amp; Priority</button><button data-act="del-topic" data-sub="${subId}" data-ch="${chId}" data-t="${tId}" class="danger">${ic('trash')} Delete</button>`;
     btn.closest('.topic').appendChild(d); activeDropdown = d;
     setTimeout(() => document.addEventListener('click', closeDropdown, { once: true }), 0);
+  }
+
+  function modalQuickNote(obj, label, afterSave) {
+    const cur = obj.priority || '';
+    openModal(`<h3>📝 ${escapeHTML(label)}</h3>
+      <div class="field"><label>Priority</label>${makePriorityRow(obj)}</div>
+      <div class="field"><label>Notes</label><textarea id="m-notes" rows="5" maxlength="500" placeholder="Add notes, formulas, key points…">${escapeHTML(obj.notes || '')}</textarea></div>
+      <div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn" id="m-save">Save</button></div>`,
+      root => {
+        const getPrio = bindPriorityRow(root);
+        root.querySelector('#m-save').onclick = () => {
+          obj.notes = root.querySelector('#m-notes').value.trim();
+          obj.priority = getPrio() || null;
+          saveState(); closeModal(); afterSave(); toast('Saved', 'success');
+        };
+      });
   }
 
   // ========== Focus Tab ==========
@@ -873,7 +894,11 @@
       // Exit full screen mode before showing dialogs
       if (fsSessionActive) { exitFullSession(); }
       if (focusMode === 'work') {
-        focusSessions++; bumpActivity(); saveState();
+        focusSessions++;
+        state.focusStats.sessions[todayKey()] = focusSessions;
+        state.focusStats.minutesByDate[todayKey()] = (state.focusStats.minutesByDate[todayKey()] || 0) + customDurations.work;
+        if (!state.streak.best || state.streak.count > state.streak.best) state.streak.best = state.streak.count;
+        bumpActivity(); saveState();
         const task = focusCurrentTaskKey ? getActivePlanTasks().find(t => t.key === focusCurrentTaskKey) : null;
         const msg = task ? `Session done! Mark "${task.text}" as complete?` : 'Focus session complete! 🎉 Take a break.';
         if (task && confirm(msg)) {
@@ -989,7 +1014,34 @@
   }
   function renderVideoCard(groupId, item) {
     const thumb = item.videoId ? ytThumb(item.videoId) : null;
-    return `<div class="video-card" data-act="play-video" data-gid="${groupId}" data-iid="${item.id}"><button class="video-del-btn" data-act="del-classroom-item" data-gid="${groupId}" data-iid="${item.id}" onclick="event.stopPropagation()">×</button>${thumb ? `<img class="video-thumb" src="${thumb}" alt="${escapeHTML(item.title)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/><div class="video-thumb-placeholder" style="display:none">${item.type === 'playlist' ? '📋' : '▶️'}</div>` : `<div class="video-thumb-placeholder">${item.type === 'playlist' ? '📋' : '▶️'}</div>`}<div class="video-info"><div class="video-title">${escapeHTML(item.title)}</div><div class="video-type">${item.type === 'playlist' ? '📋 Playlist' : '🎬 Video'}</div></div></div>`;
+    return `<div class="video-card" data-act="play-video" data-gid="${groupId}" data-iid="${item.id}">
+      <button class="video-del-btn" data-act="del-classroom-item" data-gid="${groupId}" data-iid="${item.id}" onclick="event.stopPropagation()" title="Remove">×</button>
+      <button class="video-edit-btn" data-act="edit-classroom-item" data-gid="${groupId}" data-iid="${item.id}" onclick="event.stopPropagation()" title="Edit">✏️</button>
+      ${thumb ? `<img class="video-thumb" src="${thumb}" alt="${escapeHTML(item.title)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/><div class="video-thumb-placeholder" style="display:none">${item.type === 'playlist' ? '📋' : '▶️'}</div>` : `<div class="video-thumb-placeholder">${item.type === 'playlist' ? '📋' : '▶️'}</div>`}
+      <div class="video-info"><div class="video-title">${escapeHTML(item.title)}</div><div class="video-type">${item.type === 'playlist' ? '📋 Playlist' : '🎬 Video'}</div></div>
+    </div>`;
+  }
+  function modalEditClassroomItem(groupId, itemId) {
+    const group = (state.classroom.groups || []).find(g => g.id === groupId); if (!group) return;
+    const item = group.items.find(i => i.id === itemId); if (!item) return;
+    openModal(`<h3>✏️ Edit Video / Playlist</h3>
+      <div class="field"><label>Title</label><input id="m-title" value="${escapeHTML(item.title)}" maxlength="120" placeholder="Custom title"/></div>
+      <div class="field"><label>YouTube URL</label><input id="m-url" type="url" value="${escapeHTML(item.url)}" placeholder="https://youtube.com/watch?v=..."/></div>
+      <div class="field"><label>Preview</label>${item.videoId ? `<img src="${ytThumb(item.videoId)}" style="width:100%;border-radius:8px;margin-top:4px" alt="thumb"/>` : '<span style="color:var(--text-muted);font-size:13px">No preview (playlist or no video ID)</span>'}</div>
+      <div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn" id="m-save">Save Changes</button></div>`,
+      root => {
+        root.querySelector('#m-save').onclick = () => {
+          const title = root.querySelector('#m-title').value.trim();
+          const url = root.querySelector('#m-url').value.trim();
+          if (!title) { toast('Title required', 'warn'); return; }
+          if (!url) { toast('URL required', 'warn'); return; }
+          const { videoId, playlistId } = parseYouTubeUrl(url);
+          item.title = title; item.url = url;
+          item.videoId = videoId || null; item.playlistId = playlistId || null;
+          item.type = (playlistId && !videoId) ? 'playlist' : 'video';
+          saveState(); closeModal(); renderFocus(); toast('Updated', 'success');
+        };
+      });
   }
   function modalAddClassroomGroup() {
     openModal(`<h3>New Group</h3><div class="field"><label>Group name</label><input id="m-name" placeholder="e.g. Math Videos, Bio Notes…" maxlength="60"/></div><div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn" id="m-save">Create Group</button></div>`,
@@ -1030,12 +1082,101 @@
   // ========== Stats ==========
   function renderStats() {
     const view = document.getElementById('view-stats'); if (!view) return;
-    const overall = overallProgress(); let totalTopics = 0, doneTopics = 0, totalChapters = 0, doneChapters = 0;
-    for (const sub of state.subjects) for (const ch of sub.chapters) { totalChapters++; if (isChapterEffectivelyDone(ch)) doneChapters++; for (const t of ch.topics) { totalTopics++; if (t.done) doneTopics++; } }
-    const today = new Date(todayKey() + 'T00:00:00'); const days = [];
-    for (let i = 13; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); const k = d.toISOString().slice(0, 10); days.push({ k, count: state.activity[k] || 0, label: d.toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 3) }); }
-    const maxAct = Math.max(1, ...days.map(d => d.count));
-    view.innerHTML = `<div class="page-header"><h1>Stats</h1><div class="subtitle">Your study progress at a glance</div></div><div class="stats-row"><div class="stat-tile"><div class="v">${overall}%</div><div class="k">Overall Progress</div></div><div class="stat-tile"><div class="v">${state.streak.count} 🔥</div><div class="k">Day Streak</div></div><div class="stat-tile"><div class="v">${doneTopics}/${totalTopics}</div><div class="k">Topics Done</div></div><div class="stat-tile"><div class="v">${doneChapters}/${totalChapters}</div><div class="k">Chapters Done</div></div></div><h2 style="margin:14px 0 8px">Activity (14 days)</h2><div class="card" style="padding:13px 14px"><div class="bars">${days.map(d => `<div class="bar" style="height:${Math.max(8, Math.round((d.count / maxAct) * 100))}%;opacity:${d.count ? '0.9' : '0.25'}"></div>`).join('')}</div><div class="lbls">${days.map(d => `<div class="lbl">${d.label}</div>`).join('')}</div></div><h2 style="margin:14px 0 8px">By Subject</h2>${state.subjects.length ? state.subjects.map(sub => { let tot = 0, dn = 0; for (const ch of sub.chapters) { tot++; if (isChapterEffectivelyDone(ch)) dn++; } const pct = tot ? Math.round((dn/tot)*100) : 0; return `<div class="card" style="padding:11px 13px;margin-bottom:8px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:5px"><span class="color-dot" style="background:${sub.color}"></span><span style="font-weight:600;flex:1">${escapeHTML(sub.name)}</span><span style="font-weight:800;color:var(--primary)">${pct}%</span></div><div class="progress"><span style="width:${pct}%"></span></div><div class="muted" style="margin-top:4px">${dn}/${tot} chapters</div></div>`; }).join('') : `<div class="empty">No subjects yet.</div>`}`;
+    const overall = overallProgress();
+    let totalTopics = 0, doneTopics = 0, totalChapters = 0, doneChapters = 0, totalWeak = 0;
+    for (const sub of state.subjects) for (const ch of sub.chapters) {
+      totalChapters++; if (isChapterEffectivelyDone(ch)) doneChapters++;
+      for (const t of ch.topics) { totalTopics++; if (t.done) doneTopics++; if (isWeakTopic(t)) totalWeak++; }
+    }
+
+    // Activity: 14-day bars
+    const today = new Date(todayKey() + 'T00:00:00'); const days14 = [];
+    for (let i = 13; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); const k = d.toISOString().slice(0, 10); days14.push({ k, count: state.activity[k] || 0, label: d.toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 3) }); }
+    const maxAct = Math.max(1, ...days14.map(d => d.count));
+
+    // Focus stats
+    const todayStr = todayKey();
+    const totalFocusSessions = Object.values(state.focusStats.sessions || {}).reduce((a, b) => a + b, 0);
+    const totalFocusMin = Object.values(state.focusStats.minutesByDate || {}).reduce((a, b) => a + b, 0);
+    const todaySessions = state.focusStats.sessions[todayStr] || 0;
+    const todayFocusMin = state.focusStats.minutesByDate[todayStr] || 0;
+
+    // Streak stats
+    const bestStreak = state.streak.best || state.streak.count || 0;
+    const activeDays30 = (() => { let c = 0; for (let i = 0; i < 30; i++) { const d = new Date(today); d.setDate(d.getDate() - i); if ((state.activity[d.toISOString().slice(0,10)] || 0) > 0) c++; } return c; })();
+
+    // Revisions
+    const totalRevDone = state.revisions.reduce((a, r) => a + r.schedule.filter(s => s.done).length, 0);
+    const totalRevPending = dueRevisionItems().length;
+
+    // Per-subject detailed stats
+    const subjectCards = state.subjects.length ? state.subjects.map(sub => {
+      let tot = 0, dn = 0, topTot = 0, topDn = 0, weakCount = 0, revCount = 0;
+      for (const ch of sub.chapters) {
+        tot++; if (isChapterEffectivelyDone(ch)) dn++;
+        for (const t of ch.topics) { topTot++; if (t.done) topDn++; if (isWeakTopic(t)) weakCount++; }
+      }
+      for (const r of state.revisions) if (r.subId === sub.id) revCount += r.schedule.filter(s => s.done).length;
+      const pct = tot ? Math.round((dn/tot)*100) : 0;
+      const tpct = topTot ? Math.round((topDn/topTot)*100) : 0;
+      const pri = sub.priority;
+      const priPill = pri ? `<span class="pill pill-${pri === 'high' ? 'high' : pri === 'medium' ? 'med' : 'low'}">${pri}</span>` : '';
+      return `<div class="card stats-subject-card" style="padding:13px 14px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <span class="color-dot" style="background:${sub.color}"></span>
+          <span style="font-weight:700;flex:1;font-size:15px">${escapeHTML(sub.name)}</span>
+          ${priPill}<span style="font-weight:800;color:var(--primary);font-size:17px">${pct}%</span>
+        </div>
+        <div class="progress" style="margin-bottom:8px"><span style="width:${pct}%"></span></div>
+        <div class="stats-subject-grid">
+          <div class="stat-mini"><div class="v">${dn}/${tot}</div><div class="k">Chapters</div></div>
+          <div class="stat-mini"><div class="v">${topDn}/${topTot}</div><div class="k">Topics</div></div>
+          <div class="stat-mini"><div class="v" style="${weakCount > 0 ? 'color:#f59e0b' : ''}">${weakCount}</div><div class="k">Weak</div></div>
+          <div class="stat-mini"><div class="v" style="color:var(--primary)">${revCount}</div><div class="k">Revisions</div></div>
+        </div>
+        ${sub.notes ? `<div class="notes" style="margin-top:8px;font-size:12px">${escapeHTML(sub.notes)}</div>` : ''}
+      </div>`;
+    }).join('') : `<div class="empty">No subjects yet.</div>`;
+
+    view.innerHTML = `
+      <div class="page-header"><h1>Stats</h1><div class="subtitle">Your study progress at a glance</div></div>
+
+      <div class="stats-row">
+        <div class="stat-tile"><div class="v">${overall}%</div><div class="k">Overall</div></div>
+        <div class="stat-tile"><div class="v">${state.streak.count} 🔥</div><div class="k">Streak</div></div>
+        <div class="stat-tile"><div class="v">${bestStreak}</div><div class="k">Best Streak</div></div>
+        <div class="stat-tile"><div class="v">${activeDays30}</div><div class="k">Active / 30d</div></div>
+      </div>
+
+      <div class="stats-row" style="margin-top:8px">
+        <div class="stat-tile"><div class="v">${doneTopics}/${totalTopics}</div><div class="k">Topics</div></div>
+        <div class="stat-tile"><div class="v">${doneChapters}/${totalChapters}</div><div class="k">Chapters</div></div>
+        <div class="stat-tile" style="${totalWeak > 0 ? 'border-color:#f59e0b33' : ''}"><div class="v" style="${totalWeak > 0 ? 'color:#f59e0b' : ''}">${totalWeak}</div><div class="k">Weak Topics</div></div>
+        <div class="stat-tile" style="${totalRevPending > 0 ? 'border-color:#f4736433' : ''}"><div class="v" style="${totalRevPending > 0 ? 'color:#f47364' : ''}">${totalRevPending}</div><div class="k">Rev. Due</div></div>
+      </div>
+
+      <div class="stats-row" style="margin-top:8px">
+        <div class="stat-tile"><div class="v">${todaySessions}</div><div class="k">Sessions Today</div></div>
+        <div class="stat-tile"><div class="v">${todayFocusMin}m</div><div class="k">Focus Today</div></div>
+        <div class="stat-tile"><div class="v">${totalFocusSessions}</div><div class="k">Total Sessions</div></div>
+        <div class="stat-tile"><div class="v">${totalFocusMin >= 60 ? Math.round(totalFocusMin/60) + 'h' : totalFocusMin + 'm'}</div><div class="k">Total Focus</div></div>
+      </div>
+
+      <div class="stats-row" style="margin-top:8px">
+        <div class="stat-tile"><div class="v">${totalRevDone}</div><div class="k">Revisions Done</div></div>
+        <div class="stat-tile"><div class="v">${state.revisions.length}</div><div class="k">Tracked Topics</div></div>
+        <div class="stat-tile"><div class="v">${(state.goals||[]).filter(g=>g.completedAt).length}/${(state.goals||[]).length}</div><div class="k">Goals Done</div></div>
+        <div class="stat-tile"><div class="v">${state.exams.length}</div><div class="k">Exams</div></div>
+      </div>
+
+      <h2 style="margin:16px 0 8px">Activity (14 days)</h2>
+      <div class="card" style="padding:13px 14px">
+        <div class="bars">${days14.map(d => `<div class="bar" style="height:${Math.max(8, Math.round((d.count/maxAct)*100))}%;opacity:${d.count?'0.9':'0.2'}" title="${d.k}: ${d.count} actions"></div>`).join('')}</div>
+        <div class="lbls">${days14.map(d => `<div class="lbl">${d.label}</div>`).join('')}</div>
+      </div>
+
+      <h2 style="margin:16px 0 10px">By Subject</h2>
+      ${subjectCards}`;
   }
 
   // ========== Settings Modal ==========
@@ -1093,7 +1234,11 @@
 
   // ========== Event Delegation ==========
   document.addEventListener('click', e => {
-    const el = e.target.closest('[data-act]'); if (!el) { closeDropdown(); return; }
+    const el = e.target.closest('[data-act]');
+    if (!el) {
+      if (e.target.closest('[data-close]')) { closeModal(); return; }
+      closeDropdown(); return;
+    }
     const act = el.dataset.act;
 
     if (el.hasAttribute('data-close')) { closeModal(); return; }
@@ -1156,6 +1301,11 @@
     if (act === 'edit-topic') { closeDropdown(); const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) modalAddTopic(el.dataset.sub, el.dataset.ch, t); return; }
     if (act === 'del-topic') { closeDropdown(); const ch = findChapter(el.dataset.sub, el.dataset.ch); if (ch) { ch.topics = ch.topics.filter(t => t.id !== el.dataset.t); saveState(); renderAll(); toast('Topic deleted', 'danger'); } return; }
 
+    // Notes & Priority quick-edit
+    if (act === 'open-subject-notes') { closeDropdown(); const sub = findSubject(el.dataset.id); if (sub) modalQuickNote(sub, sub.name, renderSyllabus); return; }
+    if (act === 'open-chapter-notes') { closeDropdown(); const ch = findChapter(el.dataset.sub, el.dataset.ch); if (ch) modalQuickNote(ch, ch.name, renderSyllabus); return; }
+    if (act === 'open-topic-notes') { closeDropdown(); const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) modalQuickNote(t, t.name, renderSyllabus); return; }
+
     // Focus sub-tab
     if (act === 'focus-subtab') { focusSubTab = el.dataset.stab; renderFocus(); return; }
 
@@ -1198,6 +1348,7 @@
     if (act === 'del-classroom-group') { const gid = el.dataset.gid; confirmModal('Delete this group and all its videos?', () => { state.classroom.groups = state.classroom.groups.filter(g => g.id !== gid); saveState(); renderFocus(); toast('Group deleted', 'danger'); }); return; }
     if (act === 'del-classroom-item') { e.stopPropagation(); const group = (state.classroom.groups || []).find(g => g.id === el.dataset.gid); if (group) { group.items = group.items.filter(i => i.id !== el.dataset.iid); saveState(); renderFocus(); toast('Video removed', 'info'); } return; }
     if (act === 'play-video') { modalPlayVideo(el.dataset.gid, el.dataset.iid); return; }
+    if (act === 'edit-classroom-item') { modalEditClassroomItem(el.dataset.gid, el.dataset.iid); return; }
 
     // Calendar
     if (act === 'calendar-day') { modalCalendarDay(el.dataset.date); return; }

@@ -492,6 +492,8 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .video-type { font-size: 10px; color: var(--text-muted); margin-top: 3px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
 .video-del-btn { position: absolute; top: 5px; right: 5px; background: rgba(0,0,0,0.7); border: none; color: #fff; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 14px; line-height: 1; opacity: 0; transition: opacity 0.15s; }
 .video-card:hover .video-del-btn { opacity: 1; }
+.video-edit-btn { position: absolute; top: 5px; left: 5px; background: rgba(0,0,0,0.7); border: none; color: #fff; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 12px; line-height: 1; opacity: 0; transition: opacity 0.15s; z-index: 2; }
+.video-card:hover .video-edit-btn { opacity: 1; }
 
 /* YouTube embed in modal */
 .yt-embed-wrap { position: relative; padding-bottom: 56.25%; height: 0; border-radius: 10px; overflow: hidden; background: #000; }
@@ -754,3 +756,13 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   padding: 12px;
 }
 .fs-enter-btn:hover { background: rgba(56,189,248,0.15); border-color: rgba(56,189,248,0.4); }
+
+/* Stats enhancements */
+.stats-subject-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 4px; }
+.stat-mini { background: rgba(255,255,255,0.03); border-radius: 8px; padding: 6px 4px; text-align: center; }
+.stat-mini .v { font-size: 15px; font-weight: 800; color: var(--text); line-height: 1.2; }
+.stat-mini .k { font-size: 10px; color: var(--text-muted); margin-top: 2px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+.stats-subject-card { border-left: 3px solid transparent; }
+.pill-high { background: rgba(244, 115, 100, 0.18); color: #f47364; }
+.pill-med  { background: rgba(245, 158, 11, 0.18); color: #f59e0b; }
+.pill-low  { background: rgba(148, 163, 184, 0.18); color: #94a3b8; }
