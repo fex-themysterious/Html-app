@@ -1229,7 +1229,7 @@
     const selSub = document.getElementById('plan-pick-sub'), selCh = document.getElementById('plan-pick-ch'), selT = document.getElementById('plan-pick-t');
     if (!selSub) return;
     selSub.onchange = () => { const subId = selSub.value; selCh.innerHTML = '<option value="">Chapter…</option>'; selT.innerHTML = '<option value="">Topic…</option>'; selCh.disabled = !subId; selT.disabled = true; if (!subId) return; const sub = findSubject(subId); if (sub) for (const ch of sub.chapters) selCh.innerHTML += `<option value="${ch.id}">${escapeHTML(ch.name)}</option>`; };
-    selCh.onchange = () => { const subId = selSub.value, chId = selCh.value; selT.innerHTML = '<option value="">Topic (optional)…</option>'; selT.disabled = !chId; if (!chId) return; const ch = findChapter(subId, chId); if (ch) for (const t of ch.topics) if (!t.done) selT.innerHTML += `<option value="${t.id}">${escapeHTML(t.name)}</option>`; };
+    selCh.onchange = () => { const subId = selSub.value, chId = selCh.value; selT.innerHTML = '<option value="">All topics…</option>'; selT.disabled = !chId; if (!chId) return; const ch = findChapter(subId, chId); if (ch) for (const t of ch.topics) selT.innerHTML += `<option value="${t.id}">${escapeHTML(t.name)}${t.done ? ' ✓' : ''}</option>`; };
   }
 
   // ========== Event Delegation ==========
@@ -1270,12 +1270,38 @@
     if (act === 'remove-plan-task') { const type = el.dataset.type, plan = state.dailyPlans[todayKey()]; if (!plan) return; if (type === 'auto') { const key = autoKey(el.dataset.sub, el.dataset.ch, el.dataset.t); const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.skipCount = (t.skipCount || 0) + 1; t.lastSkippedAt = todayKey(); } if (!plan.removed.includes(key)) plan.removed.push(key); } else plan.custom = plan.custom.filter(c => c.id !== el.dataset.id); saveState(); renderHome(); renderDashboard(); return; }
     if (act === 'add-plan-task') { const input = document.getElementById('plan-new-task'), text = input ? input.value.trim() : ''; if (!text) { toast('Enter a task first', 'warn'); return; } ensureTodayPlan().custom.push({ id: uid(), text, done: false }); saveState(); renderHome(); renderDashboard(); return; }
     if (act === 'add-plan-from-syllabus') {
-      const subId = document.getElementById('plan-pick-sub')?.value, chId = document.getElementById('plan-pick-ch')?.value, tId = document.getElementById('plan-pick-t')?.value;
+      const subId = document.getElementById('plan-pick-sub')?.value,
+            chId  = document.getElementById('plan-pick-ch')?.value,
+            tId   = document.getElementById('plan-pick-t')?.value;
       if (!subId || !chId) { toast('Select at least a subject and chapter', 'warn'); return; }
       const plan = ensureTodayPlan();
-      if (tId) { const key = autoKey(subId, chId, tId); plan.removed = plan.removed.filter(k => k !== key); if (!plan.auto.find(a => a.subId === subId && a.chId === chId && a.tId === tId)) plan.auto.push({ subId, chId, tId }); }
-      else { const ch = findChapter(subId, chId); if (ch) for (const t of ch.topics) { const key = autoKey(subId, chId, t.id); plan.removed = plan.removed.filter(k => k !== key); if (!plan.auto.find(a => a.tId === t.id)) plan.auto.push({ subId, chId, tId: t.id }); } }
-      saveState(); renderHome(); renderDashboard(); toast('Added to plan', 'success'); return;
+      const sub = findSubject(subId), ch = findChapter(subId, chId);
+      if (!ch) { toast('Chapter not found', 'warn'); return; }
+      let added = 0;
+      const addOneTopic = t => {
+        if (t.done) {
+          // Already completed → add as a fresh revision custom task so it appears undone
+          const label = `📖 Revise: ${t.name}`;
+          const meta  = `${sub ? sub.name : ''} · ${ch.name}`;
+          const full  = `${label} (${meta})`;
+          if (!plan.custom.find(c => c.text === full)) {
+            plan.custom.push({ id: uid(), text: full, done: false });
+            added++;
+          }
+        } else {
+          // Not yet done → add as linked auto task (checking it off marks the topic done)
+          const key = autoKey(subId, chId, t.id);
+          plan.removed = plan.removed.filter(k => k !== key);
+          if (!plan.auto.find(a => a.subId === subId && a.chId === chId && a.tId === t.id)) {
+            plan.auto.push({ subId, chId, tId: t.id }); added++;
+          }
+        }
+      };
+      if (tId) { const t = findTopic(subId, chId, tId); if (t) addOneTopic(t); }
+      else { if (!ch.topics.length) { toast('No topics in this chapter yet', 'warn'); return; } for (const t of ch.topics) addOneTopic(t); }
+      saveState(); renderHome(); renderDashboard();
+      toast(added > 0 ? `${added} task${added > 1 ? 's' : ''} added to plan` : 'Already in today\'s plan', added > 0 ? 'success' : 'info');
+      return;
     }
 
     // Subjects
