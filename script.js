@@ -1304,7 +1304,9 @@
   const SVG_PLAY = `<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
 
   /* ── Bookmark / YT-API helpers ── */
-  let _ytPlayer = null;
+  let _ytPlayer      = null;
+  let _ytPlayerReady = false;   // true only after onReady fires with e.target
+  let _ytPlayerState = -1;      // mirrors YT player state (-1 unstarted, 1 playing, 2 paused…)
 
   function loadYTApi() {
     if (window._ytApiRequested) return;
@@ -1316,36 +1318,54 @@
   window.onYouTubeIframeAPIReady = function () { tryBindYTPlayer(); };
 
   function tryBindYTPlayer() {
+    if (_ytPlayer) return; // already bound — guard against double-call
     const iframe = document.getElementById('vp-iframe');
-    if (!iframe || !window.YT || !YT.Player) { _ytPlayer = null; return; }
+    if (!iframe || !window.YT || !YT.Player) return;
     try {
-      _ytPlayer = new YT.Player('vp-iframe', { events: { onReady: () => {} } });
-    } catch (e) { _ytPlayer = null; }
+      _ytPlayerReady = false;
+      _ytPlayerState = -1;
+      _ytPlayer = new YT.Player('vp-iframe', {
+        events: {
+          onReady: function (e) {
+            _ytPlayer      = e.target;   // e.target is the live API object
+            _ytPlayerReady = true;
+          },
+          onStateChange: function (e) {
+            _ytPlayerState = e.data;
+          }
+        }
+      });
+    } catch (e) { _ytPlayer = null; _ytPlayerReady = false; }
   }
 
   function getCurrentYTTime() {
     try {
-      if (_ytPlayer && typeof _ytPlayer.getCurrentTime === 'function') {
+      if (_ytPlayer && _ytPlayerReady && typeof _ytPlayer.getCurrentTime === 'function') {
         const t = _ytPlayer.getCurrentTime();
+        // Math.floor converts the float seconds to a clean integer
         return isFinite(t) ? Math.floor(t) : null;
       }
     } catch (e) {}
-    return null;
+    return null; // API not ready — caller must handle null
   }
 
   function seekVideoPlayer(seconds) {
+    // Primary: YT Player API (accurate, no page reload)
     try {
-      if (_ytPlayer && typeof _ytPlayer.seekTo === 'function') {
-        _ytPlayer.seekTo(seconds, true); return;
+      if (_ytPlayer && _ytPlayerReady && typeof _ytPlayer.seekTo === 'function') {
+        _ytPlayer.seekTo(seconds, true);
+        return;
       }
     } catch (e) {}
+    // Fallback: postMessage to iframe — works even before API binds, no src reload
     const iframe = document.getElementById('vp-iframe');
     if (!iframe) return;
     try {
-      const url = new URL(iframe.src);
-      url.searchParams.set('start', String(seconds));
-      url.searchParams.set('autoplay', '1');
-      iframe.src = url.toString();
+      iframe.contentWindow.postMessage(JSON.stringify({
+        event: 'command',
+        func:  'seekTo',
+        args:  [seconds, true]
+      }), '*');
     } catch (e) {}
   }
 
@@ -1453,7 +1473,7 @@
   }
 
   function closeVideoPlayer() {
-    _ytPlayer = null;
+    _ytPlayer = null; _ytPlayerReady = false; _ytPlayerState = -1;
     const el = document.getElementById('vp-overlay'); if (!el) return;
     el.classList.add('vp-closing');
     setTimeout(() => { el.remove(); document.body.style.overflow = ''; }, 210);
@@ -1499,7 +1519,7 @@
     if (oldNotes) oldNotes.outerHTML = vpNotesHTML(groupId, item);
 
     // Rebind YT player to new video
-    _ytPlayer = null;
+    _ytPlayer = null; _ytPlayerReady = false; _ytPlayerState = -1;
     if (item.videoId) setTimeout(tryBindYTPlayer, 900);
 
     // Scroll embed back into view
@@ -2150,7 +2170,21 @@
       const timeVal = (document.getElementById('vp-bm-time')?.value || '').trim();
       const label   = (document.getElementById('vp-bm-label')?.value || '').trim();
       if (!label) { toast('Enter a label for this moment', 'warn'); return; }
-      const ts = timeVal ? (parseTsInput(timeVal) ?? 0) : (getCurrentYTTime() ?? 0);
+      // Resolve timestamp: typed value → auto-capture → error (never silently save 0)
+      let ts;
+      if (timeVal) {
+        const parsed = parseTsInput(timeVal);
+        if (parsed === null) { toast('Use format 1:23 or 1:23:45', 'warn'); return; }
+        ts = parsed;
+      } else {
+        const autoTs = getCurrentYTTime(); // null when API not ready
+        if (autoTs === null) {
+          toast('Enter a timestamp (e.g. 1:23)', 'warn');
+          document.getElementById('vp-bm-time')?.focus();
+          return;
+        }
+        ts = autoTs; // already Math.floor'd integer
+      }
       const group = (state.classroom.groups || []).find(g => g.id === gid);
       const item  = group?.items.find(i => i.id === iid);
       if (!item) return;
@@ -2165,7 +2199,7 @@
       form.style.display = 'none';
       const t = document.getElementById('vp-bm-time'); if (t) t.value = '';
       const l = document.getElementById('vp-bm-label'); if (l) l.value = '';
-      toast('Note saved ✓', 'success');
+      toast(`Saved at ${formatVpTs(ts)} ✓`, 'success');
       return;
     }
     if (act === 'vp-seek-note') {
