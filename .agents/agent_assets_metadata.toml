@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "QvPaHBsNnY4NXsSxlk9s4"
+uri = "file://attached_assets/generated_images/logo-512.png"
+type = "image"
+title = "generated_image"
