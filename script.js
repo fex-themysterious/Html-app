@@ -522,6 +522,9 @@
   let focusCurrentTaskKey = null;
   let fsSessionActive = false;
   const customDurations = { work: 25, short: 5, long: 15 };
+  let focusStartTime = null;
+  let focusStartSeconds = null;
+  let focusMultitaskMode = false;
 
   // ========== Ambient Sound (MP3-based) ==========
   let ambientAudio = null;
@@ -606,6 +609,18 @@
     }
 
     ambientAudio = audio;
+
+    // MediaSession: keep audio alive on mobile when screen locks
+    if ('mediaSession' in navigator) {
+      const sound = soundById(mode);
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: sound ? sound.label.replace(/^[^\w]+ /, '') : 'Ambient Sound',
+        artist: 'Syllabus Tracker',
+        album: 'Focus Session',
+      });
+      navigator.mediaSession.setActionHandler('play', () => { audio.play().catch(() => {}); });
+      navigator.mediaSession.setActionHandler('pause', () => { audio.pause(); });
+    }
   }
 
   function resumeAmbientIfNeeded() {
@@ -658,7 +673,7 @@
   let calendarViewDate = new Date();
 
   function switchTab(tab) {
-    if (focusLocked && focusRunning && tab !== 'focus') {
+    if (focusLocked && !focusMultitaskMode && focusRunning && tab !== 'focus') {
       if (!confirm('Lock Mode is on and timer is running. Leave Focus tab?')) return;
     }
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -669,6 +684,8 @@
     closeDropdown();
     // Rotate motivation quote when returning to home
     if (tab === 'home') nextMotivationQuote();
+    // Show/hide mini timer bubble
+    updateMiniTimer();
   }
   function closeDropdown() { if (activeDropdown) { activeDropdown.remove(); activeDropdown = null; } }
 
@@ -1021,8 +1038,14 @@
       <div class="focus-buttons">
         <button class="btn btn-ghost" data-act="focus-reset">Reset</button>
         <button class="btn" style="min-width:110px" data-act="focus-toggle">${focusRunning ? '⏸ Pause' : '▶ Start'}</button>
-        <button class="focus-lock-btn ${focusLocked ? 'locked' : ''}" data-act="focus-lock">${focusLocked ? ic('lock') : ic('unlock')} ${focusLocked ? 'Locked' : 'Lock'}</button>
+        <button class="focus-lock-btn ${focusMultitaskMode ? 'multitask' : focusLocked ? 'locked' : ''}" data-act="${focusMultitaskMode ? 'focus-multitask' : 'focus-lock'}">${focusMultitaskMode ? '🗒️ Multitask' : focusLocked ? ic('lock') + ' Locked' : ic('unlock') + ' Lock'}</button>
       </div>
+      ${focusRunning && !focusMultitaskMode ? `<button class="focus-multitask-toggle" data-act="focus-multitask">🗒️ Enable Multitask Mode</button>` : ''}
+      ${focusMultitaskMode ? `<div class="focus-multitask-card">
+        <div class="fmt-card-title">📱 Multitask Mode Active</div>
+        <div class="fmt-card-body">Timer keeps running while you use another app. A floating bubble appears on other tabs, and your browser tab title shows the countdown. You'll get a notification when done.</div>
+        <div class="fmt-card-tip">💡 Open your notes app freely — this timer won't stop.</div>
+      </div>` : ''}
       <div class="ambient-panel">
         <div class="ambient-panel-top">
           ${ambientMode !== 'none' ? `<span class="ambient-now-label">♪ ${escapeHTML(soundById(ambientMode).label)}</span>` : '<span class="ambient-now-label muted">No sound selected</span>'}
@@ -1057,6 +1080,31 @@
 
   function formatFocusTime(sec) { const m = Math.floor(sec / 60), s = sec % 60; return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; }
 
+  // ========== Mini Floating Timer Bubble ==========
+  function initMiniTimer() {
+    if (document.getElementById('focus-mini-timer')) return;
+    const bubble = document.createElement('div');
+    bubble.id = 'focus-mini-timer';
+    bubble.title = 'Tap to go to Focus tab';
+    bubble.innerHTML = `<span class="fmt-icon">⏱</span><span id="fmt-time">25:00</span><span class="fmt-label">Focus</span>`;
+    bubble.style.display = 'none';
+    document.body.appendChild(bubble);
+    bubble.addEventListener('click', () => switchTab('focus'));
+  }
+
+  function updateMiniTimer() {
+    const bubble = document.getElementById('focus-mini-timer');
+    if (!bubble) return;
+    const onFocusTab = document.body.classList.contains('tab-focus');
+    if (focusRunning && !onFocusTab) {
+      bubble.style.display = 'flex';
+      const timeEl = document.getElementById('fmt-time');
+      if (timeEl) timeEl.textContent = formatFocusTime(focusSeconds);
+    } else {
+      bubble.style.display = 'none';
+    }
+  }
+
   function updateFocusDisplay() {
     const formatted = formatFocusTime(focusSeconds);
     const total = customDurations[focusMode] * 60;
@@ -1079,15 +1127,28 @@
   }
 
   function focusTick() {
-    if (focusSeconds > 0) { focusSeconds--; updateFocusDisplay(); return; }
+    // Timestamp-based calculation — stays accurate when tab is backgrounded/throttled
+    if (focusStartTime !== null) {
+      const elapsed = Math.floor((Date.now() - focusStartTime) / 1000);
+      focusSeconds = Math.max(0, focusStartSeconds - elapsed);
+    }
+    if (focusSeconds > 0) { updateFocusDisplay(); updateMiniTimer(); return; }
+
     clearInterval(focusTimer); focusTimer = null; focusRunning = false;
+    focusStartTime = null; focusStartSeconds = null;
     document.title = 'Syllabus Tracker';
+    updateMiniTimer();
+
     if (focusMode === 'work') {
       focusSessions++;
       const todayStr = todayKey();
       state.focusStats.sessions[todayStr] = (state.focusStats.sessions[todayStr] || 0) + 1;
       state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + customDurations.work;
       bumpActivity(); saveState();
+
+      // Push notification — fires even if the user is in another app
+      showWebNotification('🎉 Focus Session Complete!', `Session ${focusSessions} done! Time for a break.`, { tag: 'focus-complete', requireInteraction: false });
+
       const task = focusCurrentTaskKey ? getActivePlanTasks().find(t => t.key === focusCurrentTaskKey) : null;
       if (task && !task.done) {
         confirmModal(`Session complete! Mark "${task.text}" as done?`, () => {
@@ -1097,7 +1158,11 @@
       } else {
         toast(`Session ${focusSessions} complete! 🎉`, 'success', 4000);
       }
+    } else {
+      // Break ended notification
+      showWebNotification('🚀 Break Over!', 'Time to get back to work. You\'ve got this!', { tag: 'focus-break-end', requireInteraction: false });
     }
+
     focusMode = focusMode === 'work' ? (focusSessions % 4 === 0 ? 'long' : 'short') : 'work';
     focusSeconds = customDurations[focusMode] * 60;
     if (fsSessionActive) renderFullSession(); else renderFocus();
@@ -2093,22 +2158,29 @@
     if (act === 'focus-mode') {
       const newMode = el.dataset.mode;
       if (!focusRunning) { focusMode = newMode; focusSeconds = customDurations[newMode] * 60; renderFocus(); }
-      else { if (confirm('Stop current timer and switch mode?')) { clearInterval(focusTimer); focusTimer = null; focusRunning = false; focusMode = newMode; focusSeconds = customDurations[newMode] * 60; renderFocus(); document.title = 'Syllabus Tracker'; } }
+      else { if (confirm('Stop current timer and switch mode?')) { clearInterval(focusTimer); focusTimer = null; focusRunning = false; focusStartTime = null; focusStartSeconds = null; focusMode = newMode; focusSeconds = customDurations[newMode] * 60; renderFocus(); document.title = 'Syllabus Tracker'; updateMiniTimer(); } }
       return;
     }
     if (act === 'focus-toggle') {
       if (focusRunning) {
         clearInterval(focusTimer); focusTimer = null; focusRunning = false;
+        focusStartTime = null; focusStartSeconds = null;
+        updateMiniTimer();
       } else {
+        // Request notification permission so end-of-session alert works
+        if (notifPermission() === 'default') requestNotifPermission();
         focusRunning = true;
+        focusStartTime = Date.now();
+        focusStartSeconds = focusSeconds;
         focusTimer = setInterval(focusTick, 1000);
         // Resume ambient sound on Start (user gesture = autoplay allowed)
         resumeAmbientIfNeeded();
       }
       renderFocus(); return;
     }
-    if (act === 'focus-reset') { clearInterval(focusTimer); focusTimer = null; focusRunning = false; focusSeconds = customDurations[focusMode] * 60; renderFocus(); document.title = 'Syllabus Tracker'; return; }
-    if (act === 'focus-lock') { focusLocked = !focusLocked; renderFocus(); toast(focusLocked ? '🔒 Lock Mode on — other tabs are restricted' : '🔓 Lock Mode off', focusLocked ? 'warn' : 'info'); return; }
+    if (act === 'focus-reset') { clearInterval(focusTimer); focusTimer = null; focusRunning = false; focusStartTime = null; focusStartSeconds = null; focusSeconds = customDurations[focusMode] * 60; focusMultitaskMode = false; renderFocus(); document.title = 'Syllabus Tracker'; updateMiniTimer(); return; }
+    if (act === 'focus-lock') { focusMultitaskMode = false; focusLocked = !focusLocked; renderFocus(); toast(focusLocked ? '🔒 Lock Mode on — other tabs are restricted' : '🔓 Lock Mode off', focusLocked ? 'warn' : 'info'); return; }
+    if (act === 'focus-multitask') { focusMultitaskMode = !focusMultitaskMode; if (focusMultitaskMode) { focusLocked = false; } renderFocus(); toast(focusMultitaskMode ? '🗒️ Multitask Mode on — navigate freely, timer keeps running' : '🔓 Multitask Mode off', 'info'); return; }
     if (act === 'focus-task-clear') { focusCurrentTaskKey = null; renderFocus(); return; }
 
     // Ambient sound
@@ -2118,9 +2190,15 @@
     if (act === 'enter-full-session') { enterFullSession(); return; }
     if (act === 'exit-full-session') { exitFullSession(); stopAmbient(); ambientMode = 'none'; return; }
     if (act === 'fs-toggle') {
-      if (focusRunning) { clearInterval(focusTimer); focusTimer = null; focusRunning = false; }
-      else {
-        focusRunning = true; focusTimer = setInterval(focusTick, 1000);
+      if (focusRunning) {
+        clearInterval(focusTimer); focusTimer = null; focusRunning = false;
+        focusStartTime = null; focusStartSeconds = null;
+      } else {
+        if (notifPermission() === 'default') requestNotifPermission();
+        focusRunning = true;
+        focusStartTime = Date.now();
+        focusStartSeconds = focusSeconds;
+        focusTimer = setInterval(focusTick, 1000);
         resumeAmbientIfNeeded();
       }
       renderFullSession(); return;
@@ -2327,18 +2405,28 @@
     });
   }
 
-  // Page visibility — refresh quote when tab becomes visible again
+  // Page visibility — refresh quote + sync focus timer when tab becomes visible
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       const homeView = document.getElementById('view-home');
       if (homeView && homeView.classList.contains('active')) {
         nextMotivationQuote();
       }
+      // Sync timer to wall-clock elapsed time (fixes background throttling)
+      if (focusRunning && focusStartTime !== null) {
+        const elapsed = Math.floor((Date.now() - focusStartTime) / 1000);
+        focusSeconds = Math.max(0, focusStartSeconds - elapsed);
+        updateFocusDisplay();
+        updateMiniTimer();
+        // If timer expired while app was backgrounded, trigger completion now
+        if (focusSeconds <= 0) focusTick();
+      }
     }
   });
 
   // ========== Init ==========
   function init() {
+    initMiniTimer();
     switchTab('home');
     renderAll();
     renderFocus();
