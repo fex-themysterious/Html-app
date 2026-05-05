@@ -1186,12 +1186,110 @@
         };
       });
   }
-  function modalPlayVideo(groupId, itemId) {
+  /* ── Integrated Video Player ── */
+  const SVG_BACK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/></svg>`;
+  const SVG_EXTLINK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
+  const SVG_PLAY = `<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
+
+  function vpPlaylistItemHTML(it, groupId, isActive) {
+    const thumb = it.thumbnailUrl || (it.videoId ? ytThumb(it.videoId) : null);
+    const thumbEl = thumb
+      ? `<img class="vp-playlist-thumb" src="${thumb}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/><div class="vp-playlist-thumb-ph" style="display:none">${it.type === 'playlist' ? '📋' : '▶️'}</div>`
+      : `<div class="vp-playlist-thumb-ph">${it.type === 'playlist' ? '📋' : '▶️'}</div>`;
+    const rightEl = isActive
+      ? `<div class="vp-now-playing"><div class="vp-now-playing-dot"></div>Playing</div>`
+      : `<div class="vp-playlist-play">${SVG_PLAY}</div>`;
+    return `<div class="vp-playlist-item${isActive ? ' vp-active' : ''}" data-act="${isActive ? '' : 'vp-switch'}" data-gid="${groupId}" data-iid="${it.id}">
+      ${thumbEl}
+      <div class="vp-playlist-info">
+        <div class="vp-playlist-title">${escapeHTML(it.title)}</div>
+        <div class="vp-playlist-type">${it.type === 'playlist' ? '📋 Playlist' : '🎬 Video'}</div>
+      </div>
+      ${rightEl}
+    </div>`;
+  }
+
+  function openVideoPlayer(groupId, itemId) {
     const group = (state.classroom.groups || []).find(g => g.id === groupId); if (!group) return;
     const item = group.items.find(i => i.id === itemId); if (!item) return;
     const embedUrl = ytEmbedUrl(item);
     if (!embedUrl) { window.open(item.url, '_blank', 'noopener'); return; }
-    openModal(`<h3>${escapeHTML(item.title)}</h3>${item.description ? `<div style="color:var(--text-muted);font-size:13px;margin:-8px 0 10px;font-style:italic">${escapeHTML(item.description)}</div>` : ''}<div class="yt-embed-wrap"><iframe src="${embedUrl}" allow="autoplay; encrypted-media; fullscreen" allowfullscreen title="${escapeHTML(item.title)}"></iframe></div><div class="actions" style="margin-top:12px"><button class="btn btn-ghost" data-close>Close</button><a href="${escapeHTML(item.url)}" target="_blank" rel="noopener" class="btn">Open in YouTube</a></div>`);
+
+    document.getElementById('vp-overlay')?.remove();
+
+    const playlistHTML = group.items.length > 1
+      ? `<div class="vp-playlist-section">
+           <div class="vp-playlist-label">${escapeHTML(group.name)}</div>
+           <div class="vp-playlist">${group.items.map(it => vpPlaylistItemHTML(it, groupId, it.id === itemId)).join('')}</div>
+         </div>`
+      : '';
+
+    const el = document.createElement('div');
+    el.id = 'vp-overlay';
+    el.innerHTML = `
+      <div class="vp-header">
+        <button class="vp-back-btn" data-act="vp-close" aria-label="Back to classroom">${SVG_BACK}</button>
+        <div class="vp-header-title">${escapeHTML(item.title)}</div>
+        <a href="${escapeHTML(item.url)}" target="_blank" rel="noopener" class="vp-yt-btn" title="Open in YouTube">${SVG_EXTLINK}</a>
+      </div>
+      <div class="vp-body">
+        <div class="vp-embed-wrap">
+          <iframe id="vp-iframe" src="${embedUrl}" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscreen title="${escapeHTML(item.title)}"></iframe>
+        </div>
+        <div class="vp-info">
+          <div class="vp-info-type">${item.type === 'playlist' ? '📋 Playlist' : '🎬 Video'}</div>
+          <div class="vp-info-title">${escapeHTML(item.title)}</div>
+          ${item.description ? `<div class="vp-info-desc">${escapeHTML(item.description)}</div>` : ''}
+        </div>
+        ${playlistHTML}
+      </div>`;
+    document.body.appendChild(el);
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeVideoPlayer() {
+    const el = document.getElementById('vp-overlay'); if (!el) return;
+    el.classList.add('vp-closing');
+    setTimeout(() => { el.remove(); document.body.style.overflow = ''; }, 210);
+  }
+
+  function switchVideoInPlayer(groupId, itemId) {
+    const group = (state.classroom.groups || []).find(g => g.id === groupId); if (!group) return;
+    const item = group.items.find(i => i.id === itemId); if (!item) return;
+    const embedUrl = ytEmbedUrl(item);
+    if (!embedUrl) { window.open(item.url, '_blank', 'noopener'); return; }
+
+    // Swap iframe
+    const iframe = document.getElementById('vp-iframe');
+    if (iframe) iframe.src = embedUrl;
+
+    // Update header
+    const hTitle = document.querySelector('.vp-header-title');
+    if (hTitle) hTitle.textContent = item.title;
+    const ytBtn = document.querySelector('.vp-yt-btn');
+    if (ytBtn) ytBtn.href = item.url;
+
+    // Update info block
+    const infoType  = document.querySelector('.vp-info-type');
+    const infoTitle = document.querySelector('.vp-info-title');
+    const infoDesc  = document.querySelector('.vp-info-desc');
+    if (infoType)  infoType.textContent  = item.type === 'playlist' ? '📋 Playlist' : '🎬 Video';
+    if (infoTitle) infoTitle.textContent = item.title;
+    if (infoDesc)  { infoDesc.textContent = item.description || ''; infoDesc.style.display = item.description ? '' : 'none'; }
+
+    // Update playlist active state
+    document.querySelectorAll('.vp-playlist-item').forEach(el => {
+      const isActive = el.dataset.iid === itemId;
+      el.classList.toggle('vp-active', isActive);
+      el.dataset.act = isActive ? '' : 'vp-switch';
+      const right = el.querySelector('.vp-now-playing, .vp-playlist-play');
+      if (right) right.outerHTML = isActive
+        ? `<div class="vp-now-playing"><div class="vp-now-playing-dot"></div>Playing</div>`
+        : `<div class="vp-playlist-play">${SVG_PLAY}</div>`;
+    });
+
+    // Scroll embed back into view
+    document.querySelector('#vp-overlay .vp-body')?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   // ========== Revision ==========
@@ -1688,7 +1786,9 @@
     if (act === 'add-classroom-item') { modalAddClassroomItem(el.dataset.gid); return; }
     if (act === 'del-classroom-group') { const gid = el.dataset.gid; confirmModal('Delete this group and all its videos?', () => { state.classroom.groups = state.classroom.groups.filter(g => g.id !== gid); saveState(); renderFocus(); toast('Group deleted', 'danger'); }); return; }
     if (act === 'del-classroom-item') { e.stopPropagation(); const group = (state.classroom.groups || []).find(g => g.id === el.dataset.gid); if (group) { group.items = group.items.filter(i => i.id !== el.dataset.iid); saveState(); renderFocus(); toast('Video removed', 'info'); } return; }
-    if (act === 'play-video') { modalPlayVideo(el.dataset.gid, el.dataset.iid); return; }
+    if (act === 'play-video')   { openVideoPlayer(el.dataset.gid, el.dataset.iid); return; }
+    if (act === 'vp-close')    { closeVideoPlayer(); return; }
+    if (act === 'vp-switch')   { switchVideoInPlayer(el.dataset.gid, el.dataset.iid); return; }
     if (act === 'edit-classroom-item') { modalEditClassroomItem(el.dataset.gid, el.dataset.iid); return; }
 
     // Calendar
@@ -1772,6 +1872,7 @@
   // Keyboard
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
+      if (document.getElementById('vp-overlay')) { closeVideoPlayer(); return; }
       if (fsSessionActive) { exitFullSession(); stopAmbient(); ambientMode = 'none'; }
       else closeModal();
     }
