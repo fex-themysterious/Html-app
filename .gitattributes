@@ -2,3 +2,5 @@ attached_assets/Rain_Music__1777938805831.mp3 filter=lfs diff=lfs merge=lfs -tex
 attached_assets/Soft_Music__1777938805897.mp3 filter=lfs diff=lfs merge=lfs -text
 sounds/rain.mp3 filter=lfs diff=lfs merge=lfs -text
 sounds/soft.mp3 filter=lfs diff=lfs merge=lfs -text
+attached_assets/Rain_Music__1777956123363.mp3 filter=lfs diff=lfs merge=lfs -text
+attached_assets/Soft_Music__1777956123268.mp3 filter=lfs diff=lfs merge=lfs -text

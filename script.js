@@ -525,6 +525,20 @@
   // ========== Ambient Sound (MP3-based) ==========
   let ambientAudio = null;
   let ambientMode = 'none', ambientVolume = 0.5;
+  let _audioCtx = null;
+
+  function getAudioContext() {
+    if (!_audioCtx) {
+      try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { console.warn('[Ambient] AudioContext not supported:', e); }
+    }
+    return _audioCtx;
+  }
+  function resumeAudioContext() {
+    const ctx = getAudioContext();
+    if (ctx && ctx.state === 'suspended') {
+      ctx.resume().catch(e => console.warn('[Ambient] AudioContext resume failed:', e));
+    }
+  }
 
   function stopAmbient() {
     if (ambientAudio) {
@@ -536,15 +550,40 @@
   function startAmbient(mode) {
     stopAmbient();
     if (mode === 'none') return;
+
+    // Unlock AudioContext on mobile (must happen inside a user-gesture call stack)
+    resumeAudioContext();
+
     const src = mode === 'rain' ? './sounds/rain.mp3' : './sounds/soft.mp3';
-    ambientAudio = new Audio(src);
-    ambientAudio.loop = true;
-    ambientAudio.volume = ambientVolume;
-    // Attempt playback — triggered by a direct user gesture so should succeed
-    const playPromise = ambientAudio.play();
-    if (playPromise) playPromise.catch(() => {});
+    const audio = new Audio();
+    audio.loop = true;
+    audio.volume = ambientVolume;
+    audio.preload = 'auto';
+
+    audio.addEventListener('error', e => {
+      const err = e.target.error;
+      const msg = err ? `code ${err.code} – ${err.message}` : 'unknown error';
+      console.error('[Ambient] Audio error for', src, ':', msg);
+    });
+
+    // Set src then explicitly load before play (required on iOS Safari)
+    audio.src = src;
+    audio.load();
+
+    const playPromise = audio.play();
+    if (playPromise !== undefined) {
+      playPromise
+        .then(() => { console.log('[Ambient] Playback started:', src); })
+        .catch(err => {
+          console.error('[Ambient] play() rejected for', src, ':', err.name, '-', err.message);
+        });
+    }
+
+    ambientAudio = audio;
   }
   function resumeAmbientIfNeeded() {
+    // Always attempt to unlock AudioContext first (safe to call inside gesture handler)
+    resumeAudioContext();
     if (ambientMode === 'none') return;
     if (!ambientAudio || ambientAudio.paused) startAmbient(ambientMode);
   }
