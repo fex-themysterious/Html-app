@@ -1,4 +1,4 @@
-const CACHE_NAME = 'syllabus-tracker-v7';
+const CACHE_NAME = 'syllabus-tracker-v8';
 const STATIC = [
   '/',
   '/index.html',
@@ -9,7 +9,16 @@ const STATIC = [
   '/icon-512.png',
   '/sounds/rain.mp3',
   '/sounds/soft.mp3',
-  '/sounds/concentration.mp3'
+  '/sounds/concentration.mp3',
+  '/sounds/peaky-blinder.mp3',
+  '/sounds/aal-izz-well.m4a',
+  '/sounds/believer.m4a',
+  '/sounds/rasputin.m4a',
+  '/sounds/enemy.m4a',
+  '/sounds/give-me-sunshine.m4a',
+  '/sounds/shape-of-you.m4a',
+  '/sounds/hall-of-fame.m4a',
+  '/sounds/summertime-sadness.m4a'
 ];
 
 self.addEventListener('install', e => {
@@ -34,29 +43,29 @@ self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   if (e.request.url.includes('noembed.com') || e.request.url.includes('youtube.com')) return;
 
-  // Audio files: cache-first with proper Range request handling for mobile browsers
+  // Audio files: cache-first with Range request support for mobile browsers
   if (e.request.url.includes('/sounds/')) {
     e.respondWith(
       caches.open(CACHE_NAME).then(async cache => {
-        // Always match against the plain URL (no Range headers) to find cached entry
         const plainUrl = e.request.url.split('?')[0];
         const cached = await cache.match(plainUrl);
 
         if (cached) {
           const rangeHeader = e.request.headers.get('range');
           if (rangeHeader) {
-            // Serve a sliced 206 response from the cached full file
             try {
               const ab = await cached.clone().arrayBuffer();
               const match = rangeHeader.match(/bytes=(\d*)-(\d*)/);
               const start = match && match[1] !== '' ? parseInt(match[1], 10) : 0;
               const end = match && match[2] !== '' ? parseInt(match[2], 10) : ab.byteLength - 1;
               const slice = ab.slice(start, end + 1);
+              const ext = plainUrl.split('.').pop().toLowerCase();
+              const mime = ext === 'm4a' ? 'audio/mp4' : 'audio/mpeg';
               return new Response(slice, {
                 status: 206,
                 statusText: 'Partial Content',
                 headers: {
-                  'Content-Type': cached.headers.get('Content-Type') || 'audio/mpeg',
+                  'Content-Type': mime,
                   'Content-Range': `bytes ${start}-${end}/${ab.byteLength}`,
                   'Content-Length': String(slice.byteLength),
                   'Accept-Ranges': 'bytes'
@@ -70,15 +79,12 @@ self.addEventListener('fetch', e => {
           return cached;
         }
 
-        // Not cached yet — fetch, cache the full file, and return
         try {
           const response = await fetch(plainUrl);
-          if (response.ok) {
-            cache.put(plainUrl, response.clone());
-          }
+          if (response.ok) cache.put(plainUrl, response.clone());
           return response;
         } catch (err) {
-          console.error('[SW] Audio fetch failed and no cache available:', plainUrl, err);
+          console.error('[SW] Audio fetch failed, no cache:', plainUrl, err);
           return new Response('Audio unavailable offline', { status: 503 });
         }
       })

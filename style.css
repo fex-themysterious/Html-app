@@ -707,11 +707,16 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .focus-lock-btn svg { width: 15px; height: 15px; }
 
 /* Ambient sound */
-.ambient-bar { display: flex; align-items: center; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 16px; }
+.ambient-panel { margin-bottom: 16px; }
+.ambient-panel-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; min-height: 26px; gap: 8px; }
+.ambient-now-label { font-size: 12px; font-weight: 700; color: var(--primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ambient-now-label.muted { color: var(--text-muted); font-weight: 400; }
+.ambient-track-list { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
+.ambient-cat-label { width: 100%; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); margin-top: 8px; padding-bottom: 2px; border-bottom: 1px solid var(--border); }
 .ambient-btn { padding: 6px 13px; border-radius: 999px; border: 1px solid var(--border-strong); background: transparent; color: var(--text-muted); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; transition: all var(--t-fast); }
 .ambient-btn:hover { color: var(--text); border-color: var(--border-strong); }
 .ambient-btn.active { border-color: var(--primary); color: var(--primary); background: var(--primary-dim); }
-.ambient-vol { display: flex; align-items: center; gap: 7px; }
+.ambient-vol { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
 .ambient-vol input[type=range] { accent-color: var(--primary); width: 80px; cursor: pointer; }
 
 /* Focus task connector */

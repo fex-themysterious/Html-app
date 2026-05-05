@@ -529,162 +529,90 @@
 
   function getAudioContext() {
     if (!_audioCtx) {
-      try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { console.warn('[Ambient] AudioContext not supported:', e); }
+      try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { console.warn('[Audio] AudioContext not supported:', e); }
     }
     return _audioCtx;
   }
   function resumeAudioContext() {
     const ctx = getAudioContext();
     if (ctx && ctx.state === 'suspended') {
-      ctx.resume().catch(e => console.warn('[Ambient] AudioContext resume failed:', e));
+      ctx.resume().catch(e => console.warn('[Audio] AudioContext resume failed:', e));
     }
   }
 
-  // ---- Workout Beat Synthesizer ----
-  let _workoutScheduler = null;
-  let _workoutBeat = 0;
-  let _workoutNextTime = 0;
-  const WORKOUT_BPM = 140;
-  const WORKOUT_STEP = (60 / WORKOUT_BPM) / 2; // 8th-note duration in seconds
-  // 16-step pattern (2 bars of 8th notes): kick[0/4/8/12], snare[4/12], hats every step
-  const WK_KICK  = new Set([0, 3, 8, 11]);
-  const WK_SNARE = new Set([4, 12]);
-  const WK_HAT   = new Set([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]);
-  const WK_BASS_NOTES = [55, 55, 43, 43, 50, 50, 48, 48, 55, 55, 43, 43, 50, 53, 48, 46]; // MIDI hz approx
-
-  function _midiToHz(midi) { return 440 * Math.pow(2, (midi - 69) / 12); }
-
-  function _wkKick(ctx, t) {
-    const o = ctx.createOscillator(), g = ctx.createGain();
-    o.frequency.setValueAtTime(160, t);
-    o.frequency.exponentialRampToValueAtTime(0.001, t + 0.45);
-    g.gain.setValueAtTime(1.0, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
-    o.connect(g); g.connect(ctx.destination);
-    o.start(t); o.stop(t + 0.45);
-  }
-  function _wkSnare(ctx, t) {
-    const bufLen = Math.floor(ctx.sampleRate * 0.12);
-    const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < bufLen; i++) d[i] = Math.random() * 2 - 1;
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1800; f.Q.value = 0.8;
-    const g = ctx.createGain(); g.gain.setValueAtTime(0.55, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
-    src.connect(f); f.connect(g); g.connect(ctx.destination);
-    src.start(t); src.stop(t + 0.12);
-  }
-  function _wkHat(ctx, t, open) {
-    const dur = open ? 0.18 : 0.04;
-    const bufLen = Math.floor(ctx.sampleRate * dur);
-    const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < bufLen; i++) d[i] = Math.random() * 2 - 1;
-    const src = ctx.createBufferSource(); src.buffer = buf;
-    const f = ctx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 9000;
-    const g = ctx.createGain(); g.gain.setValueAtTime(0.22, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    src.connect(f); f.connect(g); g.connect(ctx.destination);
-    src.start(t); src.stop(t + dur);
-  }
-  function _wkBass(ctx, t, step) {
-    const hz = _midiToHz(WK_BASS_NOTES[step]);
-    const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = hz;
-    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 400;
-    const g = ctx.createGain(); g.gain.setValueAtTime(0.35, t); g.gain.exponentialRampToValueAtTime(0.001, t + WORKOUT_STEP * 0.85);
-    o.connect(f); f.connect(g); g.connect(ctx.destination);
-    o.start(t); o.stop(t + WORKOUT_STEP * 0.9);
-  }
-
-  function _workoutScheduleAhead() {
-    const ctx = getAudioContext(); if (!ctx) return;
-    const lookAhead = 0.12;
-    while (_workoutNextTime < ctx.currentTime + lookAhead) {
-      const step = _workoutBeat % 16;
-      if (WK_KICK.has(step))  _wkKick(ctx, _workoutNextTime);
-      if (WK_SNARE.has(step)) _wkSnare(ctx, _workoutNextTime);
-      if (WK_HAT.has(step))   _wkHat(ctx, _workoutNextTime, step % 2 === 1);
-      _wkBass(ctx, _workoutNextTime, step);
-      _workoutNextTime += WORKOUT_STEP;
-      _workoutBeat++;
-    }
-  }
-  function startWorkoutBeat() {
-    stopWorkoutBeat();
-    const ctx = getAudioContext(); if (!ctx) { console.error('[Ambient] No AudioContext for workout beat'); return; }
-    _workoutBeat = 0;
-    _workoutNextTime = ctx.currentTime + 0.05;
-    _workoutScheduleAhead();
-    _workoutScheduler = setInterval(_workoutScheduleAhead, 25);
-    console.log('[Ambient] Workout beat started at', WORKOUT_BPM, 'BPM');
-  }
-  function stopWorkoutBeat() {
-    if (_workoutScheduler) { clearInterval(_workoutScheduler); _workoutScheduler = null; }
-  }
-  // ---- End Workout Beat ----
-
-  const AMBIENT_MP3 = {
-    rain:          './sounds/rain.mp3',
-    soft:          './sounds/soft.mp3',
-    concentration: './sounds/concentration.mp3'
-  };
+  // ========== Sound Track Catalogue ==========
+  const SOUNDS = [
+    { id: 'none',          label: '🔇 Off',              src: null,                               cat: null },
+    { id: 'rain',          label: '🌧 Rain',              src: './sounds/rain.mp3',                cat: 'Ambient' },
+    { id: 'soft',          label: '🎵 Soft',              src: './sounds/soft.mp3',                cat: 'Ambient' },
+    { id: 'concentration', label: '🧠 Concentration',    src: './sounds/concentration.mp3',       cat: 'Focus' },
+    { id: 'peaky',         label: '🎩 Peaky Blinder',     src: './sounds/peaky-blinder.mp3',       cat: 'Workout' },
+    { id: 'believer',      label: '💥 Believer',          src: './sounds/believer.m4a',            cat: 'Workout' },
+    { id: 'rasputin',      label: '⚡ Rasputin',           src: './sounds/rasputin.m4a',            cat: 'Workout' },
+    { id: 'enemy',         label: '🎭 Enemy',             src: './sounds/enemy.m4a',               cat: 'Workout' },
+    { id: 'aal-izz-well',  label: '✌ Aal Izz Well',      src: './sounds/aal-izz-well.m4a',        cat: 'Vibes' },
+    { id: 'sunshine',      label: '🌞 Give Me Sunshine',  src: './sounds/give-me-sunshine.m4a',    cat: 'Vibes' },
+    { id: 'shape',         label: '💃 Shape of You',      src: './sounds/shape-of-you.m4a',        cat: 'Vibes' },
+    { id: 'hall-of-fame',  label: '🏆 Hall of Fame',      src: './sounds/hall-of-fame.m4a',        cat: 'Vibes' },
+    { id: 'summertime',    label: '🌊 Summertime Sadness', src: './sounds/summertime-sadness.m4a',  cat: 'Vibes' },
+  ];
+  function soundById(id) { return SOUNDS.find(s => s.id === id) || SOUNDS[0]; }
 
   function stopAmbient() {
-    stopWorkoutBeat();
     if (ambientAudio) {
       ambientAudio.pause();
       ambientAudio.currentTime = 0;
       ambientAudio = null;
     }
   }
+
   function startAmbient(mode) {
     stopAmbient();
     if (mode === 'none') return;
 
-    // Unlock AudioContext on mobile (must happen inside a user-gesture call stack)
+    // Unlock AudioContext inside user-gesture call stack (required on iOS/Android)
     resumeAudioContext();
 
-    if (mode === 'workout') {
-      startWorkoutBeat();
-      return;
-    }
-
-    const src = AMBIENT_MP3[mode];
-    if (!src) return;
+    const sound = soundById(mode);
+    if (!sound || !sound.src) return;
 
     const audio = new Audio();
-    audio.loop = true;
+    audio.loop = true;          // Primary gapless loop mechanism
     audio.volume = ambientVolume;
     audio.preload = 'auto';
 
     audio.addEventListener('error', e => {
       const err = e.target.error;
-      const msg = err ? `code ${err.code} – ${err.message}` : 'unknown error';
-      console.error('[Ambient] Audio error for', src, ':', msg);
+      console.error('[Audio] Load error for', sound.src, ':', err ? `code ${err.code} – ${err.message}` : 'unknown');
     });
 
-    // Set src then explicitly load before play (required on iOS Safari)
-    audio.src = src;
+    // Backup: restart via ended event in case loop attribute misfires on some browsers
+    audio.addEventListener('ended', () => {
+      if (ambientAudio === audio) {
+        audio.currentTime = 0;
+        audio.play().catch(e => console.warn('[Audio] Loop restart failed:', e.message));
+      }
+    });
+
+    // Set src → load → play (required order for iOS Safari)
+    audio.src = sound.src;
     audio.load();
 
-    const playPromise = audio.play();
-    if (playPromise !== undefined) {
-      playPromise
-        .then(() => { console.log('[Ambient] Playback started:', src); })
-        .catch(err => {
-          console.error('[Ambient] play() rejected for', src, ':', err.name, '-', err.message);
-        });
+    const p = audio.play();
+    if (p !== undefined) {
+      p.then(() => console.log('[Audio] Playing:', sound.src))
+       .catch(e => console.error('[Audio] play() rejected for', sound.src, ':', e.name, '-', e.message));
     }
 
     ambientAudio = audio;
   }
+
   function resumeAmbientIfNeeded() {
-    // Always attempt to unlock AudioContext first (safe to call inside gesture handler)
     resumeAudioContext();
     if (ambientMode === 'none') return;
-    if (ambientMode === 'workout') { if (!_workoutScheduler) startWorkoutBeat(); return; }
     if (!ambientAudio || ambientAudio.paused) startAmbient(ambientMode);
   }
+
   function setAmbientVolume(vol) {
     ambientVolume = Math.max(0, Math.min(1, vol));
     if (ambientAudio) ambientAudio.volume = ambientVolume;
@@ -1068,8 +996,6 @@
     const tasks = getActivePlanTasks().filter(t => !t.done);
     const taskOptions = tasks.map(t => `<option value="${t.key}" ${focusCurrentTaskKey === t.key ? 'selected' : ''}>${escapeHTML(t.text)}</option>`).join('');
     const currentTask = focusCurrentTaskKey ? tasks.find(t => t.key === focusCurrentTaskKey) : null;
-    const ambientOpts = ['none', 'rain', 'soft', 'concentration', 'workout'];
-    const ambientLabels = { none: '🔇 Off', rain: '🌧 Rain', soft: '🎵 Soft', concentration: '🧠 Focus', workout: '💪 Workout' };
     return `<div class="focus-view">
       <div class="focus-mode-tabs">
         <button class="focus-mode-btn ${focusMode === 'work' ? 'active' : ''}" data-act="focus-mode" data-mode="work">Work</button>
@@ -1096,11 +1022,20 @@
         <button class="btn" style="min-width:110px" data-act="focus-toggle">${focusRunning ? '⏸ Pause' : '▶ Start'}</button>
         <button class="focus-lock-btn ${focusLocked ? 'locked' : ''}" data-act="focus-lock">${focusLocked ? ic('lock') : ic('unlock')} ${focusLocked ? 'Locked' : 'Lock'}</button>
       </div>
-      <div class="ambient-bar">
-        ${ambientOpts.map(m => `<button class="ambient-btn ${ambientMode === m ? 'active' : ''}" data-act="ambient-select" data-amode="${m}">${ambientLabels[m]}</button>`).join('')}
-        <div class="ambient-vol" style="${ambientMode !== 'none' ? '' : 'display:none'}">
-          <span style="font-size:11px;color:var(--text-muted)">Vol</span>
-          <input id="ambient-vol-slider" type="range" min="0" max="1" step="0.05" value="${ambientVolume}"/>
+      <div class="ambient-panel">
+        <div class="ambient-panel-top">
+          ${ambientMode !== 'none' ? `<span class="ambient-now-label">♪ ${escapeHTML(soundById(ambientMode).label)}</span>` : '<span class="ambient-now-label muted">No sound selected</span>'}
+          <div class="ambient-vol" style="${ambientMode !== 'none' ? '' : 'visibility:hidden'}">
+            <span style="font-size:11px;color:var(--text-muted)">Vol</span>
+            <input id="ambient-vol-slider" type="range" min="0" max="1" step="0.05" value="${ambientVolume}"/>
+          </div>
+        </div>
+        <div class="ambient-track-list">
+          <button class="ambient-btn ${ambientMode === 'none' ? 'active' : ''}" data-act="ambient-select" data-amode="none">🔇 Off</button>
+          ${['Ambient','Focus','Workout','Vibes'].map(cat => {
+            const tracks = SOUNDS.filter(s => s.cat === cat);
+            return '<span class="ambient-cat-label">' + cat + '</span>' + tracks.map(s => '<button class="ambient-btn ' + (ambientMode === s.id ? 'active' : '') + '" data-act="ambient-select" data-amode="' + s.id + '">' + s.label + '</button>').join('');
+          }).join('')}
         </div>
       </div>
       <div class="focus-task-bar">
@@ -1178,7 +1113,8 @@
     const tasks = getActivePlanTasks().filter(t => !t.done);
     const currentTask = focusCurrentTaskKey ? tasks.find(t => t.key === focusCurrentTaskKey) : null;
     const taskOpts = tasks.map(t => `<option value="${t.key}" ${focusCurrentTaskKey === t.key ? 'selected':''}>${escapeHTML(t.text)}</option>`).join('');
-    const ambientLabels = { none: '🔇', rain: '🌧', soft: '🎵', concentration: '🧠', workout: '💪' };
+    const _curSound = soundById(ambientMode);
+    const ambientIcon = _curSound.label.split(' ')[0];
     const sessionDots = Array.from({length: Math.min(focusSessions, 8)}, () => `<span class="fs-dot"></span>`).join('');
     overlay.innerHTML = `<div class="fs-bg"></div>
       <div class="fs-content">
@@ -1202,11 +1138,11 @@
           ${currentTask ? `<div class="fs-task-name">${escapeHTML(currentTask.text)}</div>${currentTask.meta ? `<div class="fs-task-meta">${escapeHTML(currentTask.meta)}</div>` : ''}` : (tasks.length ? `<select class="fs-task-select" data-act="focus-task-select"><option value="">— Pick a task —</option>${taskOpts}</select>` : `<div class="fs-task-empty">No tasks today</div>`)}
         </div>
         <div class="fs-controls">
-          <button class="fs-ctrl-btn fs-side-btn" data-act="fs-cycle-ambient" title="Toggle sound">${ambientLabels[ambientMode] || '🔇'}</button>
+          <button class="fs-ctrl-btn fs-side-btn" data-act="fs-cycle-ambient" title="Toggle sound">${ambientIcon}</button>
           <button class="fs-ctrl-btn fs-main-btn" data-act="fs-toggle">${focusRunning ? '⏸' : '▶'}</button>
           <button class="fs-ctrl-btn fs-side-btn fs-exit-btn" data-act="exit-full-session" title="Exit full screen">✕</button>
         </div>
-        <div class="fs-hint">Press Esc to exit · ${ambientMode !== 'none' ? '🎵 Sound on' : '🔇 Sound off'}</div>
+        <div class="fs-hint">Press Esc to exit · ${ambientMode !== 'none' ? '♪ ' + escapeHTML(_curSound.label) : '🔇 Sound off'}</div>
       </div>`;
   }
 
@@ -1913,7 +1849,7 @@
       renderFullSession(); return;
     }
     if (act === 'fs-cycle-ambient') {
-      const modes = ['none', 'rain', 'soft', 'concentration', 'workout'];
+      const modes = SOUNDS.map(s => s.id);
       ambientMode = modes[(modes.indexOf(ambientMode) + 1) % modes.length];
       startAmbient(ambientMode); renderFullSession(); return;
     }
