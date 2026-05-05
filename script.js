@@ -1206,7 +1206,6 @@
           tasks.length ? `<select data-act="focus-task-select"><option value="">— Pick a task —</option>${taskOptions}</select>` :
           `<div style="color:var(--text-muted);font-size:13px">No tasks for today yet.</div>`}
       </div>
-      <div class="focus-motivation"><span class="fm-text">${escapeHTML(_currentQuote || '')}</span></div>
       <div class="focus-sessions-info">
         <div class="grid">
           <div><div class="v">${focusSessions}</div><div class="k">Sessions today</div></div>

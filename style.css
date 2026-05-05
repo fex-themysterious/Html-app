@@ -810,7 +810,7 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .focus-sub-btn:active { transform: scale(0.97); }
 
 /* Focus timer */
-.focus-view { text-align: center; }
+.focus-view { text-align: center; padding-bottom: 20px; }
 .focus-mode-tabs { display: flex; gap: 6px; justify-content: center; margin-bottom: 18px; flex-wrap: wrap; }
 .focus-mode-btn {
   background: rgba(255,255,255,0.04); border: 1px solid var(--border-strong);
@@ -871,37 +871,6 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .focus-current-task .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary); animation: taskPulse 1.5s ease-in-out infinite; box-shadow: 0 0 6px var(--primary-glow); }
 @keyframes taskPulse { 0%,100% { transform: scale(1); opacity: 0.9; } 50% { transform: scale(1.35); opacity: 0.5; } }
 
-/* ── Focus Motivation Quote — fixed above bottom nav ─────────── */
-.focus-motivation {
-  position: fixed;
-  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 10px);
-  left: 14px; right: 14px;
-  z-index: 45;
-  padding: 11px 15px;
-  border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, rgba(7,16,34,0.96), rgba(9,19,40,0.94));
-  border: 1px solid rgba(77,168,255,0.22);
-  border-left: 3px solid rgba(77,168,255,0.72);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  box-shadow: 0 6px 28px rgba(0,0,0,0.5), 0 0 0 0.5px rgba(77,168,255,0.1) inset;
-  display: flex; align-items: center;
-  min-height: 46px;
-  animation: fmFadeIn 0.5s var(--ease) both;
-}
-.fm-text {
-  font-size: 13px;
-  font-weight: 600;
-  color: rgba(220, 238, 255, 0.95);
-  letter-spacing: 0.01em;
-  line-height: 1.5;
-  font-style: italic;
-  text-align: left;
-}
-@keyframes fmFadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
 
 /* ── Focus Intensity Panel ───────────────────────────────────── */
 .focus-intensity-panel {
@@ -961,7 +930,7 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 }
 
 /* Focus sessions */
-.focus-sessions-info { background: rgba(11,18,32,0.7); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid var(--glass-border); border-radius: var(--radius); padding: 16px 18px; text-align: left; box-shadow: var(--shadow); }
+.focus-sessions-info { background: rgba(11,18,32,0.7); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid var(--glass-border); border-radius: var(--radius); padding: 16px 18px; text-align: left; box-shadow: var(--shadow); margin-bottom: 14px; }
 .focus-sessions-info .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .focus-sessions-info .v { font-size: 24px; font-weight: 800; color: var(--primary); letter-spacing: -0.5px; }
 .focus-sessions-info .k { color: var(--text-muted); font-size: 12px; margin-top: 2px; font-weight: 500; }
@@ -1173,7 +1142,6 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   .focus-mode-edit-item label, .focus-mode-edit-item span { font-size: 9px; }
   .focus-buttons button { padding: 8px 12px; font-size: 12px; min-width: 70px; }
   .focus-lock-btn { padding: 7px 11px; font-size: 11px; }
-  .focus-motivation { display: none !important; }
 
   /* Right-col items */
   .focus-sessions-info { padding: 10px 13px; }
