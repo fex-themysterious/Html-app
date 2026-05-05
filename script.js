@@ -1057,12 +1057,24 @@
   function formatFocusTime(sec) { const m = Math.floor(sec / 60), s = sec % 60; return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; }
 
   function updateFocusDisplay() {
-    const el = document.getElementById('focus-time-display'); if (el) el.textContent = formatFocusTime(focusSeconds);
+    const formatted = formatFocusTime(focusSeconds);
     const total = customDurations[focusMode] * 60;
-    const r = 96, c = 2 * Math.PI * r, off = c * (1 - Math.max(0, Math.min(1, focusSeconds / total)));
-    const ring = document.getElementById('focus-ring-circle'); if (ring) ring.style.strokeDashoffset = off.toFixed(2);
     const m = Math.floor(focusSeconds / 60), s = focusSeconds % 60;
     document.title = focusRunning ? `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')} — Focus` : 'Syllabus Tracker';
+
+    // Regular focus view
+    const el = document.getElementById('focus-time-display'); if (el) el.textContent = formatted;
+    const r = 96, c = 2 * Math.PI * r, off = c * (1 - Math.max(0, Math.min(1, focusSeconds / total)));
+    const ring = document.getElementById('focus-ring-circle'); if (ring) ring.style.strokeDashoffset = off.toFixed(2);
+
+    // Full-session overlay — update timer + ring without re-rendering
+    const fsEl = document.getElementById('fs-time-display'); if (fsEl) fsEl.textContent = formatted;
+    const rr = 120, cc = 2 * Math.PI * rr, oo = cc * (1 - Math.max(0, Math.min(1, focusSeconds / total)));
+    const fsRing = document.getElementById('fs-ring-circle'); if (fsRing) fsRing.style.strokeDashoffset = oo.toFixed(2);
+
+    // Toggle running state for animations
+    const overlay = document.getElementById('fs-overlay');
+    if (overlay) overlay.classList.toggle('fs-is-running', focusRunning);
   }
 
   function focusTick() {
@@ -1105,6 +1117,31 @@
     if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
     renderFocus();
   }
+  function _genFsParticles() {
+    const out = [];
+    // Small bright stars (drift fast across)
+    for (let i = 0; i < 7; i++) {
+      const sz   = (1.5 + Math.random() * 3).toFixed(1);
+      const top  = (4  + Math.random() * 82).toFixed(1);
+      const dur  = (14 + Math.random() * 16).toFixed(1);
+      const del  = -(Math.random() * 28).toFixed(1);
+      const dy   = ((Math.random() - 0.5) * 60).toFixed(0);
+      const op   = (0.35 + Math.random() * 0.45).toFixed(2);
+      out.push(`<div class="fs-particle" style="width:${sz}px;height:${sz}px;top:${top}%;--drift-y:${dy}px;animation-duration:${dur}s;animation-delay:${del}s;opacity:${op}"></div>`);
+    }
+    // Larger soft cloud blobs (drift slow)
+    for (let i = 0; i < 5; i++) {
+      const sz   = (28 + Math.random() * 55).toFixed(1);
+      const top  = (5  + Math.random() * 80).toFixed(1);
+      const dur  = (24 + Math.random() * 22).toFixed(1);
+      const del  = -(Math.random() * 40).toFixed(1);
+      const dy   = ((Math.random() - 0.5) * 80).toFixed(0);
+      const op   = (0.02 + Math.random() * 0.045).toFixed(3);
+      out.push(`<div class="fs-particle" style="width:${sz}px;height:${sz}px;top:${top}%;--drift-y:${dy}px;animation-duration:${dur}s;animation-delay:${del}s;opacity:${op}"></div>`);
+    }
+    return out.join('');
+  }
+
   function renderFullSession() {
     const overlay = document.getElementById('fs-overlay'); if (!overlay) return;
     const total = customDurations[focusMode] * 60;
@@ -1116,7 +1153,8 @@
     const _curSound = soundById(ambientMode);
     const ambientIcon = _curSound.label.split(' ')[0];
     const sessionDots = Array.from({length: Math.min(focusSessions, 8)}, () => `<span class="fs-dot"></span>`).join('');
-    overlay.innerHTML = `<div class="fs-bg"></div>
+    overlay.className = focusRunning ? 'fs-is-running' : '';
+    overlay.innerHTML = `<div class="fs-bg"><div class="fs-bg-earth"></div>${_genFsParticles()}</div>
       <div class="fs-content">
         <div class="fs-top">
           <div class="fs-mode-badge ${isBreak ? 'fs-mode-break' : ''}">${focusMode === 'work' ? '🎯 Focus Time' : focusMode === 'short' ? '☕ Short Break' : '🛌 Long Break'}</div>

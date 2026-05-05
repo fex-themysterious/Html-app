@@ -917,6 +917,59 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .fs-bg {
   position: absolute; inset: 0;
   background: radial-gradient(ellipse at 50% 35%, #0e1e38 0%, #040b18 70%);
+  overflow: hidden;
+}
+
+/* ── Slow-moving Earth glow layer ─────────────────────────────── */
+.fs-bg-earth {
+  position: absolute;
+  width: 220%; height: 55%;
+  bottom: -28%; left: -60%;
+  background: radial-gradient(ellipse at 50% 80%, #0c3060 0%, #071e3d 30%, #040f22 60%, transparent 78%);
+  border-radius: 50%;
+  animation: fs-earth-drift 28s ease-in-out infinite alternate;
+  will-change: transform;
+  pointer-events: none;
+}
+@keyframes fs-earth-drift {
+  0%   { transform: translateX(0%) translateY(0) scale(1); }
+  100% { transform: translateX(5%) translateY(-2%) scale(1.03); }
+}
+
+/* ── Floating particles (stars + cloud wisps) ─────────────────── */
+.fs-particle {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.9);
+  will-change: transform, opacity;
+  animation: fs-particle-drift linear infinite;
+  pointer-events: none;
+}
+@keyframes fs-particle-drift {
+  0%   { transform: translateX(110vw) translateY(0);                  opacity: 0; }
+  7%   { opacity: 1; }
+  93%  { opacity: 1; }
+  100% { transform: translateX(-10vw)  translateY(var(--drift-y,0px)); opacity: 0; }
+}
+
+/* ── Subtle vibration on timer wrap (only while running) ──────── */
+.fs-is-running .fs-timer-wrap {
+  animation: fs-jitter 0.09s linear infinite;
+  will-change: transform;
+}
+@keyframes fs-jitter {
+  0%   { transform: translate(0,      0); }
+  20%  { transform: translate(-0.45px, 0.5px); }
+  40%  { transform: translate(0.5px, -0.4px); }
+  60%  { transform: translate(-0.35px,-0.5px); }
+  80%  { transform: translate(0.4px,   0.3px); }
+  100% { transform: translate(0,      0); }
+}
+
+/* ── Pulsing glow on timer numbers ───────────────────────────── */
+@keyframes fs-time-glow {
+  0%, 100% { text-shadow: 0 0 50px rgba(77,168,255,0.40); }
+  50%       { text-shadow: 0 0 90px rgba(77,168,255,0.80), 0 0 120px rgba(77,168,255,0.30), 0 0 18px rgba(180,220,255,0.20); }
 }
 .fs-content {
   position: relative; z-index: 1;
@@ -949,7 +1002,7 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   filter: drop-shadow(0 0 10px rgba(77,168,255,0.55));
 }
 .fs-ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
-.fs-time { font-size: 74px; font-weight: 900; letter-spacing: -0.04em; color: #f0f6ff; font-variant-numeric: tabular-nums; line-height: 1; text-shadow: 0 0 50px rgba(77,168,255,0.4); }
+.fs-time { font-size: 74px; font-weight: 900; letter-spacing: -0.04em; color: #f0f6ff; font-variant-numeric: tabular-nums; line-height: 1; text-shadow: 0 0 50px rgba(77,168,255,0.4); animation: fs-time-glow 2s ease-in-out infinite; }
 .fs-ring-sub { font-size: 11px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; }
 .fs-task-box { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 18px; padding: 14px 22px; text-align: center; width: 100%; max-width: 400px; backdrop-filter: blur(10px); }
 .fs-task-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700; margin-bottom: 7px; }
