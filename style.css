@@ -929,6 +929,69 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
                         0 0 72px 24px rgba(77,168,255,0.14); }
 }
 
+/* ── Binaural Beats Focus Card ───────────────────────────────── */
+.binaural-card {
+  background: linear-gradient(135deg, rgba(10,22,48,0.96), rgba(8,18,40,0.92));
+  border: 1px solid rgba(77,168,255,0.18);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  position: relative;
+  transition: border-color 0.35s, box-shadow 0.35s;
+  overflow: hidden;
+}
+.binaural-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 0%, rgba(77,168,255,0.07) 0%, transparent 70%);
+  pointer-events: none;
+}
+.binaural-card.bb-playing {
+  border-color: rgba(77,168,255,0.55);
+  box-shadow: 0 0 28px rgba(77,168,255,0.1), 0 2px 12px rgba(0,0,0,0.3);
+}
+.bb-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.bb-pulse-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: rgba(77,168,255,0.35); flex-shrink: 0;
+  transition: background 0.3s, box-shadow 0.3s;
+}
+.binaural-card.bb-playing .bb-pulse-dot {
+  background: #4da8ff;
+  animation: bbPulse 1.8s ease-in-out infinite;
+}
+@keyframes bbPulse {
+  0%   { transform: scale(1);    box-shadow: 0 0 0 0   rgba(77,168,255,0.7); }
+  50%  { transform: scale(1.4);  box-shadow: 0 0 0 8px rgba(77,168,255,0);   }
+  100% { transform: scale(1);    box-shadow: 0 0 0 0   rgba(77,168,255,0);   }
+}
+.bb-text { flex: 1; min-width: 0; text-align: left; }
+.bb-title { font-size: 13.5px; font-weight: 700; color: var(--text); letter-spacing: 0.01em; }
+.bb-meta  { font-size: 11px; color: var(--text-muted); margin-top: 2px; line-height: 1.4; }
+.bb-disclaimer {
+  font-size: 11px; font-weight: 600;
+  color: rgba(77,168,255,0.85);
+  margin-bottom: 12px; text-align: left;
+}
+.bb-controls { display: flex; align-items: center; gap: 12px; }
+.bb-play-btn {
+  background: linear-gradient(135deg, rgba(77,168,255,0.15), rgba(124,100,230,0.12));
+  border: 1px solid rgba(77,168,255,0.35); color: #4da8ff;
+  font-weight: 700; font-size: 13px; font-family: inherit;
+  padding: 8px 18px; border-radius: 999px; cursor: pointer;
+  white-space: nowrap; transition: all 0.2s; flex-shrink: 0;
+}
+.bb-play-btn:hover { background: rgba(77,168,255,0.22); box-shadow: 0 0 14px rgba(77,168,255,0.2); }
+.binaural-card.bb-playing .bb-play-btn {
+  background: linear-gradient(135deg, rgba(77,168,255,0.25), rgba(77,168,255,0.15));
+  border-color: rgba(77,168,255,0.6);
+  box-shadow: 0 0 12px rgba(77,168,255,0.18);
+}
+.bb-vol-row { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0; }
+.bb-vol-icon { font-size: 14px; flex-shrink: 0; }
+.bb-vol-slider { flex: 1; accent-color: #4da8ff; cursor: pointer; min-width: 0; }
+
 /* Focus sessions */
 .focus-sessions-info { background: rgba(11,18,32,0.7); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid var(--glass-border); border-radius: var(--radius); padding: 16px 18px; text-align: left; box-shadow: var(--shadow); margin-bottom: 14px; }
 .focus-sessions-info .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -1131,6 +1194,8 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   .focus-view .fs-enter-btn             { grid-column: 2; grid-row: 4; padding: 9px; font-size: 12px; }
   .focus-view .focus-multitask-toggle   { grid-column: 2; grid-row: 1; margin-bottom: 0; }
   .focus-view .focus-multitask-card     { grid-column: 2; grid-row: 2; }
+  /* Binaural card hidden in compact phone landscape — no space */
+  .focus-view .binaural-card { display: none; }
 
   /* Timer ring + text scaling */
   .focus-ring-wrap { background: rgba(255,255,255,0.02); }

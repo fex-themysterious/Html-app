@@ -18,7 +18,8 @@ const STATIC = [
   '/sounds/give-me-sunshine.m4a',
   '/sounds/shape-of-you.m4a',
   '/sounds/hall-of-fame.m4a',
-  '/sounds/summertime-sadness.m4a'
+  '/sounds/summertime-sadness.m4a',
+  '/sounds/focus-beta.wav'
 ];
 
 self.addEventListener('install', e => {

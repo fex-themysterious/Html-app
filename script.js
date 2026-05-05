@@ -571,6 +571,11 @@
   // ========== Focus Intensity (Deep-focus WAV tracks) ==========
   let focusIntensityAudio = null;
   let focusIntensityMode  = 'none';
+
+  // ========== Binaural Beats Player ==========
+  let _binauralAudio   = null;
+  let _binauralPlaying = false;
+  let _binauralVolume  = 0.7;
   const FOCUS_INTENSITY_TRACKS = [
     { id: 'monk-mode',      label: '🧘 Monk Mode',   desc: '40 Hz Gamma Binaural',    src: './sounds/monk-mode.wav' },
     { id: 'void',           label: '🌊 Void',          desc: 'Pink Noise · Deep Rain',  src: './sounds/void.wav' },
@@ -685,6 +690,72 @@
     audio.load();
     audio.play().catch(e => console.warn('[FocusIntensity] play() failed:', e.message));
     focusIntensityAudio = audio;
+  }
+
+  // ── Binaural Beats functions ──────────────────────────────────
+  function _updateBinauralUI() {
+    const btn  = document.getElementById('binaural-play-btn');
+    const card = document.getElementById('binaural-card');
+    if (btn)  btn.innerHTML  = _binauralPlaying ? '⏸ Pause' : '▶ Play';
+    if (card) card.classList.toggle('bb-playing', _binauralPlaying);
+  }
+
+  function _setupMediaSession() {
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title:   'Beta Wave — 20 Hz Deep Focus',
+      artist:  'StudyVault Binaural',
+      album:   'StudyVault Focus',
+      artwork: [
+        { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+        { src: '/icon-512.png', sizes: '512x512', type: 'image/png' }
+      ]
+    });
+    navigator.mediaSession.setActionHandler('play', () => {
+      if (_binauralAudio) _binauralAudio.play().catch(() => {});
+      _binauralPlaying = true;
+      navigator.mediaSession.playbackState = 'playing';
+      _updateBinauralUI();
+    });
+    navigator.mediaSession.setActionHandler('pause', () => {
+      if (_binauralAudio) _binauralAudio.pause();
+      _binauralPlaying = false;
+      navigator.mediaSession.playbackState = 'paused';
+      _updateBinauralUI();
+    });
+  }
+
+  function toggleBinaural() {
+    if (!_binauralAudio) {
+      _binauralAudio = new Audio('./sounds/focus-beta.wav');
+      _binauralAudio.loop    = true;
+      _binauralAudio.volume  = _binauralVolume;
+      _binauralAudio.preload = 'auto';
+      // Backup ended handler for browsers that ignore loop on WAV
+      _binauralAudio.addEventListener('ended', () => {
+        if (_binauralPlaying) { _binauralAudio.currentTime = 0; _binauralAudio.play().catch(() => {}); }
+      });
+    }
+    resumeAudioContext();
+    if (_binauralPlaying) {
+      _binauralAudio.pause();
+      _binauralPlaying = false;
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+    } else {
+      _binauralAudio.play().catch(e => {
+        console.warn('[Binaural] play() failed:', e.message);
+        toast('Tap Play again — browser requires a fresh gesture.', 'info', 3000);
+      });
+      _binauralPlaying = true;
+      _setupMediaSession();
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+    }
+    _updateBinauralUI();
+  }
+
+  function setBinauralVolume(v) {
+    _binauralVolume = parseFloat(v);
+    if (_binauralAudio) _binauralAudio.volume = _binauralVolume;
   }
 
   function startAmbient(mode) {
@@ -1199,6 +1270,23 @@
           <option value="none"${focusIntensityMode === 'none' ? ' selected' : ''}>🔇 Off — no deep focus track</option>
           ${FOCUS_INTENSITY_TRACKS.map(t => `<option value="${t.id}"${focusIntensityMode === t.id ? ' selected' : ''}>${t.label} — ${t.desc}</option>`).join('')}
         </select>
+      </div>
+      <div class="binaural-card${_binauralPlaying ? ' bb-playing' : ''}" id="binaural-card">
+        <div class="bb-header">
+          <div class="bb-pulse-dot"></div>
+          <div class="bb-text">
+            <div class="bb-title">🧠 Binaural Beats</div>
+            <div class="bb-meta">Beta Wave · 20 Hz · 150 Hz L / 170 Hz R · Deep Focus &amp; Productivity</div>
+          </div>
+        </div>
+        <div class="bb-disclaimer">🎧 Headphones required for the binaural effect</div>
+        <div class="bb-controls">
+          <button id="binaural-play-btn" class="bb-play-btn" data-act="binaural-toggle">${_binauralPlaying ? '⏸ Pause' : '▶ Play'}</button>
+          <div class="bb-vol-row">
+            <span class="bb-vol-icon">🔊</span>
+            <input type="range" id="binaural-vol-slider" min="0" max="1" step="0.05" value="${_binauralVolume}" class="bb-vol-slider"/>
+          </div>
+        </div>
       </div>
       <div class="focus-task-bar">
         <label>Current Task</label>
@@ -2423,6 +2511,7 @@
 
     // Ambient sound
     if (act === 'ambient-select') { ambientMode = el.dataset.amode; startAmbient(ambientMode); renderFocus(); return; }
+    if (act === 'binaural-toggle') { toggleBinaural(); return; }
 
     // Full Screen Session
     if (act === 'enter-full-session') { enterFullSession(); return; }
@@ -2626,11 +2715,13 @@
       return;
     }
     if (el.id === 'ambient-vol-slider') { setAmbientVolume(parseFloat(el.value)); return; }
+    if (el.id === 'binaural-vol-slider') { setBinauralVolume(el.value); return; }
     if (el.id === 'stats-import-file') { importData(el.files[0]); el.value = ''; return; }
   });
   document.addEventListener('input', e => {
     const el = e.target;
     if (el.id === 'ambient-vol-slider') { setAmbientVolume(parseFloat(el.value)); return; }
+    if (el.id === 'binaural-vol-slider') { setBinauralVolume(el.value); return; }
     if (el.dataset.act === 'focus-dur-change') {
       const dmode = el.dataset.dmode, val = parseInt(el.value, 10);
       if (dmode && !isNaN(val) && val >= 1 && val <= 120) {
