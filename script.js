@@ -600,6 +600,47 @@
   ];
   function soundById(id) { return SOUNDS.find(s => s.id === id) || SOUNDS[0]; }
 
+  // ── Focus Timer Motivational Quotes ─────────────────────────────
+  const FOCUS_QUOTES = [
+    'Every Pomodoro brings you closer to BUET. 🎯',
+    'Study like a pilot — aim for the stars, Tajwar. ✈️',
+    'Stay focused, Tajwar. CSE\'26 is your destiny.',
+    'One session at a time. One chapter at a time.',
+    'The best engineers were the best students first.',
+    'Your future BUET self is watching. Don\'t let them down.',
+    'No shortcut to the top — only the grind knows the way.',
+    'Every minute of focus today is a step toward your dream campus.',
+    'Concentration is the root of all higher abilities in man.',
+    'You\'re building the foundation of your engineering career — right now.',
+    'Stay consistent. Champions are forged in hours no one sees.',
+    'BUET doesn\'t wait. Neither should you.',
+    'Focus first. Celebrate later.',
+    'Discipline today = freedom tomorrow.',
+    'Each tick of this timer is a vote for the engineer you want to become.',
+    'You don\'t need motivation every day — you need discipline every day.',
+    'Tajwar, you\'ve got this. Lock in. 🔒',
+    'Dream big, study bigger.',
+    'Silence the noise. Hear only the work.',
+    'Progress, not perfection. Keep moving forward.',
+    'Hard work beats talent when talent doesn\'t work hard.',
+    'The pain of studying is temporary. Regret lasts forever.',
+    'One concept mastered today is one less obstacle tomorrow.',
+    'Code, conquer, repeat. That\'s the CSE way. 💻',
+    'This might be the session that makes it all click. 🌟',
+  ];
+  let _currentQuote = null;
+  let customFocusQuotes = (() => {
+    try { return JSON.parse(localStorage.getItem('focus_custom_quotes') || '[]'); } catch (e) { return []; }
+  })();
+  function saveCustomFocusQuotes() { localStorage.setItem('focus_custom_quotes', JSON.stringify(customFocusQuotes)); }
+  function pickNewQuote() {
+    const pool = [...FOCUS_QUOTES, ...customFocusQuotes];
+    if (!pool.length) { _currentQuote = ''; return; }
+    const others = pool.filter(q => q !== _currentQuote);
+    const src = others.length ? others : pool;
+    _currentQuote = src[Math.floor(Math.random() * src.length)];
+  }
+
   function stopAmbient() {
     if (ambientAudio) {
       ambientAudio.pause();
@@ -1054,6 +1095,7 @@
   }
 
   function renderFocusTimer() {
+    if (!_currentQuote) pickNewQuote();
     const total = customDurations[focusMode] * 60;
     const r = 96, c = 2 * Math.PI * r, off = c * (1 - Math.max(0, Math.min(1, focusSeconds / total)));
     const isBreak = focusMode !== 'work';
@@ -1114,6 +1156,7 @@
           tasks.length ? `<select data-act="focus-task-select"><option value="">— Pick a task —</option>${taskOptions}</select>` :
           `<div style="color:var(--text-muted);font-size:13px">No tasks for today yet.</div>`}
       </div>
+      <div class="focus-motivation"><span class="fm-text">${escapeHTML(_currentQuote || '')}</span></div>
       <div class="focus-sessions-info">
         <div class="grid">
           <div><div class="v">${focusSessions}</div><div class="k">Sessions today</div></div>
@@ -2125,6 +2168,7 @@
       <div class="settings-section"><h4>Motivation Notifications</h4><div class="settings-row"><div class="label">Motivational push messages<div class="sub">Random quote at each scheduled time.</div></div><label class="switch"><input type="checkbox" id="set-mr-toggle" ${mr.enabled ? 'checked' : ''} data-act="toggle-motivation"/><span class="slider"></span></label></div><div class="time-chip-row" style="${mr.enabled ? '' : 'opacity:.55;pointer-events:none'}">${mr.times.length ? chips('motivation', mr.times) : '<span class="muted">No times set.</span>'}<button type="button" class="time-chip add" data-act="open-time-picker" data-which="motivation" data-i="-1">+ Add</button></div></div>
       <div class="settings-section"><h4>Notifications Status</h4><div class="notif-status ${permCls}">${escapeHTML(permText)}</div>${(perm === 'default' || perm === 'denied') ? `<div style="margin-top:9px"><button class="btn btn-block" data-act="sr-request-perm">${perm === 'denied' ? 'Try requesting again' : 'Allow notifications'}</button></div>` : ''}</div>
       <div class="settings-section"><h4>Motivation Quotes</h4><div class="quote-list">${state.motivationQuotes.map((q, i) => `<div class="quote-row"><div class="text">${escapeHTML(q)}</div><button class="menu-btn" data-act="del-quote" data-i="${i}">${ic('trash')}</button></div>`).join('')}</div><div class="quote-add-row"><input id="set-new-quote" placeholder="Add a motivation quote…" maxlength="200"/><button class="btn" data-act="add-quote">${ic('plus')}</button></div></div>
+      <div class="settings-section"><h4>Focus Timer Quotes</h4><p style="font-size:12px;color:var(--text-muted);margin:0 0 10px">${FOCUS_QUOTES.length} built-in · ${customFocusQuotes.length} custom. A fresh quote appears every time you start the timer.</p><div class="quote-list">${customFocusQuotes.length ? customFocusQuotes.map((q, i) => `<div class="quote-row"><div class="text">${escapeHTML(q)}</div><button class="menu-btn" data-act="del-focus-quote" data-i="${i}">${ic('trash')}</button></div>`).join('') : '<div style="font-size:12px;color:var(--text-muted);padding:4px 0">No custom quotes yet.</div>'}</div><div class="quote-add-row"><input id="set-focus-quote" placeholder="Add your own focus quote…" maxlength="200"/><button class="btn" data-act="add-focus-quote">${ic('plus')}</button></div></div>
       <div class="settings-section"><h4>Data</h4><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost" data-act="export-data">${ic('download')} Export Backup</button><label class="btn btn-ghost" style="cursor:pointer">${ic('upload')} Import Backup<input type="file" accept=".json" style="display:none" id="import-file-input"/></label></div></div>
       <div class="actions" style="margin-top:16px"><button class="btn btn-ghost" data-close>Close</button></div>`,
       root => { root.querySelector('#import-file-input').onchange = e => { importData(e.target.files[0]); closeModal(); }; });
@@ -2314,6 +2358,7 @@
         // Request notification permission so end-of-session alert works
         if (notifPermission() === 'default') requestNotifPermission();
         focusRunning = true;
+        pickNewQuote();
         focusStartTime = Date.now();
         focusStartSeconds = focusSeconds;
         focusTimer = setInterval(focusTick, 1000);
@@ -2511,6 +2556,8 @@
     if (act === 'sr-request-perm') { requestNotifPermission().then(() => refreshSettingsIfOpen()); return; }
     if (act === 'del-quote') { state.motivationQuotes.splice(parseInt(el.dataset.i, 10), 1); saveState(); refreshSettingsIfOpen(); return; }
     if (act === 'add-quote') { const input = document.getElementById('set-new-quote'), text = input ? input.value.trim() : ''; if (!text) { toast('Enter a quote first', 'warn'); return; } state.motivationQuotes.push(text); saveState(); refreshSettingsIfOpen(); return; }
+    if (act === 'del-focus-quote') { const idx = parseInt(el.dataset.i, 10); customFocusQuotes.splice(idx, 1); saveCustomFocusQuotes(); if (_currentQuote && !customFocusQuotes.includes(_currentQuote) && !FOCUS_QUOTES.includes(_currentQuote)) _currentQuote = null; refreshSettingsIfOpen(); toast('Quote removed', 'info'); return; }
+    if (act === 'add-focus-quote') { const inp = document.getElementById('set-focus-quote'), text = inp ? inp.value.trim() : ''; if (!text) { toast('Enter a quote first', 'warn'); return; } customFocusQuotes.push(text); saveCustomFocusQuotes(); refreshSettingsIfOpen(); toast('Focus quote added ✨', 'success'); return; }
     if (act === 'export-data') { closeModal(); exportData(); return; }
     if (act === 'backup-export') { exportData(); return; }
   });
