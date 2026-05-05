@@ -567,6 +567,15 @@
   // ========== Ambient Sound (MP3-based) ==========
   let ambientAudio = null;
   let ambientMode = 'none', ambientVolume = 0.5;
+
+  // ========== Focus Intensity (Deep-focus WAV tracks) ==========
+  let focusIntensityAudio = null;
+  let focusIntensityMode  = 'none';
+  const FOCUS_INTENSITY_TRACKS = [
+    { id: 'monk-mode',      label: '🧘 Monk Mode',   desc: '40 Hz Gamma Binaural',    src: './sounds/monk-mode.wav' },
+    { id: 'void',           label: '🌊 Void',          desc: 'Pink Noise · Deep Rain',  src: './sounds/void.wav' },
+    { id: 'solfeggio-528',  label: '✨ 528 Hz',        desc: 'Solfeggio Transformation', src: './sounds/solfeggio-528.wav' },
+  ];
   let _audioCtx = null;
 
   function getAudioContext() {
@@ -647,6 +656,35 @@
       ambientAudio.currentTime = 0;
       ambientAudio = null;
     }
+  }
+
+  function stopFocusIntensity() {
+    if (focusIntensityAudio) {
+      focusIntensityAudio.pause();
+      focusIntensityAudio.currentTime = 0;
+      focusIntensityAudio = null;
+    }
+  }
+
+  function startFocusIntensity(mode) {
+    stopFocusIntensity();
+    focusIntensityMode = mode;
+    if (mode === 'none') return;
+    resumeAudioContext();
+    const track = FOCUS_INTENSITY_TRACKS.find(t => t.id === mode);
+    if (!track) return;
+    const audio = new Audio();
+    audio.loop    = true;
+    audio.volume  = 0.55;
+    audio.preload = 'auto';
+    audio.addEventListener('ended', () => {
+      if (focusIntensityAudio === audio) { audio.currentTime = 0; audio.play().catch(() => {}); }
+    });
+    audio.addEventListener('error', e => console.error('[FocusIntensity] Load error:', e));
+    audio.src = track.src;
+    audio.load();
+    audio.play().catch(e => console.warn('[FocusIntensity] play() failed:', e.message));
+    focusIntensityAudio = audio;
   }
 
   function startAmbient(mode) {
@@ -1115,7 +1153,7 @@
         <div class="focus-mode-edit-item"><label>Short</label><input type="number" min="1" max="60" id="focus-dur-short" value="${customDurations.short}" data-act="focus-dur-change" data-dmode="short"/><span>min</span></div>
         <div class="focus-mode-edit-item"><label>Long</label><input type="number" min="1" max="60" id="focus-dur-long" value="${customDurations.long}" data-act="focus-dur-change" data-dmode="long"/><span>min</span></div>
       </div>
-      <div class="focus-ring-wrap">
+      <div class="focus-ring-wrap${focusIntensityMode !== 'none' ? ' intensity-active' : ''}">
         <svg class="focus-ring-svg" viewBox="0 0 220 220" aria-hidden="true">
           <circle class="focus-ring-track" cx="110" cy="110" r="${r}"/>
           <circle class="focus-ring-fill ${isBreak ? 'break-mode' : ''}" id="focus-ring-circle" cx="110" cy="110" r="${r}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/>
@@ -1151,6 +1189,16 @@
             return '<span class="ambient-cat-label">' + cat + '</span>' + tracks.map(s => '<button class="ambient-btn ' + (ambientMode === s.id ? 'active' : '') + '" data-act="ambient-select" data-amode="' + s.id + '">' + s.label + '</button>').join('');
           }).join('')}
         </div>
+      </div>
+      <div class="focus-intensity-panel">
+        <div class="fi-header">
+          <span class="fi-title">⚡ Focus Intensity</span>
+          ${focusIntensityMode !== 'none' ? `<span class="fi-active-pill">● ${FOCUS_INTENSITY_TRACKS.find(t => t.id === focusIntensityMode)?.label || ''}</span>` : ''}
+        </div>
+        <select class="fi-select" data-act="intensity-select">
+          <option value="none"${focusIntensityMode === 'none' ? ' selected' : ''}>🔇 Off — no deep focus track</option>
+          ${FOCUS_INTENSITY_TRACKS.map(t => `<option value="${t.id}"${focusIntensityMode === t.id ? ' selected' : ''}>${t.label} — ${t.desc}</option>`).join('')}
+        </select>
       </div>
       <div class="focus-task-bar">
         <label>Current Task</label>
@@ -2568,6 +2616,16 @@
   document.addEventListener('change', e => {
     const el = e.target;
     if (el.dataset.act === 'focus-task-select') { focusCurrentTaskKey = el.value || null; if (fsSessionActive) renderFullSession(); else renderFocus(); return; }
+    if (el.dataset.act === 'intensity-select') {
+      const mode = el.value || 'none';
+      startFocusIntensity(mode);
+      renderFocus();
+      if (mode !== 'none') {
+        const t = FOCUS_INTENSITY_TRACKS.find(x => x.id === mode);
+        toast(`${t.label} activated — use headphones for binaural effect 🎧`, 'info', 4000);
+      }
+      return;
+    }
     if (el.id === 'ambient-vol-slider') { setAmbientVolume(parseFloat(el.value)); return; }
     if (el.id === 'stats-import-file') { importData(el.files[0]); el.value = ''; return; }
   });
