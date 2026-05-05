@@ -451,6 +451,66 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .lbls .lbl { color: var(--text-dim); font-size: 9px; text-align: center; flex: 1; font-weight: 600; }
 
 /* ================================================================
+   PREMIUM STATS DASHBOARD
+   ================================================================ */
+
+/* ── Glass Metric Cards ──────────────────────────────────────── */
+.stats-glass-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 4px; }
+.stats-glass-card {
+  background: linear-gradient(145deg, rgba(255,255,255,0.055), rgba(255,255,255,0.018));
+  border: 1px solid rgba(77,168,255,0.22);
+  border-radius: 18px;
+  padding: 18px 8px 15px;
+  text-align: center;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s;
+}
+.stats-glass-card::before {
+  content: '';
+  position: absolute; top: 0; left: 10%; right: 10%; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(77,168,255,0.5), transparent);
+}
+.sgc-icon { font-size: 20px; margin-bottom: 7px; line-height: 1; }
+.sgc-value { font-size: clamp(15px, 4vw, 22px); font-weight: 900; color: #f0f6ff; letter-spacing: -0.02em; line-height: 1.15; }
+.sgc-rank { font-size: clamp(11px, 2.8vw, 15px) !important; }
+.sgc-label { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; margin-top: 6px; }
+
+/* ── Stats Section Heads ──────────────────────────────────────── */
+.stats-section-head { display: flex; align-items: center; justify-content: space-between; margin: 20px 0 9px; }
+.stats-section-head > span:first-child { font-size: 15px; font-weight: 800; color: var(--text); }
+.stats-section-meta { font-size: 11px; color: var(--text-muted); font-weight: 600; }
+
+/* ── Chart Cards ─────────────────────────────────────────────── */
+.stats-chart-card {
+  background: rgba(255,255,255,0.024);
+  border: 1px solid rgba(77,168,255,0.10);
+  border-radius: 16px;
+  padding: 16px;
+}
+.stats-chart-wrap { position: relative; height: 170px; }
+.stats-pie-wrap { position: relative; height: 280px; }
+.stats-empty-chart { text-align: center; color: var(--text-muted); font-size: 13px; padding: 22px 0; font-style: italic; }
+
+/* ── Focus Heatmap ───────────────────────────────────────────── */
+.stats-heatmap-card { padding: 14px 14px 10px; }
+.stats-hm-day-labels { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-bottom: 4px; }
+.stats-hm-day-labels span { text-align: center; font-size: 9px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.stats-heatmap { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.shm-cell { aspect-ratio: 1; border-radius: 4px; cursor: default; transition: opacity 0.15s; }
+.shm-cell:hover { opacity: 0.8; }
+.shm-cell.lv0    { background: rgba(77,168,255,0.08); }
+.shm-cell.lv1    { background: rgba(77,168,255,0.28); }
+.shm-cell.lv2    { background: rgba(77,168,255,0.52); }
+.shm-cell.lv3    { background: rgba(77,168,255,0.76); }
+.shm-cell.lv4    { background: rgba(77,168,255,0.97); box-shadow: 0 0 7px rgba(77,168,255,0.45); }
+.shm-cell.future { background: rgba(255,255,255,0.04); opacity: 0.45; }
+.stats-hm-legend { display: flex; align-items: center; gap: 5px; justify-content: flex-end; margin-top: 9px; font-size: 10px; color: var(--text-muted); font-weight: 600; }
+.stats-hm-legend .shm-cell { width: 11px; height: 11px; aspect-ratio: unset; flex-shrink: 0; border-radius: 3px; }
+
+/* ================================================================
    HOME — HERO CARDS
    ================================================================ */
 .hero-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }

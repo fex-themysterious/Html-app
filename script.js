@@ -1572,35 +1572,92 @@
         </div>
       </div>`;
 
-    view.innerHTML = `
-      <div class="page-header"><h1>Stats</h1><div class="subtitle">Full study analytics</div></div>
+    // ── Premium stats extra computations ─────────────────────────
+    const totalFocusHours = totalFocusMin / 60;
+    const rank = totalFocusHours >= 100 ? { label: 'Ace Student', icon: '🏆', color: '#f59e0b' }
+      : totalFocusHours >= 60  ? { label: 'Commander',  icon: '🎖️',  color: '#a78bfa' }
+      : totalFocusHours >= 30  ? { label: 'Captain',    icon: '✈️',  color: '#38bdf8' }
+      : totalFocusHours >= 15  ? { label: 'Aviator',    icon: '🚀',  color: '#34d399' }
+      : totalFocusHours >= 5   ? { label: 'Scholar',    icon: '📚',  color: '#4da8ff' }
+      : { label: 'Rookie', icon: '🌱', color: '#94a3b8' };
+    const focusDisplay = totalFocusMin >= 60
+      ? `${Math.floor(totalFocusMin / 60)}h${totalFocusMin % 60 ? ' ' + (totalFocusMin % 60) + 'm' : ''}`
+      : `${totalFocusMin}m`;
 
-      <div class="stats-row">
+    // Heatmap: 5 complete weeks (Sun → Sat), aligned to Sun column
+    const hmDow = today.getDay();
+    const hmStart = new Date(today); hmStart.setDate(hmStart.getDate() - (hmDow + 28));
+    const heatmapCells = Array.from({ length: 35 }, (_, i) => {
+      const d = new Date(hmStart); d.setDate(d.getDate() + i);
+      const k = d.toISOString().slice(0, 10);
+      const isFuture = d > today;
+      const min = isFuture ? 0 : (state.focusStats.minutesByDate[k] || 0);
+      const lvl = isFuture ? 'future' : min === 0 ? 'lv0' : min <= 30 ? 'lv1' : min <= 60 ? 'lv2' : min <= 120 ? 'lv3' : 'lv4';
+      return { k, min, lvl, title: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ': ' + (isFuture ? '—' : min + 'm') };
+    });
+
+    // Pie: subjects with completed topics
+    const pieSubjects = state.subjects.map(sub => {
+      let done = 0;
+      for (const ch of sub.chapters) for (const t of ch.topics) if (t.done) done++;
+      return { name: sub.name, done, color: sub.color };
+    }).filter(s => s.done > 0);
+
+    view.innerHTML = `
+      <div class="page-header"><h1>Stats</h1><div class="subtitle">Premium study analytics</div></div>
+
+      <div class="stats-glass-row">
+        <div class="stats-glass-card" style="border-color:${rank.color}44">
+          <div class="sgc-icon">⏱</div>
+          <div class="sgc-value">${focusDisplay || '0m'}</div>
+          <div class="sgc-label">Total Focus</div>
+        </div>
+        <div class="stats-glass-card">
+          <div class="sgc-icon">🍅</div>
+          <div class="sgc-value">${totalFocusSessions}</div>
+          <div class="sgc-label">Pomodoros</div>
+        </div>
+        <div class="stats-glass-card" style="border-color:${rank.color}44">
+          <div class="sgc-icon">${rank.icon}</div>
+          <div class="sgc-value sgc-rank" style="color:${rank.color}">${rank.label}</div>
+          <div class="sgc-label">Your Rank</div>
+        </div>
+      </div>
+
+      <div class="stats-section-head"><span>Weekly Focus</span><span class="stats-section-meta">${days7.reduce((a, b) => a + b.min, 0)}m this week</span></div>
+      <div class="stats-chart-card"><div class="stats-chart-wrap"><canvas id="stats-weekly-chart"></canvas></div></div>
+
+      <div class="stats-section-head"><span>Focus Heatmap</span><span class="stats-section-meta">Last 5 weeks</span></div>
+      <div class="stats-chart-card stats-heatmap-card">
+        <div class="stats-hm-day-labels"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
+        <div class="stats-heatmap">${heatmapCells.map(c => `<div class="shm-cell ${c.lvl}" title="${c.title}"></div>`).join('')}</div>
+        <div class="stats-hm-legend"><span>Less</span><div class="shm-cell lv0"></div><div class="shm-cell lv1"></div><div class="shm-cell lv2"></div><div class="shm-cell lv3"></div><div class="shm-cell lv4"></div><span>More</span></div>
+      </div>
+
+      <div class="stats-section-head"><span>Subject Distribution</span><span class="stats-section-meta">by topics done</span></div>
+      <div class="stats-chart-card">${pieSubjects.length
+        ? `<div class="stats-pie-wrap"><canvas id="stats-pie-chart"></canvas></div>`
+        : `<div class="stats-empty-chart">Complete topics to see distribution</div>`}</div>
+
+      <div class="stats-row" style="margin-top:16px">
         <div class="stat-tile"><div class="v">${overall}%</div><div class="k">Overall</div></div>
         <div class="stat-tile"><div class="v">${state.streak.count} 🔥</div><div class="k">Streak</div></div>
-        <div class="stat-tile"><div class="v">${bestStreak}</div><div class="k">Best Streak</div></div>
-        <div class="stat-tile" style="${consistencyPct >= 50 ? 'border-color:#22c55e33' : ''}"><div class="v" style="${consistencyPct >= 50 ? 'color:#22c55e' : ''}">${consistencyPct}%</div><div class="k">Consistency</div></div>
+        <div class="stat-tile"><div class="v">${consistencyPct}%</div><div class="k">Consistency</div></div>
+        <div class="stat-tile"><div class="v">${activeDays30}/30</div><div class="k">Active Days</div></div>
       </div>
 
       <div class="stats-row" style="margin-top:8px">
         <div class="stat-tile"><div class="v">${doneTopics}/${totalTopics}</div><div class="k">Topics</div></div>
         <div class="stat-tile"><div class="v">${doneChapters}/${totalChapters}</div><div class="k">Chapters</div></div>
         <div class="stat-tile" style="${totalWeak > 0 ? 'border-color:#f59e0b33' : ''}"><div class="v" style="${totalWeak > 0 ? 'color:#f59e0b' : ''}">${totalWeak}</div><div class="k">Weak Topics</div></div>
-        <div class="stat-tile" style="${totalRevPending > 0 ? 'border-color:#f4736433' : ''}"><div class="v" style="${totalRevPending > 0 ? 'color:#f47364' : ''}">${totalRevPending}</div><div class="k">Rev. Due</div></div>
+        <div class="stat-tile"><div class="v">${totalRevDone}</div><div class="k">Revisions</div></div>
       </div>
 
       <div class="stats-row" style="margin-top:8px">
-        <div class="stat-tile"><div class="v">${todaySessions}</div><div class="k">Sessions Today</div></div>
-        <div class="stat-tile"><div class="v">${todayFocusMin}m</div><div class="k">Focus Today</div></div>
-        <div class="stat-tile"><div class="v">${totalFocusSessions}</div><div class="k">Total Sessions</div></div>
-        <div class="stat-tile"><div class="v">${totalFocusMin >= 60 ? Math.round(totalFocusMin/60) + 'h' : totalFocusMin + 'm'}</div><div class="k">Total Focus</div></div>
-      </div>
-
-      <div class="stats-row" style="margin-top:8px">
-        <div class="stat-tile"><div class="v">${totalRevDone}</div><div class="k">Revisions Done</div></div>
-        <div class="stat-tile"><div class="v">${avgFocusMin}m</div><div class="k">Avg Focus/Day</div></div>
-        <div class="stat-tile"><div class="v">${bestDay}</div><div class="k">Best Day</div></div>
-        <div class="stat-tile"><div class="v">${activeDays30}/30</div><div class="k">Active Days</div></div>
+        <div class="stat-tile"><div class="v">${todaySessions}</div><div class="k">Today Sessions</div></div>
+        <div class="stat-tile"><div class="v">${todayFocusMin}m</div><div class="k">Today Focus</div></div>
+        <div class="stat-tile"><div class="v">${totalFocusSessions}</div><div class="k">All Sessions</div></div>
+        <div class="stat-tile"><div class="v">${avgFocusMin}m</div><div class="k">Avg / Day</div></div>
       </div>
 
       ${syllabusProgressHtml}
@@ -1633,21 +1690,6 @@
         </div>
       </div>
 
-      <h2 style="margin:16px 0 10px">Focus Trend (7 days)</h2>
-      <div class="card" style="padding:13px 14px">
-        <div style="display:flex;align-items:flex-end;gap:4px;height:64px">
-          ${days7.map(d => `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px">
-            <div style="flex:1;width:100%;display:flex;align-items:flex-end">
-              <div style="width:100%;height:${Math.max(4, Math.round((d.min/maxFocus7)*100))}%;background:var(--primary);opacity:${d.min?0.9:0.2};border-radius:4px 4px 0 0;min-height:4px" title="${d.k}: ${d.min}min"></div>
-            </div>
-          </div>`).join('')}
-        </div>
-        <div style="display:flex;gap:4px;margin-top:4px">
-          ${days7.map(d => `<div style="flex:1;text-align:center;font-size:9px;color:var(--text-muted)">${d.label}</div>`).join('')}
-        </div>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Avg: <strong>${avgFocusMin}m/day</strong> · Total this week: <strong>${days7.reduce((a,b)=>a+b.min,0)}m</strong></div>
-      </div>
-
       ${state.exams.length ? `
       <h2 style="margin:16px 0 10px">Exam Readiness</h2>
       <div class="card" style="padding:4px 14px">${examCards}</div>` : ''}
@@ -1656,12 +1698,86 @@
 
       <h2 style="margin:16px 0 8px">Activity (14 days)</h2>
       <div class="card" style="padding:13px 14px">
-        <div class="bars">${days14.map(d => `<div class="bar" style="height:${Math.max(8, Math.round((d.count/maxAct)*100))}%;opacity:${d.count?'0.9':'0.2'}" title="${d.k}: ${d.count} actions"></div>`).join('')}</div>
+        <div class="bars">${days14.map(d => `<div class="bar" style="height:${Math.max(8, Math.round((d.count / maxAct) * 100))}%;opacity:${d.count ? '0.9' : '0.2'}" title="${d.k}: ${d.count} actions"></div>`).join('')}</div>
         <div class="lbls">${days14.map(d => `<div class="lbl">${d.label}</div>`).join('')}</div>
       </div>
 
       <h2 style="margin:16px 0 10px">By Subject</h2>
       ${subjectCards}`;
+
+    initStatsCharts(days7, pieSubjects);
+  }
+
+  function initStatsCharts(days7, pieSubjects) {
+    if (!window.Chart) { setTimeout(() => initStatsCharts(days7, pieSubjects), 300); return; }
+
+    // Weekly bar chart
+    const weeklyCanvas = document.getElementById('stats-weekly-chart');
+    if (weeklyCanvas) {
+      const prev = Chart.getChart(weeklyCanvas); if (prev) prev.destroy();
+      new Chart(weeklyCanvas, {
+        type: 'bar',
+        data: {
+          labels: days7.map(d => d.label),
+          datasets: [{
+            data: days7.map(d => d.min),
+            backgroundColor: days7.map((_, i) => i === 6 ? 'rgba(77,168,255,0.88)' : 'rgba(77,168,255,0.32)'),
+            borderColor: '#4da8ff',
+            borderWidth: 0,
+            borderRadius: 7,
+            borderSkipped: false
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#0d1b2a', borderColor: 'rgba(77,168,255,0.4)', borderWidth: 1,
+              titleColor: '#f0f6ff', bodyColor: '#94a3b8', padding: 10,
+              callbacks: { label: ctx => ` ${ctx.parsed.y} min` }
+            }
+          },
+          scales: {
+            x: { grid: { display: false }, border: { display: false }, ticks: { color: 'rgba(148,163,184,0.75)', font: { size: 11, weight: '600' } } },
+            y: { grid: { color: 'rgba(255,255,255,0.05)' }, border: { display: false }, ticks: { color: 'rgba(148,163,184,0.6)', font: { size: 10 }, callback: v => v + 'm', maxTicksLimit: 4 }, beginAtZero: true }
+          }
+        }
+      });
+    }
+
+    // Doughnut chart
+    const pieCanvas = document.getElementById('stats-pie-chart');
+    if (pieCanvas && pieSubjects.length) {
+      const prev = Chart.getChart(pieCanvas); if (prev) prev.destroy();
+      new Chart(pieCanvas, {
+        type: 'doughnut',
+        data: {
+          labels: pieSubjects.map(s => s.name),
+          datasets: [{
+            data: pieSubjects.map(s => s.done),
+            backgroundColor: pieSubjects.map(s => s.color + 'bb'),
+            borderColor: pieSubjects.map(s => s.color),
+            borderWidth: 2,
+            hoverOffset: 10
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, cutout: '62%',
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: { color: 'rgba(148,163,184,0.85)', font: { size: 12, weight: '600' }, padding: 14, usePointStyle: true, pointStyleWidth: 8 }
+            },
+            tooltip: {
+              backgroundColor: '#0d1b2a', borderColor: 'rgba(77,168,255,0.4)', borderWidth: 1,
+              titleColor: '#f0f6ff', bodyColor: '#94a3b8',
+              callbacks: { label: ctx => ` ${ctx.parsed} topics` }
+            }
+          }
+        }
+      });
+    }
   }
 
   // ========== Settings Modal ==========
