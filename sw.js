@@ -8,7 +8,8 @@ const STATIC = [
   '/icon-192.png',
   '/icon-512.png',
   '/sounds/rain.mp3',
-  '/sounds/soft.mp3'
+  '/sounds/soft.mp3',
+  '/sounds/concentration.mp3'
 ];
 
 self.addEventListener('install', e => {
