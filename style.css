@@ -506,7 +506,12 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .shm-cell.lv2    { background: rgba(77,168,255,0.52); }
 .shm-cell.lv3    { background: rgba(77,168,255,0.76); }
 .shm-cell.lv4    { background: rgba(77,168,255,0.97); box-shadow: 0 0 7px rgba(77,168,255,0.45); }
-.shm-cell.future { background: rgba(255,255,255,0.04); opacity: 0.45; }
+.shm-cell.future  { background: rgba(255,255,255,0.04); opacity: 0.45; }
+.shm-cell.shm-today {
+  outline: 2px solid #4da8ff;
+  outline-offset: 1px;
+  box-shadow: 0 0 8px rgba(77,168,255,0.55);
+}
 .stats-hm-legend { display: flex; align-items: center; gap: 5px; justify-content: flex-end; margin-top: 9px; font-size: 10px; color: var(--text-muted); font-weight: 600; }
 .stats-hm-legend .shm-cell { width: 11px; height: 11px; aspect-ratio: unset; flex-shrink: 0; border-radius: 3px; }
 

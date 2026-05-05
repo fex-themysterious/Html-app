@@ -1153,6 +1153,7 @@
       state.focusStats.sessions[todayStr] = (state.focusStats.sessions[todayStr] || 0) + 1;
       state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + customDurations.work;
       bumpActivity(); saveState();
+      renderStats(); // keep Stats view in sync with every completed session
 
       // Push notification — fires even if the user is in another app
       showWebNotification('🎉 Focus Session Complete!', `Session ${focusSessions} done! Time for a break.`, { tag: 'focus-complete', requireInteraction: false });
@@ -1816,33 +1817,36 @@
 
     // ── Premium stats extra computations ─────────────────────────
     const totalFocusHours = totalFocusMin / 60;
-    const rank = totalFocusHours >= 100 ? { label: 'Ace Student', icon: '🏆', color: '#f59e0b' }
-      : totalFocusHours >= 60  ? { label: 'Commander',  icon: '🎖️',  color: '#a78bfa' }
-      : totalFocusHours >= 30  ? { label: 'Captain',    icon: '✈️',  color: '#38bdf8' }
-      : totalFocusHours >= 15  ? { label: 'Aviator',    icon: '🚀',  color: '#34d399' }
-      : totalFocusHours >= 5   ? { label: 'Scholar',    icon: '📚',  color: '#4da8ff' }
+    const rank = totalFocusHours >= 20 ? { label: 'Flight Commander', icon: '🚀', color: '#a78bfa' }
+      : totalFocusHours >= 5  ? { label: 'Pilot',   icon: '👨‍✈️', color: '#38bdf8' }
       : { label: 'Rookie', icon: '🌱', color: '#94a3b8' };
     const focusDisplay = totalFocusMin >= 60
       ? `${Math.floor(totalFocusMin / 60)}h${totalFocusMin % 60 ? ' ' + (totalFocusMin % 60) + 'm' : ''}`
       : `${totalFocusMin}m`;
 
     // Heatmap: 5 complete weeks (Sun → Sat), aligned to Sun column
+    const hmTodayKey = todayKey();
     const hmDow = today.getDay();
     const hmStart = new Date(today); hmStart.setDate(hmStart.getDate() - (hmDow + 28));
     const heatmapCells = Array.from({ length: 35 }, (_, i) => {
       const d = new Date(hmStart); d.setDate(d.getDate() + i);
       const k = d.toISOString().slice(0, 10);
-      const isFuture = d > today;
+      const isFuture = k > hmTodayKey;
+      const isToday = k === hmTodayKey;
+      // Always read fresh from state.focusStats (same source as timer)
       const min = isFuture ? 0 : (state.focusStats.minutesByDate[k] || 0);
       const lvl = isFuture ? 'future' : min === 0 ? 'lv0' : min <= 30 ? 'lv1' : min <= 60 ? 'lv2' : min <= 120 ? 'lv3' : 'lv4';
-      return { k, min, lvl, title: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ': ' + (isFuture ? '—' : min + 'm') };
+      return { k, min, lvl, isToday, title: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ': ' + (isFuture ? '—' : min + 'm focused') };
     });
 
-    // Pie: subjects with completed topics
-    const pieSubjects = state.subjects.map(sub => {
+    // Neon palette for subject distribution — distinct colors regardless of stored subject color
+    const NEON_PALETTE = ['#00e5ff','#ff4d9e','#00ff88','#ffd600','#7c4dff','#ff6d00','#40c4ff','#f50057','#69ff47','#ff9100'];
+
+    // Pie: subjects with completed topics, using distinct neon colors by index
+    const pieSubjects = state.subjects.map((sub, idx) => {
       let done = 0;
       for (const ch of sub.chapters) for (const t of ch.topics) if (t.done) done++;
-      return { name: sub.name, done, color: sub.color };
+      return { name: sub.name, done, color: NEON_PALETTE[idx % NEON_PALETTE.length] };
     }).filter(s => s.done > 0);
 
     view.innerHTML = `
@@ -1872,7 +1876,7 @@
       <div class="stats-section-head"><span>Focus Heatmap</span><span class="stats-section-meta">Last 5 weeks</span></div>
       <div class="stats-chart-card stats-heatmap-card">
         <div class="stats-hm-day-labels"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
-        <div class="stats-heatmap">${heatmapCells.map(c => `<div class="shm-cell ${c.lvl}" title="${c.title}"></div>`).join('')}</div>
+        <div class="stats-heatmap">${heatmapCells.map(c => `<div class="shm-cell ${c.lvl}${c.isToday ? ' shm-today' : ''}" title="${c.title}"></div>`).join('')}</div>
         <div class="stats-hm-legend"><span>Less</span><div class="shm-cell lv0"></div><div class="shm-cell lv1"></div><div class="shm-cell lv2"></div><div class="shm-cell lv3"></div><div class="shm-cell lv4"></div><span>More</span></div>
       </div>
 
@@ -1963,10 +1967,14 @@
           labels: days7.map(d => d.label),
           datasets: [{
             data: days7.map(d => d.min),
-            backgroundColor: days7.map((_, i) => i === 6 ? 'rgba(77,168,255,0.88)' : 'rgba(77,168,255,0.32)'),
-            borderColor: '#4da8ff',
-            borderWidth: 0,
-            borderRadius: 7,
+            backgroundColor: days7.map((d, i) => {
+              if (i === 6) return 'rgba(77,168,255,0.90)';       // today — bright
+              if (d.min > 0) return 'rgba(77,168,255,0.42)';      // past with data
+              return 'rgba(77,168,255,0.14)';                      // past, no data
+            }),
+            borderColor: days7.map((_, i) => i === 6 ? '#4da8ff' : 'transparent'),
+            borderWidth: days7.map((_, i) => i === 6 ? 2 : 0),
+            borderRadius: 8,
             borderSkipped: false
           }]
         },
@@ -1988,7 +1996,7 @@
       });
     }
 
-    // Doughnut chart
+    // Doughnut chart — each segment gets a distinct neon color
     const pieCanvas = document.getElementById('stats-pie-chart');
     if (pieCanvas && pieSubjects.length) {
       const prev = Chart.getChart(pieCanvas); if (prev) prev.destroy();
@@ -1998,23 +2006,26 @@
           labels: pieSubjects.map(s => s.name),
           datasets: [{
             data: pieSubjects.map(s => s.done),
-            backgroundColor: pieSubjects.map(s => s.color + 'bb'),
+            backgroundColor: pieSubjects.map(s => s.color + 'cc'),
             borderColor: pieSubjects.map(s => s.color),
             borderWidth: 2,
-            hoverOffset: 10
+            hoverOffset: 12
           }]
         },
         options: {
-          responsive: true, maintainAspectRatio: false, cutout: '62%',
+          responsive: true, maintainAspectRatio: false, cutout: '60%',
           plugins: {
             legend: {
               position: 'bottom',
-              labels: { color: 'rgba(148,163,184,0.85)', font: { size: 12, weight: '600' }, padding: 14, usePointStyle: true, pointStyleWidth: 8 }
+              labels: { color: 'rgba(148,163,184,0.9)', font: { size: 12, weight: '700' }, padding: 16, usePointStyle: true, pointStyleWidth: 10 }
             },
             tooltip: {
               backgroundColor: '#0d1b2a', borderColor: 'rgba(77,168,255,0.4)', borderWidth: 1,
-              titleColor: '#f0f6ff', bodyColor: '#94a3b8',
-              callbacks: { label: ctx => ` ${ctx.parsed} topics` }
+              titleColor: '#f0f6ff', bodyColor: '#94a3b8', padding: 10,
+              callbacks: {
+                label: ctx => ` ${ctx.label}: ${ctx.parsed} topic${ctx.parsed !== 1 ? 's' : ''}`,
+                labelColor: ctx => ({ borderColor: pieSubjects[ctx.dataIndex]?.color || '#fff', backgroundColor: pieSubjects[ctx.dataIndex]?.color || '#fff' })
+              }
             }
           }
         }
