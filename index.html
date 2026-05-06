@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <meta name="apple-mobile-web-app-title" content="Study"/>
-  <meta name="apple-mobile-web-app-orientations" content="portrait landscape"/>
+  <meta name="apple-mobile-web-app-orientations" content="portrait"/>
   <meta name="description" content="Study planner with Pomodoro timer, spaced revision and syllabus tracking"/>
   <link rel="manifest" href="/manifest.json"/>
   <link rel="apple-touch-icon" href="/icon-192.png"/>
@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="./style.css?v=20"/>
+  <link rel="stylesheet" href="./style.css?v=21"/>
 </head>
 <body>
   <div id="app">
@@ -63,7 +63,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-  <script src="./script.js?v=19"></script>
+  <script src="./script.js?v=20"></script>
   <script>
     /* ── Service Worker ── */
     if ('serviceWorker' in navigator) {
@@ -72,23 +72,23 @@
       });
     }
 
-    /* ── Orientation unlock (Screen Orientation API + iOS fallback) ──
-       1. Unlock via W3C API so the PWA can rotate freely on Android.
-       2. On orientationchange, force a layout recalculation — crucial for
-          iOS Safari where the viewport height doesn't update reliably.     */
+    /* ── Orientation lock to portrait (Screen Orientation API + iOS fallback) ──
+       The app is portrait-by-default. Individual sections (Full Focus, Video
+       Player) call screen.orientation.lock('landscape') via their own toggle.
+       On exit from those sections the app calls lock('portrait') to restore.  */
     (function () {
-      function unlockOrientation() {
+      function lockPortrait() {
         try {
-          if (screen.orientation && typeof screen.orientation.unlock === 'function') {
-            screen.orientation.unlock();
+          if (screen.orientation && typeof screen.orientation.lock === 'function') {
+            screen.orientation.lock('portrait').catch(function () {});
           }
-        } catch (e) { /* silently ignore — some browsers throw on unlock() */ }
+        } catch (e) {}
       }
 
-      /* Attempt unlock immediately and again after any user gesture */
-      unlockOrientation();
-      document.addEventListener('click', unlockOrientation, { once: true });
-      document.addEventListener('touchstart', unlockOrientation, { once: true });
+      /* Lock portrait immediately and reinforce after first user gesture */
+      lockPortrait();
+      document.addEventListener('click',      lockPortrait, { once: true });
+      document.addEventListener('touchstart', lockPortrait, { once: true });
 
       /* iOS / Safari: viewport height doesn't update on rotation.
          Force a style recalc so dvh/svh values refresh. */

@@ -1570,8 +1570,11 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .fs-controls { display: flex; align-items: center; gap: 22px; margin-top: 4px; }
 .fs-ctrl-btn { border: none; cursor: pointer; transition: transform var(--t-fast), opacity var(--t-fast); display: flex; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; }
 .fs-ctrl-btn:active { transform: scale(0.89); }
-.fs-side-btn { width: 56px; height: 56px; border-radius: 50%; background: rgba(255,255,255,0.06); color: #f0f6ff; font-size: 22px; border: 1px solid rgba(255,255,255,0.1); transition: background var(--t-fast); }
+.fs-side-btn { width: 56px; height: 56px; border-radius: 50%; background: rgba(255,255,255,0.06); color: #f0f6ff; font-size: 22px; border: 1px solid rgba(255,255,255,0.1); transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast); }
 .fs-side-btn:hover { background: rgba(255,255,255,0.12); }
+/* Orient button in Full Focus — SVG sized + active state when locked to landscape */
+.fs-orient-btn svg { width: 22px; height: 22px; display: block; }
+.fs-orient-btn.orient-active { background: rgba(56,189,248,0.15); border-color: rgba(56,189,248,0.5); color: #38bdf8; }
 .fs-main-btn { width: 84px; height: 84px; border-radius: 50%; background: var(--primary); color: #021020; font-size: 28px; box-shadow: 0 0 40px rgba(77,168,255,0.5), 0 4px 20px rgba(0,0,0,0.4); transition: background var(--t-fast), box-shadow var(--t-fast); }
 .fs-main-btn:hover { background: #6ab8ff; box-shadow: 0 0 54px rgba(77,168,255,0.6); }
 .fs-exit-btn { font-size: 18px; font-weight: 800; }
@@ -1779,6 +1782,9 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .vp-yt-btn:hover  { background: var(--surface-3); color: var(--text); }
 .vp-yt-btn:active { transform: scale(0.9); }
 .vp-yt-btn svg { width: 17px; height: 17px; }
+/* Landscape orient toggle in video header — highlights when landscape is active */
+.vp-orient-btn { color: var(--text-muted); }
+.vp-orient-btn.orient-active { background: rgba(56,189,248,0.15); border-color: rgba(56,189,248,0.4); color: #38bdf8; }
 
 /* ── Scrollable body ─────────────────────────────────────────── */
 .vp-body {

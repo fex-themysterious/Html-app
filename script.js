@@ -1594,11 +1594,43 @@
     }, { passive: true });
   }
 
+  /* ── Orientation helpers ────────────────────────────────────────────
+     lockPortrait()   — called on app start + whenever a special section exits
+     lockLandscape()  — called by the toggle buttons inside Focus/Video overlays
+     toggleOrientLock() — smart toggle: landscape↔portrait with fullscreen assist */
+  function lockPortrait() {
+    if (screen.orientation && typeof screen.orientation.lock === 'function') {
+      screen.orientation.lock('portrait').catch(() => {});
+    }
+  }
+  async function toggleOrientLock() {
+    if (!screen.orientation || typeof screen.orientation.lock !== 'function') {
+      toast('Install the app as a PWA on Android to lock orientation', 'warn');
+      return;
+    }
+    const isLandscape = screen.orientation.type.startsWith('landscape');
+    if (isLandscape) {
+      lockPortrait();
+      toast('Returned to portrait', 'info');
+    } else {
+      try {
+        if (!document.fullscreenElement) {
+          await document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
+        }
+        await screen.orientation.lock('landscape');
+        toast('Landscape locked — tap ⤢ again to return', 'success');
+      } catch (e) {
+        toast('Install as PWA on Android to lock orientation', 'warn');
+      }
+    }
+  }
+
   function exitFullSession() {
     fsSessionActive = false;
     const overlay = document.getElementById('fs-overlay'); if (overlay) overlay.remove();
     document.title = 'Syllabus Tracker';
     if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    lockPortrait();
     renderFocus();
   }
   function _genFsParticles() {
@@ -1662,6 +1694,7 @@
         <div class="fs-controls">
           <button class="fs-ctrl-btn fs-side-btn" data-act="fs-cycle-ambient" title="Toggle sound">${ambientIcon}</button>
           <button class="fs-ctrl-btn fs-main-btn" data-act="fs-toggle">${focusRunning ? '⏸' : '▶'}</button>
+          <button class="fs-ctrl-btn fs-side-btn fs-orient-btn" data-act="fs-toggle-landscape" title="Toggle landscape mode">${(screen.orientation && screen.orientation.type && screen.orientation.type.startsWith('landscape')) ? SVG_ORIENT_PORTRAIT : SVG_ORIENT_LANDSCAPE}</button>
           <button class="fs-ctrl-btn fs-side-btn fs-exit-btn" data-act="exit-full-session" title="Exit full screen">✕</button>
         </div>
         <div class="fs-hint">${('ontouchstart' in window) ? 'Swipe to exit' : 'Press Esc to exit'} · ${ambientMode !== 'none' ? '♪ ' + escapeHTML(_curSound.label) : '🔇 Sound off'}</div>
@@ -1799,6 +1832,10 @@
   const SVG_BACK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/></svg>`;
   const SVG_EXTLINK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
   const SVG_PLAY = `<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
+  /* Phone-rotate to landscape — shown when app is portrait, click to go landscape */
+  const SVG_ORIENT_LANDSCAPE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>`;
+  /* Compress arrows — shown when in landscape, click to return to portrait */
+  const SVG_ORIENT_PORTRAIT  = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 3 3 3 3 9"/><polyline points="15 21 21 21 21 15"/><line x1="3" y1="3" x2="10" y2="10"/><line x1="21" y1="21" x2="14" y2="14"/></svg>`;
 
   /* ── Bookmark / YT-API helpers ── */
   let _ytPlayer      = null;
@@ -1950,6 +1987,7 @@
       <div class="vp-header">
         <button class="vp-back-btn" data-act="vp-close" aria-label="Back">${SVG_BACK}</button>
         <div class="vp-header-title">${escapeHTML(item.title)}</div>
+        <button class="vp-yt-btn vp-orient-btn" data-act="vp-toggle-landscape" title="Toggle landscape mode" aria-label="Toggle landscape">${SVG_ORIENT_LANDSCAPE}</button>
         <a href="${escapeHTML(item.url)}" target="_blank" rel="noopener" class="vp-yt-btn" title="Open externally">${SVG_EXTLINK}</a>
       </div>
       <div class="vp-split">
@@ -2001,7 +2039,7 @@
     _ytPlayer = null; _ytPlayerReady = false; _ytPlayerState = -1;
     const el = document.getElementById('vp-overlay'); if (!el) return;
     el.classList.add('vp-closing');
-    setTimeout(() => { el.remove(); document.body.style.overflow = ''; }, 210);
+    setTimeout(() => { el.remove(); document.body.style.overflow = ''; lockPortrait(); }, 210);
   }
 
   function switchVideoInPlayer(groupId, itemId) {
@@ -2487,7 +2525,6 @@
       <div class="settings-section"><h4>Notifications Status</h4><div class="notif-status ${permCls}">${escapeHTML(permText)}</div>${(perm === 'default' || perm === 'denied') ? `<div style="margin-top:9px"><button class="btn btn-block" data-act="sr-request-perm">${perm === 'denied' ? 'Try requesting again' : 'Allow notifications'}</button></div>` : ''}</div>
       <div class="settings-section"><h4>Motivation Quotes</h4><div class="quote-list">${state.motivationQuotes.map((q, i) => `<div class="quote-row"><div class="text">${escapeHTML(q)}</div><button class="menu-btn" data-act="del-quote" data-i="${i}">${ic('trash')}</button></div>`).join('')}</div><div class="quote-add-row"><input id="set-new-quote" placeholder="Add a motivation quote…" maxlength="200"/><button class="btn" data-act="add-quote">${ic('plus')}</button></div></div>
       <div class="settings-section"><h4>Focus Timer Quotes</h4><p style="font-size:12px;color:var(--text-muted);margin:0 0 10px">${FOCUS_QUOTES.length} built-in · ${customFocusQuotes.length} custom. A fresh quote appears every time you start the timer.</p><div class="quote-list">${customFocusQuotes.length ? customFocusQuotes.map((q, i) => `<div class="quote-row"><div class="text">${escapeHTML(q)}</div><button class="menu-btn" data-act="del-focus-quote" data-i="${i}">${ic('trash')}</button></div>`).join('') : '<div style="font-size:12px;color:var(--text-muted);padding:4px 0">No custom quotes yet.</div>'}</div><div class="quote-add-row"><input id="set-focus-quote" placeholder="Add your own focus quote…" maxlength="200"/><button class="btn" data-act="add-focus-quote">${ic('plus')}</button></div></div>
-      <div class="settings-section"><h4>🔄 Screen Orientation</h4><div class="settings-row"><div class="label">Force Landscape Mode<div class="sub">Locks screen to landscape via the Orientation API. Works best in the installed PWA. Tap again to unlock.</div></div><button class="btn btn-sm" data-act="toggle-landscape" style="flex-shrink:0;white-space:nowrap">${(screen.orientation && screen.orientation.type && screen.orientation.type.startsWith('landscape')) ? '🔓 Unlock' : '🔄 Force Landscape'}</button></div><div style="font-size:11px;color:var(--text-muted);margin-top:7px;line-height:1.5">Current: <strong style="color:var(--text)">${screen.orientation ? screen.orientation.type : 'unknown'}</strong>${(typeof screen.orientation?.lock !== 'function') ? ' · <span style="color:var(--warn)">Lock API not supported on this browser</span>' : ''}</div></div>
       <div class="settings-section"><h4>Data</h4><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost" data-act="export-data">${ic('download')} Export Backup</button><label class="btn btn-ghost" style="cursor:pointer">${ic('upload')} Import Backup<input type="file" accept=".json" style="display:none" id="import-file-input"/></label></div></div>
       <div class="actions" style="margin-top:16px"><button class="btn btn-ghost" data-close>Close</button></div>`,
       root => { root.querySelector('#import-file-input').onchange = e => { importData(e.target.files[0]); closeModal(); }; });
@@ -2554,31 +2591,7 @@
 
     if (el.hasAttribute('data-close')) { closeModal(); return; }
     if (act === 'open-settings') { modalSettings(); return; }
-    if (act === 'toggle-landscape') {
-      (async () => {
-        if (!screen.orientation || typeof screen.orientation.lock !== 'function') {
-          toast('Orientation lock not supported on this browser. Install the app as a PWA for full support.', 'warn'); return;
-        }
-        const isLandscape = screen.orientation.type.startsWith('landscape');
-        if (isLandscape) {
-          try { screen.orientation.unlock(); toast('Orientation unlocked', 'info'); }
-          catch(e) { toast('Could not unlock orientation', 'warn'); }
-        } else {
-          try {
-            if (!document.fullscreenElement) {
-              try { await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch(fe) {}
-            }
-            await screen.orientation.lock('landscape');
-            closeModal();
-            toast('Locked to landscape mode', 'success');
-          } catch(e) {
-            toast('Could not lock orientation — install as PWA or allow fullscreen', 'warn');
-          }
-        }
-        refreshSettingsIfOpen();
-      })();
-      return;
-    }
+    if (act === 'fs-toggle-landscape' || act === 'vp-toggle-landscape') { toggleOrientLock(); return; }
 
     if (act === 'open-dashboard') { switchTab('dashboard'); renderDashboard(); return; }
     if (act === 'open-plan') { closeModal(); switchTab('home'); renderHome(); return; }
