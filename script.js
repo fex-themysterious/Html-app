@@ -250,9 +250,24 @@
     document.getElementById('brb-dismiss-btn').onclick = () => dismissBackupBanner();
   }
 
+  function isBackupBannerTime() {
+    const h = new Date().getHours(), m = new Date().getMinutes();
+    return h === 23 && m >= 30;
+  }
+
   function maybeShowBackupReminder() {
     if (hasBackupToday()) return;
-    setTimeout(showBackupReminderBanner, 4000);
+    if (!isBackupBannerTime()) return;
+    setTimeout(showBackupReminderBanner, 1500);
+  }
+
+  function checkBackupBannerWindow() {
+    if (hasBackupToday()) { dismissBackupBanner(); return; }
+    if (isBackupBannerTime()) {
+      if (!document.getElementById('backup-reminder-banner')) showBackupReminderBanner();
+    } else {
+      dismissBackupBanner();
+    }
   }
   function importData(file) {
     if (!file) return;
@@ -464,6 +479,7 @@
     clearInterval(smartReminderTimer); clearInterval(motivationTimer); clearInterval(dueTaskTimer);
     smartReminderTimer = setInterval(checkSmartReminder, 30000);
     motivationTimer = setInterval(checkMotivationReminders, 30000);
+    setInterval(checkBackupBannerWindow, 60000);
     dueTaskTimer = setInterval(() => {
       const today = todayKey(); if (dueTaskNotifiedDate !== today) { dueTaskNotified.clear(); dueTaskNotifiedDate = today; }
       for (const item of dueRevisionItems()) {
@@ -1366,10 +1382,12 @@
     updateMiniTimer();
 
     if (focusMode === 'work') {
-      focusSessions++;
       const todayStr = todayKey();
-      state.focusStats.sessions[todayStr] = (state.focusStats.sessions[todayStr] || 0) + 1;
-      state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + customDurations.work;
+      // Sessions already counted on Start; add the full session's minutes now
+      const elapsedMin = focusStartSeconds !== null
+        ? Math.floor(focusStartSeconds / 60)
+        : customDurations.work;
+      state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + elapsedMin;
       bumpActivity(); saveState();
       renderStats(); // keep Stats view in sync with every completed session
 
@@ -2071,10 +2089,10 @@
     // Neon palette for subject distribution — distinct colors regardless of stored subject color
     const NEON_PALETTE = ['#00e5ff','#ff4d9e','#00ff88','#ffd600','#7c4dff','#ff6d00','#40c4ff','#f50057','#69ff47','#ff9100'];
 
-    // Pie: subjects with completed topics, using distinct neon colors by index
+    // Pie: subjects with completed chapters, using distinct neon colors by index
     const pieSubjects = state.subjects.map((sub, idx) => {
       let done = 0;
-      for (const ch of sub.chapters) for (const t of ch.topics) if (t.done) done++;
+      for (const ch of sub.chapters) if (ch.done) done++;
       return { name: sub.name, done, color: NEON_PALETTE[idx % NEON_PALETTE.length] };
     }).filter(s => s.done > 0);
 
@@ -2105,7 +2123,7 @@
           <div class="stats-chart-card"><div class="stats-chart-wrap"><canvas id="stats-weekly-chart"></canvas></div></div>
         </div>
         <div class="stats-chart-half">
-          <div class="stats-section-head"><span>Subject Distribution</span><span class="stats-section-meta">by topics done</span></div>
+          <div class="stats-section-head"><span>Subject Distribution</span><span class="stats-section-meta">by chapters done</span></div>
           <div class="stats-chart-card">${pieSubjects.length
             ? `<div class="stats-pie-wrap"><canvas id="stats-pie-chart"></canvas></div>`
             : `<div class="stats-empty-chart">Complete topics to see distribution</div>`}</div>
@@ -2282,7 +2300,7 @@
               backgroundColor: '#0d1b2a', borderColor: 'rgba(77,168,255,0.4)', borderWidth: 1,
               titleColor: '#f0f6ff', bodyColor: '#94a3b8', padding: 10,
               callbacks: {
-                label: ctx => ` ${ctx.label}: ${ctx.parsed} topic${ctx.parsed !== 1 ? 's' : ''}`,
+                label: ctx => ` ${ctx.label}: ${ctx.parsed} chapter${ctx.parsed !== 1 ? 's' : ''} done`,
                 labelColor: ctx => ({ borderColor: pieSubjects[ctx.dataIndex]?.color || '#fff', backgroundColor: pieSubjects[ctx.dataIndex]?.color || '#fff' })
               }
             }
@@ -2488,18 +2506,32 @@
     }
     if (act === 'focus-toggle') {
       if (focusRunning) {
+        // Partial-credit: save elapsed minutes for work sessions stopped early
+        if (focusMode === 'work' && focusStartTime !== null) {
+          const elapsedMin = Math.floor((Date.now() - focusStartTime) / 1000 / 60);
+          if (elapsedMin > 0) {
+            const todayStr = todayKey();
+            state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + elapsedMin;
+            saveState();
+          }
+        }
         clearInterval(focusTimer); focusTimer = null; focusRunning = false;
         focusStartTime = null; focusStartSeconds = null;
         updateMiniTimer();
       } else {
-        // Request notification permission so end-of-session alert works
+        // Count the session the moment the user hits Start
+        if (focusMode === 'work') {
+          const todayStr = todayKey();
+          focusSessions++;
+          state.focusStats.sessions[todayStr] = (state.focusStats.sessions[todayStr] || 0) + 1;
+          saveState();
+        }
         if (notifPermission() === 'default') requestNotifPermission();
         focusRunning = true;
         pickNewQuote();
         focusStartTime = Date.now();
         focusStartSeconds = focusSeconds;
         focusTimer = setInterval(focusTick, 1000);
-        // Resume ambient sound on Start (user gesture = autoplay allowed)
         resumeAmbientIfNeeded();
       }
       renderFocus(); return;
@@ -2518,9 +2550,25 @@
     if (act === 'exit-full-session') { exitFullSession(); stopAmbient(); ambientMode = 'none'; return; }
     if (act === 'fs-toggle') {
       if (focusRunning) {
+        // Partial-credit: save elapsed minutes for work sessions stopped early
+        if (focusMode === 'work' && focusStartTime !== null) {
+          const elapsedMin = Math.floor((Date.now() - focusStartTime) / 1000 / 60);
+          if (elapsedMin > 0) {
+            const todayStr = todayKey();
+            state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + elapsedMin;
+            saveState();
+          }
+        }
         clearInterval(focusTimer); focusTimer = null; focusRunning = false;
         focusStartTime = null; focusStartSeconds = null;
       } else {
+        // Count the session the moment the user hits Start
+        if (focusMode === 'work') {
+          const todayStr = todayKey();
+          focusSessions++;
+          state.focusStats.sessions[todayStr] = (state.focusStats.sessions[todayStr] || 0) + 1;
+          saveState();
+        }
         if (notifPermission() === 'default') requestNotifPermission();
         focusRunning = true;
         focusStartTime = Date.now();
