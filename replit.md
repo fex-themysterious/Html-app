@@ -1,84 +1,49 @@
 # Syllabus Tracker PWA
 
-A clean, offline-capable Progressive Web App for tracking study progress.
-**Stack: pure HTML + CSS + Vanilla JS only — NO TypeScript, React, frameworks, or build tools.**
+An offline-capable Progressive Web App for tracking study progress with spaced repetition, Pomodoro focus timer, syllabus management, and stats dashboard.
 
-## Tech Stack
-- **Frontend**: `index.html` + `style.css?v=11` + `script.js?v=11` — all plain, runs directly in browser
-- **Server**: `server.js` — Node.js `http` module, port 5000, host `0.0.0.0`
-- **Storage**: `localStorage` (key: `syllabus_tracker_v2`); `cls_last_url` for Quick Launch memory
-- **PWA**: `manifest.json` + `sw.js` (cache-first, cache name: `syllabus-tracker-v15`)
-- **Charts**: Chart.js 4.4.7 loaded from CDN (jsdelivr) — degrades gracefully offline
+## Run & Operate
+- **Start:** `npm start` (runs `node server.js` on port 5000)
+- No environment variables required
 
-## File Structure
-```
-index.html        # App shell — 6 views, bottom nav, modal/toast anchors, lock-overlay
-style.css         # All styles (dark theme, responsive, split-screen player, quick-launch bar)
-script.js         # Complete app logic — single IIFE, ~2510 lines
-manifest.json     # PWA manifest with SVG icons
-sw.js             # Service worker — cache-first, cache name v14
-server.js         # Static file server (unchanged)
-sounds/           # Ambient audio files (.mp3, .m4a)
-```
+## Stack
+- **Frontend:** Vanilla HTML + CSS + JavaScript (single-page app)
+- **Charts:** Chart.js 4.4.7 (CDN)
+- **PWA:** Service worker (`sw.js`) with cache-first strategy + audio range support
+- **Server:** Node.js `http` module static file server (`server.js`)
+- **Runtime:** Node >= 20
 
-## Tabs / Views
-| Tab | View ID | Description |
-|-----|---------|-------------|
-| Home | `view-home` | Hero cards (exam countdown + progress ring), Today's Plan, Plan Adder |
-| Dashboard (Board) | `view-dashboard` | Goals, Smart Suggestions, Weak Areas, Burnout Banner |
-| Syllabus | `view-syllabus` | Subject/Chapter/Topic CRUD with expandable tree |
-| Focus | `view-focus` | Sub-tabs: Timer (Pomodoro) + Classroom |
-| Revision (Revise) | `view-revision` | Spaced repetition — due today + upcoming |
-| Stats | `view-stats` | **Premium dashboard** — glass cards, Chart.js charts, heatmap, doughnut |
+## Where things live
+- `index.html` — App shell with 6 views and bottom nav
+- `style.css` — Dark theme styling
+- `script.js` — All app logic (state, spaced repetition, timer, notifications, CRUD)
+- `sw.js` — Service worker (offline caching, audio streaming)
+- `manifest.json` — PWA manifest
+- `server.js` — Static file server with HTTP Range support for audio
+- `sounds/` — Ambient/focus audio files
 
-## Classroom: Universal Web-Player
-- **Quick Launch bar** (`cls-quicklaunch`): Glassmorphic URL input at top of Classroom — paste any URL (YouTube, Udemy, Coursera, etc.) → press Enter or ▶ Open
-- **Remember Last Link**: `_classroomLastUrl` backed by `localStorage.getItem('cls_last_url')` — pre-fills input on revisit
-- **`buildEmbedUrl(item)`**: returns YT embed URL for YouTube items, raw `item.url` for `type:'external'`
-- **`openQuickPlayer(url)`**: detects YouTube vs external, builds synthetic item, calls `openVideoPlayer`
-- **`openVideoPlayer(groupId, itemId, _directItem?)`**: 3rd optional param allows direct item (no state lookup) for quick-launch
-- **Split-Screen Player**: `#vp-overlay` → `.vp-header` + `.vp-split` → `.vp-main` (scrollable, left) + `.vp-notes-col` (right, 340–380px on ≥700px screens); `.vp-notes-mobile` shown on mobile, hidden on desktop
-- **External type**: `type:'external'` stored for non-YouTube links; shown with 🌐 icon + domain name; iframe `sandbox` attribute added for safety; embedding-blocked hint shown (`vp-ext-hint`)
-- **Add/Edit modals**: Accept any URL, auto-detect YouTube vs external; external links auto-fill domain as title
+## Architecture decisions
+- All data persisted in `localStorage` under key `syllabus_tracker_v2` — no backend DB
+- Single large vanilla JS IIFE in `script.js` manages all state and rendering
+- Service worker uses cache-first for static assets, special range-request handling for `/sounds/`
+- Server falls back to `index.html` for unknown paths (SPA routing)
 
-## Classroom: Bookmark Moment Feature
-- **`🔖 Bookmark` button** in `.vp-notes-section` (inside `.vp-notes-col` on desktop, `.vp-notes-mobile` on mobile)
-- **YT IFrame API**: `loadYTApi()` → `tryBindYTPlayer()` → `YT.Player` on `#vp-iframe`; auto-capture time from `getCurrentYTTime()`
-- **Dual-column sync**: `document.querySelectorAll('#vp-notes-list')` — both desktop col and mobile section updated on save/delete
-- **Storage**: `item.notes: [{ id, ts, label }]`
+## Product
+- Syllabus management: subjects → chapters → topics
+- Daily plan generation with spaced repetition revision scheduling (offsets: 1, 3, 7 days)
+- Pomodoro focus timer with ambient audio
+- Streak and activity tracking
+- Weak-topic detection
+- Stats dashboard with Chart.js charts
+- Offline support via PWA service worker
 
-## Full Screen Focus Mode
-- **`.fs-bg-earth`** rotating Earth, `_genFsParticles()` stars, `.fs-is-running` jitter, `fs-time-glow` pulse
-- Mini floating timer bubble (`#focus-mini-timer`) shown when Multitask Mode is active
+## User preferences
+_Populate as you build_
 
-## Key Architecture
-- **Navigation**: `switchTab(tab)` — hides all `.view`, shows `#view-{tab}`, sets `body.tab-{tab}`
-- **Lock Mode guard**: `switchTab` checks `focusLocked && focusRunning`
-- **Event delegation**: single `document.addEventListener('click', …)` routes via `data-act`
-- **Enter key** on `#cls-url-input` triggers quick-launch via `keydown` listener
-- **Spaced repetition**: offsets [1, 3, 7] days; **Burnout detector**: inactivity ≥2 days
-- **PWA cache**: cache-first local; CDN fetch from network
+## Gotchas
+- Cache-busting query param on `script.js?v=11` and `style.css?v=11` — increment when making changes
+- Audio files need HTTP Range request support (already handled in `server.js` and `sw.js`)
 
-## State Shape (key fields)
-```js
-{
-  classroom: { groups: [{ id, name, items: [{ id, title, url, videoId, playlistId,
-    type ('video'|'playlist'|'external'), addedAt, description, thumbnailUrl,
-    notes: [{ id, ts, label }] }] }] },
-  focusStats: { sessions: { 'YYYY-MM-DD': count }, minutesByDate: { 'YYYY-MM-DD': minutes } }
-}
-```
-`cls_last_url` stored separately in localStorage (not in state).
-
-## Landscape Mode (No-Scroll Design)
-`@media (orientation: landscape) and (max-height: 500px)` — targets Samsung Galaxy F23 5G and all phones in landscape (~852×360px usable):
-- **Nav Rail**: `.bottom-nav` becomes a left-side 52px vertical icon-only rail; active indicator moves to left edge
-- **#app**: `padding-left: 52px`, no bottom padding; each `.view` gets `height: 100dvh; overflow-y: auto`
-- **Focus Timer** (`.focus-view`): CSS grid 2-col — left (mode tabs + ring + buttons), right (task + sessions + ambient)
-- **Fullscreen Focus** (`#fs-overlay .fs-content`): CSS grid 2-col — left (badge + ring), right (task + controls + hint)
-- **Stats**: 6-col glass card row; `.stats-chart-pair` (Weekly Focus + Subject Distribution) renders side-by-side via grid; stat tiles go 4-across
-- **Stats JS**: `renderStats()` wraps Weekly Focus + Subject Distribution in `<div class="stats-chart-pair"><div class="stats-chart-half">…</div></div>`; Heatmap stays full-width below
-- **Video Player**: `.vp-split` forced `flex-direction: row`, 70/30 ratio; `.vp-notes-mobile` hidden
-
-## Running
-Workflow: `Start application` → `node server.js` → port 5000
+## Pointers
+- Testing skill: `.local/skills/testing/SKILL.md`
+- Workflows skill: `.local/skills/workflows/SKILL.md`
