@@ -681,6 +681,7 @@
   let focusCurrentTaskKey = null;
   let fsSessionActive = false;
   let _fsSwipeStartX = 0, _fsSwipeStartY = 0;
+  let _fsMotiQuote = ''; /* set once on entering full session, shown in motivation box */
   const customDurations = { work: 25, short: 5, long: 15 };
   let focusStartTime = null;
   let focusStartSeconds = null;
@@ -1572,6 +1573,8 @@
       overlay.id = 'fs-overlay';
       document.body.appendChild(overlay);
     }
+    const _fsPool = [...FOCUS_QUOTES, ...customFocusQuotes];
+    _fsMotiQuote = _fsPool[Math.floor(Math.random() * _fsPool.length)] || 'Stay focused. You\'ve got this.';
     renderFullSession();
     if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
 
@@ -1670,34 +1673,50 @@
     const ambientIcon = _curSound.label.split(' ')[0];
     const sessionDots = Array.from({length: Math.min(focusSessions, 8)}, () => `<span class="fs-dot"></span>`).join('');
     overlay.className = focusRunning ? 'fs-is-running' : '';
+    const orientIcon = (screen.orientation && screen.orientation.type && screen.orientation.type.startsWith('landscape')) ? SVG_ORIENT_PORTRAIT : SVG_ORIENT_LANDSCAPE;
     overlay.innerHTML = `<div class="fs-bg"><div class="fs-bg-earth"></div>${_genFsParticles()}</div>
       <div class="fs-content">
-        <div class="fs-top">
-          <div class="fs-mode-badge ${isBreak ? 'fs-mode-break' : ''}">${focusMode === 'work' ? '🎯 Focus Time' : focusMode === 'short' ? '☕ Short Break' : '🛌 Long Break'}</div>
-          ${focusSessions > 0 ? `<div class="fs-session-dots">${sessionDots}<span class="fs-sessions-label">${focusSessions} session${focusSessions !== 1 ? 's' : ''}</span></div>` : ''}
-        </div>
-        <div class="fs-timer-wrap">
-          <svg class="fs-ring-svg" viewBox="0 0 290 290" aria-hidden="true">
-            <defs><linearGradient id="fsRingGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="${isBreak ? '#34d399' : '#38bdf8'}"/><stop offset="100%" stop-color="${isBreak ? '#86efac' : '#a78bfa'}"/></linearGradient></defs>
-            <circle class="fs-ring-track" cx="145" cy="145" r="${r}"/>
-            <circle class="fs-ring-fill" id="fs-ring-circle" cx="145" cy="145" r="${r}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/>
-          </svg>
-          <div class="fs-ring-center">
-            <div class="fs-time" id="fs-time-display">${formatFocusTime(focusSeconds)}</div>
-            <div class="fs-ring-sub">${formatFocusTime(customDurations[focusMode] * 60)} total</div>
+
+        <!-- ── Header row: mode badge + session dots LEFT · task picker RIGHT ── -->
+        <div class="fs-header-row">
+          <div class="fs-top">
+            <div class="fs-mode-badge ${isBreak ? 'fs-mode-break' : ''}">${focusMode === 'work' ? '🎯 Focus Time' : focusMode === 'short' ? '☕ Short Break' : '🛌 Long Break'}</div>
+            ${focusSessions > 0 ? `<div class="fs-session-dots">${sessionDots}<span class="fs-sessions-label">${focusSessions} session${focusSessions !== 1 ? 's' : ''}</span></div>` : ''}
+          </div>
+          <div class="fs-task-box">
+            <div class="fs-task-label">Current Task</div>
+            ${currentTask ? `<div class="fs-task-name">${escapeHTML(currentTask.text)}</div>${currentTask.meta ? `<div class="fs-task-meta">${escapeHTML(currentTask.meta)}</div>` : ''}` : (tasks.length ? `<select class="fs-task-select" data-act="focus-task-select"><option value="">— Pick a task —</option>${taskOpts}</select>` : `<div class="fs-task-empty">No tasks today</div>`)}
           </div>
         </div>
-        <div class="fs-task-box">
-          <div class="fs-task-label">Current Task</div>
-          ${currentTask ? `<div class="fs-task-name">${escapeHTML(currentTask.text)}</div>${currentTask.meta ? `<div class="fs-task-meta">${escapeHTML(currentTask.meta)}</div>` : ''}` : (tasks.length ? `<select class="fs-task-select" data-act="focus-task-select"><option value="">— Pick a task —</option>${taskOpts}</select>` : `<div class="fs-task-empty">No tasks today</div>`)}
+
+        <!-- ── Main area: glowing ring/timer CENTER · vertical controls FAR RIGHT ── -->
+        <div class="fs-main-area">
+          <div class="fs-timer-wrap">
+            <svg class="fs-ring-svg" viewBox="0 0 290 290" aria-hidden="true">
+              <defs><linearGradient id="fsRingGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="${isBreak ? '#34d399' : '#38bdf8'}"/><stop offset="100%" stop-color="${isBreak ? '#86efac' : '#a78bfa'}"/></linearGradient></defs>
+              <circle class="fs-ring-track" cx="145" cy="145" r="${r}"/>
+              <circle class="fs-ring-fill" id="fs-ring-circle" cx="145" cy="145" r="${r}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/>
+            </svg>
+            <div class="fs-ring-center">
+              <div class="fs-time" id="fs-time-display">${formatFocusTime(focusSeconds)}</div>
+              <div class="fs-ring-sub">${formatFocusTime(customDurations[focusMode] * 60)} total</div>
+            </div>
+          </div>
+          <!-- Vertical button column: Mute · Play · Landscape · Exit -->
+          <div class="fs-ctrl-col">
+            <button class="fs-ctrl-btn fs-side-btn" data-act="fs-cycle-ambient" title="Toggle sound">${ambientIcon}</button>
+            <button class="fs-ctrl-btn fs-main-btn" data-act="fs-toggle">${focusRunning ? '⏸' : '▶'}</button>
+            <button class="fs-ctrl-btn fs-side-btn fs-orient-btn" data-act="fs-toggle-landscape" title="Toggle landscape">${orientIcon}</button>
+            <button class="fs-ctrl-btn fs-side-btn fs-exit-btn" data-act="exit-full-session" title="Exit">✕</button>
+          </div>
         </div>
-        <div class="fs-controls">
-          <button class="fs-ctrl-btn fs-side-btn" data-act="fs-cycle-ambient" title="Toggle sound">${ambientIcon}</button>
-          <button class="fs-ctrl-btn fs-main-btn" data-act="fs-toggle">${focusRunning ? '⏸' : '▶'}</button>
-          <button class="fs-ctrl-btn fs-side-btn fs-orient-btn" data-act="fs-toggle-landscape" title="Toggle landscape mode">${(screen.orientation && screen.orientation.type && screen.orientation.type.startsWith('landscape')) ? SVG_ORIENT_PORTRAIT : SVG_ORIENT_LANDSCAPE}</button>
-          <button class="fs-ctrl-btn fs-side-btn fs-exit-btn" data-act="exit-full-session" title="Exit full screen">✕</button>
+
+        <!-- ── Footer: swipe hint + rotating motivation quote ── -->
+        <div class="fs-footer">
+          <div class="fs-hint">${('ontouchstart' in window) ? 'Swipe to exit' : 'Press Esc to exit'} · ${ambientMode !== 'none' ? '♪ ' + escapeHTML(_curSound.label) : '🔇 Sound off'}</div>
+          <div class="fs-motivation-box">${escapeHTML(_fsMotiQuote)}</div>
         </div>
-        <div class="fs-hint">${('ontouchstart' in window) ? 'Swipe to exit' : 'Press Esc to exit'} · ${ambientMode !== 'none' ? '♪ ' + escapeHTML(_curSound.label) : '🔇 Sound off'}</div>
+
       </div>
       <div class="fs-swipe-bar"><div class="fs-swipe-handle"></div></div>`;
   }

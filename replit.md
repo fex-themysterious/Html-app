@@ -41,10 +41,10 @@ An offline-capable Progressive Web App for tracking study progress with spaced r
 _Populate as you build_
 
 ## Gotchas
-- Cache-busting query param on `script.js?v=20` and `style.css?v=21` — increment when making changes; SW cache is `syllabus-tracker-v26`
+- Cache-busting query param on `script.js?v=21` and `style.css?v=22` — increment when making changes; SW cache is `syllabus-tracker-v27`
 - Audio files need HTTP Range request support (already handled in `server.js` and `sw.js`)
 - Global orientation is **portrait-locked** (manifest + JS `lock('portrait')` on startup). Full Focus Mode and Video Player expose a ⤢ landscape toggle button that calls `toggleOrientLock()`; exiting either mode calls `lockPortrait()` to restore portrait. `--real-vh` CSS var is set by JS on every `orientationchange`/`resize` for iOS Safari.
-- Focus tab in mobile landscape (`max-height: 500px`) uses 2-col flex layout: timer left, controls right; page header is hidden to save space
+- Full Focus overlay portrait: flex column — `fs-header-row` (badge+dots left, task picker right), `fs-main-area` (timer + vertical `fs-ctrl-col` right), `fs-footer` (hint + motivation quote). Motivation quote set once in `startFullSession()` via `_fsMotiQuote`; landscape collapses to CSS grid with header+footer in left col and main-area spanning right col.
 
 ## Pointers
 - Testing skill: `.local/skills/testing/SKILL.md`
