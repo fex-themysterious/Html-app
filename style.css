@@ -1339,17 +1339,17 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   #fs-overlay .fs-content {
     display: grid !important;
     grid-template-areas: "header main" "footer main";
-    grid-template-columns: 210px 1fr;
+    grid-template-columns: 205px 1fr;
     grid-template-rows: 1fr auto;
-    column-gap: 12px; row-gap: 6px;
+    column-gap: 10px; row-gap: 4px;
     max-width: 100%; height: 100dvh;
-    padding: 8px calc(12px + env(safe-area-inset-right,0px)) 8px calc(12px + env(safe-area-inset-left,0px));
+    padding: 8px calc(12px + env(safe-area-inset-right,0px)) 6px calc(12px + env(safe-area-inset-left,0px));
     box-sizing: border-box; justify-content: unset; align-items: stretch;
   }
   #fs-overlay .fs-header-row {
     grid-area: header;
-    flex-direction: column; align-items: flex-start; gap: 6px;
-    overflow: hidden;
+    flex-direction: column; align-items: flex-start; gap: 5px;
+    overflow: hidden; min-height: 0;
   }
   #fs-overlay .fs-main-area {
     grid-area: main;
@@ -1357,32 +1357,41 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   }
   #fs-overlay .fs-footer {
     grid-area: footer;
-    align-items: flex-start; gap: 4px;
+    align-items: flex-start; gap: 3px;
+    padding-bottom: 4px;
   }
-  /* Timer: bigger in landscape */
-  #fs-overlay .fs-timer-wrap   { width: 190px; height: 190px; }
-  #fs-overlay .fs-time         { font-size: 50px !important; letter-spacing: -0.04em; }
+  /* Timer: much larger — the main centrepiece */
+  #fs-overlay .fs-timer-wrap   { width: 230px; height: 230px; }
+  #fs-overlay .fs-time         { font-size: 66px !important; letter-spacing: -0.04em; }
   #fs-overlay .fs-ring-sub     { font-size: 8px; }
   /* Compact header elements */
   #fs-overlay .fs-mode-badge   { font-size: 9px; padding: 2px 9px; letter-spacing: 0.07em; }
   #fs-overlay .fs-session-dots { gap: 3px; }
   #fs-overlay .fs-dot          { width: 5px; height: 5px; }
   #fs-overlay .fs-sessions-label { font-size: 9px; margin-left: 3px; }
-  /* Compact task box: full width in left col */
-  #fs-overlay .fs-task-box     { max-width: none; width: 100%; padding: 6px 10px; border-radius: 10px; }
-  #fs-overlay .fs-task-label   { font-size: 8px; margin-bottom: 3px; }
-  #fs-overlay .fs-task-name    { font-size: 12px; line-height: 1.25; }
-  #fs-overlay .fs-task-meta    { font-size: 10px; margin-top: 2px; }
-  #fs-overlay .fs-task-empty   { font-size: 11px; }
-  #fs-overlay .fs-task-select  { font-size: 11px; }
-  /* Compact controls */
-  #fs-overlay .fs-ctrl-col     { gap: 8px; }
-  #fs-overlay .fs-main-btn     { width: 58px; height: 58px; font-size: 20px; box-shadow: 0 0 24px rgba(77,168,255,0.45); }
-  #fs-overlay .fs-side-btn     { width: 38px; height: 38px; font-size: 16px; }
-  #fs-overlay .fs-orient-btn svg { width: 17px; height: 17px; }
-  /* Footer: hint only (hide quote box to save space) */
-  #fs-overlay .fs-hint         { font-size: 9px; }
-  #fs-overlay .fs-motivation-box { display: none; }
+  /* Slim task box: capped height so it never dominates the left col */
+  #fs-overlay .fs-task-box     { max-width: none; width: 100%; padding: 5px 8px; border-radius: 8px; max-height: 62px; overflow: hidden; }
+  #fs-overlay .fs-task-label   { font-size: 7.5px; margin-bottom: 2px; }
+  #fs-overlay .fs-task-name    { font-size: 11px; line-height: 1.2; overflow: hidden; max-height: 26px; }
+  #fs-overlay .fs-task-meta    { font-size: 9px; margin-top: 1px; }
+  #fs-overlay .fs-task-empty   { font-size: 10px; }
+  #fs-overlay .fs-task-select  { font-size: 10px; width: 100%; padding: 3px 4px; }
+  /* Controls: vertically aligned with the larger timer */
+  #fs-overlay .fs-ctrl-col     { gap: 7px; }
+  #fs-overlay .fs-main-btn     { width: 60px; height: 60px; font-size: 22px; box-shadow: 0 0 26px rgba(77,168,255,0.45); }
+  #fs-overlay .fs-side-btn     { width: 36px; height: 36px; font-size: 15px; }
+  #fs-overlay .fs-orient-btn svg { width: 16px; height: 16px; }
+  /* Footer: hint + motivation quote — both always visible */
+  #fs-overlay .fs-hint         { font-size: 8.5px; }
+  #fs-overlay .fs-motivation-box {
+    display: block;
+    font-size: 9.5px; line-height: 1.45;
+    padding: 4px 8px; border-radius: 8px;
+    max-height: 46px; overflow: hidden;
+    text-align: left;
+    background: rgba(255,255,255,0.025);
+    border-color: rgba(255,255,255,0.06);
+  }
   /* Swipe handle: visible on touch mobile */
   #fs-overlay .fs-swipe-bar    { display: flex; }
 
