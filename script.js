@@ -62,7 +62,8 @@
       burnout: { installDate: todayKey(), popupDismissedDate: null, bannerDismissedDate: null },
       goals: [],
       classroom: { groups: [] },
-      focusStats: { sessions: {}, minutesByDate: {} }
+      focusStats: { sessions: {}, minutesByDate: {} },
+      recurringTasks: []
     };
   }
 
@@ -129,6 +130,9 @@
     if (!s.focusStats || typeof s.focusStats !== 'object') s.focusStats = { sessions: {}, minutesByDate: {} };
     if (!s.focusStats.sessions) s.focusStats.sessions = {};
     if (!s.focusStats.minutesByDate) s.focusStats.minutesByDate = {};
+    s.recurringTasks = Array.isArray(s.recurringTasks) ? s.recurringTasks.map(rt => ({
+      id: rt.id || uid(), text: rt.text || '', frequency: rt.frequency || 'daily', lastResetDate: rt.lastResetDate || null
+    })) : [];
     if (!s.classroom || typeof s.classroom !== 'object') s.classroom = { groups: [] };
     if (!Array.isArray(s.classroom.groups)) s.classroom.groups = [];
     s.classroom.groups = s.classroom.groups.map(g => ({
@@ -417,13 +421,22 @@
       autoRollover.push({ subId: a.subId, chId: a.chId, tId: a.tId, rolledOver: true });
     }
 
-    // Custom tasks that were not done yesterday
+    // Custom tasks that were not done yesterday (skip recurring — they self-reset)
     const customRollover = [];
     for (const c of prevPlan.custom || []) {
+      if (c.recurringId) continue;
       if (!c.done) customRollover.push({ id: uid(), text: c.text, done: false, rolledOver: true });
     }
 
     return { autoRollover, customRollover };
+  }
+
+  function syncRecurringTasks(plan, k) {
+    for (const rt of state.recurringTasks || []) {
+      if (rt.lastResetDate !== k) rt.lastResetDate = k;
+      const alreadyIn = plan.custom.some(c => c.recurringId === rt.id);
+      if (!alreadyIn) plan.custom.unshift({ id: uid(), text: rt.text, done: false, recurringId: rt.id });
+    }
   }
 
   function ensureTodayPlan() {
@@ -443,6 +456,7 @@
       plan.generated = true;
       saveState();
     }
+    syncRecurringTasks(plan, k);
     return plan;
   }
 
@@ -455,7 +469,7 @@
       if (!sub || !ch || !t) continue;
       tasks.push({ type: 'auto', key, text: t.name, meta: `${sub.name} · ${ch.name}`, color: sub.color, done: !!t.done, subId: a.subId, chId: a.chId, tId: a.tId, rolledOver: !!a.rolledOver });
     }
-    for (const c of plan.custom) tasks.push({ type: 'custom', key: c.id, text: c.text, meta: c.rolledOver ? 'Rolled over from yesterday' : 'Custom task', color: c.rolledOver ? '#f59e0b' : '#94a3b8', done: !!c.done, id: c.id, rolledOver: !!c.rolledOver });
+    for (const c of plan.custom) tasks.push({ type: 'custom', key: c.id, text: c.text, meta: c.rolledOver ? 'Rolled over from yesterday' : c.recurringId ? 'Daily recurring task' : 'Custom task', color: c.rolledOver ? '#f59e0b' : c.recurringId ? '#818cf8' : '#94a3b8', done: !!c.done, id: c.id, rolledOver: !!c.rolledOver, recurringId: c.recurringId || null });
     return tasks;
   }
 
@@ -963,6 +977,7 @@
   const openSubjects = new Set(), openChapters = new Set();
   let activeDropdown = null;
   let _justPoppedKey = null, _justCompletedDay = null;
+  let _addTaskRecurring = false;
   let calendarViewDate = new Date();
 
   function switchTab(tab) {
@@ -1015,14 +1030,17 @@
     if (!tasks.length) return `<div class="empty">No tasks for today — add some below.</div>`;
     return `<div class="list">${tasks.map(t => {
       const dataAttrs = t.type === 'auto' ? `data-type="auto" data-sub="${t.subId}" data-ch="${t.chId}" data-t="${t.tId}"` : `data-type="custom" data-id="${t.id}"`;
+      const removeAttrs = t.type === 'custom' ? `data-type="custom" data-id="${t.id}" data-rid="${t.recurringId || ''}"` : dataAttrs;
       const popped = _justPoppedKey === (t.type === 'auto' ? `auto:${t.subId}:${t.chId}:${t.tId}` : `custom:${t.id}`) ? 'just-popped' : '';
       const rolloverBadge = t.rolledOver ? `<span style="display:inline-block;margin-left:6px;font-size:9px;font-weight:700;padding:1px 6px;border-radius:999px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);vertical-align:middle;letter-spacing:0.03em">↩ yesterday</span>` : '';
-      return `<div class="card card-row plan-task ${t.done ? 'is-done' : ''} ${popped}"><input type="checkbox" class="check" ${t.done ? 'checked' : ''} data-act="toggle-plan-task" ${dataAttrs}/><span class="color-dot" style="background:${t.color}"></span><div style="flex:1;min-width:0"><div class="title ${t.done ? 'done' : ''}">${escapeHTML(t.text)}${rolloverBadge}</div><div class="meta">${escapeHTML(t.meta)}</div></div><button class="menu-btn" data-act="remove-plan-task" ${dataAttrs}>${ic('trash')}</button></div>`;
+      const recurringBadge = t.recurringId ? `<span class="task-recurring-badge">↻ Daily</span>` : '';
+      return `<div class="card card-row plan-task ${t.done ? 'is-done' : ''} ${popped}"><input type="checkbox" class="check" ${t.done ? 'checked' : ''} data-act="toggle-plan-task" ${dataAttrs}/><span class="color-dot" style="background:${t.color}"></span><div style="flex:1;min-width:0"><div class="title ${t.done ? 'done' : ''}">${escapeHTML(t.text)}${rolloverBadge}${recurringBadge}</div><div class="meta">${escapeHTML(t.meta)}</div></div><button class="menu-btn" data-act="remove-plan-task" ${removeAttrs}>${ic('trash')}</button></div>`;
     }).join('')}</div>`;
   }
   function renderPlanAdder() {
     const subjOptions = state.subjects.map(s => `<option value="${s.id}">${escapeHTML(s.name)}</option>`).join('');
-    return `<div class="plan-add-card"><div class="plan-add-title">Add to Today's Plan</div><div class="plan-add-grid"><select class="plan-sel" id="plan-pick-sub"><option value="">Subject…</option>${subjOptions}</select><select class="plan-sel" id="plan-pick-ch" disabled><option value="">Chapter…</option></select><select class="plan-sel" id="plan-pick-t" disabled><option value="">Topic (optional)…</option></select></div><div class="plan-add-actions"><button class="btn btn-block" data-act="add-plan-from-syllabus">${ic('plus')} Add from Syllabus</button></div><div class="plan-add-divider"><span>or custom task</span></div><div class="row" style="gap:7px;margin-top:4px"><input id="plan-new-task" placeholder="Custom task for today…" maxlength="120" style="flex:1;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:10px 11px;border-radius:9px;font:inherit;font-size:14px"/><button class="btn" data-act="add-plan-task">${ic('plus')}</button></div></div>`;
+    const recurringHint = _addTaskRecurring ? `<div class="plan-recurring-hint">↻ This task will repeat every day</div>` : '';
+    return `<div class="plan-add-card"><div class="plan-add-title">Add to Today's Plan</div><div class="plan-add-grid"><select class="plan-sel" id="plan-pick-sub"><option value="">Subject…</option>${subjOptions}</select><select class="plan-sel" id="plan-pick-ch" disabled><option value="">Chapter…</option></select><select class="plan-sel" id="plan-pick-t" disabled><option value="">Topic (optional)…</option></select></div><div class="plan-add-actions"><button class="btn btn-block" data-act="add-plan-from-syllabus">${ic('plus')} Add from Syllabus</button></div><div class="plan-add-divider"><span>or custom task</span></div><div class="row" style="gap:7px;margin-top:4px"><input id="plan-new-task" placeholder="Custom task for today…" maxlength="120" style="flex:1;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:10px 11px;border-radius:9px;font:inherit;font-size:14px"/><button class="plan-recurring-toggle${_addTaskRecurring ? ' active' : ''}" id="plan-recurring-btn" data-act="toggle-add-recurring" title="Make this task repeat every day">↻</button><button class="btn" data-act="add-plan-task">${ic('plus')}</button></div>${recurringHint}</div>`;
   }
 
   // ========== Dashboard ==========
@@ -2679,8 +2697,54 @@
       else { const plan = state.dailyPlans[todayKey()]; if (plan) { const ct = plan.custom.find(c => c.id === el.dataset.id); if (ct) { ct.done = !ct.done; if (ct.done) bumpActivity(); saveState(); renderHome(); renderDashboard(); } } }
       return;
     }
-    if (act === 'remove-plan-task') { const type = el.dataset.type, plan = state.dailyPlans[todayKey()]; if (!plan) return; if (type === 'auto') { const key = autoKey(el.dataset.sub, el.dataset.ch, el.dataset.t); const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.skipCount = (t.skipCount || 0) + 1; t.lastSkippedAt = todayKey(); } if (!plan.removed.includes(key)) plan.removed.push(key); } else plan.custom = plan.custom.filter(c => c.id !== el.dataset.id); saveState(); renderHome(); renderDashboard(); return; }
-    if (act === 'add-plan-task') { const input = document.getElementById('plan-new-task'), text = input ? input.value.trim() : ''; if (!text) { toast('Enter a task first', 'warn'); return; } ensureTodayPlan().custom.push({ id: uid(), text, done: false }); if (input) input.value = ''; saveState(); renderHome(); renderDashboard(); return; }
+    if (act === 'remove-plan-task') {
+      const type = el.dataset.type, plan = state.dailyPlans[todayKey()]; if (!plan) return;
+      if (type === 'auto') { const key = autoKey(el.dataset.sub, el.dataset.ch, el.dataset.t); const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.skipCount = (t.skipCount || 0) + 1; t.lastSkippedAt = todayKey(); } if (!plan.removed.includes(key)) plan.removed.push(key); saveState(); renderHome(); renderDashboard(); }
+      else {
+        const rid = el.dataset.rid;
+        if (rid) {
+          confirmModal('This is a daily recurring task. Remove it forever so it stops repeating?', () => {
+            state.recurringTasks = (state.recurringTasks || []).filter(r => r.id !== rid);
+            plan.custom = plan.custom.filter(c => c.id !== el.dataset.id);
+            saveState(); renderHome(); renderDashboard();
+          }, { title: 'Stop Recurring Task?', yesLabel: 'Remove Forever', yesClass: 'btn', noLabel: 'Keep' });
+        } else {
+          plan.custom = plan.custom.filter(c => c.id !== el.dataset.id);
+          saveState(); renderHome(); renderDashboard();
+        }
+      }
+      return;
+    }
+    if (act === 'toggle-add-recurring') {
+      _addTaskRecurring = !_addTaskRecurring;
+      const btn = document.getElementById('plan-recurring-btn');
+      if (btn) btn.classList.toggle('active', _addTaskRecurring);
+      const addCard = btn?.closest('.plan-add-card');
+      if (addCard) {
+        let hint = addCard.querySelector('.plan-recurring-hint');
+        if (_addTaskRecurring && !hint) { hint = document.createElement('div'); hint.className = 'plan-recurring-hint'; hint.textContent = '↻ This task will repeat every day'; addCard.appendChild(hint); }
+        else if (!_addTaskRecurring && hint) hint.remove();
+      }
+      return;
+    }
+    if (act === 'add-plan-task') {
+      const input = document.getElementById('plan-new-task'), text = input ? input.value.trim() : '';
+      if (!text) { toast('Enter a task first', 'warn'); return; }
+      const plan = ensureTodayPlan();
+      if (_addTaskRecurring) {
+        if (!Array.isArray(state.recurringTasks)) state.recurringTasks = [];
+        const rt = { id: uid(), text, frequency: 'daily', lastResetDate: todayKey() };
+        state.recurringTasks.push(rt);
+        plan.custom.push({ id: uid(), text, done: false, recurringId: rt.id });
+        _addTaskRecurring = false;
+        toast('↻ Daily recurring task added — it will reset automatically each morning', 'success', 4000);
+      } else {
+        plan.custom.push({ id: uid(), text, done: false });
+      }
+      if (input) input.value = '';
+      saveState(); renderHome(); renderDashboard();
+      return;
+    }
     if (act === 'add-plan-from-syllabus') {
       const subId = document.getElementById('plan-pick-sub')?.value,
             chId  = document.getElementById('plan-pick-ch')?.value,
