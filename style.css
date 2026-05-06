@@ -1753,9 +1753,54 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .vp-embed-wrap {
   position: relative; padding-bottom: 56.25%; height: 0;
   background: #000; flex-shrink: 0;
+  /* Ensure iframes can request native fullscreen on all browsers */
 }
 .vp-embed-wrap iframe {
   position: absolute; inset: 0; width: 100%; height: 100%; border: none;
+}
+
+/* ── Mobile landscape: video fills the full screen height ────── */
+@media (orientation: landscape) and (max-height: 500px) {
+  #vp-overlay {
+    flex-direction: column;
+  }
+  #vp-overlay .vp-header {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 8px);
+    padding-bottom: 8px;
+    flex-shrink: 0;
+  }
+  #vp-overlay .vp-split {
+    flex-direction: row !important;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+  #vp-overlay .vp-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  /* Video fills all remaining height — no 56.25% ratio trick */
+  #vp-overlay .vp-embed-wrap {
+    padding-bottom: 0 !important;
+    flex: 1;
+    height: auto;
+    width: 100%;
+  }
+  #vp-overlay .vp-embed-wrap iframe {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+  /* Hide text sections to maximise video space */
+  #vp-overlay .vp-info,
+  #vp-overlay .vp-playlist-section,
+  #vp-overlay .vp-notes-mobile,
+  #vp-overlay .vp-ext-hint { display: none !important; }
+  /* Notes sidebar: hidden in mobile landscape (no room) */
+  #vp-overlay .vp-notes-col { display: none !important; }
 }
 
 /* ── Info block ──────────────────────────────────────────────── */

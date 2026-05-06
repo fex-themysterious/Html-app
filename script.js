@@ -960,8 +960,8 @@
   function ytThumb(videoId) { return `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`; }
   function ytEmbedUrl(item) { return buildEmbedUrl(item); }
   function buildEmbedUrl(item) {
-    if (item.type === 'playlist' && item.playlistId) return `https://www.youtube.com/embed/videoseries?list=${item.playlistId}&autoplay=1`;
-    if (item.videoId) return `https://www.youtube.com/embed/${item.videoId}?autoplay=1&enablejsapi=1`;
+    if (item.type === 'playlist' && item.playlistId) return `https://www.youtube.com/embed/videoseries?list=${item.playlistId}&autoplay=1&fs=1`;
+    if (item.videoId) return `https://www.youtube.com/embed/${item.videoId}?autoplay=1&enablejsapi=1&fs=1&playsinline=0&rel=0`;
     if (item.url) return item.url;
     return '';
   }
@@ -2487,6 +2487,7 @@
       <div class="settings-section"><h4>Notifications Status</h4><div class="notif-status ${permCls}">${escapeHTML(permText)}</div>${(perm === 'default' || perm === 'denied') ? `<div style="margin-top:9px"><button class="btn btn-block" data-act="sr-request-perm">${perm === 'denied' ? 'Try requesting again' : 'Allow notifications'}</button></div>` : ''}</div>
       <div class="settings-section"><h4>Motivation Quotes</h4><div class="quote-list">${state.motivationQuotes.map((q, i) => `<div class="quote-row"><div class="text">${escapeHTML(q)}</div><button class="menu-btn" data-act="del-quote" data-i="${i}">${ic('trash')}</button></div>`).join('')}</div><div class="quote-add-row"><input id="set-new-quote" placeholder="Add a motivation quote…" maxlength="200"/><button class="btn" data-act="add-quote">${ic('plus')}</button></div></div>
       <div class="settings-section"><h4>Focus Timer Quotes</h4><p style="font-size:12px;color:var(--text-muted);margin:0 0 10px">${FOCUS_QUOTES.length} built-in · ${customFocusQuotes.length} custom. A fresh quote appears every time you start the timer.</p><div class="quote-list">${customFocusQuotes.length ? customFocusQuotes.map((q, i) => `<div class="quote-row"><div class="text">${escapeHTML(q)}</div><button class="menu-btn" data-act="del-focus-quote" data-i="${i}">${ic('trash')}</button></div>`).join('') : '<div style="font-size:12px;color:var(--text-muted);padding:4px 0">No custom quotes yet.</div>'}</div><div class="quote-add-row"><input id="set-focus-quote" placeholder="Add your own focus quote…" maxlength="200"/><button class="btn" data-act="add-focus-quote">${ic('plus')}</button></div></div>
+      <div class="settings-section"><h4>🔄 Screen Orientation</h4><div class="settings-row"><div class="label">Force Landscape Mode<div class="sub">Locks screen to landscape via the Orientation API. Works best in the installed PWA. Tap again to unlock.</div></div><button class="btn btn-sm" data-act="toggle-landscape" style="flex-shrink:0;white-space:nowrap">${(screen.orientation && screen.orientation.type && screen.orientation.type.startsWith('landscape')) ? '🔓 Unlock' : '🔄 Force Landscape'}</button></div><div style="font-size:11px;color:var(--text-muted);margin-top:7px;line-height:1.5">Current: <strong style="color:var(--text)">${screen.orientation ? screen.orientation.type : 'unknown'}</strong>${(typeof screen.orientation?.lock !== 'function') ? ' · <span style="color:var(--warn)">Lock API not supported on this browser</span>' : ''}</div></div>
       <div class="settings-section"><h4>Data</h4><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost" data-act="export-data">${ic('download')} Export Backup</button><label class="btn btn-ghost" style="cursor:pointer">${ic('upload')} Import Backup<input type="file" accept=".json" style="display:none" id="import-file-input"/></label></div></div>
       <div class="actions" style="margin-top:16px"><button class="btn btn-ghost" data-close>Close</button></div>`,
       root => { root.querySelector('#import-file-input').onchange = e => { importData(e.target.files[0]); closeModal(); }; });
@@ -2553,6 +2554,31 @@
 
     if (el.hasAttribute('data-close')) { closeModal(); return; }
     if (act === 'open-settings') { modalSettings(); return; }
+    if (act === 'toggle-landscape') {
+      (async () => {
+        if (!screen.orientation || typeof screen.orientation.lock !== 'function') {
+          toast('Orientation lock not supported on this browser. Install the app as a PWA for full support.', 'warn'); return;
+        }
+        const isLandscape = screen.orientation.type.startsWith('landscape');
+        if (isLandscape) {
+          try { screen.orientation.unlock(); toast('Orientation unlocked', 'info'); }
+          catch(e) { toast('Could not unlock orientation', 'warn'); }
+        } else {
+          try {
+            if (!document.fullscreenElement) {
+              try { await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch(fe) {}
+            }
+            await screen.orientation.lock('landscape');
+            closeModal();
+            toast('Locked to landscape mode', 'success');
+          } catch(e) {
+            toast('Could not lock orientation — install as PWA or allow fullscreen', 'warn');
+          }
+        }
+        refreshSettingsIfOpen();
+      })();
+      return;
+    }
 
     if (act === 'open-dashboard') { switchTab('dashboard'); renderDashboard(); return; }
     if (act === 'open-plan') { closeModal(); switchTab('home'); renderHome(); return; }
