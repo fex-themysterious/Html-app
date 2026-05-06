@@ -80,7 +80,7 @@ body {
   background-image:
     radial-gradient(ellipse 80% 50% at 20% -10%, rgba(91,173,255,0.07) 0%, transparent 60%),
     radial-gradient(ellipse 60% 40% at 80% 110%, rgba(177,151,252,0.06) 0%, transparent 60%);
-  background-attachment: fixed;
+  background-attachment: scroll;
   color: var(--text);
   font-size: 14px;
   line-height: 1.5;
@@ -92,7 +92,7 @@ body {
 svg { display: inline-block; vertical-align: middle; flex: none; }
 
 /* ── Layout ──────────────────────────────────────────────────── */
-#app { min-height: 100vh; padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); }
+#app { min-height: 100dvh; padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); }
 .view { display: none; padding: 24px 18px 36px; max-width: 720px; margin: 0 auto; }
 .view.active { display: block; }
 
@@ -128,9 +128,9 @@ h4 { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: 
 /* ── Bottom Nav ──────────────────────────────────────────────── */
 .bottom-nav {
   position: fixed; left: 0; right: 0; bottom: 0;
-  background: rgba(5,8,15,0.93);
-  backdrop-filter: blur(28px) saturate(200%);
-  -webkit-backdrop-filter: blur(28px) saturate(200%);
+  background: rgba(5,8,15,0.96);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
   border-top: 1px solid rgba(255,255,255,0.07);
   display: grid; grid-template-columns: repeat(6, 1fr);
   padding: 6px 0 calc(6px + env(safe-area-inset-bottom, 0px));
@@ -917,16 +917,14 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   box-shadow: 0 0 0 3px rgba(167,139,250,0.12);
 }
 
-/* ── Ring pulse when Focus Intensity is active ───────────────── */
+/* ── Ring pulse when Focus Intensity is active — opacity (GPU-composited) ── */
 .focus-ring-wrap.intensity-active {
   animation: intensityBreath 5s ease-in-out infinite;
+  will-change: opacity;
 }
 @keyframes intensityBreath {
-  0%,100% { box-shadow: 0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06),
-                        0 0  0  0  rgba(167,139,250,0); }
-  50%     { box-shadow: 0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06),
-                        0 0 36px 10px rgba(167,139,250,0.32),
-                        0 0 72px 24px rgba(77,168,255,0.14); }
+  0%,100% { opacity: 0.88; }
+  50%     { opacity: 1; }
 }
 
 /* ── Binaural Beats Focus Card ───────────────────────────────── */
@@ -1367,22 +1365,22 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 
 /* ── Subtle vibration on timer wrap (only while running) ──────── */
 .fs-is-running .fs-timer-wrap {
-  animation: fs-jitter 0.09s linear infinite;
+  animation: fs-jitter 0.6s linear infinite;
   will-change: transform;
 }
 @keyframes fs-jitter {
   0%   { transform: translate(0,      0); }
-  20%  { transform: translate(-0.45px, 0.5px); }
-  40%  { transform: translate(0.5px, -0.4px); }
-  60%  { transform: translate(-0.35px,-0.5px); }
-  80%  { transform: translate(0.4px,   0.3px); }
+  20%  { transform: translate(-0.4px, 0.45px); }
+  40%  { transform: translate(0.45px,-0.35px); }
+  60%  { transform: translate(-0.3px,-0.45px); }
+  80%  { transform: translate(0.35px, 0.25px); }
   100% { transform: translate(0,      0); }
 }
 
-/* ── Pulsing glow on timer numbers ───────────────────────────── */
+/* ── Pulsing glow on timer numbers — uses opacity+filter (GPU-composited) ── */
 @keyframes fs-time-glow {
-  0%, 100% { text-shadow: 0 0 50px rgba(77,168,255,0.40); }
-  50%       { text-shadow: 0 0 90px rgba(77,168,255,0.80), 0 0 120px rgba(77,168,255,0.30), 0 0 18px rgba(180,220,255,0.20); }
+  0%, 100% { opacity: 0.93; filter: brightness(1); }
+  50%       { opacity: 1;    filter: brightness(1.12); }
 }
 .fs-content {
   position: relative; z-index: 1;
@@ -1415,7 +1413,7 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   filter: drop-shadow(0 0 10px rgba(77,168,255,0.55));
 }
 .fs-ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
-.fs-time { font-size: 74px; font-weight: 900; letter-spacing: -0.04em; color: #f0f6ff; font-variant-numeric: tabular-nums; line-height: 1; text-shadow: 0 0 50px rgba(77,168,255,0.4); animation: fs-time-glow 2s ease-in-out infinite; }
+.fs-time { font-size: 74px; font-weight: 900; letter-spacing: -0.04em; color: #f0f6ff; font-variant-numeric: tabular-nums; line-height: 1; text-shadow: 0 0 50px rgba(77,168,255,0.35); animation: fs-time-glow 2s ease-in-out infinite; will-change: filter, opacity; }
 .fs-ring-sub { font-size: 11px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; }
 .fs-task-box { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 18px; padding: 14px 22px; text-align: center; width: 100%; max-width: 400px; backdrop-filter: blur(10px); }
 .fs-task-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700; margin-bottom: 7px; }

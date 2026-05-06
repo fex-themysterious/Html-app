@@ -2777,8 +2777,19 @@
     }, 350);
   }
   window.addEventListener('orientationchange', onOrientationChange);
+
+  // Unlock screen rotation so the PWA can rotate freely in both orientations
+  if (screen.orientation && screen.orientation.unlock) {
+    try { screen.orientation.unlock(); } catch (_) {}
+  }
+
+  // Debounced resize — avoids thrashing layout on every pixel change
+  let _resizeRaf;
   window.addEventListener('resize', () => {
-    document.documentElement.style.setProperty('--vh', (window.innerHeight * 0.01) + 'px');
+    cancelAnimationFrame(_resizeRaf);
+    _resizeRaf = requestAnimationFrame(() => {
+      document.documentElement.style.setProperty('--vh', (window.innerHeight * 0.01) + 'px');
+    });
   });
   // Set initial value
   document.documentElement.style.setProperty('--vh', (window.innerHeight * 0.01) + 'px');
