@@ -1349,6 +1349,26 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .cal-cell.cal-past .cal-day-num { color: var(--text-muted); opacity: 0.4; }
 .cal-cell.cal-today { background: rgba(77,168,255,0.12); border-color: rgba(77,168,255,0.4); }
 .cal-cell.cal-today .cal-day-num { color: var(--primary); font-weight: 800; }
+
+/* ── Plan completion colours ───────────────────────────────── */
+.cal-cell.cal-completed {
+  background: rgba(52,211,153,0.13);
+  border-color: rgba(52,211,153,0.45);
+}
+.cal-cell.cal-completed .cal-day-num {
+  color: #34d399;
+  font-weight: 700;
+  opacity: 1;
+}
+.cal-cell.cal-incomplete {
+  background: rgba(248,113,113,0.11);
+  border-color: rgba(248,113,113,0.38);
+}
+.cal-cell.cal-incomplete .cal-day-num {
+  color: #f87171;
+  font-weight: 700;
+  opacity: 1;
+}
 .cal-day-num { font-size: 13px; font-weight: 600; line-height: 1; }
 .cal-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--warn); margin-top: 3px; flex-shrink: 0; }
 .cal-dot.cal-dot-done { background: var(--success); }

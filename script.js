@@ -1141,6 +1141,26 @@
   }
 
   // ========== Calendar ==========
+  // Returns total and done task counts for any given day (auto + custom)
+  function getDayPlanStatus(dateISO) {
+    const plan = state.dailyPlans[dateISO];
+    if (!plan) return { total: 0, done: 0 };
+    let total = 0, done = 0;
+    for (const a of plan.auto || []) {
+      const key = autoKey(a.subId, a.chId, a.tId);
+      if ((plan.removed || []).includes(key)) continue;
+      const t = findTopic(a.subId, a.chId, a.tId);
+      if (!t) continue;
+      total++;
+      if (t.done) done++;
+    }
+    for (const c of plan.custom || []) {
+      total++;
+      if (c.done) done++;
+    }
+    return { total, done };
+  }
+
   function renderCalendar() {
     const year = calendarViewDate.getFullYear();
     const month = calendarViewDate.getMonth();
@@ -1156,16 +1176,24 @@
       const dateISO = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
       const isToday = dateISO === today;
       const isPast = dateISO < today;
-      const plan = state.dailyPlans[dateISO];
-      const customTasks = plan ? (plan.custom || []) : [];
-      const total = customTasks.length;
-      const done = customTasks.filter(t => t.done).length;
-      let dotHtml = '';
-      if (total > 0) {
-        const allDone = done === total;
-        dotHtml = `<span class="cal-dot${allDone ? ' cal-dot-done' : ''}"></span>`;
+      const isFuture = dateISO > today;
+      const { total, done } = getDayPlanStatus(dateISO);
+      const allDone = total > 0 && done === total;
+      const incomplete = total > 0 && !allDone;
+
+      // Cell colour class — green if all done, red if had tasks but not all done (past only)
+      let colourClass = '';
+      if (!isFuture && total > 0) {
+        colourClass = allDone ? ' cal-completed' : (isPast ? ' cal-incomplete' : '');
       }
-      cells += `<div class="cal-cell${isToday ? ' cal-today' : ''}${isPast && !isToday ? ' cal-past' : ''}" data-act="calendar-day" data-date="${dateISO}" role="button" aria-label="${dateISO}${total ? `, ${total} task${total>1?'s':''}` : ''}"><span class="cal-day-num">${d}</span>${dotHtml}</div>`;
+
+      // Small dot for today showing progress (green/amber)
+      const dotHtml = isToday && total > 0
+        ? `<span class="cal-dot${allDone ? ' cal-dot-done' : ''}"></span>`
+        : '';
+
+      const ariaLabel = `${dateISO}${total ? `, ${done}/${total} tasks` : ''}`;
+      cells += `<div class="cal-cell${isToday ? ' cal-today' : ''}${isPast && !isToday ? ' cal-past' : ''}${colourClass}" data-act="calendar-day" data-date="${dateISO}" role="button" aria-label="${ariaLabel}"><span class="cal-day-num">${d}</span>${dotHtml}</div>`;
     }
     return `<div class="cal-wrap"><div class="cal-nav"><button class="cal-nav-btn" data-act="cal-prev" aria-label="Previous month">‹</button><span class="cal-title">${monthLabel}</span><button class="cal-nav-btn" data-act="cal-next" aria-label="Next month">›</button></div><div class="cal-grid"><div class="cal-dow-row">${dowLabels.map(d=>`<div class="cal-dow">${d}</div>`).join('')}</div><div class="cal-cells">${cells}</div></div></div>`;
   }
