@@ -1294,28 +1294,41 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   .focus-col-right .fs-enter-btn { padding: 7px; font-size: 11.5px; }
 
   /* ═══════════════════════════════════════════════════════════════
-     FULLSCREEN FOCUS OVERLAY — 2-column landscape layout
-     Left  → mode badge + giant timer ring
-     Right → current task + controls + hint
+     FULL FOCUS OVERLAY — mobile landscape 2-col layout
+     Left  → mode badge + compact timer ring
+     Right → task box + controls + hint
      ═══════════════════════════════════════════════════════════════ */
   #fs-overlay .fs-content {
     display: grid !important;
     flex-direction: unset;
     grid-template-columns: auto 1fr;
     grid-template-rows: auto auto auto;
-    column-gap: 28px;
-    row-gap: 10px;
+    column-gap: 14px;
+    row-gap: 4px;
     max-width: 100%;
-    padding: 14px 32px;
+    padding: 6px calc(16px + env(safe-area-inset-right, 0px)) 6px calc(16px + env(safe-area-inset-left, 0px));
     align-items: center;
     justify-items: center;
   }
-  #fs-overlay .fs-top        { grid-column: 1; grid-row: 1; justify-self: center; }
-  #fs-overlay .fs-timer-wrap { grid-column: 1; grid-row: 2 / 4; width: 186px; height: 186px; }
-  #fs-overlay .fs-task-box   { grid-column: 2; grid-row: 1; max-width: none; width: 100%; }
-  #fs-overlay .fs-controls   { grid-column: 2; grid-row: 2; margin-top: 0; }
-  #fs-overlay .fs-hint       { grid-column: 2; grid-row: 3; font-size: 10px; }
-  #fs-overlay .fs-time       { font-size: 56px !important; }
+  #fs-overlay .fs-top          { grid-column: 1; grid-row: 1; justify-self: center; gap: 3px; }
+  #fs-overlay .fs-timer-wrap   { grid-column: 1; grid-row: 2 / 4; width: 146px; height: 146px; }
+  #fs-overlay .fs-task-box     { grid-column: 2; grid-row: 1; max-width: none; width: 100%; padding: 7px 12px; }
+  #fs-overlay .fs-controls     { grid-column: 2; grid-row: 2; margin-top: 0; gap: 14px; }
+  #fs-overlay .fs-hint         { grid-column: 2; grid-row: 3; font-size: 9px; }
+  #fs-overlay .fs-time         { font-size: 40px !important; letter-spacing: -0.04em; }
+  #fs-overlay .fs-ring-sub     { font-size: 8.5px; }
+  #fs-overlay .fs-mode-badge   { font-size: 9px; padding: 2px 9px; letter-spacing: 0.07em; }
+  #fs-overlay .fs-session-dots { gap: 3px; }
+  #fs-overlay .fs-dot          { width: 5px; height: 5px; }
+  #fs-overlay .fs-sessions-label { font-size: 9px; margin-left: 3px; }
+  #fs-overlay .fs-main-btn     { width: 60px; height: 60px; font-size: 21px; box-shadow: 0 0 24px rgba(77,168,255,0.45); }
+  #fs-overlay .fs-side-btn     { width: 42px; height: 42px; font-size: 17px; }
+  #fs-overlay .fs-task-name    { font-size: 14px; line-height: 1.3; }
+  #fs-overlay .fs-task-label   { font-size: 8.5px; margin-bottom: 3px; }
+  #fs-overlay .fs-task-meta    { font-size: 10px; margin-top: 2px; }
+  #fs-overlay .fs-task-empty   { font-size: 12px; }
+  /* Swipe handle: show on mobile landscape */
+  #fs-overlay .fs-swipe-bar    { display: flex; }
 
   /* ═══════════════════════════════════════════════════════════════
      CLASSROOM VIDEO PLAYER — 70% video / 30% notes
@@ -1527,6 +1540,21 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .fs-hint { font-size: 11px; color: rgba(148,163,184,0.45); letter-spacing: 0.04em; }
 .fs-enter-btn { width: 100%; margin-top: 4px; background: linear-gradient(135deg, rgba(77,168,255,0.1), rgba(124,100,230,0.1)); border: 1px solid rgba(77,168,255,0.22); color: #4da8ff; font-weight: 700; letter-spacing: 0.02em; font-size: 14px; padding: 13px; border-radius: 999px; }
 .fs-enter-btn:hover { background: rgba(77,168,255,0.16); border-color: rgba(77,168,255,0.4); box-shadow: 0 0 20px rgba(77,168,255,0.15); }
+
+/* ── Swipe-to-exit drag handle (visible on touch/mobile) ──────── */
+.fs-swipe-bar {
+  position: absolute;
+  bottom: 10px; left: 0; right: 0;
+  display: none; /* shown via media query on mobile landscape */
+  justify-content: center;
+  pointer-events: none;
+  z-index: 2;
+}
+.fs-swipe-handle {
+  width: 38px; height: 4px;
+  background: rgba(255,255,255,0.22);
+  border-radius: 2px;
+}
 
 /* ================================================================
    STATS ENHANCEMENTS
@@ -2274,6 +2302,27 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
     /* Respect safe-area on bottom */
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
+
+  /* ── Full Focus overlay — tablet/desktop landscape 2-col layout ── */
+  #fs-overlay .fs-content {
+    display: grid !important;
+    flex-direction: unset;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: auto auto auto;
+    column-gap: 28px;
+    row-gap: 10px;
+    max-width: 100%;
+    padding: 14px 32px;
+    align-items: center;
+    justify-items: center;
+  }
+  #fs-overlay .fs-top        { grid-column: 1; grid-row: 1; justify-self: center; }
+  #fs-overlay .fs-timer-wrap { grid-column: 1; grid-row: 2 / 4; width: 186px; height: 186px; }
+  #fs-overlay .fs-task-box   { grid-column: 2; grid-row: 1; max-width: none; width: 100%; }
+  #fs-overlay .fs-controls   { grid-column: 2; grid-row: 2; margin-top: 0; }
+  #fs-overlay .fs-hint       { grid-column: 2; grid-row: 3; font-size: 10px; }
+  #fs-overlay .fs-time       { font-size: 56px !important; }
+  #fs-overlay .fs-swipe-bar  { display: none; }
 }
 
 /* ── Mobile landscape safe-area insets (notched phones) ─────── */

@@ -680,6 +680,7 @@
   let focusLocked = false;
   let focusCurrentTaskKey = null;
   let fsSessionActive = false;
+  let _fsSwipeStartX = 0, _fsSwipeStartY = 0;
   const customDurations = { work: 25, short: 5, long: 15 };
   let focusStartTime = null;
   let focusStartSeconds = null;
@@ -1566,10 +1567,33 @@
   function enterFullSession() {
     fsSessionActive = true;
     let overlay = document.getElementById('fs-overlay');
-    if (!overlay) { overlay = document.createElement('div'); overlay.id = 'fs-overlay'; document.body.appendChild(overlay); }
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'fs-overlay';
+      document.body.appendChild(overlay);
+    }
     renderFullSession();
     if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+
+    /* ── Swipe-to-exit gesture ─────────────────────────────────────
+       Any swipe of ≥ 65 px in any direction dismisses the overlay.
+       Tap on controls is short-distance (<10 px) so never triggers. */
+    overlay.addEventListener('touchstart', e => {
+      _fsSwipeStartX = e.touches[0].clientX;
+      _fsSwipeStartY = e.touches[0].clientY;
+    }, { passive: true });
+
+    overlay.addEventListener('touchend', e => {
+      const dx = e.changedTouches[0].clientX - _fsSwipeStartX;
+      const dy = e.changedTouches[0].clientY - _fsSwipeStartY;
+      if (Math.sqrt(dx * dx + dy * dy) >= 65) {
+        exitFullSession();
+        stopAmbient();
+        ambientMode = 'none';
+      }
+    }, { passive: true });
   }
+
   function exitFullSession() {
     fsSessionActive = false;
     const overlay = document.getElementById('fs-overlay'); if (overlay) overlay.remove();
@@ -1640,8 +1664,9 @@
           <button class="fs-ctrl-btn fs-main-btn" data-act="fs-toggle">${focusRunning ? '⏸' : '▶'}</button>
           <button class="fs-ctrl-btn fs-side-btn fs-exit-btn" data-act="exit-full-session" title="Exit full screen">✕</button>
         </div>
-        <div class="fs-hint">Press Esc to exit · ${ambientMode !== 'none' ? '♪ ' + escapeHTML(_curSound.label) : '🔇 Sound off'}</div>
-      </div>`;
+        <div class="fs-hint">${('ontouchstart' in window) ? 'Swipe to exit' : 'Press Esc to exit'} · ${ambientMode !== 'none' ? '♪ ' + escapeHTML(_curSound.label) : '🔇 Sound off'}</div>
+      </div>
+      <div class="fs-swipe-bar"><div class="fs-swipe-handle"></div></div>`;
   }
 
   // ========== Classroom ==========
