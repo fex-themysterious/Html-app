@@ -41,8 +41,10 @@ An offline-capable Progressive Web App for tracking study progress with spaced r
 _Populate as you build_
 
 ## Gotchas
-- Cache-busting query param on `script.js?v=15` and `style.css?v=15` — increment when making changes; SW cache is `syllabus-tracker-v20`
+- Cache-busting query param on `script.js?v=17` and `style.css?v=17` — increment when making changes; SW cache is `syllabus-tracker-v22`
 - Audio files need HTTP Range request support (already handled in `server.js` and `sw.js`)
+- Orientation unlock uses `screen.orientation.unlock()` in index.html inline script; `--real-vh` CSS var is set by JS on every `orientationchange`/`resize` for iOS Safari
+- Focus tab in mobile landscape (`max-height: 500px`) uses 2-col flex layout: timer left, controls right; page header is hidden to save space
 
 ## Pointers
 - Testing skill: `.local/skills/testing/SKILL.md`
