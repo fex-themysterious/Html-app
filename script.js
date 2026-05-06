@@ -344,20 +344,105 @@
 
   // ========== Daily Plan ==========
   const autoKey = (subId, chId, tId) => `${subId}:${chId}:${tId}`;
+
+  // Priority rank: high=0, medium=1, low=2, unset=3
+  function planPriority(p) { return p === 'high' ? 0 : p === 'medium' ? 1 : p === 'low' ? 2 : 3; }
+
+  // Pick the best undone topic from a single subject (highest-priority chapter first)
+  function pickBestTopicFromSubject(sub, alreadyPicked) {
+    const sortedChs = [...sub.chapters].sort((a, b) => planPriority(a.priority) - planPriority(b.priority));
+    for (const ch of sortedChs) {
+      if (isChapterEffectivelyDone(ch)) continue;
+      for (const t of ch.topics) {
+        if (t.done) continue;
+        const key = autoKey(sub.id, ch.id, t.id);
+        if (!alreadyPicked.has(key)) return { chId: ch.id, tId: t.id };
+      }
+    }
+    return null;
+  }
+
+  // Generate up to 4 new tasks — one per subject when possible, priority-sorted
+  function generateDailyTasks() {
+    const picked = new Set();
+    const auto = [];
+    const sortedSubs = [...state.subjects].sort((a, b) => planPriority(a.priority) - planPriority(b.priority));
+
+    // Pass 1: one topic per subject (variety first)
+    for (const sub of sortedSubs) {
+      if (auto.length >= 4) break;
+      const topic = pickBestTopicFromSubject(sub, picked);
+      if (topic) {
+        picked.add(autoKey(sub.id, topic.chId, topic.tId));
+        auto.push({ subId: sub.id, chId: topic.chId, tId: topic.tId });
+      }
+    }
+
+    // Pass 2: fill remaining slots from any subject if we still have < 4
+    if (auto.length < 4) {
+      for (const sub of sortedSubs) {
+        if (auto.length >= 4) break;
+        let topic = pickBestTopicFromSubject(sub, picked);
+        while (topic && auto.length < 4) {
+          picked.add(autoKey(sub.id, topic.chId, topic.tId));
+          auto.push({ subId: sub.id, chId: topic.chId, tId: topic.tId });
+          topic = pickBestTopicFromSubject(sub, picked);
+        }
+      }
+    }
+
+    return auto;
+  }
+
+  // Collect undone tasks from yesterday to carry forward
+  function collectRollover(newPickedKeys) {
+    const yesterday = addDaysISO(todayKey(), -1);
+    const prevPlan = state.dailyPlans[yesterday];
+    if (!prevPlan) return { autoRollover: [], customRollover: [] };
+
+    const autoRollover = [];
+    const seenKeys = new Set(newPickedKeys);
+
+    // Auto tasks that were not done and not explicitly removed yesterday
+    for (const a of prevPlan.auto || []) {
+      const key = autoKey(a.subId, a.chId, a.tId);
+      if ((prevPlan.removed || []).includes(key)) continue; // user removed it — respect that
+      if (seenKeys.has(key)) continue;                       // already in today's fresh tasks
+      const t = findTopic(a.subId, a.chId, a.tId);
+      if (!t || t.done) continue;                            // completed — no need to roll over
+      seenKeys.add(key);
+      autoRollover.push({ subId: a.subId, chId: a.chId, tId: a.tId, rolledOver: true });
+    }
+
+    // Custom tasks that were not done yesterday
+    const customRollover = [];
+    for (const c of prevPlan.custom || []) {
+      if (!c.done) customRollover.push({ id: uid(), text: c.text, done: false, rolledOver: true });
+    }
+
+    return { autoRollover, customRollover };
+  }
+
   function ensureTodayPlan() {
     const k = todayKey();
     if (!state.dailyPlans[k]) state.dailyPlans[k] = { auto: [], removed: [], custom: [], generated: false };
     const plan = state.dailyPlans[k];
     if (!plan.generated) {
-      const picked = new Set(), auto = [];
-      const pick = (subId, chId, tId) => { const key = autoKey(subId, chId, tId); if (!picked.has(key)) { picked.add(key); auto.push({ subId, chId, tId }); } };
-      for (const sub of state.subjects) for (const ch of sub.chapters) if (ch.scheduledDate === k && !isChapterEffectivelyDone(ch)) for (const t of ch.topics) if (!t.done) pick(sub.id, ch.id, t.id);
-      if (auto.length < 5) for (const sub of state.subjects) for (const ch of sub.chapters) if (ch.priority === 'high' && !isChapterEffectivelyDone(ch)) for (const t of ch.topics) if (!t.done && auto.length < 8) pick(sub.id, ch.id, t.id);
-      if (!auto.length) for (const sub of state.subjects) for (const ch of sub.chapters) for (const t of ch.topics) if (!t.done && auto.length < 5) pick(sub.id, ch.id, t.id);
-      plan.auto = auto; plan.generated = true; saveState();
+      // 4 new priority-based tasks from different subjects
+      const newAuto = generateDailyTasks();
+      // Collect undone tasks from yesterday
+      const pickedKeys = new Set(newAuto.map(a => autoKey(a.subId, a.chId, a.tId)));
+      const { autoRollover, customRollover } = collectRollover(pickedKeys);
+      // Rollover tasks appear first so they're immediately visible
+      plan.auto = [...autoRollover, ...newAuto];
+      const existingIds = new Set(plan.custom.map(c => c.id));
+      for (const c of customRollover) { if (!existingIds.has(c.id)) plan.custom.unshift(c); }
+      plan.generated = true;
+      saveState();
     }
     return plan;
   }
+
   function getActivePlanTasks() {
     const plan = ensureTodayPlan(); const tasks = [];
     for (const a of plan.auto) {
@@ -365,9 +450,9 @@
       if (plan.removed.includes(key)) continue;
       const sub = findSubject(a.subId), ch = findChapter(a.subId, a.chId), t = findTopic(a.subId, a.chId, a.tId);
       if (!sub || !ch || !t) continue;
-      tasks.push({ type: 'auto', key, text: t.name, meta: `${sub.name} · ${ch.name}`, color: sub.color, done: !!t.done, subId: a.subId, chId: a.chId, tId: a.tId });
+      tasks.push({ type: 'auto', key, text: t.name, meta: `${sub.name} · ${ch.name}`, color: sub.color, done: !!t.done, subId: a.subId, chId: a.chId, tId: a.tId, rolledOver: !!a.rolledOver });
     }
-    for (const c of plan.custom) tasks.push({ type: 'custom', key: c.id, text: c.text, meta: 'Custom task', color: '#94a3b8', done: !!c.done, id: c.id });
+    for (const c of plan.custom) tasks.push({ type: 'custom', key: c.id, text: c.text, meta: c.rolledOver ? 'Rolled over from yesterday' : 'Custom task', color: c.rolledOver ? '#f59e0b' : '#94a3b8', done: !!c.done, id: c.id, rolledOver: !!c.rolledOver });
     return tasks;
   }
 
@@ -475,11 +560,31 @@
       break;
     }
   }
+  // ========== Midnight date-change detector ==========
+  let _planDateKey = todayKey();
+  function onMidnightReset() {
+    const k = todayKey();
+    // Ensure today's slot exists and is marked un-generated so rollover + fresh tasks are built
+    if (!state.dailyPlans[k]) state.dailyPlans[k] = { auto: [], removed: [], custom: [], generated: false };
+    state.dailyPlans[k].generated = false;
+    state.dailyPlans[k].auto = [];
+    saveState();
+    ensureTodayPlan();
+    renderAll();
+    toast('🌙 New day! Daily plan refreshed with rollover tasks.', 'info', 5000);
+    maybeShowBackupReminder();
+  }
+
   function startTimers() {
     clearInterval(smartReminderTimer); clearInterval(motivationTimer); clearInterval(dueTaskTimer);
     smartReminderTimer = setInterval(checkSmartReminder, 30000);
     motivationTimer = setInterval(checkMotivationReminders, 30000);
     setInterval(checkBackupBannerWindow, 60000);
+    // Check for date change every 60s — triggers midnight rollover
+    setInterval(() => {
+      const now = todayKey();
+      if (now !== _planDateKey) { _planDateKey = now; onMidnightReset(); }
+    }, 60000);
     dueTaskTimer = setInterval(() => {
       const today = todayKey(); if (dueTaskNotifiedDate !== today) { dueTaskNotified.clear(); dueTaskNotifiedDate = today; }
       for (const item of dueRevisionItems()) {
@@ -935,7 +1040,8 @@
     return `<div class="list">${tasks.map(t => {
       const dataAttrs = t.type === 'auto' ? `data-type="auto" data-sub="${t.subId}" data-ch="${t.chId}" data-t="${t.tId}"` : `data-type="custom" data-id="${t.id}"`;
       const popped = _justPoppedKey === (t.type === 'auto' ? `auto:${t.subId}:${t.chId}:${t.tId}` : `custom:${t.id}`) ? 'just-popped' : '';
-      return `<div class="card card-row plan-task ${t.done ? 'is-done' : ''} ${popped}"><input type="checkbox" class="check" ${t.done ? 'checked' : ''} data-act="toggle-plan-task" ${dataAttrs}/><span class="color-dot" style="background:${t.color}"></span><div style="flex:1;min-width:0"><div class="title ${t.done ? 'done' : ''}">${escapeHTML(t.text)}</div><div class="meta">${escapeHTML(t.meta)}</div></div><button class="menu-btn" data-act="remove-plan-task" ${dataAttrs}>${ic('trash')}</button></div>`;
+      const rolloverBadge = t.rolledOver ? `<span style="display:inline-block;margin-left:6px;font-size:9px;font-weight:700;padding:1px 6px;border-radius:999px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);vertical-align:middle;letter-spacing:0.03em">↩ yesterday</span>` : '';
+      return `<div class="card card-row plan-task ${t.done ? 'is-done' : ''} ${popped}"><input type="checkbox" class="check" ${t.done ? 'checked' : ''} data-act="toggle-plan-task" ${dataAttrs}/><span class="color-dot" style="background:${t.color}"></span><div style="flex:1;min-width:0"><div class="title ${t.done ? 'done' : ''}">${escapeHTML(t.text)}${rolloverBadge}</div><div class="meta">${escapeHTML(t.meta)}</div></div><button class="menu-btn" data-act="remove-plan-task" ${dataAttrs}>${ic('trash')}</button></div>`;
     }).join('')}</div>`;
   }
   function renderPlanAdder() {
@@ -2406,7 +2512,7 @@
     if (act === 'edit-goal') { const g = (state.goals || []).find(g => g.id === el.dataset.id); if (g) modalAddGoal(g); return; }
 
     // Plan
-    if (act === 'regen-plan') { const k = todayKey(); if (state.dailyPlans[k]) { state.dailyPlans[k].generated = false; state.dailyPlans[k].auto = []; } saveState(); renderHome(); renderDashboard(); toast('Plan regenerated', 'info'); return; }
+    if (act === 'regen-plan') { const k = todayKey(); if (state.dailyPlans[k]) { state.dailyPlans[k].generated = false; state.dailyPlans[k].auto = []; state.dailyPlans[k].custom = state.dailyPlans[k].custom.filter(c => !c.rolledOver); } saveState(); ensureTodayPlan(); renderHome(); renderDashboard(); toast('Plan regenerated', 'info'); return; }
     if (act === 'toggle-plan-task') {
       const type = el.dataset.type;
       if (type === 'auto') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { const wasDone = t.done; t.done = !t.done; if (t.done) { bumpActivity(); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); _justPoppedKey = `auto:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`; } else onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, false); const tasks = getActivePlanTasks(); if (tasks.length > 0 && tasks.every(x => x.done) && !wasDone) _justCompletedDay = todayKey(); saveState(); renderHome(); renderSyllabus(); renderRevision(); } }
