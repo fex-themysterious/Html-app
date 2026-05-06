@@ -1332,67 +1332,75 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   .focus-col-right .fs-enter-btn { padding: 7px; font-size: 11.5px; }
 
   /* ═══════════════════════════════════════════════════════════════
-     FULL FOCUS OVERLAY — mobile landscape layout
-     Left col  → badge/dots + compact task box + hint+quote footer
-     Right col → big timer ring + vertical controls
+     FULL FOCUS OVERLAY — mobile landscape: 3-column grid
+     Left  → navy motivation panel (badge top + quote below)
+     Center → dominant timer ring (spans both content rows)
+     Right  → indigo controls panel (task picker top + btns below)
+     Bottom → hint strip spanning all 3 columns
      ═══════════════════════════════════════════════════════════════ */
   #fs-overlay .fs-content {
     display: grid !important;
-    grid-template-areas: "header main" "footer main";
-    grid-template-columns: 205px 1fr;
-    grid-template-rows: 1fr auto;
-    column-gap: 10px; row-gap: 4px;
+    grid-template-areas:
+      "top   ring  task"
+      "moti  ring  ctrl"
+      "foot  foot  foot";
+    grid-template-columns: 192px 1fr 144px;
+    grid-template-rows: auto 1fr auto;
+    row-gap: 0; column-gap: 10px;
     max-width: 100%; height: 100dvh;
-    padding: 8px calc(12px + env(safe-area-inset-right,0px)) 6px calc(12px + env(safe-area-inset-left,0px));
+    padding: 10px calc(14px + env(safe-area-inset-right,0px)) 6px calc(14px + env(safe-area-inset-left,0px));
     box-sizing: border-box; justify-content: unset; align-items: stretch;
   }
-  #fs-overlay .fs-header-row {
-    grid-area: header;
-    flex-direction: column; align-items: flex-start; gap: 5px;
-    overflow: hidden; min-height: 0;
-  }
-  #fs-overlay .fs-main-area {
-    grid-area: main;
-    justify-content: center; gap: 10px;
-  }
-  #fs-overlay .fs-footer {
-    grid-area: footer;
-    align-items: flex-start; gap: 3px;
-    padding-bottom: 4px;
-  }
-  /* Timer: much larger — the main centrepiece */
-  #fs-overlay .fs-timer-wrap   { width: 230px; height: 230px; }
-  #fs-overlay .fs-time         { font-size: 66px !important; letter-spacing: -0.04em; }
-  #fs-overlay .fs-ring-sub     { font-size: 8px; }
-  /* Compact header elements */
-  #fs-overlay .fs-mode-badge   { font-size: 9px; padding: 2px 9px; letter-spacing: 0.07em; }
-  #fs-overlay .fs-session-dots { gap: 3px; }
+  /* ── Badge zone: compact at the top of left col ── */
+  #fs-overlay .fs-top          { padding: 4px 0 6px 0; gap: 4px; }
+  #fs-overlay .fs-mode-badge   { font-size: 9px; padding: 2px 10px; letter-spacing: 0.07em; }
+  #fs-overlay .fs-session-dots { gap: 3px; margin-top: 2px; }
   #fs-overlay .fs-dot          { width: 5px; height: 5px; }
   #fs-overlay .fs-sessions-label { font-size: 9px; margin-left: 3px; }
-  /* Slim task box: capped height so it never dominates the left col */
-  #fs-overlay .fs-task-box     { max-width: none; width: 100%; padding: 5px 8px; border-radius: 8px; max-height: 62px; overflow: hidden; }
-  #fs-overlay .fs-task-label   { font-size: 7.5px; margin-bottom: 2px; }
+  /* ── Timer: the massive centrepiece spanning 2 content rows ── */
+  #fs-overlay .fs-timer-wrap   { width: 270px; height: 270px; align-self: center; justify-self: center; }
+  #fs-overlay .fs-time         { font-size: 76px !important; letter-spacing: -0.04em; }
+  #fs-overlay .fs-ring-sub     { font-size: 9px; }
+  /* ── Motivation: navy semi-transparent panel filling the left col ── */
+  #fs-overlay .fs-motivation-box {
+    display: flex; align-items: center;
+    width: 100%; height: 100%; box-sizing: border-box;
+    padding: 10px 12px; border-radius: 12px;
+    background: rgba(8, 18, 42, 0.78);
+    border: 1px solid rgba(77, 168, 255, 0.14);
+    font-size: 11px; font-style: italic; line-height: 1.55;
+    color: rgba(176, 202, 240, 0.88); text-align: left;
+    overflow: hidden;
+  }
+  /* ── Task picker: top of right indigo panel ── */
+  #fs-overlay .fs-task-box {
+    background: rgba(99, 102, 241, 0.11);
+    border: 1px solid rgba(99, 102, 241, 0.30);
+    border-radius: 12px 12px 0 0; border-bottom: none;
+    width: 100%; box-sizing: border-box;
+    padding: 7px 10px; align-self: stretch; max-height: none;
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+  }
+  #fs-overlay .fs-task-label   { font-size: 7.5px; margin-bottom: 3px; }
   #fs-overlay .fs-task-name    { font-size: 11px; line-height: 1.2; overflow: hidden; max-height: 26px; }
   #fs-overlay .fs-task-meta    { font-size: 9px; margin-top: 1px; }
   #fs-overlay .fs-task-empty   { font-size: 10px; }
-  #fs-overlay .fs-task-select  { font-size: 10px; width: 100%; padding: 3px 4px; }
-  /* Controls: vertically aligned with the larger timer */
-  #fs-overlay .fs-ctrl-col     { gap: 7px; }
-  #fs-overlay .fs-main-btn     { width: 60px; height: 60px; font-size: 22px; box-shadow: 0 0 26px rgba(77,168,255,0.45); }
-  #fs-overlay .fs-side-btn     { width: 36px; height: 36px; font-size: 15px; }
-  #fs-overlay .fs-orient-btn svg { width: 16px; height: 16px; }
-  /* Footer: hint + motivation quote — both always visible */
-  #fs-overlay .fs-hint         { font-size: 8.5px; }
-  #fs-overlay .fs-motivation-box {
-    display: block;
-    font-size: 9.5px; line-height: 1.45;
-    padding: 4px 8px; border-radius: 8px;
-    max-height: 46px; overflow: hidden;
-    text-align: left;
-    background: rgba(255,255,255,0.025);
-    border-color: rgba(255,255,255,0.06);
+  #fs-overlay .fs-task-select  { font-size: 10px; padding: 2px 3px; color: rgba(176,202,240,0.9); }
+  /* ── Controls: bottom of right indigo panel ── */
+  #fs-overlay .fs-ctrl-col {
+    background: rgba(99, 102, 241, 0.11);
+    border: 1px solid rgba(99, 102, 241, 0.30);
+    border-radius: 0 0 12px 12px; border-top: none;
+    align-self: stretch; justify-content: space-evenly;
+    padding: 8px 6px; gap: 0;
   }
-  /* Swipe handle: visible on touch mobile */
+  #fs-overlay .fs-main-btn     { width: 56px; height: 56px; font-size: 20px; box-shadow: 0 0 28px rgba(77,168,255,0.5); }
+  #fs-overlay .fs-side-btn     { width: 34px; height: 34px; font-size: 14px; background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.3); }
+  #fs-overlay .fs-orient-btn svg { width: 15px; height: 15px; }
+  /* ── Footer hint: bottom strip across all columns ── */
+  #fs-overlay .fs-footer       { flex-direction: row; justify-content: center; align-items: center; padding: 2px 0 4px; }
+  #fs-overlay .fs-hint         { font-size: 8.5px; }
+  /* ── Swipe handle ── */
   #fs-overlay .fs-swipe-bar    { display: flex; }
 
   /* ═══════════════════════════════════════════════════════════════
@@ -1554,22 +1562,29 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   0%, 100% { opacity: 0.93; filter: brightness(1); }
   50%       { opacity: 1;    filter: brightness(1.12); }
 }
-/* ── Content shell: flex column, portrait default ─────────────── */
+/* ── Content shell: CSS Grid, portrait default ─────────────────── */
 .fs-content {
   position: relative; z-index: 1;
-  display: flex; flex-direction: column; align-items: stretch;
+  display: grid;
+  grid-template-areas:
+    "top   task"
+    "ring  ctrl"
+    "moti  moti"
+    "foot  foot";
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto 1fr auto auto;
   width: 100%; max-width: 480px; margin: 0 auto;
-  height: 100dvh; padding: 28px 24px 22px; gap: 14px;
-  box-sizing: border-box; justify-content: center;
+  height: 100dvh; padding: 28px 24px 22px;
+  row-gap: 14px; column-gap: 16px;
+  box-sizing: border-box;
 }
-
-/* ── Header row: mode badge + session dots LEFT · task picker RIGHT ── */
-.fs-header-row {
-  display: flex; flex-direction: row;
-  align-items: flex-start; justify-content: space-between;
-  gap: 12px; flex-shrink: 0;
-}
-.fs-top { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+/* Grid-area assignments for each direct child */
+.fs-top            { grid-area: top; align-self: start; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.fs-task-box       { grid-area: task; align-self: start; }
+.fs-timer-wrap     { grid-area: ring; align-self: center; justify-self: center; }
+.fs-ctrl-col       { grid-area: ctrl; align-self: center; }
+.fs-motivation-box { grid-area: moti; }
+.fs-footer         { grid-area: foot; }
 .fs-mode-badge {
   padding: 5px 16px; border-radius: 100px;
   background: rgba(77,168,255,0.1); color: #4da8ff;
@@ -1583,9 +1598,8 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .fs-dot { width: 7px; height: 7px; border-radius: 50%; background: #4da8ff; opacity: 0.7; }
 .fs-sessions-label { font-size: 11px; color: var(--text-muted); margin-left: 4px; font-weight: 600; }
 
-/* Task picker box: right side of header row */
+/* Task picker box */
 .fs-task-box {
-  flex: 1; max-width: 260px;
   background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
   border-radius: 14px; padding: 9px 14px;
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
@@ -1597,24 +1611,18 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .fs-task-select { background: transparent; border: none; color: var(--text); font: inherit; font-size: 13px; text-align: left; width: 100%; outline: none; cursor: pointer; padding: 2px; }
 .fs-task-select option { background: #131d28; }
 
-/* ── Main area: glowing timer ring CENTER · vertical ctrl col RIGHT ── */
-.fs-main-area {
-  flex: 1; display: flex; flex-direction: row;
-  align-items: center; justify-content: center;
-  gap: 24px; min-height: 0;
-}
+/* ── Timer ring wrap ─────────────────────────────────────────────── */
 .fs-timer-wrap { position: relative; width: 290px; height: 290px; flex-shrink: 0; }
-/* Narrow portrait phones (≤ 430px): shrink timer + controls to fit side-by-side */
+/* Narrow portrait phones (≤ 430px): shrink timer + controls to fit */
 @media (max-width: 430px) and (orientation: portrait) {
-  .fs-content    { padding-left: 14px; padding-right: 14px; gap: 10px; }
+  .fs-content    { padding-left: 14px; padding-right: 14px; row-gap: 10px; column-gap: 10px; }
   .fs-timer-wrap { width: 234px; height: 234px; }
   .fs-time       { font-size: 60px !important; }
-  .fs-main-area  { gap: 14px; }
   .fs-side-btn   { width: 46px; height: 46px; font-size: 19px; }
   .fs-main-btn   { width: 68px; height: 68px; font-size: 24px; }
   .fs-ctrl-col   { gap: 12px; }
 }
-/* Shorter portrait screens (e.g. landscape-ish phones still in portrait) */
+/* Shorter portrait screens */
 @media (max-height: 700px) and (orientation: portrait) {
   .fs-timer-wrap { width: 220px; height: 220px; }
   .fs-time       { font-size: 54px !important; }
@@ -1642,8 +1650,8 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .fs-main-btn:hover { background: #6ab8ff; box-shadow: 0 0 54px rgba(77,168,255,0.6); }
 .fs-exit-btn { font-size: 18px; font-weight: 800; }
 
-/* ── Footer: hint text + motivation quote box ──────────────── */
-.fs-footer { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+/* ── Footer: hint text ──────────────────────────────────────── */
+.fs-footer { display: flex; flex-direction: column; align-items: center; gap: 6px; align-self: end; padding-bottom: 4px; }
 .fs-hint { font-size: 11px; color: rgba(148,163,184,0.45); letter-spacing: 0.04em; }
 .fs-motivation-box {
   width: 100%; max-width: 420px;
@@ -2459,24 +2467,49 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
-  /* ── Full Focus overlay — tablet/desktop landscape ── */
+  /* ── Full Focus overlay — tablet/desktop landscape: 3-column grid ── */
   #fs-overlay .fs-content {
     display: grid !important;
-    grid-template-areas: "header main" "footer main";
-    grid-template-columns: 280px 1fr;
-    grid-template-rows: 1fr auto;
-    column-gap: 32px; row-gap: 10px;
+    grid-template-areas:
+      "top   ring  task"
+      "moti  ring  ctrl"
+      "foot  foot  foot";
+    grid-template-columns: 240px 1fr 180px;
+    grid-template-rows: auto 1fr auto;
+    row-gap: 0; column-gap: 32px;
     max-width: 100%; height: 100dvh;
-    padding: 24px 40px; box-sizing: border-box;
+    padding: 24px 40px 16px; box-sizing: border-box;
     justify-content: unset; align-items: stretch;
   }
-  #fs-overlay .fs-header-row { grid-area: header; flex-direction: column; align-items: flex-start; gap: 10px; }
-  #fs-overlay .fs-main-area  { grid-area: main; justify-content: center; gap: 28px; }
-  #fs-overlay .fs-footer     { grid-area: footer; align-items: flex-start; gap: 8px; }
-  /* Bigger timer in desktop landscape */
-  #fs-overlay .fs-timer-wrap { width: 280px; height: 280px; }
-  #fs-overlay .fs-time       { font-size: 72px !important; }
-  #fs-overlay .fs-task-box   { max-width: none; width: 100%; }
+  #fs-overlay .fs-top { padding-bottom: 10px; }
+  #fs-overlay .fs-timer-wrap { width: 300px; height: 300px; align-self: center; justify-self: center; }
+  #fs-overlay .fs-time       { font-size: 80px !important; }
+  #fs-overlay .fs-motivation-box {
+    display: flex; align-items: center;
+    width: 100%; height: 100%; box-sizing: border-box;
+    padding: 16px 18px; border-radius: 16px;
+    background: rgba(8, 18, 42, 0.78);
+    border: 1px solid rgba(77, 168, 255, 0.14);
+    font-size: 14px; font-style: italic; line-height: 1.6;
+    color: rgba(176, 202, 240, 0.88); text-align: left;
+    overflow: hidden; max-width: none;
+  }
+  #fs-overlay .fs-task-box {
+    background: rgba(99, 102, 241, 0.1);
+    border: 1px solid rgba(99, 102, 241, 0.28);
+    border-radius: 14px 14px 0 0; border-bottom: none;
+    max-width: none; width: 100%; box-sizing: border-box;
+    padding: 12px 16px; align-self: stretch;
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+  }
+  #fs-overlay .fs-ctrl-col {
+    background: rgba(99, 102, 241, 0.1);
+    border: 1px solid rgba(99, 102, 241, 0.28);
+    border-radius: 0 0 14px 14px; border-top: none;
+    align-self: stretch; justify-content: space-evenly;
+    padding: 16px 12px; gap: 0;
+  }
+  #fs-overlay .fs-footer { flex-direction: row; justify-content: center; align-items: center; padding: 4px 0; }
   #fs-overlay .fs-swipe-bar  { display: none; }
 }
 

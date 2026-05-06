@@ -1649,44 +1649,45 @@
     overlay.innerHTML = `<div class="fs-bg"><div class="fs-bg-earth"></div>${_genFsParticles()}</div>
       <div class="fs-content">
 
-        <!-- ── Header row: mode badge + session dots LEFT · task picker RIGHT ── -->
-        <div class="fs-header-row">
-          <div class="fs-top">
-            <div class="fs-mode-badge ${isBreak ? 'fs-mode-break' : ''}">${focusMode === 'work' ? '🎯 Focus Time' : focusMode === 'short' ? '☕ Short Break' : '🛌 Long Break'}</div>
-            ${focusSessions > 0 ? `<div class="fs-session-dots">${sessionDots}<span class="fs-sessions-label">${focusSessions} session${focusSessions !== 1 ? 's' : ''}</span></div>` : ''}
-          </div>
-          <div class="fs-task-box">
-            <div class="fs-task-label">Current Task</div>
-            ${currentTask ? `<div class="fs-task-name">${escapeHTML(currentTask.text)}</div>${currentTask.meta ? `<div class="fs-task-meta">${escapeHTML(currentTask.meta)}</div>` : ''}` : (tasks.length ? `<select class="fs-task-select" data-act="focus-task-select"><option value="">— Pick a task —</option>${taskOpts}</select>` : `<div class="fs-task-empty">No tasks today</div>`)}
+        <!-- ── Badge + session dots (grid-area: top) ── -->
+        <div class="fs-top">
+          <div class="fs-mode-badge ${isBreak ? 'fs-mode-break' : ''}">${focusMode === 'work' ? '🎯 Focus Time' : focusMode === 'short' ? '☕ Short Break' : '🛌 Long Break'}</div>
+          ${focusSessions > 0 ? `<div class="fs-session-dots">${sessionDots}<span class="fs-sessions-label">${focusSessions} session${focusSessions !== 1 ? 's' : ''}</span></div>` : ''}
+        </div>
+
+        <!-- ── Task picker (grid-area: task) ── -->
+        <div class="fs-task-box">
+          <div class="fs-task-label">Current Task</div>
+          ${currentTask ? `<div class="fs-task-name">${escapeHTML(currentTask.text)}</div>${currentTask.meta ? `<div class="fs-task-meta">${escapeHTML(currentTask.meta)}</div>` : ''}` : (tasks.length ? `<select class="fs-task-select" data-act="focus-task-select"><option value="">— Pick a task —</option>${taskOpts}</select>` : `<div class="fs-task-empty">No tasks today</div>`)}
+        </div>
+
+        <!-- ── Glowing ring timer (grid-area: ring) ── -->
+        <div class="fs-timer-wrap">
+          <svg class="fs-ring-svg" viewBox="0 0 290 290" aria-hidden="true">
+            <defs><linearGradient id="fsRingGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="${isBreak ? '#34d399' : '#38bdf8'}"/><stop offset="100%" stop-color="${isBreak ? '#86efac' : '#a78bfa'}"/></linearGradient></defs>
+            <circle class="fs-ring-track" cx="145" cy="145" r="${r}"/>
+            <circle class="fs-ring-fill" id="fs-ring-circle" cx="145" cy="145" r="${r}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/>
+          </svg>
+          <div class="fs-ring-center">
+            <div class="fs-time" id="fs-time-display">${formatFocusTime(focusSeconds)}</div>
+            <div class="fs-ring-sub">${formatFocusTime(customDurations[focusMode] * 60)} total</div>
           </div>
         </div>
 
-        <!-- ── Main area: glowing ring/timer CENTER · vertical controls FAR RIGHT ── -->
-        <div class="fs-main-area">
-          <div class="fs-timer-wrap">
-            <svg class="fs-ring-svg" viewBox="0 0 290 290" aria-hidden="true">
-              <defs><linearGradient id="fsRingGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="${isBreak ? '#34d399' : '#38bdf8'}"/><stop offset="100%" stop-color="${isBreak ? '#86efac' : '#a78bfa'}"/></linearGradient></defs>
-              <circle class="fs-ring-track" cx="145" cy="145" r="${r}"/>
-              <circle class="fs-ring-fill" id="fs-ring-circle" cx="145" cy="145" r="${r}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/>
-            </svg>
-            <div class="fs-ring-center">
-              <div class="fs-time" id="fs-time-display">${formatFocusTime(focusSeconds)}</div>
-              <div class="fs-ring-sub">${formatFocusTime(customDurations[focusMode] * 60)} total</div>
-            </div>
-          </div>
-          <!-- Vertical button column: Mute · Play · Landscape · Exit -->
-          <div class="fs-ctrl-col">
-            <button class="fs-ctrl-btn fs-side-btn" data-act="fs-cycle-ambient" title="Toggle sound">${ambientIcon}</button>
-            <button class="fs-ctrl-btn fs-main-btn" data-act="fs-toggle">${focusRunning ? '⏸' : '▶'}</button>
-            <button class="fs-ctrl-btn fs-side-btn fs-orient-btn" data-act="fs-toggle-landscape" title="Toggle landscape">${orientIcon}</button>
-            <button class="fs-ctrl-btn fs-side-btn fs-exit-btn" data-act="exit-full-session" title="Exit">✕</button>
-          </div>
+        <!-- ── Vertical controls: Mute · Play · Landscape · Exit (grid-area: ctrl) ── -->
+        <div class="fs-ctrl-col">
+          <button class="fs-ctrl-btn fs-side-btn" data-act="fs-cycle-ambient" title="Toggle sound">${ambientIcon}</button>
+          <button class="fs-ctrl-btn fs-main-btn" data-act="fs-toggle">${focusRunning ? '⏸' : '▶'}</button>
+          <button class="fs-ctrl-btn fs-side-btn fs-orient-btn" data-act="fs-toggle-landscape" title="Toggle landscape">${orientIcon}</button>
+          <button class="fs-ctrl-btn fs-side-btn fs-exit-btn" data-act="exit-full-session" title="Exit">✕</button>
         </div>
 
-        <!-- ── Footer: swipe hint + rotating motivation quote ── -->
+        <!-- ── Motivation quote (grid-area: moti) ── -->
+        <div class="fs-motivation-box">${escapeHTML(_fsMotiQuote)}</div>
+
+        <!-- ── Footer: swipe hint (grid-area: foot) ── -->
         <div class="fs-footer">
           <div class="fs-hint">${('ontouchstart' in window) ? 'Swipe to exit' : 'Press Esc to exit'} · ${ambientMode !== 'none' ? '♪ ' + escapeHTML(_curSound.label) : '🔇 Sound off'}</div>
-          <div class="fs-motivation-box">${escapeHTML(_fsMotiQuote)}</div>
         </div>
 
       </div>
