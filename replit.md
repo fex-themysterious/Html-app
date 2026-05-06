@@ -41,7 +41,7 @@ An offline-capable Progressive Web App for tracking study progress with spaced r
 _Populate as you build_
 
 ## Gotchas
-- Cache-busting query param on `script.js?v=14` and `style.css?v=14` — increment when making changes; SW cache is `syllabus-tracker-v19`
+- Cache-busting query param on `script.js?v=15` and `style.css?v=15` — increment when making changes; SW cache is `syllabus-tracker-v20`
 - Audio files need HTTP Range request support (already handled in `server.js` and `sw.js`)
 
 ## Pointers

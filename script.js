@@ -1336,93 +1336,97 @@
     const taskOptions = tasks.map(t => `<option value="${t.key}" ${focusCurrentTaskKey === t.key ? 'selected' : ''}>${escapeHTML(t.text)}</option>`).join('');
     const currentTask = focusCurrentTaskKey ? tasks.find(t => t.key === focusCurrentTaskKey) : null;
     return `<div class="focus-view">
-      <div class="focus-mode-tabs">
-        <button class="focus-mode-btn ${focusMode === 'work' ? 'active' : ''}" data-act="focus-mode" data-mode="work">Work</button>
-        <button class="focus-mode-btn ${focusMode === 'short' ? 'active' : ''}" data-act="focus-mode" data-mode="short">Short Break</button>
-        <button class="focus-mode-btn ${focusMode === 'long' ? 'active' : ''}" data-act="focus-mode" data-mode="long">Long Break</button>
-      </div>
-      <div class="focus-mode-edit">
-        <div class="focus-mode-edit-item"><label>Work</label><input type="number" min="1" max="120" id="focus-dur-work" value="${customDurations.work}" data-act="focus-dur-change" data-dmode="work"/><span>min</span></div>
-        <div class="focus-mode-edit-item"><label>Short</label><input type="number" min="1" max="60" id="focus-dur-short" value="${customDurations.short}" data-act="focus-dur-change" data-dmode="short"/><span>min</span></div>
-        <div class="focus-mode-edit-item"><label>Long</label><input type="number" min="1" max="60" id="focus-dur-long" value="${customDurations.long}" data-act="focus-dur-change" data-dmode="long"/><span>min</span></div>
-      </div>
-      <div class="focus-ring-wrap${focusIntensityMode !== 'none' ? ' intensity-active' : ''}">
-        <svg class="focus-ring-svg" viewBox="0 0 220 220" aria-hidden="true">
-          <circle class="focus-ring-track" cx="110" cy="110" r="${r}"/>
-          <circle class="focus-ring-fill ${isBreak ? 'break-mode' : ''}" id="focus-ring-circle" cx="110" cy="110" r="${r}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/>
-        </svg>
-        <div class="focus-ring-center">
-          <div class="focus-ring-time" id="focus-time-display">${formatFocusTime(focusSeconds)}</div>
-          <div class="focus-ring-mode">${focusMode === 'work' ? 'Focus Time' : focusMode === 'short' ? 'Short Break' : 'Long Break'}</div>
+      <div class="focus-col-left">
+        <div class="focus-mode-tabs">
+          <button class="focus-mode-btn ${focusMode === 'work' ? 'active' : ''}" data-act="focus-mode" data-mode="work">Work</button>
+          <button class="focus-mode-btn ${focusMode === 'short' ? 'active' : ''}" data-act="focus-mode" data-mode="short">Short Break</button>
+          <button class="focus-mode-btn ${focusMode === 'long' ? 'active' : ''}" data-act="focus-mode" data-mode="long">Long Break</button>
         </div>
-      </div>
-      <div class="focus-buttons">
-        <button class="btn btn-ghost" data-act="focus-reset">Reset</button>
-        <button class="btn" style="min-width:110px" data-act="focus-toggle">${focusRunning ? '⏸ Pause' : '▶ Start'}</button>
-        <button class="focus-lock-btn ${focusMultitaskMode ? 'multitask' : focusLocked ? 'locked' : ''}" data-act="${focusMultitaskMode ? 'focus-multitask' : 'focus-lock'}">${focusMultitaskMode ? '🗒️ Multitask' : focusLocked ? ic('lock') + ' Locked' : ic('unlock') + ' Lock'}</button>
-      </div>
-      ${focusRunning && !focusMultitaskMode ? `<button class="focus-multitask-toggle" data-act="focus-multitask">🗒️ Enable Multitask Mode</button>` : ''}
-      ${focusMultitaskMode ? `<div class="focus-multitask-card">
-        <div class="fmt-card-title">📱 Multitask Mode Active</div>
-        <div class="fmt-card-body">Timer keeps running while you use another app. A floating bubble appears on other tabs, and your browser tab title shows the countdown. You'll get a notification when done.</div>
-        <div class="fmt-card-tip">💡 Open your notes app freely — this timer won't stop.</div>
-      </div>` : ''}
-      <div class="ambient-panel">
-        <div class="ambient-panel-top">
-          ${ambientMode !== 'none' ? `<span class="ambient-now-label">♪ ${escapeHTML(soundById(ambientMode).label)}</span>` : '<span class="ambient-now-label muted">No sound selected</span>'}
-          <div class="ambient-vol" style="${ambientMode !== 'none' ? '' : 'visibility:hidden'}">
-            <span style="font-size:11px;color:var(--text-muted)">Vol</span>
-            <input id="ambient-vol-slider" type="range" min="0" max="1" step="0.05" value="${ambientVolume}"/>
+        <div class="focus-mode-edit">
+          <div class="focus-mode-edit-item"><label>Work</label><input type="number" min="1" max="120" id="focus-dur-work" value="${customDurations.work}" data-act="focus-dur-change" data-dmode="work"/><span>min</span></div>
+          <div class="focus-mode-edit-item"><label>Short</label><input type="number" min="1" max="60" id="focus-dur-short" value="${customDurations.short}" data-act="focus-dur-change" data-dmode="short"/><span>min</span></div>
+          <div class="focus-mode-edit-item"><label>Long</label><input type="number" min="1" max="60" id="focus-dur-long" value="${customDurations.long}" data-act="focus-dur-change" data-dmode="long"/><span>min</span></div>
+        </div>
+        <div class="focus-ring-wrap${focusIntensityMode !== 'none' ? ' intensity-active' : ''}">
+          <svg class="focus-ring-svg" viewBox="0 0 220 220" aria-hidden="true">
+            <circle class="focus-ring-track" cx="110" cy="110" r="${r}"/>
+            <circle class="focus-ring-fill ${isBreak ? 'break-mode' : ''}" id="focus-ring-circle" cx="110" cy="110" r="${r}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/>
+          </svg>
+          <div class="focus-ring-center">
+            <div class="focus-ring-time" id="focus-time-display">${formatFocusTime(focusSeconds)}</div>
+            <div class="focus-ring-mode">${focusMode === 'work' ? 'Focus Time' : focusMode === 'short' ? 'Short Break' : 'Long Break'}</div>
           </div>
         </div>
-        <div class="ambient-track-list">
-          <button class="ambient-btn ${ambientMode === 'none' ? 'active' : ''}" data-act="ambient-select" data-amode="none">🔇 Off</button>
-          ${['Ambient','Focus','Workout','Vibes'].map(cat => {
-            const tracks = SOUNDS.filter(s => s.cat === cat);
-            return '<span class="ambient-cat-label">' + cat + '</span>' + tracks.map(s => '<button class="ambient-btn ' + (ambientMode === s.id ? 'active' : '') + '" data-act="ambient-select" data-amode="' + s.id + '">' + s.label + '</button>').join('');
-          }).join('')}
+        <div class="focus-buttons">
+          <button class="btn btn-ghost" data-act="focus-reset">Reset</button>
+          <button class="btn" style="min-width:110px" data-act="focus-toggle">${focusRunning ? '⏸ Pause' : '▶ Start'}</button>
+          <button class="focus-lock-btn ${focusMultitaskMode ? 'multitask' : focusLocked ? 'locked' : ''}" data-act="${focusMultitaskMode ? 'focus-multitask' : 'focus-lock'}">${focusMultitaskMode ? '🗒️ Multitask' : focusLocked ? ic('lock') + ' Locked' : ic('unlock') + ' Lock'}</button>
         </div>
       </div>
-      <div class="focus-intensity-panel">
-        <div class="fi-header">
-          <span class="fi-title">⚡ Focus Intensity</span>
-          ${focusIntensityMode !== 'none' ? `<span class="fi-active-pill">● ${FOCUS_INTENSITY_TRACKS.find(t => t.id === focusIntensityMode)?.label || ''}</span>` : ''}
+      <div class="focus-col-right">
+        ${focusRunning && !focusMultitaskMode ? `<button class="focus-multitask-toggle" data-act="focus-multitask">🗒️ Enable Multitask Mode</button>` : ''}
+        ${focusMultitaskMode ? `<div class="focus-multitask-card">
+          <div class="fmt-card-title">📱 Multitask Mode Active</div>
+          <div class="fmt-card-body">Timer keeps running while you use another app. A floating bubble appears on other tabs, and your browser tab title shows the countdown. You'll get a notification when done.</div>
+          <div class="fmt-card-tip">💡 Open your notes app freely — this timer won't stop.</div>
+        </div>` : ''}
+        <div class="focus-task-bar">
+          <label>Current Task</label>
+          ${currentTask ? `<div class="focus-current-task"><span class="dot"></span>${escapeHTML(currentTask.text)}<button class="btn-link" data-act="focus-task-clear" style="margin-left:auto;font-size:12px">Clear</button></div>` :
+            tasks.length ? `<select data-act="focus-task-select"><option value="">— Pick a task —</option>${taskOptions}</select>` :
+            `<div style="color:var(--text-muted);font-size:13px">No tasks for today yet.</div>`}
         </div>
-        <select class="fi-select" data-act="intensity-select">
-          <option value="none"${focusIntensityMode === 'none' ? ' selected' : ''}>🔇 Off — no deep focus track</option>
-          ${FOCUS_INTENSITY_TRACKS.map(t => `<option value="${t.id}"${focusIntensityMode === t.id ? ' selected' : ''}>${t.label} — ${t.desc}</option>`).join('')}
-        </select>
-      </div>
-      <div class="binaural-card${_binauralPlaying ? ' bb-playing' : ''}" id="binaural-card">
-        <div class="bb-header">
-          <div class="bb-pulse-dot"></div>
-          <div class="bb-text">
-            <div class="bb-title">🧠 Binaural Beats</div>
-            <div class="bb-meta">Beta Wave · 20 Hz · 150 Hz L / 170 Hz R · Deep Focus &amp; Productivity</div>
+        <div class="focus-sessions-info">
+          <div class="grid">
+            <div><div class="v">${focusSessions}</div><div class="k">Sessions today</div></div>
+            <div><div class="v">${state.focusStats.minutesByDate[todayKey()] || 0}m</div><div class="k">Minutes focused</div></div>
           </div>
         </div>
-        <div class="bb-disclaimer">🎧 Headphones required for the binaural effect</div>
-        <div class="bb-controls">
-          <button id="binaural-play-btn" class="bb-play-btn" data-act="binaural-toggle">${_binauralPlaying ? '⏸ Pause' : '▶ Play'}</button>
-          <div class="bb-vol-row">
-            <span class="bb-vol-icon">🔊</span>
-            <input type="range" id="binaural-vol-slider" min="0" max="1" step="0.05" value="${_binauralVolume}" class="bb-vol-slider"/>
+        <div class="ambient-panel">
+          <div class="ambient-panel-top">
+            ${ambientMode !== 'none' ? `<span class="ambient-now-label">♪ ${escapeHTML(soundById(ambientMode).label)}</span>` : '<span class="ambient-now-label muted">No sound selected</span>'}
+            <div class="ambient-vol" style="${ambientMode !== 'none' ? '' : 'visibility:hidden'}">
+              <span style="font-size:11px;color:var(--text-muted)">Vol</span>
+              <input id="ambient-vol-slider" type="range" min="0" max="1" step="0.05" value="${ambientVolume}"/>
+            </div>
+          </div>
+          <div class="ambient-track-list">
+            <button class="ambient-btn ${ambientMode === 'none' ? 'active' : ''}" data-act="ambient-select" data-amode="none">🔇 Off</button>
+            ${['Ambient','Focus','Workout','Vibes'].map(cat => {
+              const tracks = SOUNDS.filter(s => s.cat === cat);
+              return '<span class="ambient-cat-label">' + cat + '</span>' + tracks.map(s => '<button class="ambient-btn ' + (ambientMode === s.id ? 'active' : '') + '" data-act="ambient-select" data-amode="' + s.id + '">' + s.label + '</button>').join('');
+            }).join('')}
           </div>
         </div>
-      </div>
-      <div class="focus-task-bar">
-        <label>Current Task</label>
-        ${currentTask ? `<div class="focus-current-task"><span class="dot"></span>${escapeHTML(currentTask.text)}<button class="btn-link" data-act="focus-task-clear" style="margin-left:auto;font-size:12px">Clear</button></div>` :
-          tasks.length ? `<select data-act="focus-task-select"><option value="">— Pick a task —</option>${taskOptions}</select>` :
-          `<div style="color:var(--text-muted);font-size:13px">No tasks for today yet.</div>`}
-      </div>
-      <div class="focus-sessions-info">
-        <div class="grid">
-          <div><div class="v">${focusSessions}</div><div class="k">Sessions today</div></div>
-          <div><div class="v">${state.focusStats.minutesByDate[todayKey()] || 0}m</div><div class="k">Minutes focused</div></div>
+        <div class="focus-intensity-panel">
+          <div class="fi-header">
+            <span class="fi-title">⚡ Focus Intensity</span>
+            ${focusIntensityMode !== 'none' ? `<span class="fi-active-pill">● ${FOCUS_INTENSITY_TRACKS.find(t => t.id === focusIntensityMode)?.label || ''}</span>` : ''}
+          </div>
+          <select class="fi-select" data-act="intensity-select">
+            <option value="none"${focusIntensityMode === 'none' ? ' selected' : ''}>🔇 Off — no deep focus track</option>
+            ${FOCUS_INTENSITY_TRACKS.map(t => `<option value="${t.id}"${focusIntensityMode === t.id ? ' selected' : ''}>${t.label} — ${t.desc}</option>`).join('')}
+          </select>
         </div>
+        <div class="binaural-card${_binauralPlaying ? ' bb-playing' : ''}" id="binaural-card">
+          <div class="bb-header">
+            <div class="bb-pulse-dot"></div>
+            <div class="bb-text">
+              <div class="bb-title">🧠 Binaural Beats</div>
+              <div class="bb-meta">Beta Wave · 20 Hz · 150 Hz L / 170 Hz R · Deep Focus &amp; Productivity</div>
+            </div>
+          </div>
+          <div class="bb-disclaimer">🎧 Headphones required for the binaural effect</div>
+          <div class="bb-controls">
+            <button id="binaural-play-btn" class="bb-play-btn" data-act="binaural-toggle">${_binauralPlaying ? '⏸ Pause' : '▶ Play'}</button>
+            <div class="bb-vol-row">
+              <span class="bb-vol-icon">🔊</span>
+              <input type="range" id="binaural-vol-slider" min="0" max="1" step="0.05" value="${_binauralVolume}" class="bb-vol-slider"/>
+            </div>
+          </div>
+        </div>
+        <button class="btn fs-enter-btn" data-act="enter-full-session">🚀 Enter Full Focus Mode</button>
       </div>
-      <button class="btn fs-enter-btn" data-act="enter-full-session">🚀 Enter Full Focus Mode</button>
     </div>`;
   }
 

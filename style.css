@@ -1153,71 +1153,106 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   .ring-pct span { font-size: 13px; }
 
   /* ═══════════════════════════════════════════════════════════════
-     FOCUS TAB — TIMER: two-column, no-scroll
-     Left  → mode tabs + ring timer + controls
-     Right → current task + sessions + ambient sound
+     FOCUS TAB — two-column flex layout
+     Left  (fixed)      → mode tabs + ring timer + buttons
+     Right (scrollable) → task + sessions + ambient + binaural
      ═══════════════════════════════════════════════════════════════ */
   body.tab-focus #view-focus.active {
     height: 100dvh;
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    padding: 6px 12px 6px;
+    padding: 4px 10px 4px;
     gap: 0;
   }
-  .focus-sub-nav { margin-bottom: 7px; padding: 3px; flex-shrink: 0; }
-  .focus-sub-btn { padding: 6px 10px; font-size: 12px; }
+  .focus-sub-nav { margin-bottom: 5px; padding: 3px; flex-shrink: 0; }
+  .focus-sub-btn { padding: 5px 10px; font-size: 12px; }
 
-  /* 2-column grid for the timer view */
+  /* Outer focus-view: flex row, fills remaining height */
   .focus-view {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-rows: auto auto auto auto;
-    column-gap: 12px;
-    row-gap: 5px;
+    display: flex;
+    flex-direction: row;
+    gap: 12px;
     flex: 1;
-    overflow: hidden;
-    align-items: start;
     min-height: 0;
+    overflow: hidden;
+    text-align: left;
   }
-  /* LEFT column: mode tabs → edit → ring → buttons */
-  .focus-view .focus-mode-tabs  { grid-column: 1; grid-row: 1; margin-bottom: 0; flex-wrap: nowrap; }
-  .focus-view .focus-mode-edit  { grid-column: 1; grid-row: 2; margin-bottom: 0; }
-  .focus-view .focus-ring-wrap  { grid-column: 1; grid-row: 3; margin: 0 auto; width: 148px; height: 148px; }
-  .focus-view .focus-buttons    { grid-column: 1; grid-row: 4; margin-bottom: 0; }
-  /* RIGHT column: task → sessions → ambient → enter btn */
-  .focus-view .focus-task-bar           { grid-column: 2; grid-row: 1; margin-bottom: 0; }
-  .focus-view .focus-sessions-info      { grid-column: 2; grid-row: 2; }
-  .focus-view .ambient-panel            { grid-column: 2; grid-row: 3; margin-bottom: 0; }
-  .focus-view .fs-enter-btn             { grid-column: 2; grid-row: 4; padding: 9px; font-size: 12px; }
-  .focus-view .focus-multitask-toggle   { grid-column: 2; grid-row: 1; margin-bottom: 0; }
-  .focus-view .focus-multitask-card     { grid-column: 2; grid-row: 2; }
-  /* Binaural card hidden in compact phone landscape — no space */
-  .focus-view .binaural-card { display: none; }
 
-  /* Timer ring + text scaling */
-  .focus-ring-wrap { background: rgba(255,255,255,0.02); }
-  .focus-ring-time { font-size: 36px; letter-spacing: -2px; }
-  .focus-ring-mode { font-size: 9px; margin-top: 3px; }
-  .focus-mode-btn  { padding: 5px 10px; font-size: 11px; }
-  .focus-mode-edit-item { padding: 4px 7px; }
-  .focus-mode-edit-item input { font-size: 12px; width: 34px; }
+  /* LEFT column — timer ring, fixed width, no scroll */
+  .focus-col-left {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex-shrink: 0;
+    width: 158px;
+    gap: 5px;
+    overflow: hidden;
+    justify-content: center;
+  }
+
+  /* RIGHT column — all controls, scrollable */
+  .focus-col-right {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding-bottom: 6px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Timer ring: scaled down to fit left column */
+  .focus-col-left .focus-ring-wrap {
+    width: 142px; height: 142px;
+    margin: 0;
+  }
+  .focus-ring-time { font-size: 33px; letter-spacing: -2px; }
+  .focus-ring-mode { font-size: 9px; margin-top: 2px; }
+
+  /* Mode tabs: compact, no wrap */
+  .focus-col-left .focus-mode-tabs { margin-bottom: 0; flex-wrap: nowrap; justify-content: center; gap: 4px; }
+  .focus-mode-btn { padding: 4px 8px; font-size: 10px; }
+
+  /* Duration edit row: tighter */
+  .focus-col-left .focus-mode-edit { margin-bottom: 0; gap: 4px; }
+  .focus-mode-edit-item { padding: 3px 6px; }
+  .focus-mode-edit-item input { font-size: 12px; width: 30px; }
   .focus-mode-edit-item label, .focus-mode-edit-item span { font-size: 9px; }
-  .focus-buttons button { padding: 8px 12px; font-size: 12px; min-width: 70px; }
-  .focus-lock-btn { padding: 7px 11px; font-size: 11px; }
 
-  /* Right-col items */
-  .focus-sessions-info { padding: 10px 13px; }
+  /* Buttons row: compact, wrap allowed */
+  .focus-col-left .focus-buttons { margin-bottom: 0; gap: 5px; flex-wrap: wrap; justify-content: center; }
+  .focus-buttons button { padding: 7px 9px; font-size: 11px; min-width: 60px; }
+  .focus-lock-btn { padding: 6px 10px; font-size: 11px; }
+
+  /* Right-col: compact card sizing, no extra margins */
+  .focus-sessions-info { padding: 9px 12px; margin-bottom: 0; }
   .focus-sessions-info .v { font-size: 18px; }
   .focus-sessions-info .k { font-size: 10px; }
-  .focus-task-bar  { padding: 9px 12px; }
-  .focus-task-bar select { font-size: 12px; padding: 7px 10px; }
-  .ambient-panel-top { margin-bottom: 5px; min-height: 20px; }
+  .focus-task-bar { padding: 8px 11px; margin-bottom: 0; }
+  .focus-task-bar select { font-size: 12px; padding: 6px 9px; }
+  .ambient-panel { margin-bottom: 0; }
+  .ambient-panel-top { margin-bottom: 5px; min-height: 18px; }
   .ambient-now-label { font-size: 11px; }
   .ambient-track-list { gap: 4px; }
-  .ambient-btn  { padding: 4px 9px; font-size: 11px; }
+  .ambient-btn { padding: 4px 9px; font-size: 11px; }
   .ambient-cat-label { font-size: 9px; margin-top: 4px; }
   .ambient-vol input[type=range] { width: 60px; }
+
+  /* Binaural card: compact but visible (not hidden) */
+  .focus-col-right .binaural-card { padding: 9px 12px; margin-bottom: 0; }
+  .focus-col-right .binaural-card .bb-meta { display: none; }
+  .focus-col-right .binaural-card .bb-disclaimer { font-size: 10px; margin: 3px 0; }
+  .focus-col-right .binaural-card .bb-play-btn { padding: 5px 14px; font-size: 12px; }
+
+  /* Focus intensity: compact */
+  .focus-intensity-panel { padding: 8px 11px; margin-bottom: 0; }
+  .fi-select { padding: 6px 10px; font-size: 12px; }
+
+  /* Enter full focus button */
+  .focus-col-right .fs-enter-btn { padding: 9px; font-size: 12px; }
 
   /* ═══════════════════════════════════════════════════════════════
      FULLSCREEN FOCUS OVERLAY — 2-column landscape layout
