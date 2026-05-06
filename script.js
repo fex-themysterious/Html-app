@@ -690,6 +690,7 @@
   let focusStartSeconds = null;
   let focusMultitaskMode = false;
   let focusOvertime = false, focusOvertimeSeconds = 0, focusOvertimeTimer = null;
+  let _alarmAudio = null, _alarmStopTimer = null;
 
   // ========== Ambient Sound (MP3-based) ==========
   let ambientAudio = null;
@@ -1448,26 +1449,20 @@
   }
 
   /* ── Alarm + Overtime helpers ─────────────────────────────── */
-  function playAlarmBeeps() {
-    const ctx = getAudioContext(); if (!ctx) return;
+  function stopOvertimeAlarm() {
+    if (_alarmStopTimer) { clearTimeout(_alarmStopTimer); _alarmStopTimer = null; }
+    if (_alarmAudio) { _alarmAudio.pause(); _alarmAudio.currentTime = 0; _alarmAudio = null; }
+  }
+  function playOvertimeAlarm() {
+    stopOvertimeAlarm();
     resumeAudioContext();
-    [0, 2.2, 4.5].forEach(d => {
-      const t = ctx.currentTime + d;
-      const o1 = ctx.createOscillator(), g1 = ctx.createGain();
-      o1.connect(g1); g1.connect(ctx.destination);
-      o1.frequency.value = 880; o1.type = 'sine';
-      g1.gain.setValueAtTime(0, t);
-      g1.gain.linearRampToValueAtTime(0.42, t + 0.02);
-      g1.gain.exponentialRampToValueAtTime(0.001, t + 0.85);
-      o1.start(t); o1.stop(t + 0.85);
-      const o2 = ctx.createOscillator(), g2 = ctx.createGain();
-      o2.connect(g2); g2.connect(ctx.destination);
-      o2.frequency.value = 1320; o2.type = 'sine';
-      g2.gain.setValueAtTime(0, t);
-      g2.gain.linearRampToValueAtTime(0.2, t + 0.02);
-      g2.gain.exponentialRampToValueAtTime(0.001, t + 0.65);
-      o2.start(t); o2.stop(t + 0.65);
-    });
+    const audio = new Audio('./sounds/rain.mp3');
+    audio.loop   = true;
+    audio.volume = 1.0;
+    audio.preload = 'auto';
+    audio.play().catch(e => console.warn('[OvertimeAlarm] play() failed:', e.message));
+    _alarmAudio = audio;
+    _alarmStopTimer = setTimeout(() => stopOvertimeAlarm(), 30000);
   }
   function startOvertimeMode() {
     focusOvertime = true; focusOvertimeSeconds = 0;
@@ -1480,6 +1475,7 @@
   function stopOvertimeMode() {
     if (focusOvertimeTimer) { clearInterval(focusOvertimeTimer); focusOvertimeTimer = null; }
     focusOvertime = false; focusOvertimeSeconds = 0;
+    stopOvertimeAlarm();
     const overlay = document.getElementById('fs-overlay');
     if (overlay) overlay.classList.remove('fs-overtime');
   }
@@ -1575,8 +1571,8 @@
 
       showWebNotification('🎉 Focus Session Complete!', `Session ${focusSessions} done! Keep going or take a break.`, { tag: 'focus-complete', requireInteraction: false });
 
-      // Play the 3-beep alarm (lasts ~5.3 s), then enter overtime mode
-      playAlarmBeeps();
+      // Play soft ambient alarm at max volume for up to 30 s, then enter overtime mode
+      playOvertimeAlarm();
       startOvertimeMode();
       if (fsSessionActive) renderFullSession(); else renderFocus();
 
