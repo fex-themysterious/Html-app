@@ -689,6 +689,7 @@
   let focusStartTime = null;
   let focusStartSeconds = null;
   let focusMultitaskMode = false;
+  let focusOvertime = false, focusOvertimeSeconds = 0, focusOvertimeTimer = null;
 
   // ========== Ambient Sound (MP3-based) ==========
   let ambientAudio = null;
@@ -1352,16 +1353,16 @@
         <div class="focus-ring-wrap${focusIntensityMode !== 'none' ? ' intensity-active' : ''}">
           <svg class="focus-ring-svg" viewBox="0 0 220 220" aria-hidden="true">
             <circle class="focus-ring-track" cx="110" cy="110" r="${r}"/>
-            <circle class="focus-ring-fill ${isBreak ? 'break-mode' : ''}" id="focus-ring-circle" cx="110" cy="110" r="${r}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/>
+            <circle class="focus-ring-fill ${isBreak ? 'break-mode' : ''}${focusOvertime ? ' overtime-mode' : ''}" id="focus-ring-circle" cx="110" cy="110" r="${r}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${focusOvertime ? c.toFixed(2) : off.toFixed(2)}"/>
           </svg>
           <div class="focus-ring-center">
-            <div class="focus-ring-time" id="focus-time-display">${formatFocusTime(focusSeconds)}</div>
-            <div class="focus-ring-mode">${focusMode === 'work' ? 'Focus Time' : focusMode === 'short' ? 'Short Break' : 'Long Break'}</div>
+            <div class="focus-ring-time${focusOvertime ? ' fs-overtime-text' : ''}" id="focus-time-display">${focusOvertime ? `+${String(Math.floor(focusOvertimeSeconds/60)).padStart(2,'0')}:${String(focusOvertimeSeconds%60).padStart(2,'0')}` : formatFocusTime(focusSeconds)}</div>
+            <div class="focus-ring-mode">${focusOvertime ? '⚠ Overtime' : focusMode === 'work' ? 'Focus Time' : focusMode === 'short' ? 'Short Break' : 'Long Break'}</div>
           </div>
         </div>
         <div class="focus-buttons">
           <button class="btn btn-ghost" data-act="focus-reset">Reset</button>
-          <button class="btn" style="min-width:110px" data-act="focus-toggle">${focusRunning ? '⏸ Pause' : '▶ Start'}</button>
+          <button class="btn${focusOvertime ? ' btn-overtime' : ''}" style="min-width:110px" data-act="focus-toggle">${focusRunning ? '⏸ Pause' : (focusOvertime ? '⏹ End Session' : '▶ Start')}</button>
           <button class="focus-lock-btn ${focusMultitaskMode ? 'multitask' : focusLocked ? 'locked' : ''}" data-act="${focusMultitaskMode ? 'focus-multitask' : 'focus-lock'}">${focusMultitaskMode ? '🗒️ Multitask' : focusLocked ? ic('lock') + ' Locked' : ic('unlock') + ' Lock'}</button>
         </div>
       </div>
@@ -1446,11 +1447,73 @@
     bubble.addEventListener('click', () => switchTab('focus'));
   }
 
+  /* ── Alarm + Overtime helpers ─────────────────────────────── */
+  function playAlarmBeeps() {
+    const ctx = getAudioContext(); if (!ctx) return;
+    resumeAudioContext();
+    [0, 2.2, 4.5].forEach(d => {
+      const t = ctx.currentTime + d;
+      const o1 = ctx.createOscillator(), g1 = ctx.createGain();
+      o1.connect(g1); g1.connect(ctx.destination);
+      o1.frequency.value = 880; o1.type = 'sine';
+      g1.gain.setValueAtTime(0, t);
+      g1.gain.linearRampToValueAtTime(0.42, t + 0.02);
+      g1.gain.exponentialRampToValueAtTime(0.001, t + 0.85);
+      o1.start(t); o1.stop(t + 0.85);
+      const o2 = ctx.createOscillator(), g2 = ctx.createGain();
+      o2.connect(g2); g2.connect(ctx.destination);
+      o2.frequency.value = 1320; o2.type = 'sine';
+      g2.gain.setValueAtTime(0, t);
+      g2.gain.linearRampToValueAtTime(0.2, t + 0.02);
+      g2.gain.exponentialRampToValueAtTime(0.001, t + 0.65);
+      o2.start(t); o2.stop(t + 0.65);
+    });
+  }
+  function startOvertimeMode() {
+    focusOvertime = true; focusOvertimeSeconds = 0;
+    focusOvertimeTimer = setInterval(() => {
+      focusOvertimeSeconds++;
+      updateFocusDisplay();
+      updateMiniTimer();
+    }, 1000);
+  }
+  function stopOvertimeMode() {
+    if (focusOvertimeTimer) { clearInterval(focusOvertimeTimer); focusOvertimeTimer = null; }
+    focusOvertime = false; focusOvertimeSeconds = 0;
+    const overlay = document.getElementById('fs-overlay');
+    if (overlay) overlay.classList.remove('fs-overtime');
+  }
+  function saveOvertimeMinutes() {
+    if (focusOvertimeSeconds >= 30) {
+      const overtimeMin = Math.round(focusOvertimeSeconds / 60);
+      if (overtimeMin > 0) {
+        state.focusStats.minutesByDate[todayKey()] = (state.focusStats.minutesByDate[todayKey()] || 0) + overtimeMin;
+        saveState();
+      }
+    }
+  }
+  function finishOvertimeAndSwitch() {
+    saveOvertimeMinutes();
+    const prevMode = focusMode;
+    stopOvertimeMode();
+    if (prevMode === 'work') {
+      focusMode = focusSessions % 4 === 0 ? 'long' : 'short';
+      focusSeconds = customDurations[focusMode] * 60;
+    }
+    document.title = 'Syllabus Tracker';
+    updateMiniTimer();
+  }
+
   function updateMiniTimer() {
     const bubble = document.getElementById('focus-mini-timer');
     if (!bubble) return;
     const onFocusTab = document.body.classList.contains('tab-focus');
-    if (focusRunning && !onFocusTab) {
+    if (focusOvertime && !onFocusTab) {
+      bubble.style.display = 'flex';
+      const timeEl = document.getElementById('fmt-time');
+      const om = Math.floor(focusOvertimeSeconds / 60), os = focusOvertimeSeconds % 60;
+      if (timeEl) timeEl.textContent = `+${String(om).padStart(2,'0')}:${String(os).padStart(2,'0')}`;
+    } else if (focusRunning && !onFocusTab) {
       bubble.style.display = 'flex';
       const timeEl = document.getElementById('fmt-time');
       if (timeEl) timeEl.textContent = formatFocusTime(focusSeconds);
@@ -1460,34 +1523,43 @@
   }
 
   function updateFocusDisplay() {
+    const overlay = document.getElementById('fs-overlay');
+    if (focusOvertime) {
+      const om = Math.floor(focusOvertimeSeconds / 60), os = focusOvertimeSeconds % 60;
+      const otStr = `+${String(om).padStart(2,'0')}:${String(os).padStart(2,'0')}`;
+      document.title = `${otStr} — Overtime`;
+      const el = document.getElementById('focus-time-display');
+      if (el) { el.textContent = otStr; el.classList.add('fs-overtime-text'); }
+      const fsEl = document.getElementById('fs-time-display');
+      if (fsEl) { fsEl.textContent = otStr; fsEl.classList.add('fs-overtime-text'); }
+      if (overlay) { overlay.classList.remove('fs-is-running'); overlay.classList.add('fs-overtime'); }
+      return;
+    }
     const formatted = formatFocusTime(focusSeconds);
     const total = customDurations[focusMode] * 60;
     const m = Math.floor(focusSeconds / 60), s = focusSeconds % 60;
     document.title = focusRunning ? `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')} — Focus` : 'Syllabus Tracker';
-
-    // Regular focus view
-    const el = document.getElementById('focus-time-display'); if (el) el.textContent = formatted;
+    const el = document.getElementById('focus-time-display');
+    if (el) { el.textContent = formatted; el.classList.remove('fs-overtime-text'); }
     const r = 96, c = 2 * Math.PI * r, off = c * (1 - Math.max(0, Math.min(1, focusSeconds / total)));
     const ring = document.getElementById('focus-ring-circle'); if (ring) ring.style.strokeDashoffset = off.toFixed(2);
-
-    // Full-session overlay — update timer + ring without re-rendering
-    const fsEl = document.getElementById('fs-time-display'); if (fsEl) fsEl.textContent = formatted;
+    const fsEl = document.getElementById('fs-time-display');
+    if (fsEl) { fsEl.textContent = formatted; fsEl.classList.remove('fs-overtime-text'); }
     const rr = 120, cc = 2 * Math.PI * rr, oo = cc * (1 - Math.max(0, Math.min(1, focusSeconds / total)));
     const fsRing = document.getElementById('fs-ring-circle'); if (fsRing) fsRing.style.strokeDashoffset = oo.toFixed(2);
-
-    // Toggle running state for animations
-    const overlay = document.getElementById('fs-overlay');
-    if (overlay) overlay.classList.toggle('fs-is-running', focusRunning);
+    if (overlay) { overlay.classList.toggle('fs-is-running', focusRunning); overlay.classList.remove('fs-overtime'); }
   }
 
   function focusTick() {
-    // Timestamp-based calculation — stays accurate when tab is backgrounded/throttled
+    // Timestamp-based: stays accurate when tab is backgrounded/throttled
     if (focusStartTime !== null) {
       const elapsed = Math.floor((Date.now() - focusStartTime) / 1000);
       focusSeconds = Math.max(0, focusStartSeconds - elapsed);
     }
     if (focusSeconds > 0) { updateFocusDisplay(); updateMiniTimer(); return; }
 
+    // Timer hit zero
+    const _plannedSecs = focusStartSeconds; // capture before clearing
     clearInterval(focusTimer); focusTimer = null; focusRunning = false;
     focusStartTime = null; focusStartSeconds = null;
     document.title = 'Syllabus Tracker';
@@ -1495,16 +1567,18 @@
 
     if (focusMode === 'work') {
       const todayStr = todayKey();
-      // Sessions already counted on Start; add the full session's minutes now
-      const elapsedMin = focusStartSeconds !== null
-        ? Math.floor(focusStartSeconds / 60)
-        : customDurations.work;
+      // Credit the planned duration for this completed session
+      const elapsedMin = _plannedSecs !== null ? Math.floor(_plannedSecs / 60) : customDurations.work;
       state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + elapsedMin;
       bumpActivity(); saveState();
-      renderStats(); // keep Stats view in sync with every completed session
+      renderStats();
 
-      // Push notification — fires even if the user is in another app
-      showWebNotification('🎉 Focus Session Complete!', `Session ${focusSessions} done! Time for a break.`, { tag: 'focus-complete', requireInteraction: false });
+      showWebNotification('🎉 Focus Session Complete!', `Session ${focusSessions} done! Keep going or take a break.`, { tag: 'focus-complete', requireInteraction: false });
+
+      // Play the 3-beep alarm (lasts ~5.3 s), then enter overtime mode
+      playAlarmBeeps();
+      startOvertimeMode();
+      if (fsSessionActive) renderFullSession(); else renderFocus();
 
       const task = focusCurrentTaskKey ? getActivePlanTasks().find(t => t.key === focusCurrentTaskKey) : null;
       if (task && !task.done) {
@@ -1513,10 +1587,10 @@
           else { const plan = state.dailyPlans[todayKey()]; if (plan) { const ct = plan.custom.find(c => c.id === task.id); if (ct) { ct.done = true; bumpActivity(); saveState(); renderAll(); } } }
         }, { title: 'Session done!', yesLabel: 'Mark done', yesClass: 'btn' });
       } else {
-        toast(`Session ${focusSessions} complete! 🎉`, 'success', 4000);
+        toast(`Session ${focusSessions} complete! ⏱ Overtime counting...`, 'success', 5000);
       }
 
-      // Auto-backup: after completing a full Pomodoro cycle (every 4th session)
+      // Auto-backup every 4th Pomodoro
       if (focusSessions > 0 && focusSessions % 4 === 0 && !hasBackupToday()) {
         setTimeout(() => {
           confirmModal(
@@ -1526,14 +1600,14 @@
           );
         }, 1200);
       }
+      // ↑ Mode switch deferred — happens in finishOvertimeAndSwitch() when user stops overtime
     } else {
-      // Break ended notification
+      // Break ended — auto-switch back to work (no overtime for breaks)
       showWebNotification('🚀 Break Over!', 'Time to get back to work. You\'ve got this!', { tag: 'focus-break-end', requireInteraction: false });
+      focusMode = 'work';
+      focusSeconds = customDurations.work * 60;
+      if (fsSessionActive) renderFullSession(); else renderFocus();
     }
-
-    focusMode = focusMode === 'work' ? (focusSessions % 4 === 0 ? 'long' : 'short') : 'work';
-    focusSeconds = customDurations[focusMode] * 60;
-    if (fsSessionActive) renderFullSession(); else renderFocus();
   }
 
   // ========== Full Screen Session ==========
@@ -1644,8 +1718,11 @@
     const _curSound = soundById(ambientMode);
     const ambientIcon = _curSound.label.split(' ')[0];
     const sessionDots = Array.from({length: Math.min(focusSessions, 8)}, () => `<span class="fs-dot"></span>`).join('');
-    overlay.className = focusRunning ? 'fs-is-running' : '';
+    overlay.className = focusRunning ? 'fs-is-running' : (focusOvertime ? 'fs-overtime' : '');
     const orientIcon = (screen.orientation && screen.orientation.type && screen.orientation.type.startsWith('landscape')) ? SVG_ORIENT_PORTRAIT : SVG_ORIENT_LANDSCAPE;
+    const _otM = Math.floor(focusOvertimeSeconds / 60), _otS = focusOvertimeSeconds % 60;
+    const _fsTimeStr = focusOvertime ? `+${String(_otM).padStart(2,'0')}:${String(_otS).padStart(2,'0')}` : formatFocusTime(focusSeconds);
+    const _fsRingSub = focusOvertime ? `+${String(_otM).padStart(2,'0')}:${String(_otS).padStart(2,'0')} overtime` : `${formatFocusTime(customDurations[focusMode] * 60)} total`;
     overlay.innerHTML = `<div class="fs-bg"><div class="fs-bg-earth"></div>${_genFsParticles()}</div>
       <div class="fs-content">
 
@@ -1669,15 +1746,15 @@
             <circle class="fs-ring-fill" id="fs-ring-circle" cx="145" cy="145" r="${r}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/>
           </svg>
           <div class="fs-ring-center">
-            <div class="fs-time" id="fs-time-display">${formatFocusTime(focusSeconds)}</div>
-            <div class="fs-ring-sub">${formatFocusTime(customDurations[focusMode] * 60)} total</div>
+            <div class="fs-time${focusOvertime ? ' fs-overtime-text' : ''}" id="fs-time-display">${_fsTimeStr}</div>
+            <div class="fs-ring-sub">${_fsRingSub}</div>
           </div>
         </div>
 
         <!-- ── Vertical controls: Mute · Play · Landscape · Exit (grid-area: ctrl) ── -->
         <div class="fs-ctrl-col">
           <button class="fs-ctrl-btn fs-side-btn" data-act="fs-cycle-ambient" title="Toggle sound">${ambientIcon}</button>
-          <button class="fs-ctrl-btn fs-main-btn" data-act="fs-toggle">${focusRunning ? '⏸' : '▶'}</button>
+          <button class="fs-ctrl-btn fs-main-btn${focusOvertime ? ' fs-overtime-btn' : ''}" data-act="fs-toggle">${focusRunning ? '⏸' : (focusOvertime ? '⏹' : '▶')}</button>
           <button class="fs-ctrl-btn fs-side-btn fs-orient-btn" data-act="fs-toggle-landscape" title="Toggle landscape">${orientIcon}</button>
           <button class="fs-ctrl-btn fs-side-btn fs-exit-btn" data-act="exit-full-session" title="Exit">✕</button>
         </div>
@@ -2711,6 +2788,10 @@
         clearInterval(focusTimer); focusTimer = null; focusRunning = false;
         focusStartTime = null; focusStartSeconds = null;
         updateMiniTimer();
+      } else if (focusOvertime) {
+        // User ending overtime — save extra minutes then switch to break
+        finishOvertimeAndSwitch();
+        renderFocus(); return;
       } else {
         // Count the session the moment the user hits Start
         if (focusMode === 'work') {
@@ -2729,7 +2810,7 @@
       }
       renderFocus(); return;
     }
-    if (act === 'focus-reset') { clearInterval(focusTimer); focusTimer = null; focusRunning = false; focusStartTime = null; focusStartSeconds = null; focusSeconds = customDurations[focusMode] * 60; focusMultitaskMode = false; renderFocus(); document.title = 'Syllabus Tracker'; updateMiniTimer(); return; }
+    if (act === 'focus-reset') { stopOvertimeMode(); clearInterval(focusTimer); focusTimer = null; focusRunning = false; focusStartTime = null; focusStartSeconds = null; focusSeconds = customDurations[focusMode] * 60; focusMultitaskMode = false; renderFocus(); document.title = 'Syllabus Tracker'; updateMiniTimer(); return; }
     if (act === 'focus-lock') { focusMultitaskMode = false; focusLocked = !focusLocked; renderFocus(); toast(focusLocked ? '🔒 Lock Mode on — other tabs are restricted' : '🔓 Lock Mode off', focusLocked ? 'warn' : 'info'); return; }
     if (act === 'focus-multitask') { focusMultitaskMode = !focusMultitaskMode; if (focusMultitaskMode) { focusLocked = false; } renderFocus(); toast(focusMultitaskMode ? '🗒️ Multitask Mode on — navigate freely, timer keeps running' : '🔓 Multitask Mode off', 'info'); return; }
     if (act === 'focus-task-clear') { focusCurrentTaskKey = null; renderFocus(); return; }
@@ -2740,7 +2821,7 @@
 
     // Full Screen Session
     if (act === 'enter-full-session') { enterFullSession(); return; }
-    if (act === 'exit-full-session') { exitFullSession(); stopAmbient(); ambientMode = 'none'; return; }
+    if (act === 'exit-full-session') { if (focusOvertime) { finishOvertimeAndSwitch(); } exitFullSession(); stopAmbient(); ambientMode = 'none'; return; }
     if (act === 'fs-toggle') {
       if (focusRunning) {
         // Partial-credit: save elapsed minutes for work sessions stopped early
@@ -2754,6 +2835,10 @@
         }
         clearInterval(focusTimer); focusTimer = null; focusRunning = false;
         focusStartTime = null; focusStartSeconds = null;
+      } else if (focusOvertime) {
+        // User ending overtime in full-session view — save extra minutes, switch to break
+        finishOvertimeAndSwitch();
+        renderFullSession(); return;
       } else {
         // Count the session the moment the user hits Start
         if (focusMode === 'work') {
