@@ -1,9 +1,9 @@
-const CACHE_NAME = 'syllabus-tracker-v40';
+const CACHE_NAME = 'syllabus-tracker-v43';
 const STATIC = [
   '/',
   '/index.html',
   '/style.css?v=31',
-  '/script.js?v=32',
+  '/script.js?v=35',
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png',
@@ -20,7 +20,10 @@ const STATIC = [
   '/sounds/shape-of-you.m4a',
   '/sounds/hall-of-fame.m4a',
   '/sounds/summertime-sadness.m4a',
-  '/sounds/focus-beta.wav'
+  '/sounds/focus-beta.wav',
+  '/sounds/monk-mode.wav',
+  '/sounds/void.wav',
+  '/sounds/solfeggio-528.wav'
 ];
 
 self.addEventListener('install', e => {

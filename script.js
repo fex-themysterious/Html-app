@@ -166,6 +166,12 @@
   }
   function saveState() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {} }
 
+  // Safe render helper — calls fn(), returns fallback string on any throw
+  function _safe(fn, fallback) {
+    if (fallback === undefined) fallback = '';
+    try { return fn(); } catch (e) { console.error('[Render error]', e); return fallback; }
+  }
+
   let state = loadState();
 
   // ========== Helpers ==========
@@ -1500,9 +1506,21 @@
   // ========== Dashboard ==========
   function renderDashboard() {
     const view = document.getElementById('view-dashboard'); if (!view) return;
-    const tasks = getActivePlanTasks(), doneCount = tasks.filter(t => t.done).length;
-    view.innerHTML = `<div class="page-header"><h1>Dashboard</h1><div class="subtitle">Your study control center</div></div>${renderBurnoutBanner()}<div class="section-head"><h2>Today's Plan</h2><div style="display:flex;gap:8px;align-items:center"><span class="muted" style="font-size:13px">${doneCount}/${tasks.length} done</span><button class="btn-link" data-act="regen-plan">↻ Regen</button></div></div>${renderTasksList(tasks)}${renderPlanAdder()}<div class="section-head" style="margin-top:20px"><h2>Study Calendar</h2></div>${renderCalendar()}${renderGoals()}${renderSmartSuggestions()}${renderWeakAreas()}`;
-    bindPlanPickers();
+    try {
+      const tasks = getActivePlanTasks(), doneCount = tasks.filter(t => t.done).length;
+      const _bB    = _safe(renderBurnoutBanner, '');
+      const _tlist = _safe(() => renderTasksList(tasks), '');
+      const _padd  = _safe(renderPlanAdder, '');
+      const _cal   = _safe(renderCalendar, '<div class="empty">Calendar unavailable</div>');
+      const _goals = _safe(renderGoals, '');
+      const _sugg  = _safe(renderSmartSuggestions, '');
+      const _weak  = _safe(renderWeakAreas, '');
+      view.innerHTML = `<div class="page-header"><h1>Dashboard</h1><div class="subtitle">Your study control center</div></div>${_bB}<div class="section-head"><h2>Today's Plan</h2><div style="display:flex;gap:8px;align-items:center"><span class="muted" style="font-size:13px">${doneCount}/${tasks.length} done</span><button class="btn-link" data-act="regen-plan">↻ Regen</button></div></div>${_tlist}${_padd}<div class="section-head" style="margin-top:20px"><h2>Study Calendar</h2></div>${_cal}${_goals}${_sugg}${_weak}`;
+      bindPlanPickers();
+    } catch (err) {
+      console.error('[Dashboard] render failed:', err);
+      view.innerHTML = '<div class="page-header"><h1>Dashboard</h1></div><div class="empty" style="margin-top:40px;text-align:center"><div style="font-size:32px">⚠️</div><div style="margin:10px 0">Dashboard could not load.<br>Your data is safe.</div><button class="btn" style="margin-top:12px" onclick="location.reload()">Reload App</button></div>';
+    }
   }
 
   // Goals
@@ -3943,7 +3961,17 @@
     maybeShowBackupReminder();
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-  else init();
+  function safeInit() {
+    try { init(); }
+    catch(e) {
+      console.error('[Init error]', e);
+      document.body.insertAdjacentHTML('afterbegin',
+        `<div style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#c00;color:#fff;padding:12px;font-size:13px;word-break:break-all">
+          App init error: ${e.message}<br><pre style="font-size:11px;margin:4px 0 0">${(e.stack||'').split('\n').slice(0,4).join('\n')}</pre>
+        </div>`);
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', safeInit);
+  else safeInit();
 
 })();
