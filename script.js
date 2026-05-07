@@ -63,7 +63,8 @@
       goals: [],
       classroom: { groups: [] },
       focusStats: { sessions: {}, minutesByDate: {} },
-      recurringTasks: []
+      recurringTasks: [],
+      alarms: []
     };
   }
 
@@ -133,6 +134,8 @@
     s.recurringTasks = Array.isArray(s.recurringTasks) ? s.recurringTasks.map(rt => ({
       id: rt.id || uid(), text: rt.text || '', frequency: rt.frequency || 'daily', lastResetDate: rt.lastResetDate || null
     })) : [];
+    if (!Array.isArray(s.alarms)) s.alarms = [];
+    s.alarms = s.alarms.map(a => ({ id: a.id || uid(), label: a.label || 'Alarm', time: a.time || '07:00', enabled: typeof a.enabled === 'boolean' ? a.enabled : true }));
     if (!s.classroom || typeof s.classroom !== 'object') s.classroom = { groups: [] };
     if (!Array.isArray(s.classroom.groups)) s.classroom.groups = [];
     s.classroom.groups = s.classroom.groups.map(g => ({
@@ -669,6 +672,258 @@
     navigator.serviceWorker.ready.then(reg => {
       if (reg.active) reg.active.postMessage({ type: 'schedule-notifications', schedules });
     }).catch(() => {});
+  }
+
+  // ========== Motivational Sleeper Alarm ==========
+  const ALARM_QUOTES_DEFAULT = [
+    "GET UP! Your dreams won't chase themselves!",
+    "Rise and conquer — the world won't wait for you!",
+    "Every champion was once a beginner who refused to quit. GET UP!",
+    "You didn't come this far to only come this far. WAKE UP!",
+    "While you sleep, someone else is grinding for YOUR spot.",
+    "Your future self is counting on YOU right now. GET UP!",
+    "Pain is temporary. Glory is forever. WAKE UP!",
+    "Champions don't hit snooze. Neither do you.",
+    "Success is for those who show up. SHOW UP NOW.",
+    "The grind never stops. Why should you?"
+  ];
+  let _alarmTimers    = new Map();
+  let _alarmAudioEl   = null;
+  let _alarmRampTimer = null;
+  let _alarmMoveTimer = null;
+  let _alarmWakeLock  = null;
+  let _activeAlarmId  = null;
+
+  function _getAlarmQuote() {
+    const pool = (state.motivationQuotes && state.motivationQuotes.length)
+      ? state.motivationQuotes : ALARM_QUOTES_DEFAULT;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  function scheduleAllAlarms() {
+    _alarmTimers.forEach((id, k) => { if (k !== 'snooze') clearTimeout(id); });
+    _alarmTimers.clear();
+    (state.alarms || []).forEach(alarm => { if (alarm.enabled) _scheduleOneAlarm(alarm); });
+  }
+
+  function _scheduleOneAlarm(alarm) {
+    const prev = _alarmTimers.get(alarm.id);
+    if (prev) clearTimeout(prev);
+    const delay = _nextOccurrenceMs(alarm.time);
+    const id = setTimeout(() => { _alarmTimers.delete(alarm.id); triggerAlarm(alarm.id); }, delay);
+    _alarmTimers.set(alarm.id, id);
+  }
+
+  async function triggerAlarm(alarmId) {
+    _activeAlarmId = alarmId;
+    const alarm = (state.alarms || []).find(a => a.id === alarmId);
+    try {
+      if ('wakeLock' in navigator) _alarmWakeLock = await navigator.wakeLock.request('screen');
+    } catch (e) { console.warn('[Alarm] WakeLock:', e.message); }
+    _showAlarmOverlay(alarm);
+    _startAlarmAudio();
+  }
+
+  function _startAlarmAudio() {
+    _stopAlarmAudio();
+    const audio = new Audio('./sounds/alarm-wake.mp3');
+    audio.loop = true;
+    audio.volume = 0.2;
+    _alarmAudioEl = audio;
+    audio.play().catch(() => {
+      const fb = new Audio('./sounds/peaky-blinder.mp3');
+      fb.loop = true; fb.volume = 0.2;
+      _alarmAudioEl = fb;
+      fb.play().catch(() => {});
+    });
+    // Ramp 0.2 → 1.0 over 10 s: 80 steps × 125 ms
+    let step = 0;
+    _alarmRampTimer = setInterval(() => {
+      if (!_alarmAudioEl) { clearInterval(_alarmRampTimer); return; }
+      step++;
+      try { _alarmAudioEl.volume = Math.min(1, 0.2 + 0.8 * (step / 80)); } catch (_) {}
+      if (step >= 80) { clearInterval(_alarmRampTimer); _alarmRampTimer = null; }
+    }, 125);
+  }
+
+  function _showAlarmOverlay(alarm) {
+    document.getElementById('alarm-overlay')?.remove();
+    const quote = _getAlarmQuote();
+    const now   = new Date();
+    const h12   = ((now.getHours() + 11) % 12) + 1;
+    const min   = String(now.getMinutes()).padStart(2, '0');
+    const ampm  = now.getHours() < 12 ? 'AM' : 'PM';
+    const label = alarm ? (alarm.label || 'Alarm') : 'Alarm';
+    const ov = document.createElement('div');
+    ov.id = 'alarm-overlay';
+    ov.innerHTML = `
+      <div class="al-pulse-bg"></div>
+      <div class="al-bell-wrap">
+        <span class="al-bell">⏰</span>
+        <span class="al-label">${escapeHTML(label)}</span>
+      </div>
+      <div class="al-clock">${h12}:${min}<span class="al-ampm">${ampm}</span></div>
+      <div class="al-quote">"${escapeHTML(quote)}"</div>
+      <button class="al-snooze" id="al-snooze">💤 Snooze 5 min</button>
+      <button class="al-dismiss" id="al-dismiss">✋ Dismiss</button>
+    `;
+    document.body.appendChild(ov);
+    document.getElementById('al-snooze').addEventListener('click', snoozeAlarm);
+    document.getElementById('al-dismiss').addEventListener('click', dismissAlarm);
+    lockPortrait();
+    setTimeout(_startMovingDismiss, 3000);
+  }
+
+  function _startMovingDismiss() {
+    if (_alarmMoveTimer) { clearInterval(_alarmMoveTimer); _alarmMoveTimer = null; }
+    const btn = document.getElementById('al-dismiss');
+    if (!btn) return;
+    function move() {
+      const bw = btn.offsetWidth || 160, bh = btn.offsetHeight || 52;
+      const maxX = Math.max(bw, window.innerWidth  - bw - 16);
+      const maxY = Math.max(bh, window.innerHeight - bh - 16);
+      btn.style.left      = Math.max(8, Math.floor(Math.random() * maxX)) + 'px';
+      btn.style.top       = Math.max(8, Math.floor(Math.random() * maxY)) + 'px';
+      btn.style.transform = 'none';
+    }
+    move();
+    _alarmMoveTimer = setInterval(move, 1500);
+  }
+
+  function dismissAlarm() {
+    _stopAlarmAudio();
+    _releaseAlarmWakeLock();
+    if (_alarmMoveTimer) { clearInterval(_alarmMoveTimer); _alarmMoveTimer = null; }
+    document.getElementById('alarm-overlay')?.remove();
+    const alarm = (state.alarms || []).find(a => a.id === _activeAlarmId);
+    if (alarm && alarm.enabled) _scheduleOneAlarm(alarm);
+    _activeAlarmId = null;
+    toast('Alarm dismissed — go get it! 🔥', 'success', 4000);
+  }
+
+  function snoozeAlarm() {
+    _stopAlarmAudio();
+    if (_alarmMoveTimer) { clearInterval(_alarmMoveTimer); _alarmMoveTimer = null; }
+    document.getElementById('alarm-overlay')?.remove();
+    const savedId = _activeAlarmId;
+    const tid = setTimeout(() => { _alarmTimers.delete('snooze'); triggerAlarm(savedId); }, 5 * 60 * 1000);
+    _alarmTimers.set('snooze', tid);
+    toast('Snoozed 5 minutes 💤 — alarm returns shortly!', 'info', 4000);
+  }
+
+  function _stopAlarmAudio() {
+    if (_alarmRampTimer) { clearInterval(_alarmRampTimer); _alarmRampTimer = null; }
+    if (_alarmAudioEl) {
+      try { _alarmAudioEl.pause(); _alarmAudioEl.currentTime = 0; } catch (_) {}
+      _alarmAudioEl = null;
+    }
+  }
+
+  function _releaseAlarmWakeLock() {
+    if (_alarmWakeLock) { try { _alarmWakeLock.release(); } catch (_) {} _alarmWakeLock = null; }
+  }
+
+  // ========== Alarm Manager Modal ==========
+  function openAlarmManager() {
+    const alarms = state.alarms || [];
+    const rows = alarms.length ? alarms.map(a => {
+      const [hh, mm] = a.time.split(':');
+      const h12 = ((parseInt(hh) + 11) % 12) + 1;
+      const ampm = parseInt(hh) < 12 ? 'AM' : 'PM';
+      return `<div class="al-row">
+        <div class="al-row-left">
+          <div class="al-row-time">${h12}:${mm} <span class="al-row-ampm">${ampm}</span></div>
+          <div class="al-row-lbl">${escapeHTML(a.label || 'Alarm')}</div>
+        </div>
+        <div class="al-row-right">
+          <label class="switch"><input type="checkbox" data-act="toggle-alarm" data-id="${a.id}" ${a.enabled ? 'checked' : ''}/><span class="slider"></span></label>
+          <button class="menu-btn" data-act="edit-alarm" data-id="${a.id}">${ic('edit')}</button>
+          <button class="menu-btn" data-act="del-alarm" data-id="${a.id}">${ic('trash')}</button>
+        </div>
+      </div>`;
+    }).join('') : `<div style="color:var(--text-muted);font-size:14px;padding:6px 0">No alarms yet. Add one below.</div>`;
+    openModal(`<h3>⏰ Sleeper Alarm</h3>
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 14px">High-intensity alarm that plays your saved motivation quotes and won't stop until you catch the moving Dismiss button.</p>
+      <div class="al-list">${rows}</div>
+      <div style="margin-top:14px"><button class="btn btn-block" data-act="add-alarm">+ Add Alarm</button></div>
+      <div class="actions" style="margin-top:12px"><button class="btn btn-ghost" data-close>Close</button></div>`);
+  }
+
+  function openAddEditAlarm(existingId) {
+    const existing = existingId ? (state.alarms || []).find(a => a.id === existingId) : null;
+    let [h, m] = (existing ? existing.time : '07:00').split(':').map(Number);
+    if (isNaN(h)) h = 7; if (isNaN(m)) m = 0;
+    const initLabel = existing ? (existing.label || '') : '';
+    openModal(`<h3>${existing ? 'Edit' : 'New'} Alarm</h3>
+      <div class="field"><label>Label</label><input id="al-label-in" value="${escapeHTML(initLabel)}" maxlength="40" placeholder="e.g. Morning Alarm"/></div>
+      <div class="field"><label>Time</label>
+        <div class="tp-wrap-min" style="margin-top:6px">
+          <div class="tp-display"><span class="tp-h">${String(((h+11)%12)+1).padStart(2,'0')}</span><span class="tp-sep">:</span><span class="tp-m">${String(m).padStart(2,'0')}</span><span class="tp-ampm-lbl">${h<12?'AM':'PM'}</span></div>
+          <div class="tp-steppers">
+            <div class="tp-stepper"><div class="tp-s-label">Hour</div><div class="tp-s-row"><button class="tp-s-btn" data-tp="h-down">−</button><div class="tp-s-val tp-val-h">${String(h).padStart(2,'0')}</div><button class="tp-s-btn" data-tp="h-up">+</button></div></div>
+            <div class="tp-stepper"><div class="tp-s-label">Minute</div><div class="tp-s-row"><button class="tp-s-btn" data-tp="m-down">−</button><div class="tp-s-val tp-val-m">${String(m).padStart(2,'0')}</div><button class="tp-s-btn" data-tp="m-up">+</button></div></div>
+          </div>
+          <div class="tp-ampm"><button class="tp-chip ${h<12?'on':''}" data-tp-ampm="AM">AM</button><button class="tp-chip ${h>=12?'on':''}" data-tp-ampm="PM">PM</button></div>
+          <div class="tp-presets"><button class="tp-chip" data-tp-set="05:30">5:30</button><button class="tp-chip" data-tp-set="06:00">6 AM</button><button class="tp-chip" data-tp-set="06:30">6:30</button><button class="tp-chip" data-tp-set="07:00">7 AM</button><button class="tp-chip" data-tp-set="07:30">7:30</button><button class="tp-chip" data-tp-set="08:00">8 AM</button></div>
+        </div>
+      </div>
+      <div class="al-confirm-hint">🔊 Tap <b>Save &amp; Test Sound</b> — plays a 2-second preview which also unlocks alarm audio on your device (required by browsers).</div>
+      <div class="actions" style="margin-top:16px">
+        <button class="btn btn-ghost" data-close>Cancel</button>
+        ${existing ? `<button class="btn btn-danger" id="al-del-btn">Delete</button>` : ''}
+        <button class="btn al-save-btn" id="al-save-btn">💾 Save &amp; Test Sound</button>
+      </div>`,
+      root => {
+        function upd() {
+          h=((h%24)+24)%24; m=((m%60)+60)%60;
+          const h12=((h+11)%12)+1, ap=h<12?'AM':'PM';
+          root.querySelector('.tp-h').textContent=String(h12).padStart(2,'0');
+          root.querySelector('.tp-m').textContent=String(m).padStart(2,'0');
+          root.querySelector('.tp-ampm-lbl').textContent=ap;
+          root.querySelector('.tp-val-h').textContent=String(h).padStart(2,'0');
+          root.querySelector('.tp-val-m').textContent=String(m).padStart(2,'0');
+          root.querySelectorAll('[data-tp-ampm]').forEach(b=>b.classList.toggle('on',b.dataset.tpAmpm===ap));
+        }
+        root.querySelectorAll('[data-tp]').forEach(btn=>{
+          let ti=null,ri=null;
+          const fn=()=>{const tp=btn.dataset.tp;if(tp==='h-up')h++;else if(tp==='h-down')h--;else if(tp==='m-up')m++;else m--;upd();};
+          btn.addEventListener('pointerdown',e=>{e.preventDefault();fn();ti=setTimeout(()=>{ri=setInterval(fn,80);},350);});
+          const stop=()=>{clearTimeout(ti);clearInterval(ri);};
+          btn.addEventListener('pointerup',stop);btn.addEventListener('pointerleave',stop);btn.addEventListener('pointercancel',stop);
+        });
+        root.querySelectorAll('[data-tp-ampm]').forEach(btn=>btn.addEventListener('click',()=>{const t=btn.dataset.tpAmpm;if(t==='AM'&&h>=12)h-=12;if(t==='PM'&&h<12)h+=12;upd();}));
+        root.querySelectorAll('[data-tp-set]').forEach(btn=>btn.addEventListener('click',()=>{const[hh,mm]=btn.dataset.tpSet.split(':').map(Number);h=hh;m=mm;upd();}));
+        const delBtn = root.querySelector('#al-del-btn');
+        if (delBtn) delBtn.onclick = () => {
+          state.alarms=(state.alarms||[]).filter(a=>a.id!==existingId);
+          const t=_alarmTimers.get(existingId); if(t){clearTimeout(t);_alarmTimers.delete(existingId);}
+          saveState(); closeModal(); openAlarmManager(); toast('Alarm deleted','danger');
+        };
+        root.querySelector('#al-save-btn').onclick = () => {
+          const label = root.querySelector('#al-label-in').value.trim() || 'Alarm';
+          const timeStr = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+          if (existing) { existing.label=label; existing.time=timeStr; }
+          else { if (!state.alarms) state.alarms=[]; state.alarms.push({id:uid(),label,time:timeStr,enabled:true}); }
+          saveState();
+          scheduleAllAlarms();
+          // 2-second test sound — bypasses autoplay for the real trigger later
+          resumeAudioContext();
+          const test = new Audio('./sounds/alarm-wake.mp3');
+          test.volume = 0.4;
+          test.play().catch(() => {
+            const fb = new Audio('./sounds/peaky-blinder.mp3');
+            fb.volume = 0.4;
+            fb.play().catch(() => {});
+            setTimeout(() => { try { fb.pause(); } catch(_) {} }, 2000);
+          });
+          setTimeout(() => { try { test.pause(); test.currentTime = 0; } catch(_) {} }, 2000);
+          closeModal();
+          openAlarmManager();
+          const h12=((h+11)%12)+1, ap=h<12?'AM':'PM';
+          toast(`⏰ Alarm set for ${h12}:${String(m).padStart(2,'0')} ${ap}!`, 'success', 4000);
+        };
+      }
+    );
   }
 
   // ========== Midnight date-change detector ==========
@@ -2931,6 +3186,7 @@
       <div class="settings-section"><h4>Motivation Notifications</h4><div class="settings-row"><div class="label">Motivational push messages<div class="sub">Random quote at each scheduled time.</div></div><label class="switch"><input type="checkbox" id="set-mr-toggle" ${mr.enabled ? 'checked' : ''} data-act="toggle-motivation"/><span class="slider"></span></label></div><div class="time-chip-row" style="${mr.enabled ? '' : 'opacity:.55;pointer-events:none'}">${mr.times.length ? chips('motivation', mr.times) : '<span class="muted">No times set.</span>'}<button type="button" class="time-chip add" data-act="open-time-picker" data-which="motivation" data-i="-1">+ Add</button></div></div>
       <div class="settings-section"><h4>Notifications Status</h4><div class="notif-status ${permCls}">${escapeHTML(permText)}</div>${(perm === 'default' || perm === 'denied') ? `<div style="margin-top:9px"><button class="btn btn-block" data-act="sr-request-perm">${perm === 'denied' ? 'Try requesting again' : 'Allow notifications'}</button></div>` : ''}</div>
       <div class="settings-section"><h4>My Motivation Quotes</h4><p style="font-size:12px;color:var(--text-muted);margin:0 0 10px">These quotes appear on the home screen and in Full Focus mode. Add as many as you like.</p><div class="quote-list">${state.motivationQuotes.length ? state.motivationQuotes.map((q, i) => `<div class="quote-row"><div class="text">${escapeHTML(q)}</div><button class="menu-btn" data-act="del-quote" data-i="${i}">${ic('trash')}</button></div>`).join('') : '<div style="font-size:12px;color:var(--text-muted);padding:4px 0">No quotes yet. Add one below!</div>'}</div><div class="quote-add-row"><input id="set-new-quote" placeholder="Add a motivation quote…" maxlength="200"/><button class="btn" data-act="add-quote">${ic('plus')}</button></div></div>
+      <div class="settings-section"><h4>⏰ Alarm Clock</h4><p style="font-size:12px;color:var(--text-muted);margin:0 0 10px">Wake up to your saved motivations with an escalating alarm. Dismiss by catching the moving button!</p><button class="btn btn-block" data-act="open-alarm-manager">⏰ Manage Alarms${(state.alarms||[]).filter(a=>a.enabled).length ? ` <span style="background:rgba(239,68,68,.2);color:#f87171;padding:2px 8px;border-radius:999px;font-size:11px;margin-left:6px">${(state.alarms||[]).filter(a=>a.enabled).length} active</span>` : ''}</button></div>
       <div class="settings-section"><h4>Data</h4><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost" data-act="export-data">${ic('download')} Export Backup</button><label class="btn btn-ghost" style="cursor:pointer">${ic('upload')} Import Backup<input type="file" accept=".json" style="display:none" id="import-file-input"/></label></div></div>
       <div class="actions" style="margin-top:16px"><button class="btn btn-ghost" data-close>Close</button></div>`,
       root => { root.querySelector('#import-file-input').onchange = e => { importData(e.target.files[0]); closeModal(); }; });
@@ -3422,6 +3678,28 @@
     if (act === 'add-quote') { const input = document.getElementById('set-new-quote'), text = input ? input.value.trim() : ''; if (!text) { toast('Enter a quote first', 'warn'); return; } state.motivationQuotes.push(text); saveState(); refreshSettingsIfOpen(); toast('Quote saved ✨', 'success'); return; }
     if (act === 'export-data') { closeModal(); exportData(); return; }
     if (act === 'backup-export') { exportData(); return; }
+    // Alarm actions
+    if (act === 'open-alarm-manager') { closeModal(); openAlarmManager(); return; }
+    if (act === 'add-alarm') { closeModal(); openAddEditAlarm(null); return; }
+    if (act === 'edit-alarm') { closeModal(); openAddEditAlarm(el.dataset.id); return; }
+    if (act === 'del-alarm') {
+      const al = (state.alarms||[]).find(a => a.id === el.dataset.id);
+      if (al) confirmModal(`Delete alarm "${escapeHTML(al.label||'Alarm')}"?`, () => {
+        state.alarms = (state.alarms||[]).filter(a => a.id !== al.id);
+        const t = _alarmTimers.get(al.id); if (t) { clearTimeout(t); _alarmTimers.delete(al.id); }
+        saveState(); openAlarmManager(); toast('Alarm deleted', 'danger');
+      });
+      return;
+    }
+    if (act === 'toggle-alarm') {
+      const al = (state.alarms||[]).find(a => a.id === el.dataset.id);
+      if (al) {
+        al.enabled = el.checked; saveState();
+        if (al.enabled) { _scheduleOneAlarm(al); toast(`⏰ Alarm enabled`, 'success'); }
+        else { const t=_alarmTimers.get(al.id); if(t){clearTimeout(t);_alarmTimers.delete(al.id);} toast('Alarm disabled', 'info'); }
+      }
+      return;
+    }
   });
 
   // Focus duration change (input)
@@ -3550,6 +3828,10 @@
       }
       // Re-validate notification schedule (catches any missed/expired timers)
       scheduleAllNotifications();
+      // Re-acquire alarm wake lock if alarm is still active
+      if (_activeAlarmId && !_alarmWakeLock && 'wakeLock' in navigator) {
+        navigator.wakeLock.request('screen').then(wl => { _alarmWakeLock = wl; }).catch(() => {});
+      }
     }
   });
 
@@ -3561,6 +3843,7 @@
     renderAll();
     renderFocus();
     startTimers(); // calls scheduleAllNotifications() internally
+    scheduleAllAlarms();
     startMotivationRotation();
     setTimeout(maybeAutoShowBurnoutPopup, 2500);
     maybeShowBackupReminder();

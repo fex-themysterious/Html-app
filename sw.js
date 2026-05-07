@@ -1,9 +1,9 @@
-const CACHE_NAME = 'syllabus-tracker-v35';
+const CACHE_NAME = 'syllabus-tracker-v36';
 const STATIC = [
   '/',
   '/index.html',
-  '/style.css?v=29',
-  '/script.js?v=28',
+  '/style.css?v=30',
+  '/script.js?v=29',
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png',
@@ -11,6 +11,7 @@ const STATIC = [
   '/sounds/soft.mp3',
   '/sounds/concentration.mp3',
   '/sounds/peaky-blinder.mp3',
+  '/sounds/alarm-wake.mp3',
   '/sounds/aal-izz-well.m4a',
   '/sounds/believer.m4a',
   '/sounds/rasputin.m4a',
@@ -140,10 +141,7 @@ self.addEventListener('push', e => {
   );
 });
 
-// ── SW-side close-range scheduler ──────────────────────────────────────────
-// Schedules notifications that fire within the next 65 minutes directly in
-// the SW, so they survive a backgrounded/minimized browser tab.
-// The main thread handles precise day-long scheduling via setTimeout.
+// ── SW-side close-range notification scheduler ─────────────────────────────
 let _swTimers = [];
 
 function _swScheduleNext(schedule) {
@@ -152,7 +150,6 @@ function _swScheduleNext(schedule) {
   const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0, 0);
   if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
   const delay = next.getTime() - now.getTime();
-  // Only schedule if within 65 min — SW may be killed for longer sleeps
   if (delay > 65 * 60 * 1000) return;
   const tid = setTimeout(() => {
     self.registration.showNotification(schedule.title, {
@@ -171,7 +168,6 @@ function _swScheduleNext(schedule) {
 self.addEventListener('message', e => {
   if (!e.data) return;
 
-  // Direct notification display (main thread request)
   if (e.data.type === 'show-notification') {
     self.registration.showNotification(e.data.title, {
       ...e.data.options,
@@ -181,7 +177,6 @@ self.addEventListener('message', e => {
     return;
   }
 
-  // Receive schedule from main thread and register close-range SW timers
   if (e.data.type === 'schedule-notifications') {
     _swTimers.forEach(t => clearTimeout(t));
     _swTimers = [];
