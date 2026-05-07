@@ -2982,6 +2982,109 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   background: linear-gradient(135deg, #b03000, #e87000) !important;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   XP & LEVEL SYSTEM
+   ═══════════════════════════════════════════════════════════════ */
+.xp-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.xp-level-badge {
+  background: linear-gradient(135deg, #6366f1, #a78bfa);
+  color: #fff;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  white-space: nowrap;
+  flex-shrink: 0;
+  box-shadow: 0 0 8px rgba(99,102,241,.45);
+}
+.xp-bar-wrap {
+  flex: 1;
+  height: 5px;
+  background: rgba(255,255,255,.11);
+  border-radius: 999px;
+  overflow: hidden;
+  min-width: 40px;
+  max-width: 88px;
+}
+.xp-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #a78bfa);
+  border-radius: 999px;
+  transition: width .55s ease;
+}
+.xp-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.xp-focus-streak {
+  font-size: 10px;
+  font-weight: 800;
+  color: #f97316;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   EYE-CARE OVERLAY (NIGHT STUDY MODE)
+   ═══════════════════════════════════════════════════════════════ */
+#eye-care-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: none;
+  background: rgba(255, 147, 41, 0.17);
+  mix-blend-mode: multiply;
+  transition: opacity .4s;
+}
+
+/* 20-20-20 eye-break rule display */
+.eye-break-rule {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(251,191,36,.10);
+  border: 1px solid rgba(251,191,36,.22);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 4px;
+}
+.ebr-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.ebr-num {
+  font-size: 28px;
+  font-weight: 900;
+  color: #fbbf24;
+  line-height: 1;
+}
+.ebr-sep {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(251,191,36,.7);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.ebr-arrow {
+  font-size: 20px;
+  color: rgba(251,191,36,.5);
+  flex-shrink: 0;
+}
+
 /* ── Mobile landscape safe-area insets (notched phones) ─────── */
 @media (orientation: landscape) and (max-height: 500px) {
   /* Side notch compensation: keep the 52px rail + add any hardware notch inset.

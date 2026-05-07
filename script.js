@@ -64,7 +64,10 @@
       classroom: { groups: [] },
       focusStats: { sessions: {}, minutesByDate: {} },
       recurringTasks: [],
-      alarms: []
+      alarms: [],
+      xp: { total: 0 },
+      focusStreak: { count: 0, lastDate: null, best: 0 },
+      eyeCareMode: false
     };
   }
 
@@ -136,6 +139,11 @@
     })) : [];
     if (!Array.isArray(s.alarms)) s.alarms = [];
     s.alarms = s.alarms.map(a => ({ id: a.id || uid(), label: a.label || 'Alarm', time: a.time || '07:00', enabled: typeof a.enabled === 'boolean' ? a.enabled : true }));
+    if (!s.xp || typeof s.xp !== 'object') s.xp = { total: 0 };
+    if (typeof s.xp.total !== 'number' || isNaN(s.xp.total)) s.xp.total = 0;
+    if (!s.focusStreak || typeof s.focusStreak !== 'object') s.focusStreak = { count: 0, lastDate: null, best: 0 };
+    if (!s.focusStreak.best) s.focusStreak.best = s.focusStreak.count || 0;
+    if (typeof s.eyeCareMode !== 'boolean') s.eyeCareMode = false;
     if (!s.classroom || typeof s.classroom !== 'object') s.classroom = { groups: [] };
     if (!Array.isArray(s.classroom.groups)) s.classroom.groups = [];
     s.classroom.groups = s.classroom.groups.map(g => ({
@@ -214,6 +222,32 @@
       if (!state.streak.best || state.streak.count > state.streak.best) state.streak.best = state.streak.count;
     }
     checkGoalCompletions();
+  }
+
+  // ========== XP & Level System ==========
+  function xpLevel() {
+    return Math.floor((state.xp && state.xp.total || 0) / 100) + 1;
+  }
+  function awardXP(minutes, dateStr) {
+    if (!minutes || minutes <= 0) return;
+    if (!state.xp || typeof state.xp !== 'object') state.xp = { total: 0 };
+    const prevLevel = xpLevel();
+    state.xp.total = (state.xp.total || 0) + minutes;
+    const newLevel = xpLevel();
+    // Bump focus streak if session was 25+ min (a proper Pomodoro)
+    if (minutes >= 25) {
+      if (!state.focusStreak || typeof state.focusStreak !== 'object') state.focusStreak = { count: 0, lastDate: null, best: 0 };
+      const d  = dateStr || todayKey();
+      const yd = addDaysISO(d, -1);
+      if (state.focusStreak.lastDate !== d) {
+        state.focusStreak.count = state.focusStreak.lastDate === yd ? state.focusStreak.count + 1 : 1;
+        state.focusStreak.lastDate = d;
+        if (!state.focusStreak.best || state.focusStreak.count > state.focusStreak.best) state.focusStreak.best = state.focusStreak.count;
+      }
+    }
+    if (newLevel > prevLevel) {
+      setTimeout(() => toast(`⚡ Level ${newLevel} Unlocked! +${minutes} XP — keep grinding!`, 'success', 5500), 800);
+    }
   }
 
   // ========== Export / Import ==========
@@ -823,6 +857,61 @@
     if (_alarmWakeLock) { try { _alarmWakeLock.release(); } catch (_) {} _alarmWakeLock = null; }
   }
 
+  // ========== Eye-Care Mode (Night Study Mode) ==========
+  let _videoWatchStart  = null;
+  let _eyeBreakInterval = null;
+
+  function applyEyCareMode() {
+    if (state.eyeCareMode) {
+      if (!document.getElementById('eye-care-overlay')) {
+        const el = document.createElement('div');
+        el.id = 'eye-care-overlay';
+        document.body.appendChild(el);
+      }
+    } else {
+      document.getElementById('eye-care-overlay')?.remove();
+      _stopEyeBreakTimer();
+    }
+  }
+
+  function startVideoWatch() {
+    _videoWatchStart = Date.now();
+    if (state.eyeCareMode) _startEyeBreakTimer();
+  }
+
+  function _startEyeBreakTimer() {
+    _stopEyeBreakTimer();
+    _eyeBreakInterval = setInterval(() => {
+      if (!state.eyeCareMode || !_videoWatchStart) { _stopEyeBreakTimer(); return; }
+      if ((Date.now() - _videoWatchStart) / 60000 >= 40) {
+        _videoWatchStart = Date.now();
+        _showEyeBreakModal();
+      }
+    }, 60 * 1000);
+  }
+
+  function _stopEyeBreakTimer() {
+    if (_eyeBreakInterval) { clearInterval(_eyeBreakInterval); _eyeBreakInterval = null; }
+  }
+
+  function _showEyeBreakModal() {
+    openModal(`<div style="text-align:center;padding:6px 0">
+      <div style="font-size:52px;margin-bottom:10px">👁️</div>
+      <h3 style="color:#fbbf24;margin:0 0 8px">Time for an Eye Break!</h3>
+      <p style="color:var(--text-muted);font-size:14px;line-height:1.6;margin:0 0 14px">You've been watching for <strong>40 minutes</strong>.<br>Look at something <strong>20 feet away</strong> for <strong>20 seconds</strong> to relax your eyes.</p>
+      <div class="eye-break-rule">
+        <div class="ebr-item"><span class="ebr-num">20</span><span class="ebr-sep">min</span></div>
+        <span class="ebr-arrow">›</span>
+        <div class="ebr-item"><span class="ebr-num">20</span><span class="ebr-sep">feet</span></div>
+        <span class="ebr-arrow">›</span>
+        <div class="ebr-item"><span class="ebr-num">20</span><span class="ebr-sep">secs</span></div>
+      </div>
+      <div class="actions" style="margin-top:16px">
+        <button class="btn" data-close style="background:linear-gradient(135deg,#d97706,#f59e0b);min-width:160px">✅ Break taken!</button>
+      </div>
+    </div>`);
+  }
+
   // ========== Alarm Manager Modal ==========
   function openAlarmManager() {
     const alarms = state.alarms || [];
@@ -1387,7 +1476,7 @@
     const progressHero = `<article class="hero-card" data-act="open-dashboard" role="button"><div class="hero-eyebrow">${ic('check')}<span>OVERALL</span></div><div class="ring-wrap">${progressRingSVG(overall)}<div class="ring-center"><div class="ring-pct">${overall}<span>%</span></div><div class="ring-lbl">complete</div></div></div><div class="hero-progress-foot"><span><strong>${state.streak.count}</strong> day streak 🔥</span><span>${doneCount}/${totalCount} today</span></div></article>`;
     const achievedBadge = allDone ? `<div class="daily-achieved" role="status">${_justCompletedDay === todayKey() ? renderConfettiBurst() : ''}<span class="da-glyph">🏆</span><div><div class="da-title">Daily Goal Achieved!</div><div class="da-sub">All ${totalCount} task${totalCount === 1 ? '' : 's'} done!</div></div></div>` : '';
     const motivationMsg = getRotatingQuote();
-    view.innerHTML = `<div class="home-profile"><div class="home-profile-avatar">T</div><div class="home-profile-info"><div class="home-profile-name">Tajwar</div><div class="home-profile-sub">CSE'26, BUET</div></div><span class="home-profile-greeting">${greeting()} 👋</span></div><div class="motivation-line ${overall >= 80 ? 'is-hot' : overall < 20 ? 'is-cold' : ''}">${escapeHTML(motivationMsg)}</div><div class="hero-grid" style="margin-top:16px">${examHero}${progressHero}</div><button type="button" class="dashboard-cta" data-act="open-dashboard"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg></span><span class="body"><span class="title">Open Dashboard</span><span class="meta">Plan · Goals · Calendar · Suggestions</span></span><span class="arrow">›</span></button>${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${renderTasksList(tasks)}`;
+    view.innerHTML = `<div class="home-profile"><div class="home-profile-avatar">T</div><div class="home-profile-info"><div class="home-profile-name">Tajwar</div><div class="home-profile-sub">CSE'26, BUET</div><div class="xp-row"><span class="xp-level-badge">Lv.${xpLevel()}</span><div class="xp-bar-wrap"><div class="xp-bar-fill" style="width:${(state.xp&&state.xp.total||0)%100}%"></div></div><span class="xp-label">${(state.xp&&state.xp.total||0)%100}/100 XP</span>${(state.focusStreak&&state.focusStreak.count>0)?`<span class="xp-focus-streak">🔥 ${state.focusStreak.count}d</span>`:''}</div></div><span class="home-profile-greeting">${greeting()} 👋</span></div><div class="motivation-line ${overall >= 80 ? 'is-hot' : overall < 20 ? 'is-cold' : ''}">${escapeHTML(motivationMsg)}</div><div class="hero-grid" style="margin-top:16px">${examHero}${progressHero}</div><button type="button" class="dashboard-cta" data-act="open-dashboard"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg></span><span class="body"><span class="title">Open Dashboard</span><span class="meta">Plan · Goals · Calendar · Suggestions</span></span><span class="arrow">›</span></button>${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${renderTasksList(tasks)}`;
     if (_justPoppedKey) requestAnimationFrame(() => { _justPoppedKey = null; });
     if (_justCompletedDay) setTimeout(() => { _justCompletedDay = null; }, 1800);
   }
@@ -1949,6 +2038,7 @@
       // Credit the planned duration for this completed session
       const elapsedMin = _plannedSecs !== null ? Math.floor(_plannedSecs / 60) : customDurations.work;
       state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + elapsedMin;
+      awardXP(elapsedMin, todayStr);
       bumpActivity(); saveState();
       renderStats();
 
@@ -2642,6 +2732,7 @@
     state.focusStats.sessions      = state.focusStats.sessions || {};
     state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + mins;
     state.focusStats.sessions[todayStr]      = (state.focusStats.sessions[todayStr] || 0) + 1;
+    awardXP(mins, todayStr);
     saveState();
     toast('🎉 Focus session complete! Great work!', 'success', 5000);
   }
@@ -3186,6 +3277,7 @@
       <div class="settings-section"><h4>Motivation Notifications</h4><div class="settings-row"><div class="label">Motivational push messages<div class="sub">Random quote at each scheduled time.</div></div><label class="switch"><input type="checkbox" id="set-mr-toggle" ${mr.enabled ? 'checked' : ''} data-act="toggle-motivation"/><span class="slider"></span></label></div><div class="time-chip-row" style="${mr.enabled ? '' : 'opacity:.55;pointer-events:none'}">${mr.times.length ? chips('motivation', mr.times) : '<span class="muted">No times set.</span>'}<button type="button" class="time-chip add" data-act="open-time-picker" data-which="motivation" data-i="-1">+ Add</button></div></div>
       <div class="settings-section"><h4>Notifications Status</h4><div class="notif-status ${permCls}">${escapeHTML(permText)}</div>${(perm === 'default' || perm === 'denied') ? `<div style="margin-top:9px"><button class="btn btn-block" data-act="sr-request-perm">${perm === 'denied' ? 'Try requesting again' : 'Allow notifications'}</button></div>` : ''}</div>
       <div class="settings-section"><h4>My Motivation Quotes</h4><p style="font-size:12px;color:var(--text-muted);margin:0 0 10px">These quotes appear on the home screen and in Full Focus mode. Add as many as you like.</p><div class="quote-list">${state.motivationQuotes.length ? state.motivationQuotes.map((q, i) => `<div class="quote-row"><div class="text">${escapeHTML(q)}</div><button class="menu-btn" data-act="del-quote" data-i="${i}">${ic('trash')}</button></div>`).join('') : '<div style="font-size:12px;color:var(--text-muted);padding:4px 0">No quotes yet. Add one below!</div>'}</div><div class="quote-add-row"><input id="set-new-quote" placeholder="Add a motivation quote…" maxlength="200"/><button class="btn" data-act="add-quote">${ic('plus')}</button></div></div>
+      <div class="settings-section"><h4>🌙 Night Study Mode</h4><div class="settings-row"><div class="label">Warm amber overlay — reduces eye strain<div class="sub">Also reminds you to take a 20-second eye break every 40 min of video watching.</div></div><label class="switch"><input type="checkbox" id="set-eye-care" ${state.eyeCareMode ? 'checked' : ''} data-act="toggle-eye-care"/><span class="slider"></span></label></div></div>
       <div class="settings-section"><h4>⏰ Alarm Clock</h4><p style="font-size:12px;color:var(--text-muted);margin:0 0 10px">Wake up to your saved motivations with an escalating alarm. Dismiss by catching the moving button!</p><button class="btn btn-block" data-act="open-alarm-manager">⏰ Manage Alarms${(state.alarms||[]).filter(a=>a.enabled).length ? ` <span style="background:rgba(239,68,68,.2);color:#f87171;padding:2px 8px;border-radius:999px;font-size:11px;margin-left:6px">${(state.alarms||[]).filter(a=>a.enabled).length} active</span>` : ''}</button></div>
       <div class="settings-section"><h4>Data</h4><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost" data-act="export-data">${ic('download')} Export Backup</button><label class="btn btn-ghost" style="cursor:pointer">${ic('upload')} Import Backup<input type="file" accept=".json" style="display:none" id="import-file-input"/></label></div></div>
       <div class="actions" style="margin-top:16px"><button class="btn btn-ghost" data-close>Close</button></div>`,
@@ -3528,7 +3620,7 @@
     if (act === 'add-classroom-item') { modalAddClassroomItem(el.dataset.gid); return; }
     if (act === 'del-classroom-group') { const gid = el.dataset.gid; confirmModal('Delete this group and all its videos?', () => { state.classroom.groups = state.classroom.groups.filter(g => g.id !== gid); saveState(); renderFocus(); toast('Group deleted', 'danger'); }); return; }
     if (act === 'del-classroom-item') { e.stopPropagation(); const group = (state.classroom.groups || []).find(g => g.id === el.dataset.gid); if (group) { group.items = group.items.filter(i => i.id !== el.dataset.iid); saveState(); renderFocus(); toast('Video removed', 'info'); } return; }
-    if (act === 'play-video')   { openVideoPlayer(el.dataset.gid, el.dataset.iid); return; }
+    if (act === 'play-video')   { startVideoWatch(); openVideoPlayer(el.dataset.gid, el.dataset.iid); return; }
     if (act === 'vp-close') {
       if (_vfmActive && !_vfmComplete) {
         if (!window.confirm('Your focus session is still running. Exit the video anyway?')) return;
@@ -3678,6 +3770,7 @@
     if (act === 'add-quote') { const input = document.getElementById('set-new-quote'), text = input ? input.value.trim() : ''; if (!text) { toast('Enter a quote first', 'warn'); return; } state.motivationQuotes.push(text); saveState(); refreshSettingsIfOpen(); toast('Quote saved ✨', 'success'); return; }
     if (act === 'export-data') { closeModal(); exportData(); return; }
     if (act === 'backup-export') { exportData(); return; }
+    if (act === 'toggle-eye-care') { state.eyeCareMode = el.checked; saveState(); applyEyCareMode(); refreshSettingsIfOpen(); toast(state.eyeCareMode ? '🌙 Night Study Mode on' : 'Night Study Mode off', 'info'); return; }
     // Alarm actions
     if (act === 'open-alarm-manager') { closeModal(); openAlarmManager(); return; }
     if (act === 'add-alarm') { closeModal(); openAddEditAlarm(null); return; }
@@ -3844,6 +3937,7 @@
     renderFocus();
     startTimers(); // calls scheduleAllNotifications() internally
     scheduleAllAlarms();
+    applyEyCareMode();
     startMotivationRotation();
     setTimeout(maybeAutoShowBurnoutPopup, 2500);
     maybeShowBackupReminder();
