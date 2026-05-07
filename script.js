@@ -503,7 +503,7 @@
   function onTopicDoneChanged(subId, chId, tId, isDone) { if (isDone) scheduleRevisionsForTopic(subId, chId, tId); else cancelRevisionsForTopic(tId); }
   function pruneRevisions() { state.revisions = state.revisions.filter(r => findTopic(r.subId, r.chId, r.tId) && !r.schedule.every(s => s.done)); }
   function dueRevisionItems() {
-    pruneRevisions(); const today = todayKey(), items = [];
+    const today = todayKey(), items = [];
     for (const r of state.revisions) {
       const topic = findTopic(r.subId, r.chId, r.tId); if (!topic) continue;
       const sub = findSubject(r.subId), ch = findChapter(r.subId, r.chId);
@@ -512,7 +512,7 @@
     return items.sort((a, b) => b.daysOverdue - a.daysOverdue);
   }
   function upcomingRevisionItems(limit = 8) {
-    pruneRevisions(); const today = todayKey(), items = [];
+    const today = todayKey(), items = [];
     for (const r of state.revisions) {
       const topic = findTopic(r.subId, r.chId, r.tId); if (!topic) continue;
       const sub = findSubject(r.subId), ch = findChapter(r.subId, r.chId);
@@ -531,7 +531,7 @@
 
   // ========== Notifications ==========
   const NOTIF_SUPPORTED = typeof window !== 'undefined' && 'Notification' in window;
-  let smartReminderTimer = null, motivationTimer = null, dueTaskTimer = null;
+  let dueTaskTimer = null;
   const dueTaskNotified = new Set(); let dueTaskNotifiedDate = null;
 
   function notifPermission() { try { return NOTIF_SUPPORTED ? Notification.permission : 'unsupported'; } catch (e) { return 'unsupported'; } }
@@ -577,6 +577,100 @@
       break;
     }
   }
+  // ========== Precise Notification Scheduler ==========
+  // Replaces 30s polling — fires exactly at HH:MM:00 ±1s.
+  // Works while app is open or backgrounded (tab/PWA minimized).
+  const _notifTimers = new Map();
+
+  function _nextOccurrenceMs(timeStr) {
+    const [h, m] = timeStr.split(':').map(Number);
+    const now = new Date();
+    const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0, 0);
+    if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
+    return next.getTime() - now.getTime();
+  }
+
+  function _scheduleSmartReminderAt(timeStr) {
+    const key = 'sr:' + timeStr;
+    if (_notifTimers.has(key)) clearTimeout(_notifTimers.get(key));
+    const delay = _nextOccurrenceMs(timeStr);
+    const id = setTimeout(() => {
+      _notifTimers.delete(key);
+      const sr = state.smartReminder;
+      if (sr && sr.enabled && notifPermission() === 'granted') {
+        const stampKey = todayKey() + 'T' + timeStr;
+        if (!sr.lastFired[stampKey]) {
+          const incomplete = getActivePlanTasks().filter(x => !x.done);
+          if (incomplete.length > 0) {
+            sr.lastFired[stampKey] = true; saveState();
+            showWebNotification('📚 Study Reminder', `${incomplete.length} task${incomplete.length > 1 ? 's' : ''} pending for today!`, { tag: 'smart-rem-' + timeStr, requireInteraction: false });
+          }
+        }
+      }
+      _scheduleSmartReminderAt(timeStr);
+    }, delay);
+    _notifTimers.set(key, id);
+  }
+
+  function _scheduleMotivationAt(timeStr) {
+    const key = 'mot:' + timeStr;
+    if (_notifTimers.has(key)) clearTimeout(_notifTimers.get(key));
+    const delay = _nextOccurrenceMs(timeStr);
+    const id = setTimeout(() => {
+      _notifTimers.delete(key);
+      const mr = state.motivationReminders;
+      if (mr && mr.enabled) {
+        const stampKey = todayKey() + 'T' + timeStr;
+        if (!mr.lastFired[stampKey]) {
+          mr.lastFired[stampKey] = true; saveState();
+          const quotes = state.motivationQuotes;
+          const quote = quotes.length ? quotes[Math.floor(Math.random() * quotes.length)] : 'Keep going! 💪';
+          if (notifPermission() === 'granted') {
+            showWebNotification('💪 Stay Focused!', quote, { tag: 'mot-' + timeStr, requireInteraction: false });
+          } else {
+            toast(`💪 ${quote}`, 'info', 5000);
+          }
+        }
+      }
+      _scheduleMotivationAt(timeStr);
+    }, delay);
+    _notifTimers.set(key, id);
+  }
+
+  function scheduleAllNotifications() {
+    _notifTimers.forEach(id => clearTimeout(id));
+    _notifTimers.clear();
+    if (notifPermission() !== 'granted') return;
+    if (state.smartReminder && state.smartReminder.enabled) {
+      (state.smartReminder.times || []).forEach(_scheduleSmartReminderAt);
+    }
+    if (state.motivationReminders && state.motivationReminders.enabled) {
+      (state.motivationReminders.times || []).forEach(_scheduleMotivationAt);
+    }
+    _pushScheduleToSW();
+  }
+
+  function _pushScheduleToSW() {
+    if (!('serviceWorker' in navigator)) return;
+    const schedules = [];
+    if (state.smartReminder && state.smartReminder.enabled) {
+      (state.smartReminder.times || []).forEach(t => {
+        schedules.push({ type: 'study-reminder', time: t, title: '📚 Study Reminder', body: 'You have tasks pending today!' });
+      });
+    }
+    if (state.motivationReminders && state.motivationReminders.enabled) {
+      const quotes = state.motivationQuotes || [];
+      (state.motivationReminders.times || []).forEach(t => {
+        const q = quotes.length ? quotes[Math.floor(Math.random() * quotes.length)] : 'Keep going! 💪';
+        schedules.push({ type: 'motivation', time: t, title: '💪 Stay Focused!', body: q });
+      });
+    }
+    try { localStorage.setItem('stk_notif_config', JSON.stringify({ schedules, ts: Date.now() })); } catch (e) {}
+    navigator.serviceWorker.ready.then(reg => {
+      if (reg.active) reg.active.postMessage({ type: 'schedule-notifications', schedules });
+    }).catch(() => {});
+  }
+
   // ========== Midnight date-change detector ==========
   let _planDateKey = todayKey();
   function onMidnightReset() {
@@ -593,9 +687,7 @@
   }
 
   function startTimers() {
-    clearInterval(smartReminderTimer); clearInterval(motivationTimer); clearInterval(dueTaskTimer);
-    smartReminderTimer = setInterval(checkSmartReminder, 30000);
-    motivationTimer = setInterval(checkMotivationReminders, 30000);
+    clearInterval(dueTaskTimer);
     setInterval(checkBackupBannerWindow, 60000);
     // Check for date change every 60s — triggers midnight rollover
     setInterval(() => {
@@ -610,6 +702,8 @@
         if (notifPermission() === 'granted') showWebNotification('Revision due', `${item.topic.name} (${item.sub.name})`, { tag: `rev-${key}` });
       }
     }, 60000);
+    // Precise setTimeout-based scheduling replaces 30s polling intervals
+    scheduleAllNotifications();
   }
 
   // ========== Toast ==========
@@ -979,6 +1073,8 @@
   let _justPoppedKey = null, _justCompletedDay = null;
   let _addTaskRecurring = false;
   let calendarViewDate = new Date();
+  let _currentTab = 'home';
+  let _renderAllTimer = null;
 
   function switchTab(tab) {
     if (focusLocked && !focusMultitaskMode && focusRunning && tab !== 'focus') {
@@ -989,6 +1085,7 @@
     const view = document.getElementById('view-' + tab); if (view) view.classList.add('active');
     const btn = document.querySelector(`.nav-btn[data-tab="${tab}"]`); if (btn) btn.classList.add('active');
     document.body.className = 'tab-' + tab;
+    _currentTab = tab;
     closeDropdown();
     // Rotate motivation quote when returning to home
     if (tab === 'home') nextMotivationQuote();
@@ -997,8 +1094,21 @@
   }
   function closeDropdown() { if (activeDropdown) { activeDropdown.remove(); activeDropdown = null; } }
 
-  // ========== Render All ==========
-  function renderAll() { renderHome(); renderDashboard(); renderSyllabus(); renderRevision(); renderStats(); }
+  // ========== Render All (lazy + debounced) ==========
+  // Only renders the currently visible tab to prevent CPU waste.
+  // Rapid successive calls are batched into one render via 30ms debounce.
+  function _renderOneTab(tab) {
+    if (tab === 'home')     renderHome();
+    else if (tab === 'board')     renderDashboard();
+    else if (tab === 'syllabus')  renderSyllabus();
+    else if (tab === 'revision')  renderRevision();
+    else if (tab === 'stats')     renderStats();
+    // 'focus' is handled separately by renderFocus()
+  }
+  function renderAll() {
+    clearTimeout(_renderAllTimer);
+    _renderAllTimer = setTimeout(() => _renderOneTab(_currentTab), 30);
+  }
 
   // ========== Home ==========
   function progressRingSVG(pct) {
@@ -2840,7 +2950,7 @@
         root.querySelectorAll('[data-tp]').forEach(btn => { let ti=null,ri=null; const fn=()=>{const tp=btn.dataset.tp;if(tp==='h-up')h++;else if(tp==='h-down')h--;else if(tp==='m-up')m++;else m--;update();}; btn.addEventListener('pointerdown',e=>{e.preventDefault();fn();ti=setTimeout(()=>{ri=setInterval(fn,80);},350);}); const stop=()=>{clearTimeout(ti);clearInterval(ri);}; btn.addEventListener('pointerup',stop);btn.addEventListener('pointerleave',stop);btn.addEventListener('pointercancel',stop); });
         root.querySelectorAll('[data-tp-ampm]').forEach(btn=>btn.addEventListener('click',()=>{const t=btn.dataset.tpAmpm;if(t==='AM'&&h>=12)h-=12;if(t==='PM'&&h<12)h+=12;update();}));
         root.querySelectorAll('[data-tp-set]').forEach(btn=>btn.addEventListener('click',()=>{const[hh,mm]=btn.dataset.tpSet.split(':').map(Number);h=hh;m=mm;update();}));
-        root.querySelector('#tp-save').addEventListener('click',()=>{const v=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;if(isAdd){if(!target.times.includes(v))target.times.push(v);}else target.times[index]=v;target.times.sort();target.times=[...new Set(target.times)];saveState();closeModal();modalSettings();toast(`${titlePrefix} time ${isAdd?'added':'updated'}`, 'success');});
+        root.querySelector('#tp-save').addEventListener('click',()=>{const v=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;if(isAdd){if(!target.times.includes(v))target.times.push(v);}else target.times[index]=v;target.times.sort();target.times=[...new Set(target.times)];saveState();scheduleAllNotifications();closeModal();modalSettings();toast(`${titlePrefix} time ${isAdd?'added':'updated'}`, 'success');});
       });
   }
 
@@ -3303,11 +3413,11 @@
     if (act === 'weak-reset') { resetWeakTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); saveState(); renderDashboard(); toast('Reset weak flag', 'info'); return; }
 
     // Settings actions
-    if (act === 'toggle-smart-reminder') { state.smartReminder.enabled = el.checked; saveState(); refreshSettingsIfOpen(); return; }
-    if (act === 'toggle-motivation') { state.motivationReminders.enabled = el.checked; saveState(); refreshSettingsIfOpen(); return; }
+    if (act === 'toggle-smart-reminder') { state.smartReminder.enabled = el.checked; saveState(); refreshSettingsIfOpen(); scheduleAllNotifications(); return; }
+    if (act === 'toggle-motivation') { state.motivationReminders.enabled = el.checked; saveState(); refreshSettingsIfOpen(); scheduleAllNotifications(); return; }
     if (act === 'open-time-picker') { modalSetReminderTime(el.dataset.which, parseInt(el.dataset.i, 10)); return; }
-    if (act === 'del-time-slot') { const target = el.dataset.which === 'motivation' ? state.motivationReminders : state.smartReminder; target.times.splice(parseInt(el.dataset.i, 10), 1); saveState(); refreshSettingsIfOpen(); return; }
-    if (act === 'sr-request-perm') { requestNotifPermission().then(() => refreshSettingsIfOpen()); return; }
+    if (act === 'del-time-slot') { const target = el.dataset.which === 'motivation' ? state.motivationReminders : state.smartReminder; target.times.splice(parseInt(el.dataset.i, 10), 1); saveState(); refreshSettingsIfOpen(); scheduleAllNotifications(); return; }
+    if (act === 'sr-request-perm') { requestNotifPermission().then(() => { refreshSettingsIfOpen(); scheduleAllNotifications(); }); return; }
     if (act === 'del-quote') { state.motivationQuotes.splice(parseInt(el.dataset.i, 10), 1); saveState(); if (_currentQuote && !state.motivationQuotes.includes(_currentQuote)) _currentQuote = null; refreshSettingsIfOpen(); toast('Quote removed', 'info'); return; }
     if (act === 'add-quote') { const input = document.getElementById('set-new-quote'), text = input ? input.value.trim() : ''; if (!text) { toast('Enter a quote first', 'warn'); return; } state.motivationQuotes.push(text); saveState(); refreshSettingsIfOpen(); toast('Quote saved ✨', 'success'); return; }
     if (act === 'export-data') { closeModal(); exportData(); return; }
@@ -3438,16 +3548,19 @@
         // If timer expired while app was backgrounded, trigger completion now
         if (focusSeconds <= 0) focusTick();
       }
+      // Re-validate notification schedule (catches any missed/expired timers)
+      scheduleAllNotifications();
     }
   });
 
   // ========== Init ==========
   function init() {
+    pruneRevisions();
     initMiniTimer();
     switchTab('home');
     renderAll();
     renderFocus();
-    startTimers();
+    startTimers(); // calls scheduleAllNotifications() internally
     startMotivationRotation();
     setTimeout(maybeAutoShowBurnoutPopup, 2500);
     maybeShowBackupReminder();

@@ -1,9 +1,9 @@
-const CACHE_NAME = 'syllabus-tracker-v34';
+const CACHE_NAME = 'syllabus-tracker-v35';
 const STATIC = [
   '/',
   '/index.html',
   '/style.css?v=29',
-  '/script.js?v=27',
+  '/script.js?v=28',
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png',
@@ -108,12 +108,84 @@ self.addEventListener('fetch', e => {
   );
 });
 
+// ── Notification click: open/focus the PWA window ──────────────────────────
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const targetUrl = (e.notification.data && e.notification.data.url) || './';
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
+      for (const client of windowClients) {
+        if (client.url.includes(self.registration.scope) && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(targetUrl);
+    })
+  );
+});
+
+// ── Push event: for future VAPID/server-sent push support ──────────────────
+self.addEventListener('push', e => {
+  let data = { title: 'Syllabus Tracker', body: '', tag: 'syllabus-push' };
+  try { if (e.data) data = Object.assign(data, e.data.json()); } catch (_) {}
+  e.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      tag: data.tag,
+      data: { url: data.url || './' },
+      requireInteraction: false
+    })
+  );
+});
+
+// ── SW-side close-range scheduler ──────────────────────────────────────────
+// Schedules notifications that fire within the next 65 minutes directly in
+// the SW, so they survive a backgrounded/minimized browser tab.
+// The main thread handles precise day-long scheduling via setTimeout.
+let _swTimers = [];
+
+function _swScheduleNext(schedule) {
+  const [h, m] = schedule.time.split(':').map(Number);
+  const now = new Date();
+  const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0, 0);
+  if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
+  const delay = next.getTime() - now.getTime();
+  // Only schedule if within 65 min — SW may be killed for longer sleeps
+  if (delay > 65 * 60 * 1000) return;
+  const tid = setTimeout(() => {
+    self.registration.showNotification(schedule.title, {
+      body: schedule.body,
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      tag: schedule.type + '-' + schedule.time,
+      data: { url: './' },
+      requireInteraction: false
+    });
+  }, delay);
+  _swTimers.push(tid);
+}
+
+// ── Message handler ─────────────────────────────────────────────────────────
 self.addEventListener('message', e => {
-  if (e.data && e.data.type === 'show-notification') {
+  if (!e.data) return;
+
+  // Direct notification display (main thread request)
+  if (e.data.type === 'show-notification') {
     self.registration.showNotification(e.data.title, {
       ...e.data.options,
       icon: '/icon-192.png',
       badge: '/icon-192.png',
     });
+    return;
+  }
+
+  // Receive schedule from main thread and register close-range SW timers
+  if (e.data.type === 'schedule-notifications') {
+    _swTimers.forEach(t => clearTimeout(t));
+    _swTimers = [];
+    const schedules = e.data.schedules || [];
+    schedules.forEach(_swScheduleNext);
   }
 });
