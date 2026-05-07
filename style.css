@@ -2591,27 +2591,38 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 /* ══════════════════════════════════════════════════════════════
    VIDEO FOCUS MODE
    ══════════════════════════════════════════════════════════════ */
+/* ── Floating Focus Timer widget (draggable) ─────────────────── */
 #vfm-overlay {
-  position: fixed; inset: 0; z-index: 9995;
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  background: rgba(4, 6, 15, 0.97);
-  backdrop-filter: blur(28px) saturate(150%);
-  -webkit-backdrop-filter: blur(28px) saturate(150%);
-  padding: calc(env(safe-area-inset-top, 0px) + 64px) 28px
-           calc(env(safe-area-inset-bottom, 0px) + 28px);
-  animation: vpIn 0.3s var(--ease);
+  position: fixed;
+  top: 80px; right: 14px;
+  z-index: 9995;
+  width: 172px;
+  background: rgba(4, 6, 15, 0.65);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid rgba(99,102,241,0.40);
+  border-radius: 22px;
+  padding: 10px 12px 14px;
   text-align: center;
-  overflow-y: auto;
+  cursor: grab;
+  touch-action: none;
+  user-select: none; -webkit-user-select: none;
+  opacity: 0.65;
+  transition: opacity 0.3s ease;
+  animation: vpIn 0.3s var(--ease);
 }
+#vfm-overlay:hover { opacity: 0.88; }
+#vfm-overlay.vfm-dragging { opacity: 1 !important; cursor: grabbing; }
+#vfm-overlay.vp-closing { animation: vpOut 0.2s var(--ease) forwards; }
 
 /* ── Top bar ─────────────────────────────────────────────────── */
 .vfm-top-bar {
-  position: absolute;
-  top: calc(env(safe-area-inset-top, 0px) + 16px);
-  left: 0; right: 0;
   display: flex; align-items: center; justify-content: space-between;
-  padding: 0 18px;
+  margin-bottom: 6px;
+}
+.vfm-badge-sm {
+  font-size: 9px; font-weight: 800; letter-spacing: 0.11em;
+  text-transform: uppercase; color: #818cf8;
 }
 .vfm-badge {
   font-size: 10px; font-weight: 800; letter-spacing: 0.14em;
@@ -2620,6 +2631,18 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   border: 1px solid rgba(99,102,241,0.38);
   border-radius: 20px; padding: 5px 13px;
 }
+.vfm-tiny-btn {
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.13);
+  border-radius: 8px; color: var(--text-muted);
+  font-size: 14px; line-height: 1;
+  cursor: pointer; font-family: inherit; flex-shrink: 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.vfm-tiny-btn:hover { background: rgba(255,255,255,0.13); color: var(--text); }
+.vfm-close-btn:hover { background: rgba(244,113,100,0.18) !important; border-color: rgba(244,113,100,0.4) !important; color: #f47364 !important; }
 .vfm-minimize-btn {
   background: rgba(255,255,255,0.06);
   border: 1px solid rgba(255,255,255,0.13);
@@ -2633,9 +2656,9 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 /* ── Circular ring ───────────────────────────────────────────── */
 .vfm-ring-wrap {
   position: relative;
-  width: 240px; height: 240px;
+  width: 148px; height: 148px;
   display: flex; align-items: center; justify-content: center;
-  margin: 12px 0 18px;
+  margin: 0 auto 8px;
 }
 .vfm-svg {
   position: absolute; inset: 0;
@@ -2652,14 +2675,14 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .vfm-ring-fg.vfm-ring-done { stroke: #22c55e; }
 .vfm-center {
   display: flex; flex-direction: column;
-  align-items: center; gap: 6px; z-index: 1;
+  align-items: center; gap: 4px; z-index: 1;
 }
 .vfm-time {
-  font-size: 54px; font-weight: 900; letter-spacing: -2px; line-height: 1;
+  font-size: 26px; font-weight: 900; letter-spacing: -1px; line-height: 1;
   color: var(--text); font-variant-numeric: tabular-nums;
 }
 .vfm-status {
-  font-size: 11px; font-weight: 800; letter-spacing: 0.10em;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.09em;
   text-transform: uppercase; color: #818cf8;
   transition: color 0.4s;
 }
@@ -2668,60 +2691,47 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 
 /* ── Video title ──────────────────────────────────────────────── */
 .vfm-vtitle {
-  font-size: 14px; font-weight: 600; color: var(--text-muted);
-  max-width: 300px; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap;
-  margin-bottom: 8px;
+  font-size: 10px; font-weight: 600; color: var(--text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  margin-bottom: 6px; max-width: 100%;
 }
 
 /* ── Completion message ───────────────────────────────────────── */
 .vfm-complete-msg {
-  margin: 4px 0 10px;
+  margin: 2px 0 6px;
   animation: vfmPop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-.vfm-complete-icon { font-size: 38px; line-height: 1; margin-bottom: 6px; }
-.vfm-complete-text { font-size: 22px; font-weight: 900; color: #22c55e; }
-.vfm-complete-sub  { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+.vfm-complete-icon { display: none; }
+.vfm-complete-text { font-size: 12px; font-weight: 900; color: #22c55e; }
+.vfm-complete-sub  { display: none; }
 
-/* ── Hint ────────────────────────────────────────────────────── */
-.vfm-hint {
-  font-size: 12px; color: rgba(148,163,184,0.55);
-  margin: 8px 0 14px; letter-spacing: 0.02em;
-}
+/* ── Hint (hidden in compact widget) ────────────────────────── */
+.vfm-hint { display: none; }
 
 /* ── Exit button ─────────────────────────────────────────────── */
 .vfm-exit-btn {
-  width: 100%; max-width: 300px;
-  border-radius: 16px;
-  font-size: 15px; font-weight: 800;
-  padding: 16px 24px; cursor: pointer;
+  width: 100%;
+  border-radius: 12px;
+  font-size: 11px; font-weight: 800;
+  padding: 9px 10px; cursor: pointer;
   transition: opacity 0.25s, transform 0.15s, box-shadow 0.3s;
 }
 .vfm-exit-btn.vfm-locked {
-  background: rgba(255,255,255,0.07) !important;
-  color: rgba(255,255,255,0.35) !important;
-  border: 1px solid rgba(255,255,255,0.11) !important;
-  cursor: not-allowed;
-  pointer-events: none;
+  background: rgba(255,255,255,0.06) !important;
+  color: rgba(255,255,255,0.28) !important;
+  border: 1px solid rgba(255,255,255,0.09) !important;
+  cursor: not-allowed; pointer-events: none;
 }
 .vfm-exit-btn.vfm-unlocked {
   background: linear-gradient(135deg, #22c55e, #16a34a);
   color: #fff; border: none;
-  box-shadow: 0 6px 28px rgba(34,197,94,0.40);
+  box-shadow: 0 4px 18px rgba(34,197,94,0.38);
   animation: vfmPulse 2.2s ease-in-out infinite;
 }
 .vfm-exit-btn.vfm-unlocked:active { transform: scale(0.97); }
 
-/* ── Abandon link ────────────────────────────────────────────── */
-.vfm-abandon-link {
-  background: none; border: none;
-  color: rgba(148,163,184,0.40);
-  font-size: 12px; font-family: inherit;
-  cursor: pointer; margin-top: 16px;
-  text-decoration: underline;
-  transition: color 0.18s;
-}
-.vfm-abandon-link:hover { color: #f47364; }
+/* ── Abandon link (hidden; use ✕ button instead) ────────────── */
+.vfm-abandon-link { display: none; }
 
 /* ── Focus button active state in video header ───────────────── */
 .vfm-start-vp-btn { font-size: 15px; }

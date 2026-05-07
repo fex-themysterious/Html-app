@@ -2582,11 +2582,12 @@
     const prog = _vfmDuration > 0 ? _vfmRemaining / _vfmDuration : 1;
     const offset = _VFM_C * (1 - prog);
     const statusCls = _vfmComplete ? ' complete' : !_vfmRunning ? ' paused' : '';
-    const statusTxt = _vfmComplete ? '✅ Done' : !_vfmRunning ? '⏸ Paused' : '▶ Active';
+    const statusTxt = _vfmComplete ? '✅' : !_vfmRunning ? '⏸' : '▶';
     return `
       <div class="vfm-top-bar">
-        <div class="vfm-badge">🎯 FOCUS MODE</div>
-        <button class="vfm-minimize-btn" data-act="vfm-minimize">⌄ Minimize</button>
+        <button class="vfm-tiny-btn" data-act="vfm-minimize" title="Minimize">&#8212;</button>
+        <span class="vfm-badge-sm">🎯 FOCUS</span>
+        <button class="vfm-tiny-btn vfm-close-btn" data-act="vfm-close" title="${_vfmComplete ? 'Exit' : 'Abandon'}">&times;</button>
       </div>
       <div class="vfm-ring-wrap">
         <svg class="vfm-svg" viewBox="0 0 220 220">
@@ -2600,13 +2601,50 @@
       </div>
       <div class="vfm-vtitle">${escapeHTML(_vfmTitle)}</div>
       <div class="vfm-complete-msg" id="vfm-complete-msg"${_vfmComplete ? '' : ' style="display:none"'}>
-        <div class="vfm-complete-icon">🎉</div>
-        <div class="vfm-complete-text">Session Complete!</div>
-        <div class="vfm-complete-sub">You powered through the whole session!</div>
+        <div class="vfm-complete-text">🎉 Session Complete!</div>
       </div>
-      <div class="vfm-hint" id="vfm-hint"${_vfmComplete ? ' style="display:none"' : ''}>Complete the session to unlock Exit</div>
-      <button class="btn vfm-exit-btn${_vfmComplete ? ' vfm-unlocked' : ' vfm-locked'}" id="vfm-exit-btn" data-act="vfm-exit">${_vfmComplete ? '✅ Exit &amp; Complete' : '🔒 Exit Focus Mode'}</button>
-      ${_vfmComplete ? '' : '<button class="vfm-abandon-link" data-act="vfm-abandon">Abandon session</button>'}`;
+      <button class="btn vfm-exit-btn${_vfmComplete ? ' vfm-unlocked' : ' vfm-locked'}" id="vfm-exit-btn" data-act="vfm-exit">${_vfmComplete ? '✅ Exit &amp; Log' : '🔒 Finish to Exit'}</button>`;
+  }
+
+  function _bindVfmDrag(el) {
+    let _sx = 0, _sy = 0, _ex = 0, _ey = 0, _drag = false, _moved = false;
+    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+    function startDrag(cx, cy) {
+      const r = el.getBoundingClientRect();
+      _ex = r.left; _ey = r.top; _sx = cx; _sy = cy; _drag = true; _moved = false;
+      el.style.right = 'auto'; el.style.bottom = 'auto';
+      el.style.left = _ex + 'px'; el.style.top = _ey + 'px';
+      el.classList.add('vfm-dragging');
+    }
+    function moveDrag(cx, cy) {
+      if (!_drag) return;
+      const dx = cx - _sx, dy = cy - _sy;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) _moved = true;
+      el.style.left = clamp(_ex + dx, 0, window.innerWidth - el.offsetWidth) + 'px';
+      el.style.top  = clamp(_ey + dy, 0, window.innerHeight - el.offsetHeight) + 'px';
+    }
+    function endDrag() { _drag = false; el.classList.remove('vfm-dragging'); }
+    el.addEventListener('touchstart', e => {
+      if (e.target.closest('button')) return;
+      const t = e.touches[0]; startDrag(t.clientX, t.clientY);
+    }, { passive: true });
+    el.addEventListener('touchmove', e => {
+      if (!_drag) return; e.preventDefault();
+      moveDrag(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: false });
+    el.addEventListener('touchend', e => {
+      if (_moved) { e.preventDefault(); e.stopPropagation(); }
+      endDrag();
+    }, { passive: false });
+    el.addEventListener('click', e => {
+      if (_moved) { _moved = false; e.stopImmediatePropagation(); }
+    }, true);
+    el.addEventListener('mousedown', e => {
+      if (e.target.closest('button')) return;
+      startDrag(e.clientX, e.clientY); e.preventDefault();
+    });
+    document.addEventListener('mousemove', e => { if (_drag) moveDrag(e.clientX, e.clientY); });
+    document.addEventListener('mouseup', () => endDrag());
   }
 
   function _vfmBubbleHTML() {
@@ -2682,6 +2720,7 @@
     el.id = 'vfm-overlay';
     el.innerHTML = _vfmOverlayHTML();
     document.body.appendChild(el);
+    _bindVfmDrag(el);
     const vpFocusBtn = document.querySelector('.vfm-start-vp-btn');
     if (vpFocusBtn) { vpFocusBtn.classList.add('vfm-btn-active'); vpFocusBtn.title = 'Focus Mode Active'; }
     _vfmTimer = setInterval(vfmTick, 1000);
@@ -2763,6 +2802,7 @@
     el.id = 'vfm-bubble'; el.dataset.act = 'vfm-expand'; el.title = 'Tap to expand Focus Mode';
     el.innerHTML = _vfmBubbleHTML();
     document.body.appendChild(el);
+    _bindVfmDrag(el);
   }
 
   function expandVfm() {
@@ -2775,6 +2815,7 @@
     el.id = 'vfm-overlay';
     el.innerHTML = _vfmOverlayHTML();
     document.body.appendChild(el);
+    _bindVfmDrag(el);
     updateVfmDisplay();
   }
 
@@ -3655,6 +3696,11 @@
     }
     if (act === 'vfm-abandon') {
       if (window.confirm('Abandon focus session? Your progress won\'t be counted.')) stopVfm();
+      return;
+    }
+    if (act === 'vfm-close') {
+      if (_vfmComplete) { closeVideoPlayer(); }
+      else if (window.confirm('Abandon focus session? Your progress won\'t be counted.')) stopVfm();
       return;
     }
     if (act === 'edit-classroom-item') { modalEditClassroomItem(el.dataset.gid, el.dataset.iid); return; }
