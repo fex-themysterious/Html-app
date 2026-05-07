@@ -1925,6 +1925,13 @@
   let _ytPlayerReady = false;   // true only after onReady fires with e.target
   let _ytPlayerState = -1;      // mirrors YT player state (-1 unstarted, 1 playing, 2 paused…)
 
+  // ── Video Focus Mode state ──────────────────────────────────
+  let _vfmActive = false, _vfmDuration = 0, _vfmRemaining = 0;
+  let _vfmTimer = null, _vfmRunning = false, _vfmComplete = false;
+  let _vfmMinimized = false, _vfmTitle = '';
+  const _VFM_C  = +(2 * Math.PI * 96).toFixed(2);  // ring  r=96
+  const _VFM_BC = +(2 * Math.PI * 26).toFixed(2);  // bubble r=26
+
   function loadYTApi() {
     if (window._ytApiRequested) return;
     window._ytApiRequested = true;
@@ -2070,6 +2077,7 @@
       <div class="vp-header">
         <button class="vp-back-btn" data-act="vp-close" aria-label="Back">${SVG_BACK}</button>
         <div class="vp-header-title">${escapeHTML(item.title)}</div>
+        <button class="vp-yt-btn vfm-start-vp-btn" data-act="vfm-start" title="Start Focus Mode" aria-label="Focus Mode">⏱</button>
         <button class="vp-yt-btn vp-orient-btn" data-act="vp-toggle-landscape" title="Toggle landscape mode" aria-label="Toggle landscape">${SVG_ORIENT_LANDSCAPE}</button>
         <a href="${escapeHTML(item.url)}" target="_blank" rel="noopener" class="vp-yt-btn" title="Open externally">${SVG_EXTLINK}</a>
       </div>
@@ -2089,6 +2097,211 @@
         </div>
         <div class="vp-notes-col" id="vp-notes-col">${notesSection}</div>
       </div>`;
+  }
+
+  // ========== Video Focus Mode ==========
+  function _fmtVfm(s) {
+    const m = Math.floor(s / 60), sec = s % 60;
+    return `${m}:${String(sec).padStart(2, '0')}`;
+  }
+
+  function _vfmOverlayHTML() {
+    const prog = _vfmDuration > 0 ? _vfmRemaining / _vfmDuration : 1;
+    const offset = _VFM_C * (1 - prog);
+    const statusCls = _vfmComplete ? ' complete' : !_vfmRunning ? ' paused' : '';
+    const statusTxt = _vfmComplete ? '✅ Done' : !_vfmRunning ? '⏸ Paused' : '▶ Active';
+    return `
+      <div class="vfm-top-bar">
+        <div class="vfm-badge">🎯 FOCUS MODE</div>
+        <button class="vfm-minimize-btn" data-act="vfm-minimize">⌄ Minimize</button>
+      </div>
+      <div class="vfm-ring-wrap">
+        <svg class="vfm-svg" viewBox="0 0 220 220">
+          <circle class="vfm-ring-bg" cx="110" cy="110" r="96" fill="none" stroke-width="10"/>
+          <circle class="vfm-ring-fg${_vfmComplete ? ' vfm-ring-done' : ''}" cx="110" cy="110" r="96" fill="none" stroke-width="10" stroke-linecap="round" id="vfm-ring-fg" style="stroke-dashoffset:${offset}"/>
+        </svg>
+        <div class="vfm-center">
+          <div class="vfm-time" id="vfm-time">${_fmtVfm(_vfmRemaining)}</div>
+          <div class="vfm-status${statusCls}" id="vfm-status">${statusTxt}</div>
+        </div>
+      </div>
+      <div class="vfm-vtitle">${escapeHTML(_vfmTitle)}</div>
+      <div class="vfm-complete-msg" id="vfm-complete-msg"${_vfmComplete ? '' : ' style="display:none"'}>
+        <div class="vfm-complete-icon">🎉</div>
+        <div class="vfm-complete-text">Session Complete!</div>
+        <div class="vfm-complete-sub">You powered through the whole session!</div>
+      </div>
+      <div class="vfm-hint" id="vfm-hint"${_vfmComplete ? ' style="display:none"' : ''}>Complete the session to unlock Exit</div>
+      <button class="btn vfm-exit-btn${_vfmComplete ? ' vfm-unlocked' : ' vfm-locked'}" id="vfm-exit-btn" data-act="vfm-exit">${_vfmComplete ? '✅ Exit &amp; Complete' : '🔒 Exit Focus Mode'}</button>
+      ${_vfmComplete ? '' : '<button class="vfm-abandon-link" data-act="vfm-abandon">Abandon session</button>'}`;
+  }
+
+  function _vfmBubbleHTML() {
+    const prog = _vfmDuration > 0 ? _vfmRemaining / _vfmDuration : 1;
+    const offset = _VFM_BC * (1 - prog);
+    return `
+      <svg class="vfm-bubble-svg" viewBox="0 0 60 60">
+        <circle class="vfm-br-bg" cx="30" cy="30" r="26" fill="none" stroke-width="5"/>
+        <circle class="vfm-br-fg${_vfmComplete ? ' vfm-br-done' : ''}" cx="30" cy="30" r="26" fill="none" stroke-width="5" stroke-linecap="round" id="vfm-bubble-ring" style="stroke-dashoffset:${offset}"/>
+      </svg>
+      <div class="vfm-bubble-time" id="vfm-bubble-time">${_fmtVfm(_vfmRemaining)}</div>`;
+  }
+
+  function openVfmPicker() {
+    if (_vfmActive) { if (_vfmMinimized) expandVfm(); return; }
+    const vpOverlay = document.getElementById('vp-overlay');
+    if (!vpOverlay) return;
+    const existing = document.getElementById('vfm-picker');
+    if (existing) { existing.remove(); return; }
+    const title = document.querySelector('.vp-header-title')?.textContent || 'Video';
+    const el = document.createElement('div');
+    el.id = 'vfm-picker';
+    el.innerHTML = `
+      <div class="vfm-picker-title">⏱ Focus Session</div>
+      <div class="vfm-picker-sub">${escapeHTML(title)}</div>
+      <div class="vfm-dur-chips">
+        <button class="vfm-chip active" data-dur="25">25 min</button>
+        <button class="vfm-chip" data-dur="45">45 min</button>
+        <button class="vfm-chip" data-dur="60">60 min</button>
+        <button class="vfm-chip" data-dur="0">Custom</button>
+      </div>
+      <div class="vfm-custom-wrap" id="vfm-picker-custom">
+        <input id="vfm-custom-min" type="number" min="1" max="180" value="30" inputmode="numeric"/>
+        <span style="color:var(--text-muted);font-size:14px">minutes</span>
+      </div>
+      <div class="vfm-picker-actions">
+        <button class="btn" id="vfm-pick-start" style="flex:1;background:linear-gradient(135deg,#4f46e5,#7c3aed)">🎯 Start Focus Mode</button>
+        <button class="btn btn-ghost" id="vfm-pick-cancel">Cancel</button>
+      </div>`;
+    document.body.appendChild(el);
+    let selectedDur = 25;
+    el.querySelectorAll('.vfm-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        el.querySelectorAll('.vfm-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        const dur = parseInt(chip.dataset.dur, 10);
+        selectedDur = dur;
+        document.getElementById('vfm-picker-custom').style.display = dur === 0 ? 'flex' : 'none';
+      });
+    });
+    el.querySelector('#vfm-pick-start').addEventListener('click', () => {
+      let dur = selectedDur;
+      if (dur === 0) {
+        const v = parseInt(document.getElementById('vfm-custom-min')?.value || '30', 10);
+        if (isNaN(v) || v < 1 || v > 180) { toast('Enter 1–180 minutes', 'warn'); return; }
+        dur = v;
+      }
+      el.remove();
+      const titleNow = document.querySelector('.vp-header-title')?.textContent || 'Video';
+      startVfm(dur, titleNow);
+    });
+    el.querySelector('#vfm-pick-cancel').addEventListener('click', () => el.remove());
+  }
+
+  function startVfm(mins, title) {
+    _vfmActive = true; _vfmDuration = mins * 60; _vfmRemaining = mins * 60;
+    _vfmComplete = false; _vfmMinimized = false; _vfmTitle = title || '';
+    // Start paused if video is already paused/unstarted
+    _vfmRunning = !(_ytPlayerReady && (_ytPlayerState === 2 || _ytPlayerState === 5 || _ytPlayerState === -1));
+    document.getElementById('vfm-overlay')?.remove();
+    document.getElementById('vfm-bubble')?.remove();
+    const el = document.createElement('div');
+    el.id = 'vfm-overlay';
+    el.innerHTML = _vfmOverlayHTML();
+    document.body.appendChild(el);
+    const vpFocusBtn = document.querySelector('.vfm-start-vp-btn');
+    if (vpFocusBtn) { vpFocusBtn.classList.add('vfm-btn-active'); vpFocusBtn.title = 'Focus Mode Active'; }
+    _vfmTimer = setInterval(vfmTick, 1000);
+    toast('Focus Mode started — stay locked in! 🎯', 'success', 3000);
+  }
+
+  function stopVfm() {
+    _vfmActive = false; _vfmComplete = false; _vfmMinimized = false; _vfmRunning = false;
+    clearInterval(_vfmTimer); _vfmTimer = null;
+    document.getElementById('vfm-overlay')?.remove();
+    document.getElementById('vfm-bubble')?.remove();
+    document.getElementById('vfm-picker')?.remove();
+    const vpFocusBtn = document.querySelector('.vfm-start-vp-btn');
+    if (vpFocusBtn) { vpFocusBtn.classList.remove('vfm-btn-active'); vpFocusBtn.title = 'Start Focus Mode'; }
+  }
+
+  function vfmTick() {
+    if (_ytPlayerReady) {
+      const playing = _ytPlayerState === 1 || _ytPlayerState === 3;
+      const paused  = _ytPlayerState === 2 || _ytPlayerState === 5 || _ytPlayerState === -1;
+      if (paused && _vfmRunning)          { _vfmRunning = false; updateVfmDisplay(); return; }
+      if (playing && !_vfmRunning && !_vfmComplete) { _vfmRunning = true; }
+    }
+    if (!_vfmRunning || _vfmComplete) return;
+    _vfmRemaining = Math.max(0, _vfmRemaining - 1);
+    updateVfmDisplay();
+    if (_vfmRemaining <= 0) onVfmComplete();
+  }
+
+  function updateVfmDisplay() {
+    const prog   = _vfmDuration > 0 ? _vfmRemaining / _vfmDuration : 1;
+    const offset = _VFM_C * (1 - prog);
+    const ringEl = document.getElementById('vfm-ring-fg');
+    if (ringEl) ringEl.style.strokeDashoffset = offset;
+    const timeEl = document.getElementById('vfm-time');
+    if (timeEl) timeEl.textContent = _fmtVfm(_vfmRemaining);
+    const statusEl = document.getElementById('vfm-status');
+    if (statusEl) {
+      statusEl.className = 'vfm-status' + (_vfmComplete ? ' complete' : !_vfmRunning ? ' paused' : '');
+      statusEl.textContent = _vfmComplete ? '✅ Done' : !_vfmRunning ? '⏸ Paused' : '▶ Active';
+    }
+    const bubbleRing = document.getElementById('vfm-bubble-ring');
+    if (bubbleRing) bubbleRing.style.strokeDashoffset = _VFM_BC * (1 - prog);
+    const bubbleTime = document.getElementById('vfm-bubble-time');
+    if (bubbleTime) bubbleTime.textContent = _fmtVfm(_vfmRemaining);
+  }
+
+  function onVfmComplete() {
+    _vfmComplete = true; _vfmRunning = false;
+    clearInterval(_vfmTimer); _vfmTimer = null;
+    const ringEl = document.getElementById('vfm-ring-fg');
+    if (ringEl) { ringEl.style.strokeDashoffset = 0; ringEl.classList.add('vfm-ring-done'); }
+    const completeMsg = document.getElementById('vfm-complete-msg');
+    if (completeMsg) completeMsg.style.display = '';
+    const hintEl = document.getElementById('vfm-hint');
+    if (hintEl) hintEl.style.display = 'none';
+    const exitBtn = document.getElementById('vfm-exit-btn');
+    if (exitBtn) { exitBtn.classList.remove('vfm-locked'); exitBtn.classList.add('vfm-unlocked'); exitBtn.textContent = '✅ Exit & Complete'; }
+    const abandonLink = document.querySelector('.vfm-abandon-link');
+    if (abandonLink) abandonLink.style.display = 'none';
+    if (_vfmMinimized) expandVfm();
+    // Save focus stats
+    const todayStr = todayKey();
+    const mins = Math.round(_vfmDuration / 60);
+    state.focusStats.minutesByDate = state.focusStats.minutesByDate || {};
+    state.focusStats.sessions      = state.focusStats.sessions || {};
+    state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + mins;
+    state.focusStats.sessions[todayStr]      = (state.focusStats.sessions[todayStr] || 0) + 1;
+    saveState();
+    toast('🎉 Focus session complete! Great work!', 'success', 5000);
+  }
+
+  function minimizeVfm() {
+    if (!_vfmActive) return;
+    _vfmMinimized = true;
+    document.getElementById('vfm-overlay')?.remove();
+    const el = document.createElement('div');
+    el.id = 'vfm-bubble'; el.dataset.act = 'vfm-expand'; el.title = 'Tap to expand Focus Mode';
+    el.innerHTML = _vfmBubbleHTML();
+    document.body.appendChild(el);
+  }
+
+  function expandVfm() {
+    if (!_vfmActive) return;
+    _vfmMinimized = false;
+    document.getElementById('vfm-bubble')?.remove();
+    const existing = document.getElementById('vfm-overlay');
+    if (existing) return;
+    const el = document.createElement('div');
+    el.id = 'vfm-overlay';
+    el.innerHTML = _vfmOverlayHTML();
+    document.body.appendChild(el);
+    updateVfmDisplay();
   }
 
   function openVideoPlayer(groupId, itemId, _directItem) {
@@ -2119,6 +2332,7 @@
   }
 
   function closeVideoPlayer() {
+    stopVfm();
     _ytPlayer = null; _ytPlayerReady = false; _ytPlayerState = -1;
     const el = document.getElementById('vp-overlay'); if (!el) return;
     el.classList.add('vp-closing');
@@ -2949,8 +3163,24 @@
     if (act === 'del-classroom-group') { const gid = el.dataset.gid; confirmModal('Delete this group and all its videos?', () => { state.classroom.groups = state.classroom.groups.filter(g => g.id !== gid); saveState(); renderFocus(); toast('Group deleted', 'danger'); }); return; }
     if (act === 'del-classroom-item') { e.stopPropagation(); const group = (state.classroom.groups || []).find(g => g.id === el.dataset.gid); if (group) { group.items = group.items.filter(i => i.id !== el.dataset.iid); saveState(); renderFocus(); toast('Video removed', 'info'); } return; }
     if (act === 'play-video')   { openVideoPlayer(el.dataset.gid, el.dataset.iid); return; }
-    if (act === 'vp-close')    { closeVideoPlayer(); return; }
+    if (act === 'vp-close') {
+      if (_vfmActive && !_vfmComplete) {
+        if (!window.confirm('Your focus session is still running. Exit the video anyway?')) return;
+      }
+      closeVideoPlayer(); return;
+    }
     if (act === 'vp-switch')   { switchVideoInPlayer(el.dataset.gid, el.dataset.iid); return; }
+    if (act === 'vfm-start')   { openVfmPicker(); return; }
+    if (act === 'vfm-minimize'){ minimizeVfm(); return; }
+    if (act === 'vfm-expand')  { expandVfm(); return; }
+    if (act === 'vfm-exit') {
+      if (!_vfmComplete) { toast('Finish the session to unlock Exit! 💪', 'warn'); return; }
+      closeVideoPlayer(); return;
+    }
+    if (act === 'vfm-abandon') {
+      if (window.confirm('Abandon focus session? Your progress won\'t be counted.')) stopVfm();
+      return;
+    }
     if (act === 'edit-classroom-item') { modalEditClassroomItem(el.dataset.gid, el.dataset.iid); return; }
 
     // Bookmark Moment
@@ -3145,7 +3375,12 @@
     if (!document.fullscreenElement && fsSessionActive) { exitFullSession(); }
   });
 
-  window.addEventListener('beforeunload', e => { if (focusRunning && focusLocked) { e.preventDefault(); e.returnValue = 'Focus timer is running. Leave?'; } });
+  window.addEventListener('beforeunload', e => {
+    if ((focusRunning && focusLocked) || (_vfmActive && !_vfmComplete)) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
 
   // Orientation & resize — force layout recalculation so CSS media queries reapply cleanly
   function onOrientationChange() {
