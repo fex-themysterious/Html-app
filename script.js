@@ -708,41 +708,6 @@
     }).catch(() => {});
   }
 
-  // ========== Periodic Background Sync ==========
-  // Keeps notification schedule alive across browser restarts.
-  // - Periodic Background Sync (Chromium, ~12 h interval) re-arms SW timers
-  //   and, if the page is open, sends a wake-up message so JS timers refresh too.
-  // - Background Sync (one-shot, wider support) fires once on next online event
-  //   and serves as a universal fallback.
-  async function registerPeriodicSync() {
-    if (!('serviceWorker' in navigator)) return;
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      // One-shot Background Sync — universal fallback, fires on next connectivity
-      if (reg.sync) {
-        await reg.sync.register('reschedule-notifications');
-      }
-      // Periodic Background Sync — Chromium only, fires every ≥12 h
-      if (reg.periodicSync) {
-        const perm = await navigator.permissions.query({ name: 'periodic-background-sync' });
-        if (perm.state === 'granted') {
-          await reg.periodicSync.register('reschedule-notifications', {
-            minInterval: 12 * 60 * 60 * 1000   // 12 hours
-          });
-        }
-      }
-    } catch (_) {}
-  }
-
-  // Handle SW-initiated wake-up (PBS or Background Sync fired while page is open)
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.addEventListener('message', e => {
-      if (e.data && e.data.type === 'periodic-sync-wake') {
-        scheduleAllNotifications();
-        scheduleAllAlarms();
-      }
-    });
-  }
 
   // ========== Motivational Sleeper Alarm ==========
   const ALARM_QUOTES_DEFAULT = [
@@ -1454,7 +1419,6 @@
   let _addTaskRecurring = false;
   let calendarViewDate = new Date();
   let _currentTab = 'home';
-  let _renderAllTimer = null;
 
   function switchTab(tab) {
     if (focusLocked && !focusMultitaskMode && focusRunning && tab !== 'focus') {
@@ -1474,20 +1438,18 @@
   }
   function closeDropdown() { if (activeDropdown) { activeDropdown.remove(); activeDropdown = null; } }
 
-  // ========== Render All (lazy + debounced) ==========
+  // ========== Render All ==========
   // Only renders the currently visible tab to prevent CPU waste.
-  // Rapid successive calls are batched into one render via 30ms debounce.
   function _renderOneTab(tab) {
-    if (tab === 'home')     renderHome();
-    else if (tab === 'board')     renderDashboard();
+    if (tab === 'home')          renderHome();
+    else if (tab === 'dashboard') renderDashboard();
     else if (tab === 'syllabus')  renderSyllabus();
     else if (tab === 'revision')  renderRevision();
     else if (tab === 'stats')     renderStats();
     // 'focus' is handled separately by renderFocus()
   }
   function renderAll() {
-    clearTimeout(_renderAllTimer);
-    _renderAllTimer = setTimeout(() => _renderOneTab(_currentTab), 30);
+    _renderOneTab(_currentTab);
   }
 
   // ========== Home ==========
@@ -3975,7 +3937,6 @@
     scheduleAllAlarms();
     applyEyCareMode();
     startMotivationRotation();
-    registerPeriodicSync();
     setTimeout(maybeAutoShowBurnoutPopup, 2500);
     maybeShowBackupReminder();
   }

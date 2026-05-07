@@ -1,4 +1,4 @@
-const CACHE_NAME = 'syllabus-tracker-v38';
+const CACHE_NAME = 'syllabus-tracker-v39';
 const STATIC = [
   '/',
   '/index.html',
@@ -141,48 +141,7 @@ self.addEventListener('push', e => {
   );
 });
 
-// ── IndexedDB helpers (persistent schedule — survives browser restarts) ──────
-const _IDB_NAME  = 'syllabus-tracker-db';
-const _IDB_VER   = 1;
-const _IDB_STORE = 'config';
-
-function _openIDB() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(_IDB_NAME, _IDB_VER);
-    req.onupgradeneeded = ev => {
-      if (!ev.target.result.objectStoreNames.contains(_IDB_STORE)) {
-        ev.target.result.createObjectStore(_IDB_STORE, { keyPath: 'key' });
-      }
-    };
-    req.onsuccess = ev => resolve(ev.target.result);
-    req.onerror   = ev => reject(ev.target.error);
-  });
-}
-async function _idbGet(key) {
-  try {
-    const db  = await _openIDB();
-    const rec = await new Promise((res, rej) => {
-      const tx = db.transaction(_IDB_STORE, 'readonly');
-      const r  = tx.objectStore(_IDB_STORE).get(key);
-      r.onsuccess = ev => res(ev.target.result);
-      r.onerror   = ev => rej(ev.target.error);
-    });
-    return rec ? rec.value : null;
-  } catch (_) { return null; }
-}
-async function _idbSet(key, value) {
-  try {
-    const db = await _openIDB();
-    await new Promise((res, rej) => {
-      const tx = db.transaction(_IDB_STORE, 'readwrite');
-      tx.objectStore(_IDB_STORE).put({ key, value });
-      tx.oncomplete = res;
-      tx.onerror    = ev => rej(ev.target.error);
-    });
-  } catch (_) {}
-}
-
-// ── SW-side close-range notification scheduler ─────────────────────────────
+// ── In-page notification scheduling via message ─────────────────────────────
 let _swTimers = [];
 
 function _swScheduleNext(schedule) {
@@ -205,7 +164,6 @@ function _swScheduleNext(schedule) {
   _swTimers.push(tid);
 }
 
-// ── Message handler ─────────────────────────────────────────────────────────
 self.addEventListener('message', e => {
   if (!e.data) return;
 
@@ -223,45 +181,5 @@ self.addEventListener('message', e => {
     _swTimers = [];
     const schedules = e.data.schedules || [];
     schedules.forEach(_swScheduleNext);
-    // Persist to IDB so PBS/Sync can recover without an open page
-    _idbSet('notif_schedule', schedules);
   }
-});
-
-// ── Periodic Background Sync: auto-recover schedule after browser restart ───
-// Fires every ~12 h on supported Chromium browsers (requires PBS permission).
-self.addEventListener('periodicsync', e => {
-  if (e.tag !== 'reschedule-notifications') return;
-  e.waitUntil((async () => {
-    // If page is open, let it handle its own precision timers
-    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    if (clients.length) {
-      clients.forEach(c => c.postMessage({ type: 'periodic-sync-wake' }));
-      return;
-    }
-    // No page open — schedule close-range notifications directly from IDB
-    const schedules = await _idbGet('notif_schedule');
-    if (!Array.isArray(schedules) || !schedules.length) return;
-    _swTimers.forEach(t => clearTimeout(t));
-    _swTimers = [];
-    schedules.forEach(_swScheduleNext);
-  })());
-});
-
-// ── Background Sync fallback (fires once on reconnect — wider support) ──────
-// Used as a one-shot recovery on browsers that lack Periodic Background Sync.
-self.addEventListener('sync', e => {
-  if (e.tag !== 'reschedule-notifications') return;
-  e.waitUntil((async () => {
-    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    if (clients.length) {
-      clients.forEach(c => c.postMessage({ type: 'periodic-sync-wake' }));
-      return;
-    }
-    const schedules = await _idbGet('notif_schedule');
-    if (!Array.isArray(schedules) || !schedules.length) return;
-    _swTimers.forEach(t => clearTimeout(t));
-    _swTimers = [];
-    schedules.forEach(_swScheduleNext);
-  })());
 });
