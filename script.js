@@ -1477,93 +1477,12 @@
     const allDone = totalCount > 0 && doneCount === totalCount;
     const examDays = exam ? daysUntil(exam.date) : null;
     const urgent = exam && examDays !== null && examDays <= 7 && examDays >= 0;
-    const examHero = exam
-      ? `<article class="hero-card ${urgent ? 'urgent' : ''}" data-act="add-exam" role="button">${urgent ? `<span class="urgent-badge">${examDays === 0 ? 'TODAY' : examDays === 1 ? 'TOMORROW' : 'SOON'}</span>` : ''}<div class="hero-eyebrow">${ic('cal')}<span>NEXT EXAM</span></div><h2 class="hero-title">${escapeHTML(exam.name)}</h2><div class="hero-sub">${formatDate(exam.date)}</div><div class="hero-bignum">${examDays}<span class="hero-bignum-unit">d</span></div><div class="hero-bignum-lbl">days remaining</div><div class="hero-actions"><button class="btn-link" data-act="edit-exam" data-id="${exam.id}">Edit</button><button class="btn-link" data-act="add-exam">+ Add</button></div></article>`
-      : `<article class="hero-card empty"><div class="hero-eyebrow">${ic('cal')}<span>NEXT EXAM</span></div><h2 class="hero-title">No exam yet</h2><div class="hero-sub">Add one to start the countdown.</div><button class="btn" style="margin-top:12px" data-act="add-exam">${ic('plus')} Add Exam</button></article>`;
+    const examHero = exam ? `<article class="hero-card ${urgent ? 'urgent' : ''}" data-act="add-exam" role="button">${urgent ? `<span class="urgent-badge">${examDays === 0 ? 'TODAY' : examDays === 1 ? 'TOMORROW' : 'SOON'}</span>` : ''}<div class="hero-eyebrow">${ic('cal')}<span>NEXT EXAM</span></div><h2 class="hero-title">${escapeHTML(exam.name)}</h2><div class="hero-sub">${formatDate(exam.date)}</div><div class="hero-bignum">${examDays}<span class="hero-bignum-unit">d</span></div><div class="hero-bignum-lbl">days remaining</div><div class="hero-actions"><button class="btn-link" data-act="edit-exam" data-id="${exam.id}">Edit</button><button class="btn-link" data-act="add-exam">+ Add</button></div></article>` :
+      `<article class="hero-card empty"><div class="hero-eyebrow">${ic('cal')}<span>NEXT EXAM</span></div><h2 class="hero-title">No exam yet</h2><div class="hero-sub">Add one to start the countdown.</div><button class="btn" style="margin-top:12px" data-act="add-exam">${ic('plus')} Add Exam</button></article>`;
     const progressHero = `<article class="hero-card" data-act="open-dashboard" role="button"><div class="hero-eyebrow">${ic('check')}<span>OVERALL</span></div><div class="ring-wrap">${progressRingSVG(overall)}<div class="ring-center"><div class="ring-pct">${overall}<span>%</span></div><div class="ring-lbl">complete</div></div></div><div class="hero-progress-foot"><span><strong>${state.streak.count}</strong> day streak 🔥</span><span>${doneCount}/${totalCount} today</span></div></article>`;
     const achievedBadge = allDone ? `<div class="daily-achieved" role="status">${_justCompletedDay === todayKey() ? renderConfettiBurst() : ''}<span class="da-glyph">🏆</span><div><div class="da-title">Daily Goal Achieved!</div><div class="da-sub">All ${totalCount} task${totalCount === 1 ? '' : 's'} done!</div></div></div>` : '';
     const motivationMsg = getRotatingQuote();
-
-    // ── Study Session Log
-    const todayMins = Math.round(state.focusStats?.minutesByDate?.[todayKey()] || 0);
-    const goalMins  = 120;
-    const studyPct  = Math.min(100, Math.round(todayMins / goalMins * 100));
-    const arcR = 30, arcLen = +(2 * Math.PI * arcR).toFixed(2);
-    const arcOff = (arcLen * (1 - studyPct / 100)).toFixed(2);
-    const todaySessions = state.focusStats?.sessions?.[todayKey()] || 0;
-
-    // ── Focus Chapters from today's plan (up to 3 unique chapters)
-    const focusChapters = [];
-    const seenCh = new Set();
-    for (const t of tasks) {
-      if (t.type === 'auto' && t.subId && t.chId) {
-        const key = `${t.subId}:${t.chId}`;
-        if (!seenCh.has(key)) {
-          seenCh.add(key);
-          const parts = t.meta.split(' · ');
-          focusChapters.push({ sub: parts[0] || '', ch: parts[1] || t.meta, color: t.color });
-        }
-      }
-      if (focusChapters.length >= 3) break;
-    }
-    const focusChHTML = focusChapters.length
-      ? focusChapters.map(fc => `<div class="focus-ch-item" style="border-left-color:${fc.color}"><div class="focus-ch-inner"><div class="focus-ch-name">${escapeHTML(fc.ch)}</div><div class="focus-ch-sub">${escapeHTML(fc.sub)}</div></div></div>`).join('')
-      : `<div class="focus-ch-empty">Add syllabus topics to today's plan to see focus chapters here</div>`;
-
-    view.innerHTML = `
-<div class="home-profile"><div class="home-profile-avatar">T</div><div class="home-profile-info"><div class="home-profile-name">Tajwar</div><div class="home-profile-sub">CSE'26, BUET</div><div class="xp-row"><span class="xp-level-badge">Lv.${xpLevel()}</span><div class="xp-bar-wrap"><div class="xp-bar-fill" style="width:${(state.xp&&state.xp.total||0)%100}%"></div></div><span class="xp-label">${(state.xp&&state.xp.total||0)%100}/100 XP</span>${(state.focusStreak&&state.focusStreak.count>0)?`<span class="xp-focus-streak">🔥 ${state.focusStreak.count}d</span>`:''}</div></div><span class="home-profile-greeting">${greeting()} 👋</span></div>
-<div class="motivation-line ${overall >= 80 ? 'is-hot' : overall < 20 ? 'is-cold' : ''}">${escapeHTML(motivationMsg)}</div>
-<div class="hero-grid" style="margin-top:16px">${examHero}${progressHero}</div>
-
-<div class="study-log-card">
-  <div class="study-log-left">
-    <div class="study-log-val">${todayMins}<span class="study-log-unit">min</span></div>
-    <div class="study-log-lbl">Today's Study</div>
-    <div class="study-log-sessions">${todaySessions} session${todaySessions !== 1 ? 's' : ''}</div>
-  </div>
-  <div class="study-log-right">
-    <div class="study-arc-wrap">
-      <svg class="study-arc-svg" viewBox="0 0 80 80">
-        <circle cx="40" cy="40" r="${arcR}" class="study-arc-track"/>
-        <circle cx="40" cy="40" r="${arcR}" class="study-arc-fill" stroke-dasharray="${arcLen}" stroke-dashoffset="${arcOff}"/>
-      </svg>
-      <div class="study-arc-pct">${studyPct}%</div>
-    </div>
-    <div class="study-log-goal">Goal: ${goalMins}m</div>
-  </div>
-</div>
-
-<div class="section-head" style="margin-top:18px"><h2>📚 Focus Chapters</h2></div>
-<div class="focus-chapters-list">${focusChHTML}</div>
-
-<div class="section-head"><h2>⚡ Quick Access</h2></div>
-<div class="res-grid">
-  <button class="res-btn" data-act="go-tab" data-tab="focus"><span class="res-icon">🎬</span><span class="res-label">Physics<br>Videos</span></button>
-  <button class="res-btn" data-act="go-tab" data-tab="dashboard"><span class="res-icon">✏️</span><span class="res-label">Math<br>Tasks</span></button>
-  <button class="res-btn" data-act="go-tab" data-tab="revision"><span class="res-icon">📐</span><span class="res-label">Formula<br>Bank</span></button>
-  <button class="res-btn" data-act="go-tab" data-tab="dashboard"><span class="res-icon">🎯</span><span class="res-label">Target<br>Board</span></button>
-</div>
-
-${achievedBadge}
-<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>
-${renderTasksList(tasks)}
-
-<div class="breathe-card">
-  <div class="breathe-header">
-    <div class="breathe-title">💨 Take a Break</div>
-    <div class="breathe-sub">1-min breathing reset · follow the circle</div>
-  </div>
-  <div class="breathe-body">
-    <div class="breathe-ring-wrap">
-      <div class="breathe-ring"></div>
-      <div class="breathe-labels">
-        <span class="breathe-lbl breathe-inhale">inhale</span>
-        <span class="breathe-lbl breathe-hold">hold</span>
-        <span class="breathe-lbl breathe-exhale">exhale</span>
-      </div>
-    </div>
-  </div>
-</div>`;
+    view.innerHTML = `<div class="home-profile"><div class="home-profile-avatar">T</div><div class="home-profile-info"><div class="home-profile-name">Tajwar</div><div class="home-profile-sub">CSE'26, BUET</div><div class="xp-row"><span class="xp-level-badge">Lv.${xpLevel()}</span><div class="xp-bar-wrap"><div class="xp-bar-fill" style="width:${(state.xp&&state.xp.total||0)%100}%"></div></div><span class="xp-label">${(state.xp&&state.xp.total||0)%100}/100 XP</span>${(state.focusStreak&&state.focusStreak.count>0)?`<span class="xp-focus-streak">🔥 ${state.focusStreak.count}d</span>`:''}</div></div><span class="home-profile-greeting">${greeting()} 👋</span></div><div class="motivation-line ${overall >= 80 ? 'is-hot' : overall < 20 ? 'is-cold' : ''}">${escapeHTML(motivationMsg)}</div><div class="hero-grid" style="margin-top:16px">${examHero}${progressHero}</div>${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${renderTasksList(tasks)}`;
     if (_justPoppedKey) requestAnimationFrame(() => { _justPoppedKey = null; });
     if (_justCompletedDay) setTimeout(() => { _justCompletedDay = null; }, 1800);
   }
@@ -3447,7 +3366,6 @@ ${renderTasksList(tasks)}
     if (act === 'fs-toggle-landscape' || act === 'vp-toggle-landscape') { toggleOrientLock(); return; }
 
     if (act === 'open-dashboard') { switchTab('dashboard'); renderDashboard(); return; }
-    if (act === 'go-tab') { const _t = el.dataset.tab; switchTab(_t); if (_t === 'focus') renderFocus(); else renderAll(); return; }
     if (act === 'open-plan') { closeModal(); switchTab('home'); renderHome(); return; }
     if (act === 'burnout-go-plan') { closeModal(); switchTab('home'); renderHome(); return; }
     if (act === 'burnout-popup') { showBurnoutPopup(); return; }
