@@ -544,6 +544,7 @@
     for (const r of state.revisions) {
       const topic = findTopic(r.subId, r.chId, r.tId); if (!topic) continue;
       const sub = findSubject(r.subId), ch = findChapter(r.subId, r.chId);
+      if (!sub || !ch) continue;
       for (const step of r.schedule) if (!step.done && step.dueDate <= today) items.push({ revisionId: r.id, sub, ch, topic, step, daysOverdue: daysBetween(step.dueDate, today) });
     }
     return items.sort((a, b) => b.daysOverdue - a.daysOverdue);
@@ -553,6 +554,7 @@
     for (const r of state.revisions) {
       const topic = findTopic(r.subId, r.chId, r.tId); if (!topic) continue;
       const sub = findSubject(r.subId), ch = findChapter(r.subId, r.chId);
+      if (!sub || !ch) continue;
       for (const step of r.schedule) if (!step.done && step.dueDate > today) items.push({ revisionId: r.id, sub, ch, topic, step, daysUntil: daysBetween(today, step.dueDate) });
     }
     return items.sort((a, b) => a.step.dueDate.localeCompare(b.step.dueDate)).slice(0, limit);
