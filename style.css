@@ -522,13 +522,14 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .stats-hm-day-labels { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-bottom: 4px; }
 .stats-hm-day-labels span { text-align: center; font-size: 9px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .stats-heatmap { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
-.shm-cell { aspect-ratio: 1; border-radius: 4px; cursor: default; transition: opacity 0.15s; }
-.shm-cell:hover { opacity: 0.8; }
+.shm-cell { aspect-ratio: 1; border-radius: 4px; cursor: default; }
+.shm-cell:hover { opacity: 0.75; }
 .shm-cell.lv0    { background: rgba(255,255,255,0.06); }
-.shm-cell.lv1    { background: rgba(124,58,237,0.70); }            /* violet  — low   (1–30 min)  */
-.shm-cell.lv2    { background: rgba(6,182,212,0.78); }             /* cyan    — med   (31–60 min) */
-.shm-cell.lv3    { background: rgba(34,197,94,0.86); }             /* green   — high  (1–2 hrs)   */
-.shm-cell.lv4    { background: #f97316; box-shadow: 0 0 7px rgba(249,115,22,0.50); } /* orange — max (2+ hrs) */
+.shm-cell.lv1    { background: rgba(124,58,237,0.72); }  /* violet — 0–3 hrs   */
+.shm-cell.lv2    { background: rgba(6,182,212,0.80); }   /* cyan   — 3–6 hrs   */
+.shm-cell.lv3    { background: rgba(34,197,94,0.88); }   /* green  — 6–9 hrs   */
+.shm-cell.lv4    { background: #f97316; }                /* orange — 9–12 hrs  */
+.shm-cell.lv5    { background: #ef4444; }                /* red    — 12 hrs+   */
 .shm-cell.future  { background: rgba(255,255,255,0.04); opacity: 0.45; }
 .shm-cell.shm-today {
   outline: 2px solid rgba(255,255,255,0.72);

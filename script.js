@@ -2314,7 +2314,8 @@
       state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + elapsedMin;
       awardXP(elapsedMin, todayStr);
       bumpActivity(); saveState();
-      renderStats();
+      // Only re-render Stats if it is currently the active tab; otherwise it will render fresh on next visit
+      if (document.body.classList.contains('tab-stats')) renderStats();
 
       showWebNotification('🎉 Focus Session Complete!', `Session ${focusSessions} done! Keep going or take a break.`, { tag: 'focus-complete', requireInteraction: false });
 
@@ -3387,7 +3388,8 @@
       const isToday = k === hmTodayKey;
       // Always read fresh from state.focusStats (same source as timer)
       const min = isFuture ? 0 : (state.focusStats.minutesByDate[k] || 0);
-      const lvl = isFuture ? 'future' : min === 0 ? 'lv0' : min <= 30 ? 'lv1' : min <= 60 ? 'lv2' : min <= 120 ? 'lv3' : 'lv4';
+      // 3-hour interval bands (180 min each): violet → cyan → green → orange → red
+      const lvl = isFuture ? 'future' : min === 0 ? 'lv0' : min < 180 ? 'lv1' : min < 360 ? 'lv2' : min < 540 ? 'lv3' : min < 720 ? 'lv4' : 'lv5';
       return { k, min, lvl, isToday, title: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ': ' + (isFuture ? '—' : min + 'm focused') };
     });
 
@@ -3449,7 +3451,7 @@
       <div class="stats-chart-card stats-heatmap-card">
         <div class="stats-hm-day-labels"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
         <div class="stats-heatmap">${heatmapCells.map(c => `<div class="shm-cell ${c.lvl}${c.isToday ? ' shm-today' : ''}" title="${c.title}"></div>`).join('')}</div>
-        <div class="stats-hm-legend"><span>0m</span><div class="shm-cell lv0" title="No focus"></div><div class="shm-cell lv1" title="1–30 min"></div><div class="shm-cell lv2" title="31–60 min"></div><div class="shm-cell lv3" title="1–2 hrs"></div><div class="shm-cell lv4" title="2+ hrs"></div><span>2h+</span></div>
+        <div class="stats-hm-legend"><span>0</span><div class="shm-cell lv0" title="No focus"></div><div class="shm-cell lv1" title="0–3 hrs"></div><div class="shm-cell lv2" title="3–6 hrs"></div><div class="shm-cell lv3" title="6–9 hrs"></div><div class="shm-cell lv4" title="9–12 hrs"></div><div class="shm-cell lv5" title="12+ hrs"></div><span>12h+</span></div>
       </div>
 
       <div class="stats-row" style="margin-top:16px">
