@@ -2853,6 +2853,7 @@
 
   function _bindVfmDrag(el) {
     let _sx = 0, _sy = 0, _ex = 0, _ey = 0, _drag = false, _moved = false;
+    let _rafId = null, _pendingX = 0, _pendingY = 0;
     function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
     function startDrag(cx, cy) {
       const r = el.getBoundingClientRect();
@@ -2868,14 +2869,24 @@
       el.style.left = clamp(_ex + dx, 0, window.innerWidth - el.offsetWidth) + 'px';
       el.style.top  = clamp(_ey + dy, 0, window.innerHeight - el.offsetHeight) + 'px';
     }
-    function endDrag() { _drag = false; el.classList.remove('vfm-dragging'); }
+    // rAF throttle: coalesces all pointer events within one frame into a single DOM write
+    function scheduleDrag(cx, cy) {
+      _pendingX = cx; _pendingY = cy;
+      if (_rafId !== null) return;
+      _rafId = requestAnimationFrame(() => { _rafId = null; moveDrag(_pendingX, _pendingY); });
+    }
+    function endDrag() {
+      _drag = false;
+      el.classList.remove('vfm-dragging');
+      if (_rafId !== null) { cancelAnimationFrame(_rafId); _rafId = null; }
+    }
     el.addEventListener('touchstart', e => {
       if (e.target.closest('button')) return;
       const t = e.touches[0]; startDrag(t.clientX, t.clientY);
     }, { passive: true });
     el.addEventListener('touchmove', e => {
       if (!_drag) return; e.preventDefault();
-      moveDrag(e.touches[0].clientX, e.touches[0].clientY);
+      scheduleDrag(e.touches[0].clientX, e.touches[0].clientY);
     }, { passive: false });
     el.addEventListener('touchend', e => {
       const wasMoved = _moved;
@@ -2891,7 +2902,7 @@
       if (e.target.closest('button')) return;
       startDrag(e.clientX, e.clientY); e.preventDefault();
     });
-    document.addEventListener('mousemove', e => { if (_drag) moveDrag(e.clientX, e.clientY); });
+    document.addEventListener('mousemove', e => { if (_drag) scheduleDrag(e.clientX, e.clientY); });
     document.addEventListener('mouseup', () => endDrag());
   }
 
