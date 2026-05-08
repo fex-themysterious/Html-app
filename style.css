@@ -256,32 +256,49 @@ hr.sep { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
 .menu-btn:hover { background: var(--surface-3); color: var(--text); }
 .menu-btn:active { background: rgba(255,255,255,0.08); }
 
-/* ── Dropdown ────────────────────────────────────────────────── */
+/* ── Dropdown (fixed-position, always on top) ────────────────── */
 .dropdown {
-  position: absolute; right: 8px; top: 40px;
-  background: #131d28;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  padding: 5px;
-  min-width: 200px;
-  box-shadow: var(--shadow-lg);
-  z-index: 200;
-  animation: dropIn 0.14s var(--ease);
+  /* JS sets position:fixed + top/bottom/left at runtime */
+  background: linear-gradient(160deg, rgba(19,29,44,0.97) 0%, rgba(11,17,30,0.98) 100%);
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  border: 1px solid rgba(139,92,246,0.25);
+  border-radius: 14px;
+  padding: 6px;
+  min-width: 216px;
+  box-shadow:
+    0 20px 60px rgba(0,0,0,0.7),
+    0 4px 16px rgba(0,0,0,0.5),
+    inset 0 1px 0 rgba(255,255,255,0.07),
+    0 0 0 1px rgba(139,92,246,0.1);
+  animation: dropIn 0.15s cubic-bezier(0.2,0.8,0.2,1);
 }
-@keyframes dropIn { from { opacity: 0; transform: translateY(-6px) scale(0.97); } to { opacity: 1; transform: none; } }
+/* Open-downward */
+@keyframes dropIn { from { opacity: 0; transform: scale(0.95) translateY(-5px); } to { opacity: 1; transform: none; } }
+/* Open-upward */
+@keyframes dropUp  { from { opacity: 0; transform: scale(0.95) translateY(5px);  } to { opacity: 1; transform: none; } }
+.dropdown[data-open-up] { animation: dropUp 0.15s cubic-bezier(0.2,0.8,0.2,1); }
+
 .dropdown button {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 11px;
   background: transparent; border: none; color: var(--text);
-  padding: 10px 13px; width: 100%; text-align: left;
-  cursor: pointer; border-radius: var(--radius-xs);
+  padding: 11px 14px; width: 100%; text-align: left;
+  cursor: pointer; border-radius: 10px;
   font-size: 14px; font-family: inherit; font-weight: 500;
+  min-height: 44px;
   transition: background var(--t-fast), color var(--t-fast);
+  -webkit-tap-highlight-color: transparent;
 }
-.dropdown button svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--text-muted); }
-.dropdown button:hover { background: var(--surface-3); }
-.dropdown button:active { background: rgba(255,255,255,0.08); }
-.dropdown button.danger { color: var(--danger); }
-.dropdown button.danger svg { color: var(--danger); }
+.dropdown button svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--text-muted); transition: color var(--t-fast); }
+.dropdown button:hover  { background: rgba(139,92,246,0.12); color: var(--text); }
+.dropdown button:hover svg { color: #a78bfa; }
+.dropdown button:active { background: rgba(139,92,246,0.2); }
+.dropdown button.danger       { color: var(--danger); }
+.dropdown button.danger svg   { color: var(--danger); }
+.dropdown button.danger:hover { background: rgba(248,113,113,0.1); }
+
+/* Separator between last non-danger and danger button */
+.dropdown button.danger:first-of-type { margin-top: 3px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 14px; }
 
 /* ── Pills ───────────────────────────────────────────────────── */
 .pill { padding: 2px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; display: inline-flex; align-items: center; }
@@ -1844,11 +1861,7 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .pill-med  { background: rgba(245,158,11,0.12);  color: #fcd34d; border: 1px solid rgba(245,158,11,0.22); }
 .pill-low  { background: rgba(148,163,184,0.12); color: #94a3b8; border: 1px solid rgba(148,163,184,0.2); }
 
-/* ================================================================
-   DROPDOWN OVERFLOW SAFETY
-   ================================================================ */
-.card, .chapter, .topic { overflow: visible !important; }
-.dropdown { z-index: 200; min-width: 200px; }
+/* Dropdown is now fixed-to-body — no overflow hacks needed */
 
 /* ================================================================
    CALENDAR TASK MODAL — PREMIUM GLASSMORPHIC REDESIGN

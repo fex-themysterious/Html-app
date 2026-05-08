@@ -1422,7 +1422,7 @@
 
   // ========== Navigation ==========
   const openSubjects = new Set(), openChapters = new Set();
-  let activeDropdown = null;
+  let activeDropdown = null, _dropdownBackdrop = null;
   let _justPoppedKey = null, _justCompletedDay = null;
   let _addTaskRecurring = false;
   let calendarViewDate = new Date();
@@ -1444,7 +1444,51 @@
     // Show/hide mini timer bubble
     updateMiniTimer();
   }
-  function closeDropdown() { if (activeDropdown) { activeDropdown.remove(); activeDropdown = null; } }
+  function closeDropdown() {
+    if (activeDropdown)   { activeDropdown.remove();   activeDropdown   = null; }
+    if (_dropdownBackdrop){ _dropdownBackdrop.remove(); _dropdownBackdrop = null; }
+  }
+
+  // Shared fixed-position menu builder with smart edge detection
+  function showMenu(btn, innerHTML) {
+    closeDropdown();
+    const d = document.createElement('div');
+    d.className = 'dropdown';
+    d.innerHTML = innerHTML;
+
+    // Position via fixed so it escapes any overflow:hidden ancestor
+    const rect   = btn.getBoundingClientRect();
+    const menuW  = 216;
+    const gap    = 5;
+
+    // Horizontal: right-align to button, clamp within viewport
+    let left = rect.right - menuW;
+    if (left < 8)                              left = 8;
+    if (left + menuW > window.innerWidth - 8)  left = window.innerWidth - menuW - 8;
+    d.style.cssText = `position:fixed;z-index:9999;left:${left}px;min-width:${menuW}px`;
+
+    // Vertical: open upward if more room above than below
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    if (spaceBelow < 200 && spaceAbove > spaceBelow) {
+      d.style.bottom         = (window.innerHeight - rect.top + gap) + 'px';
+      d.style.transformOrigin = 'bottom right';
+      d.dataset.openUp       = '1';
+    } else {
+      d.style.top            = (rect.bottom + gap) + 'px';
+      d.style.transformOrigin = 'top right';
+    }
+
+    // Invisible full-screen backdrop — tap anywhere to close
+    const bd = document.createElement('div');
+    bd.style.cssText = 'position:fixed;inset:0;z-index:9998;-webkit-tap-highlight-color:transparent';
+    bd.addEventListener('pointerdown', closeDropdown, { once: true });
+
+    document.body.appendChild(bd);
+    document.body.appendChild(d);
+    activeDropdown    = d;
+    _dropdownBackdrop = bd;
+  }
 
   // ========== Render All ==========
   // Only renders the currently visible tab to prevent CPU waste.
@@ -1803,49 +1847,34 @@
 
   // ========== 3-Dot Menus (Separate Notes & Priority) ==========
   function showSubjectMenu(subId) {
-    closeDropdown();
     const btn = document.querySelector(`[data-act="open-subject-menu"][data-id="${subId}"]`);
     if (!btn) return;
-    const d = document.createElement('div'); d.className = 'dropdown';
-    d.innerHTML = `
+    showMenu(btn, `
       <button data-act="edit-subject" data-id="${subId}">${ic('edit')} Edit Subject</button>
       <button data-act="open-subject-notes" data-id="${subId}">${ic('note')} Notes</button>
       <button data-act="open-subject-priority" data-id="${subId}">${ic('star')} Priority</button>
       <button data-act="add-chapter" data-sub="${subId}">${ic('plus')} Add Chapter</button>
-      <button data-act="del-subject" data-id="${subId}" class="danger">${ic('trash')} Delete</button>`;
-    const card = btn.closest('.card') || btn.closest('.subject-card') || document.body;
-    card.appendChild(d); activeDropdown = d;
-    setTimeout(() => document.addEventListener('click', closeDropdown, { once: true }), 0);
+      <button data-act="del-subject" data-id="${subId}" class="danger">${ic('trash')} Delete</button>`);
   }
   function showChapterMenu(subId, chId) {
-    closeDropdown();
     const btn = document.querySelector(`[data-act="open-chapter-menu"][data-sub="${subId}"][data-ch="${chId}"]`);
     if (!btn) return;
-    const d = document.createElement('div'); d.className = 'dropdown';
-    d.innerHTML = `
+    showMenu(btn, `
       <button data-act="edit-chapter" data-sub="${subId}" data-ch="${chId}">${ic('edit')} Edit Chapter</button>
       <button data-act="open-chapter-notes" data-sub="${subId}" data-ch="${chId}">${ic('note')} Notes</button>
       <button data-act="open-chapter-priority" data-sub="${subId}" data-ch="${chId}">${ic('star')} Priority</button>
       <button data-act="add-topic" data-sub="${subId}" data-ch="${chId}">${ic('plus')} Add Topic</button>
       <button data-act="schedule-chapter" data-sub="${subId}" data-ch="${chId}">${ic('cal')} Schedule</button>
-      <button data-act="del-chapter" data-sub="${subId}" data-ch="${chId}" class="danger">${ic('trash')} Delete</button>`;
-    const parent = btn.closest('.chapter') || document.body;
-    parent.appendChild(d); activeDropdown = d;
-    setTimeout(() => document.addEventListener('click', closeDropdown, { once: true }), 0);
+      <button data-act="del-chapter" data-sub="${subId}" data-ch="${chId}" class="danger">${ic('trash')} Delete</button>`);
   }
   function showTopicMenu(subId, chId, tId) {
-    closeDropdown();
     const btn = document.querySelector(`[data-act="open-topic-menu"][data-sub="${subId}"][data-ch="${chId}"][data-t="${tId}"]`);
     if (!btn) return;
-    const d = document.createElement('div'); d.className = 'dropdown';
-    d.innerHTML = `
+    showMenu(btn, `
       <button data-act="edit-topic" data-sub="${subId}" data-ch="${chId}" data-t="${tId}">${ic('edit')} Edit Topic</button>
       <button data-act="open-topic-notes" data-sub="${subId}" data-ch="${chId}" data-t="${tId}">${ic('note')} Notes</button>
       <button data-act="open-topic-priority" data-sub="${subId}" data-ch="${chId}" data-t="${tId}">${ic('star')} Priority</button>
-      <button data-act="del-topic" data-sub="${subId}" data-ch="${chId}" data-t="${tId}" class="danger">${ic('trash')} Delete</button>`;
-    const parent = btn.closest('.topic') || document.body;
-    parent.appendChild(d); activeDropdown = d;
-    setTimeout(() => document.addEventListener('click', closeDropdown, { once: true }), 0);
+      <button data-act="del-topic" data-sub="${subId}" data-ch="${chId}" data-t="${tId}" class="danger">${ic('trash')} Delete</button>`);
   }
 
   function modalQuickNote(obj, label, afterSave) {
