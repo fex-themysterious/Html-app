@@ -143,6 +143,7 @@
     if (typeof s.xp.total !== 'number' || isNaN(s.xp.total)) s.xp.total = 0;
     if (!s.focusStreak || typeof s.focusStreak !== 'object') s.focusStreak = { count: 0, lastDate: null, best: 0 };
     if (!s.focusStreak.best) s.focusStreak.best = s.focusStreak.count || 0;
+    if (!s.focusStats.videoMinutes || typeof s.focusStats.videoMinutes !== 'object') s.focusStats.videoMinutes = {};
     if (typeof s.eyeCareMode !== 'boolean') s.eyeCareMode = false;
     if (!s.classroom || typeof s.classroom !== 'object') s.classroom = { groups: [] };
     if (!Array.isArray(s.classroom.groups)) s.classroom.groups = [];
@@ -2723,7 +2724,8 @@
       endDrag();
     }, { passive: false });
     el.addEventListener('click', e => {
-      if (_moved) { _moved = false; e.stopImmediatePropagation(); }
+      // Allow button clicks through even after drag movement
+      if (_moved) { _moved = false; if (!e.target.closest('button')) e.stopImmediatePropagation(); }
     }, true);
     el.addEventListener('mousedown', e => {
       if (e.target.closest('button')) return;
@@ -2813,6 +2815,18 @@
     toast('Focus Mode started — stay locked in! 🎯', 'success', 3000);
   }
 
+  // Save partial video session time (called on early abandon)
+  function _saveVfmPartialTime() {
+    const elapsed = Math.floor((_vfmDuration - _vfmRemaining) / 60);
+    if (elapsed < 1) return;
+    const todayStr = todayKey();
+    state.focusStats.videoMinutes = state.focusStats.videoMinutes || {};
+    state.focusStats.videoMinutes[todayStr] = (state.focusStats.videoMinutes[todayStr] || 0) + elapsed;
+    awardXP(elapsed, todayStr);
+    saveState();
+    toast(`⏱ ${elapsed} min logged from your video session!`, 'info', 3500);
+  }
+
   function stopVfm() {
     _vfmActive = false; _vfmComplete = false; _vfmMinimized = false; _vfmRunning = false;
     clearInterval(_vfmTimer); _vfmTimer = null;
@@ -2875,8 +2889,11 @@
     state.focusStats.sessions      = state.focusStats.sessions || {};
     state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + mins;
     state.focusStats.sessions[todayStr]      = (state.focusStats.sessions[todayStr] || 0) + 1;
+    state.focusStats.videoMinutes = state.focusStats.videoMinutes || {};
+    state.focusStats.videoMinutes[todayStr]  = (state.focusStats.videoMinutes[todayStr]  || 0) + mins;
     awardXP(mins, todayStr);
     saveState();
+    renderHome();
     toast('🎉 Focus session complete! Great work!', 'success', 5000);
   }
 
@@ -3082,8 +3099,15 @@
 
     // 7-day focus trend
     const days7 = []; const todayD = new Date(todayKey() + 'T00:00:00');
-    for (let i = 6; i >= 0; i--) { const d = new Date(todayD); d.setDate(d.getDate() - i); const k = d.toISOString().slice(0, 10); days7.push({ k, min: state.focusStats.minutesByDate[k] || 0, label: d.toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 3) }); }
+    const videoMins = state.focusStats.videoMinutes || {};
+    for (let i = 6; i >= 0; i--) { const d = new Date(todayD); d.setDate(d.getDate() - i); const k = d.toISOString().slice(0, 10); days7.push({ k, min: state.focusStats.minutesByDate[k] || 0, vmin: videoMins[k] || 0, label: d.toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 3) }); }
     const maxFocus7 = Math.max(1, ...days7.map(d => d.min));
+
+    // Classroom time stats
+    const classroomMinToday = videoMins[todayStr] || 0;
+    const classroomMinWeek  = days7.reduce((a, d) => a + d.vmin, 0);
+    const classroomMinTotal = Object.values(videoMins).reduce((a, b) => a + b, 0);
+    const classroomFmt = m => m >= 60 ? `${Math.floor(m/60)}h ${m%60}m` : `${m}m`;
     const avgFocusMin = days7.length ? Math.round(days7.reduce((a, b) => a + b.min, 0) / days7.length) : 0;
 
     // Best study day of week (last 60 days)
@@ -3229,6 +3253,16 @@
         </div>
       </div>
 
+      <div class="stats-section-head" style="margin-top:18px"><span>🎓 Classroom Time</span><span class="stats-section-meta">${classroomFmt(classroomMinToday)} today</span></div>
+      <div class="stats-chart-card">
+        <div class="stats-chart-wrap"><canvas id="stats-classroom-chart"></canvas></div>
+        <div class="stats-row" style="margin-top:10px">
+          <div class="stat-tile"><div class="v">${classroomFmt(classroomMinToday)}</div><div class="k">Today</div></div>
+          <div class="stat-tile"><div class="v">${classroomFmt(classroomMinWeek)}</div><div class="k">This Week</div></div>
+          <div class="stat-tile"><div class="v">${classroomFmt(classroomMinTotal)}</div><div class="k">All Time</div></div>
+        </div>
+      </div>
+
       <div class="stats-section-head"><span>Focus Heatmap</span><span class="stats-section-meta">Last 5 weeks</span></div>
       <div class="stats-chart-card stats-heatmap-card">
         <div class="stats-hm-day-labels"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
@@ -3327,11 +3361,11 @@
         <div class="bgc-hint">Exports all subjects, topics, focus stats, goals &amp; classroom data as a JSON file you can restore anytime.</div>
       </div>`;
 
-    initStatsCharts(days7, pieSubjects);
+    initStatsCharts(days7, pieSubjects, days7);
   }
 
-  function initStatsCharts(days7, pieSubjects) {
-    if (!window.Chart) { setTimeout(() => initStatsCharts(days7, pieSubjects), 300); return; }
+  function initStatsCharts(days7, pieSubjects, days7cls) {
+    if (!window.Chart) { setTimeout(() => initStatsCharts(days7, pieSubjects, days7cls), 300); return; }
 
     // Weekly bar chart
     const weeklyCanvas = document.getElementById('stats-weekly-chart');
@@ -3360,6 +3394,44 @@
             legend: { display: false },
             tooltip: {
               backgroundColor: '#0d1b2a', borderColor: 'rgba(77,168,255,0.4)', borderWidth: 1,
+              titleColor: '#f0f6ff', bodyColor: '#94a3b8', padding: 10,
+              callbacks: { label: ctx => ` ${ctx.parsed.y} min` }
+            }
+          },
+          scales: {
+            x: { grid: { display: false }, border: { display: false }, ticks: { color: 'rgba(148,163,184,0.75)', font: { size: 11, weight: '600' } } },
+            y: { grid: { color: 'rgba(255,255,255,0.05)' }, border: { display: false }, ticks: { color: 'rgba(148,163,184,0.6)', font: { size: 10 }, callback: v => v + 'm', maxTicksLimit: 4 }, beginAtZero: true }
+          }
+        }
+      });
+    }
+
+    // Classroom time 7-day bar chart (lime/green)
+    const classroomCanvas = document.getElementById('stats-classroom-chart');
+    if (classroomCanvas && days7cls) {
+      const prev = Chart.getChart(classroomCanvas); if (prev) prev.destroy();
+      new Chart(classroomCanvas, {
+        type: 'bar',
+        data: {
+          labels: days7cls.map(d => d.label),
+          datasets: [{
+            data: days7cls.map(d => d.vmin || 0),
+            backgroundColor: days7cls.map((d, i) => {
+              if (i === 6) return 'rgba(163,230,53,0.90)';
+              if ((d.vmin || 0) > 0) return 'rgba(163,230,53,0.42)';
+              return 'rgba(163,230,53,0.13)';
+            }),
+            borderColor: days7cls.map((_, i) => i === 6 ? '#a3e635' : 'transparent'),
+            borderWidth: days7cls.map((_, i) => i === 6 ? 2 : 0),
+            borderRadius: 8, borderSkipped: false
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#0d1b2a', borderColor: 'rgba(163,230,53,0.4)', borderWidth: 1,
               titleColor: '#f0f6ff', bodyColor: '#94a3b8', padding: 10,
               callbacks: { label: ctx => ` ${ctx.parsed.y} min` }
             }
@@ -3782,12 +3854,12 @@
       closeVideoPlayer(); return;
     }
     if (act === 'vfm-abandon') {
-      if (window.confirm('Abandon focus session? Your progress won\'t be counted.')) stopVfm();
+      confirmModal('Abandon session? Any time already elapsed will be logged as Classroom Time.', () => { _saveVfmPartialTime(); stopVfm(); });
       return;
     }
     if (act === 'vfm-close') {
-      if (_vfmComplete) { closeVideoPlayer(); }
-      else if (window.confirm('Abandon focus session? Your progress won\'t be counted.')) stopVfm();
+      if (_vfmComplete) { closeVideoPlayer(); return; }
+      confirmModal('Abandon session? Any time already elapsed will be logged as Classroom Time.', () => { _saveVfmPartialTime(); stopVfm(); });
       return;
     }
     if (act === 'edit-classroom-item') { modalEditClassroomItem(el.dataset.gid, el.dataset.iid); return; }
