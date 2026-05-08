@@ -216,16 +216,22 @@
   function isChapterEffectivelyDone(c) {
     return c.topics && c.topics.length ? c.topics.every(t => t.done) : c.done;
   }
-  function overallProgress() {
+  // ── Single source of truth for syllabus progress ──
+  // Always chapter-based (matches the "30/90 ch" shown in Board Goals).
+  // Uses isChapterEffectivelyDone: a chapter with topics is done when ALL topics are done;
+  // a chapter without topics uses its own .done flag.
+  function calculateTotalProgress() {
     let total = 0, done = 0;
-    for (const sub of state.subjects) for (const ch of sub.chapters) {
-      if (!ch.topics || !ch.topics.length) { total++; if (ch.done) done++; }
-      else for (const t of ch.topics) { total++; if (t.done) done++; }
-    }
+    for (const sub of state.subjects)
+      for (const ch of sub.chapters) {
+        total++;
+        if (isChapterEffectivelyDone(ch)) done++;
+      }
     return total ? Math.round((done / total) * 100) : 0;
   }
-  // Canonical alias — single source of truth for syllabus progress across all views
-  function getGlobalSyllabusProgress() { return overallProgress(); }
+  // All callers use these aliases — do not duplicate the logic above
+  function overallProgress()          { return calculateTotalProgress(); }
+  function getGlobalSyllabusProgress(){ return calculateTotalProgress(); }
   function nextExam() {
     const today = todayKey();
     return state.exams.filter(e => e.date >= today).sort((a, b) => a.date.localeCompare(b.date))[0] || null;
@@ -2863,6 +2869,9 @@
       <button class="btn vfm-exit-btn${_vfmComplete ? ' vfm-unlocked' : ' vfm-locked'}" id="vfm-exit-btn" data-act="vfm-exit">${_vfmComplete ? '✅ Exit &amp; Log' : '🔒 Finish to Exit'}</button>`;
   }
 
+  // Selector for any interactive descendant that must NOT be intercepted by the drag handler.
+  // Includes plain buttons, elements with data-act, anchor tags, and form controls.
+  const _DRAG_EXEMPT = 'button, [data-act], a, input, select, textarea, label';
   function _bindVfmDrag(el) {
     let _sx = 0, _sy = 0, _ex = 0, _ey = 0, _drag = false, _moved = false;
     let _rafId = null, _pendingX = 0, _pendingY = 0;
@@ -2893,7 +2902,7 @@
       if (_rafId !== null) { cancelAnimationFrame(_rafId); _rafId = null; }
     }
     el.addEventListener('touchstart', e => {
-      if (e.target.closest('button')) return;
+      if (e.target.closest(_DRAG_EXEMPT)) return;
       const t = e.touches[0]; startDrag(t.clientX, t.clientY);
     }, { passive: true });
     el.addEventListener('touchmove', e => {
@@ -2904,14 +2913,14 @@
       const wasMoved = _moved;
       _moved = false;
       endDrag();
-      if (wasMoved && !e.target.closest('button')) { e.preventDefault(); e.stopPropagation(); }
+      if (wasMoved && !e.target.closest(_DRAG_EXEMPT)) { e.preventDefault(); e.stopPropagation(); }
     }, { passive: false });
     el.addEventListener('click', e => {
       // Block synthetic click after a mouse-drag (touch path already handled above)
-      if (_moved) { _moved = false; if (!e.target.closest('button')) e.stopImmediatePropagation(); }
+      if (_moved) { _moved = false; if (!e.target.closest(_DRAG_EXEMPT)) e.stopImmediatePropagation(); }
     }, true);
     el.addEventListener('mousedown', e => {
-      if (e.target.closest('button')) return;
+      if (e.target.closest(_DRAG_EXEMPT)) return;
       startDrag(e.clientX, e.clientY); e.preventDefault();
     });
     document.addEventListener('mousemove', e => { if (_drag) scheduleDrag(e.clientX, e.clientY); });
