@@ -1427,6 +1427,7 @@
   let _justPoppedKey = null, _justCompletedDay = null;
   let _addTaskRecurring = false;
   let calendarViewDate = new Date();
+  let _selectedCalDate = null;
   let _currentTab = 'home';
 
   function switchTab(tab) {
@@ -1761,25 +1762,180 @@
         : '';
 
       const ariaLabel = `${dateISO}${total ? `, ${done}/${total} tasks` : ''}`;
-      cells += `<div class="cal-cell${isToday ? ' cal-today' : ''}${isPast && !isToday ? ' cal-past' : ''}${colourClass}" data-act="calendar-day" data-date="${dateISO}" role="button" aria-label="${ariaLabel}"><span class="cal-day-num">${d}</span>${dotHtml}</div>`;
+      const isSelected = dateISO === _selectedCalDate;
+      cells += `<div class="cal-cell${isToday ? ' cal-today' : ''}${isPast && !isToday ? ' cal-past' : ''}${colourClass}${isSelected ? ' cal-selected' : ''}" data-act="calendar-day" data-date="${dateISO}" role="button" aria-label="${ariaLabel}"><span class="cal-day-num">${d}</span>${dotHtml}</div>`;
     }
     return `<div class="cal-wrap"><div class="cal-nav"><button class="cal-nav-btn" data-act="cal-prev" aria-label="Previous month">‹</button><span class="cal-title">${monthLabel}</span><button class="cal-nav-btn" data-act="cal-next" aria-label="Next month">›</button></div><div class="cal-grid"><div class="cal-dow-row">${dowLabels.map(d=>`<div class="cal-dow">${d}</div>`).join('')}</div><div class="cal-cells">${cells}</div></div></div>`;
   }
 
   function modalCalendarDay(dateISO) {
     const today = todayKey();
-    const label = dateISO === today ? 'Today — ' + formatDate(dateISO) : formatDate(dateISO);
+    const isFuture = dateISO > today;
+    const isToday = dateISO === today;
+
+    // Highlight selected date on calendar
+    _selectedCalDate = dateISO;
+    document.querySelectorAll('.cal-cell').forEach(c => c.classList.remove('cal-selected'));
+    const calCell = document.querySelector(`.cal-cell[data-date="${dateISO}"]`);
+    if (calCell) calCell.classList.add('cal-selected');
+
+    // Date label
+    const dateObj = new Date(dateISO + 'T00:00:00');
+    const label = isToday
+      ? 'Today'
+      : dateObj.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+
+    // Plan data
     if (!state.dailyPlans[dateISO]) state.dailyPlans[dateISO] = { auto: [], removed: [], custom: [], generated: false };
     const plan = state.dailyPlans[dateISO];
-    const tasks = plan.custom || [];
-    const taskRows = tasks.length
-      ? tasks.map((t, i) => `<div class="cal-task-card${t.done ? ' cal-task-done' : ''}"><input type="checkbox" class="check" ${t.done ? 'checked' : ''} data-act="toggle-cal-task" data-date="${dateISO}" data-i="${i}"/><span class="cal-task-text">${escapeHTML(t.text)}</span><button class="menu-btn" data-act="del-cal-task" data-date="${dateISO}" data-i="${i}">${ic('trash')}</button></div>`).join('')
-      : `<div class="cal-empty-state">No tasks planned yet.<span>Add one below ↓</span></div>`;
-    openModal(`<h3>📅 ${escapeHTML(label)}</h3><div class="cal-task-list">${taskRows}</div><div class="cal-add-row"><input id="cal-new-task" placeholder="Add a task for this day…" maxlength="120" autofocus/><button class="btn btn-sm" data-act="add-cal-task" data-date="${dateISO}">${ic('plus')}</button></div><div class="actions" style="margin-top:12px"><button class="btn btn-ghost" data-close>Done</button>${dateISO === today ? `<button class="btn" data-act="regen-plan" data-close>↻ Regen Today</button>` : ''}</div>`,
-      root => {
-        const inp = root.querySelector('#cal-new-task');
-        if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') { const btn = root.querySelector('[data-act="add-cal-task"]'); if (btn) btn.click(); } });
-      });
+
+    // Build tasks list (auto + custom, tracking custom index for delete)
+    const allTasks = [];
+    for (const a of plan.auto || []) {
+      const key = autoKey(a.subId, a.chId, a.tId);
+      if ((plan.removed || []).includes(key)) continue;
+      const sub = findSubject(a.subId), ch = findChapter(a.subId, a.chId), t = findTopic(a.subId, a.chId, a.tId);
+      if (!sub || !ch || !t) continue;
+      allTasks.push({ type: 'auto', text: t.name, meta: `${sub.name} · ${ch.name}`, color: sub.color, done: !!t.done });
+    }
+    let _ci = 0;
+    for (const c of plan.custom || []) {
+      const ci = _ci++;
+      allTasks.push({ type: 'custom', text: c.text, meta: c.recurringId ? 'Daily recurring task' : c.rolledOver ? 'Rolled over from yesterday' : 'Custom task', color: '#94a3b8', done: !!c.done, _customIdx: ci });
+    }
+
+    const totalTasks = allTasks.length;
+    const doneTasks = allTasks.filter(t => t.done).length;
+
+    // Analytics
+    const focusMin = (state.focusStats.minutesByDate || {})[dateISO] || 0;
+    const videoMin = (state.focusStats.videoMinutes || {})[dateISO] || 0;
+    const sessions = (state.focusStats.sessions || {})[dateISO] || 0;
+    const activityCount = state.activity[dateISO] || 0;
+    const xpEarned = focusMin + videoMin;
+    const fmtMin = m => {
+      if (m <= 0) return '0m';
+      const h = Math.floor(m / 60), rem = m % 60;
+      return h > 0 ? (rem > 0 ? `${h}h ${rem}m` : `${h}h`) : `${rem}m`;
+    };
+
+    const hasData = totalTasks > 0 || focusMin > 0 || videoMin > 0 || activityCount > 0;
+
+    // Motivational quote
+    const quotes = (state.motivationQuotes && state.motivationQuotes.length)
+      ? state.motivationQuotes
+      : ['Consistency is the key to mastery.', 'Every day is a new chance to grow.', 'Small steps lead to big results.'];
+    const quote = quotes[Math.floor(Math.random() * quotes.length)];
+
+    // Header status badge
+    let statusLabel = '', statusClass = '';
+    if (isToday) { statusLabel = 'Today'; statusClass = 'ds-status-today'; }
+    else if (isFuture) { statusLabel = 'Upcoming'; statusClass = 'ds-status-future'; }
+    else if (totalTasks > 0 && doneTasks === totalTasks) { statusLabel = '✓ All Done'; statusClass = 'ds-status-done'; }
+    else if (totalTasks > 0 && doneTasks > 0) { statusLabel = `${doneTasks}/${totalTasks} Done`; statusClass = 'ds-status-partial'; }
+    else if (!hasData) { statusLabel = 'No Activity'; statusClass = 'ds-status-empty'; }
+
+    // Task rows
+    const taskRowsHtml = allTasks.map(t => {
+      const icon = t.type === 'auto' ? '📚' : '✏️';
+      const badge = t.done
+        ? `<span class="ds-badge ds-badge-done">✓ Done</span>`
+        : `<span class="ds-badge ds-badge-pending">Pending</span>`;
+      const delBtn = t.type === 'custom'
+        ? `<button class="ds-del-btn" data-act="del-cal-task" data-date="${dateISO}" data-i="${t._customIdx}" title="Remove task">${ic('trash')}</button>`
+        : '';
+      return `<div class="ds-task-row${t.done ? ' ds-task-done' : ''}">
+        <span class="ds-task-icon">${icon}</span>
+        <div class="ds-task-body">
+          <div class="ds-task-text">${escapeHTML(t.text)}</div>
+          <div class="ds-task-meta">${escapeHTML(t.meta)}</div>
+        </div>
+        ${badge}${delBtn}
+      </div>`;
+    }).join('');
+
+    const emptyTaskHtml = isFuture
+      ? `<div class="ds-empty"><div class="ds-empty-icon">🗓️</div><div>No tasks planned yet</div><div class="ds-empty-sub">Add tasks below to plan this day</div></div>`
+      : `<div class="ds-empty"><div class="ds-empty-icon">💤</div><div>No tasks recorded</div><div class="ds-empty-sub">"${escapeHTML(quote)}"</div></div>`;
+
+    // Analytics section
+    const analyticsHtml = (focusMin > 0 || videoMin > 0 || sessions > 0)
+      ? `<div class="ds-section">
+          <div class="ds-section-head">📊 Study Analytics</div>
+          <div class="ds-analytics-grid">
+            ${focusMin > 0 ? `<div class="ds-stat-tile ds-stat-focus"><div class="ds-sv">${fmtMin(focusMin)}</div><div class="ds-sk">Focus Time</div></div>` : ''}
+            ${videoMin > 0 ? `<div class="ds-stat-tile ds-stat-video"><div class="ds-sv">${fmtMin(videoMin)}</div><div class="ds-sk">Classroom</div></div>` : ''}
+            ${sessions > 0 ? `<div class="ds-stat-tile"><div class="ds-sv">${sessions} 🍅</div><div class="ds-sk">Pomodoros</div></div>` : ''}
+            ${xpEarned > 0 ? `<div class="ds-stat-tile ds-stat-xp"><div class="ds-sv">+${xpEarned} ⚡</div><div class="ds-sk">XP Earned</div></div>` : ''}
+          </div>
+        </div>` : '';
+
+    // Syllabus completed
+    const syllabusItems = allTasks.filter(t => t.type === 'auto' && t.done);
+    const syllabusHtml = syllabusItems.length
+      ? `<div class="ds-section">
+          <div class="ds-section-head">✅ Syllabus Progress</div>
+          ${syllabusItems.map(t => `<div class="ds-syl-row">
+            <span class="ds-syl-dot" style="background:${t.color}"></span>
+            <div class="ds-syl-body">
+              <div class="ds-syl-text">${escapeHTML(t.text)}</div>
+              <div class="ds-syl-meta">${escapeHTML(t.meta)}</div>
+            </div>
+            <span class="ds-badge ds-badge-done">Done</span>
+          </div>`).join('')}
+        </div>` : '';
+
+    // Streak & XP summary (only show if there's activity, and only if analytics didn't already show XP)
+    const streakHtml = (!isFuture && (activityCount > 0 || isToday))
+      ? `<div class="ds-section">
+          <div class="ds-section-head">🔥 Daily XP &amp; Streak</div>
+          <div class="ds-analytics-grid">
+            <div class="ds-stat-tile ds-stat-xp"><div class="ds-sv">${xpEarned > 0 ? '+' + xpEarned + ' ⚡' : '0 ⚡'}</div><div class="ds-sk">XP Earned</div></div>
+            <div class="ds-stat-tile"><div class="ds-sv">${state.streak.count} 🔥</div><div class="ds-sk">Streak</div></div>
+            ${activityCount > 0 ? `<div class="ds-stat-tile"><div class="ds-sv">${activityCount}</div><div class="ds-sk">Actions</div></div>` : ''}
+          </div>
+        </div>` : '';
+
+    // No-activity state for past dates
+    const noDataHtml = !hasData && !isFuture
+      ? `<div class="ds-no-activity">
+          <div class="ds-no-act-emoji">🌙</div>
+          <div class="ds-no-act-text">No activity on this day</div>
+          <div class="ds-no-act-quote">"${escapeHTML(quote)}"</div>
+        </div>` : '';
+
+    openModal(`
+      <div class="ds-header">
+        <div class="ds-date-label">${escapeHTML(label)}</div>
+        ${statusLabel ? `<span class="ds-status ${statusClass}">${statusLabel}</span>` : ''}
+      </div>
+      ${noDataHtml}
+      ${analyticsHtml}
+      <div class="ds-section">
+        <div class="ds-section-head">
+          📋 Task Recap
+          ${totalTasks ? `<span class="ds-task-count">${doneTasks}/${totalTasks} completed</span>` : ''}
+        </div>
+        <div class="ds-task-list">
+          ${allTasks.length ? taskRowsHtml : emptyTaskHtml}
+        </div>
+      </div>
+      ${syllabusHtml}
+      ${streakHtml}
+      <div class="ds-add-row">
+        <input id="cal-new-task" placeholder="Add a task for ${isToday ? 'today' : 'this day'}…" maxlength="120"/>
+        <button class="btn btn-sm" data-act="add-cal-task" data-date="${dateISO}">${ic('plus')}</button>
+      </div>
+      <div class="actions" style="margin-top:12px">
+        <button class="btn btn-ghost" data-close>Close</button>
+        ${isToday ? `<button class="btn" data-act="regen-plan" data-close>↻ Regen Plan</button>` : ''}
+      </div>
+    `, root => {
+      const inp = root.querySelector('#cal-new-task');
+      if (inp) {
+        inp.addEventListener('keydown', e => { if (e.key === 'Enter') { const btn = root.querySelector('[data-act="add-cal-task"]'); if (btn) btn.click(); } });
+      }
+    });
   }
 
   // ========== Syllabus ==========

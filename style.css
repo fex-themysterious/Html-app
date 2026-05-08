@@ -1953,6 +1953,175 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 }
 .cal-add-row input::placeholder { color: var(--text-muted); }
 
+/* ── Calendar selected glow ───────────────────────────────────── */
+.cal-cell.cal-selected {
+  border-color: rgba(167,139,250,0.75) !important;
+  background: rgba(167,139,250,0.12) !important;
+  box-shadow: 0 0 0 3px rgba(167,139,250,0.20), 0 0 12px rgba(167,139,250,0.25);
+  animation: calSelectPulse 0.35s var(--ease);
+}
+.cal-cell.cal-selected .cal-day-num { color: #c4b5fd; font-weight: 800; }
+@keyframes calSelectPulse {
+  0%   { transform: scale(1); box-shadow: 0 0 0 6px rgba(167,139,250,0.35); }
+  60%  { transform: scale(1.08); }
+  100% { transform: scale(1); box-shadow: 0 0 0 3px rgba(167,139,250,0.20); }
+}
+
+/* ================================================================
+   DAY SUMMARY MODAL  (.ds-*)
+   ================================================================ */
+
+/* Header */
+.ds-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 10px; margin-bottom: 16px; padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.ds-date-label {
+  font-size: 16px; font-weight: 800; color: var(--text); line-height: 1.3; flex: 1;
+}
+.ds-status {
+  display: inline-flex; align-items: center;
+  font-size: 11px; font-weight: 700; padding: 4px 10px;
+  border-radius: 99px; letter-spacing: 0.04em;
+  white-space: nowrap; flex-shrink: 0;
+}
+.ds-status-today   { background: rgba(77,168,255,0.15); color: #4da8ff; border: 1px solid rgba(77,168,255,0.3); }
+.ds-status-done    { background: rgba(34,197,94,0.15);  color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
+.ds-status-partial { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); }
+.ds-status-future  { background: rgba(148,163,184,0.10); color: #94a3b8; border: 1px solid rgba(148,163,184,0.2); }
+.ds-status-empty   { background: rgba(148,163,184,0.10); color: #64748b; border: 1px solid rgba(148,163,184,0.15); }
+
+/* Section */
+.ds-section { margin-bottom: 16px; }
+.ds-section-head {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.07em;
+  margin-bottom: 10px;
+}
+.ds-task-count {
+  margin-left: auto; font-size: 11px; font-weight: 600;
+  color: var(--primary); text-transform: none; letter-spacing: 0;
+}
+
+/* Analytics grid */
+.ds-analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 8px;
+}
+.ds-stat-tile {
+  background: linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 12px; padding: 10px 8px;
+  text-align: center;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.ds-sv { font-size: 15px; font-weight: 800; color: var(--text); line-height: 1.2; }
+.ds-sk { font-size: 10px; color: var(--text-muted); font-weight: 600; margin-top: 3px; text-transform: uppercase; letter-spacing: 0.05em; }
+.ds-stat-focus { border-color: rgba(77,168,255,0.25); }
+.ds-stat-focus .ds-sv { color: #4da8ff; }
+.ds-stat-video { border-color: rgba(163,230,53,0.25); }
+.ds-stat-video .ds-sv { color: #a3e635; }
+.ds-stat-xp    { border-color: rgba(251,191,36,0.25); }
+.ds-stat-xp .ds-sv { color: #fbbf24; }
+
+/* Task list */
+.ds-task-list {
+  display: flex; flex-direction: column; gap: 7px;
+  max-height: 260px; overflow-y: auto;
+  overflow-x: hidden; overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 2px;
+}
+.ds-task-row {
+  display: flex; align-items: center; gap: 8px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.015));
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 11px; padding: 10px 11px;
+  transition: opacity 0.2s, border-color 0.2s;
+}
+.ds-task-row.ds-task-done { opacity: 0.5; }
+.ds-task-icon { font-size: 16px; flex-shrink: 0; line-height: 1; }
+.ds-task-body { flex: 1; min-width: 0; }
+.ds-task-text {
+  font-size: 13px; font-weight: 600; color: var(--text);
+  line-height: 1.35; word-break: break-word;
+}
+.ds-task-done .ds-task-text { text-decoration: line-through; color: var(--text-muted); }
+.ds-task-meta { font-size: 10px; color: var(--text-muted); margin-top: 2px; font-weight: 500; }
+.ds-del-btn {
+  background: none; border: none; color: var(--text-muted);
+  cursor: pointer; padding: 4px; border-radius: 6px; flex-shrink: 0;
+  display: flex; align-items: center; opacity: 0.5;
+  transition: opacity 0.15s, color 0.15s;
+}
+.ds-del-btn:hover { opacity: 1; color: #f47364; }
+
+/* Done / Pending badge */
+.ds-badge {
+  display: inline-flex; align-items: center; flex-shrink: 0;
+  font-size: 10px; font-weight: 700; padding: 3px 8px;
+  border-radius: 99px; letter-spacing: 0.03em;
+}
+.ds-badge-done    { background: rgba(34,197,94,0.15);  color: #22c55e; }
+.ds-badge-pending { background: rgba(245,158,11,0.13); color: #f59e0b; }
+
+/* Syllabus row */
+.ds-syl-row {
+  display: flex; align-items: center; gap: 9px;
+  padding: 9px 11px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px; margin-bottom: 6px;
+}
+.ds-syl-row:last-child { margin-bottom: 0; }
+.ds-syl-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.ds-syl-body { flex: 1; min-width: 0; }
+.ds-syl-text { font-size: 13px; font-weight: 600; color: var(--text); }
+.ds-syl-meta { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+
+/* Empty task state */
+.ds-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 20px 16px; text-align: center;
+  color: var(--text-muted); font-size: 13px; font-weight: 600;
+  border: 1px dashed rgba(255,255,255,0.09); border-radius: 11px;
+}
+.ds-empty-icon { font-size: 26px; margin-bottom: 3px; }
+.ds-empty-sub { font-size: 11px; opacity: 0.7; font-weight: 400; font-style: italic; }
+
+/* No-activity full state */
+.ds-no-activity {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 20px 16px; margin-bottom: 14px; text-align: center;
+  background: linear-gradient(135deg, rgba(99,102,241,0.06), rgba(139,92,246,0.04));
+  border: 1px solid rgba(99,102,241,0.18); border-radius: 14px;
+}
+.ds-no-act-emoji { font-size: 32px; margin-bottom: 8px; }
+.ds-no-act-text { font-size: 14px; font-weight: 700; color: var(--text); }
+.ds-no-act-quote { font-size: 12px; color: var(--text-muted); margin-top: 6px; font-style: italic; line-height: 1.5; }
+
+/* Add-task row (reuse cal-add-row style) */
+.ds-add-row {
+  display: flex; gap: 8px; align-items: center;
+  background: linear-gradient(135deg, rgba(77,168,255,0.07), rgba(167,139,250,0.05));
+  border: 1px solid rgba(77,168,255,0.22); border-radius: 14px;
+  padding: 6px 8px 6px 14px; margin-bottom: 2px;
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+.ds-add-row:focus-within {
+  border-color: rgba(77,168,255,0.48);
+  box-shadow: 0 0 0 3px rgba(77,168,255,0.10);
+}
+.ds-add-row input {
+  flex: 1; min-width: 0; background: transparent; border: none;
+  color: var(--text); padding: 7px 0; font: inherit; font-size: 14px; outline: none;
+}
+.ds-add-row input::placeholder { color: var(--text-muted); }
+
 /* ================================================================
    VIDEO DESCRIPTION
    ================================================================ */
