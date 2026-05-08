@@ -573,6 +573,95 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .hero-progress-foot { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-top: 5px; font-weight: 500; }
 .hero-progress-foot strong { color: var(--text); }
 
+/* ================================================================
+   STUDY ANALYTICS BENTO GRID
+   ================================================================ */
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 14px 0 16px;
+}
+
+.bento-card {
+  background: linear-gradient(145deg, rgba(13,22,38,0.92) 0%, rgba(7,12,22,0.96) 100%);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 18px;
+  padding: 13px 13px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-height: 122px;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s var(--ease), box-shadow 0.2s, border-color 0.2s;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.05);
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.bento-card:hover { transform: translateY(-3px); }
+.bento-card:active { transform: scale(0.97); }
+
+/* Per-card hover glow */
+.bento-exam:hover    { border-color: rgba(34,211,238,0.38); box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 24px rgba(34,211,238,0.1); }
+.bento-tasks:hover   { border-color: rgba(244,114,182,0.38); box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 24px rgba(244,114,182,0.1); }
+.bento-syllabus:hover{ border-color: rgba(163,230,53,0.38);  box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 24px rgba(163,230,53,0.1); }
+
+/* Corner ambient glow blobs */
+.bento-exam::before    { content:''; position:absolute; top:-18px; right:-18px; width:70px; height:70px; background:radial-gradient(circle, rgba(34,211,238,0.14), transparent 70%); border-radius:50%; pointer-events:none; }
+.bento-tasks::before   { content:''; position:absolute; top:-18px; right:-18px; width:70px; height:70px; background:radial-gradient(circle, rgba(244,114,182,0.14), transparent 70%); border-radius:50%; pointer-events:none; }
+.bento-syllabus::before{ content:''; position:absolute; top:-18px; right:-18px; width:70px; height:70px; background:radial-gradient(circle, rgba(163,230,53,0.11), transparent 70%); border-radius:50%; pointer-events:none; }
+
+/* Urgent pulse */
+.bento-urgent { border-color: rgba(248,113,113,0.4) !important; animation: bentoPulse 2.5s ease-in-out infinite; }
+@keyframes bentoPulse { 0%,100% { box-shadow: 0 4px 24px rgba(0,0,0,0.45); } 50% { box-shadow: 0 8px 32px rgba(248,113,113,0.22); } }
+
+/* Eyebrow label row */
+.bento-eyebrow {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 9px; font-weight: 800; letter-spacing: 0.14em;
+  color: rgba(255,255,255,0.38); text-transform: uppercase;
+}
+.bento-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.bento-dot-cyan { background: #22d3ee; box-shadow: 0 0 5px rgba(34,211,238,0.8); }
+.bento-dot-pink { background: #f472b6; box-shadow: 0 0 5px rgba(244,114,182,0.8); }
+.bento-dot-lime { background: #a3e635; box-shadow: 0 0 5px rgba(163,230,53,0.8); }
+
+/* Big number */
+.bento-big { font-size: 38px; font-weight: 900; line-height: 1; letter-spacing: -0.05em; display: flex; align-items: baseline; gap: 2px; }
+.bento-unit { font-size: 14px; font-weight: 800; }
+
+/* Sub-label under the big number */
+.bento-name { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Spacer pushes bar + foot to the bottom */
+.bento-spacer { flex: 1; }
+
+/* Thin progress bar */
+.bento-bar-track { height: 4px; background: rgba(255,255,255,0.07); border-radius: 999px; overflow: hidden; }
+.bento-bar-fill  { height: 100%; border-radius: 999px; transition: width 0.85s cubic-bezier(0.2,0.8,0.2,1); }
+
+/* Footer hint */
+.bento-foot { font-size: 10px; color: rgba(255,255,255,0.33); font-weight: 600; }
+
+/* ── Task ring (Apple Watch style mini ring) ── */
+.bento-ring-wrap {
+  position: relative; width: 58px; height: 58px;
+  margin: 3px auto 0; flex-shrink: 0;
+}
+.bento-ring-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.bento-ring-label {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  line-height: 1;
+}
+.bento-ring-num   { font-size: 14px; font-weight: 900; color: #f472b6; letter-spacing: -0.5px; }
+.bento-ring-denom { font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.38); }
+.bento-ring-sub   { font-size: 8px; font-weight: 700; color: rgba(255,255,255,0.33); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
+
 /* Motivation line */
 .motivation-line { margin-top: 6px; font-size: 13px; font-weight: 600; color: var(--text-muted); letter-spacing: -0.1px; }
 .motivation-line.is-hot { background: linear-gradient(90deg, #facc15, #fb7185, #b197fc); -webkit-background-clip: text; background-clip: text; color: transparent; }
@@ -1166,25 +1255,20 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   .home-profile-greeting { font-size: 11px; }
   .motivation-line { font-size: 11px; margin-top: 2px; }
 
-  .hero-grid { grid-template-columns: 1fr 1fr !important; gap: 8px; margin-bottom: 8px; }
-  /* Compact hero cards — less min-height so task list is visible without scrolling far */
-  .hero-card { min-height: 0; padding: 9px 12px 8px; }
-  .hero-bignum { font-size: 36px; }
-  .hero-bignum-unit { font-size: 14px; }
-  .hero-bignum-lbl { font-size: 9px; }
-  .hero-title { font-size: 13px; }
-  .hero-sub   { font-size: 10px; }
-  .hero-eyebrow { font-size: 9px; margin-bottom: 3px; }
-  .hero-actions { margin-top: 4px; }
-  .urgent-badge { font-size: 8px; padding: 2px 5px; }
+  /* Bento grid: stays 3-column in landscape, more compact */
+  .bento-grid { gap: 7px; margin: 6px 0 8px; }
+  .bento-card { min-height: 82px; padding: 8px 10px 7px; border-radius: 13px; gap: 3px; }
+  .bento-big  { font-size: 28px; }
+  .bento-unit { font-size: 11px; }
+  .bento-name { font-size: 9.5px; }
+  .bento-foot { font-size: 8.5px; }
+  .bento-eyebrow { font-size: 8px; }
+  .bento-ring-wrap { width: 44px; height: 44px; }
+  .bento-ring-num  { font-size: 11px; }
+  .bento-ring-denom { font-size: 9px; }
+  .bento-ring-sub  { font-size: 7px; }
 
-  .ring-wrap { width: 76px; height: 76px; margin: 0 auto; }
-  .ring-pct  { font-size: 20px; }
-  .ring-pct span { font-size: 11px; }
-  .ring-lbl  { font-size: 8px; }
-  .hero-progress-foot { font-size: 10px; margin-top: 4px; }
-
-  /* Hide the motivation quote — reclaims ~20px to fit more tasks */
+  /* Hide the motivation quote — reclaims vertical space for task list */
   .motivation-line { display: none; }
 
   /* Dashboard shortcut button: single compact row */

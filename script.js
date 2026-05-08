@@ -1470,19 +1470,76 @@
     for (let i = 0; i < 16; i++) { const w = 5 + Math.floor(Math.random() * 5); p += `<i style="left:${Math.random()*100}%;background:${colors[i%colors.length]};width:${w}px;height:${w*1.6}px;animation-delay:${(Math.random()*0.25).toFixed(2)}s;animation-duration:${(1+Math.random()*0.8).toFixed(2)}s"></i>`; }
     return `<div class="confetti" aria-hidden="true">${p}</div>`;
   }
-  function renderHome() {
-    const view = document.getElementById('view-home'); if (!view) return;
-    const exam = nextExam(), overall = overallProgress();
-    const tasks = getActivePlanTasks(), doneCount = tasks.filter(t => t.done).length, totalCount = tasks.length;
-    const allDone = totalCount > 0 && doneCount === totalCount;
+  // ── Mini task-ring SVG (Apple Watch style) for bento card ──
+  function miniTaskRingSVG(done, total) {
+    const r = 22, c = 2 * Math.PI * r;
+    const off = c * (1 - (total > 0 ? done / total : 0));
+    return `<svg class="bento-ring-svg" viewBox="0 0 52 52" aria-hidden="true" style="transform:rotate(-90deg)"><circle cx="26" cy="26" r="${r}" fill="none" stroke="rgba(244,114,182,0.14)" stroke-width="4.5"/><circle cx="26" cy="26" r="${r}" fill="none" stroke="#f472b6" stroke-width="4.5" stroke-linecap="round" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" style="filter:drop-shadow(0 0 5px rgba(244,114,182,0.65));transition:stroke-dashoffset 0.9s cubic-bezier(0.2,0.8,0.2,1)"/></svg>`;
+  }
+
+  // ── 3-column Study Analytics Bento Grid ──
+  function renderBentoGrid() {
+    const exam = nextExam();
+    const overall = overallProgress();
+    const planTasks = getActivePlanTasks();
+    const doneCount = planTasks.filter(t => t.done).length;
+    const totalCount = planTasks.length;
     const examDays = exam ? daysUntil(exam.date) : null;
     const urgent = exam && examDays !== null && examDays <= 7 && examDays >= 0;
-    const examHero = exam ? `<article class="hero-card ${urgent ? 'urgent' : ''}" data-act="add-exam" role="button">${urgent ? `<span class="urgent-badge">${examDays === 0 ? 'TODAY' : examDays === 1 ? 'TOMORROW' : 'SOON'}</span>` : ''}<div class="hero-eyebrow">${ic('cal')}<span>NEXT EXAM</span></div><h2 class="hero-title">${escapeHTML(exam.name)}</h2><div class="hero-sub">${formatDate(exam.date)}</div><div class="hero-bignum">${examDays}<span class="hero-bignum-unit">d</span></div><div class="hero-bignum-lbl">days remaining</div><div class="hero-actions"><button class="btn-link" data-act="edit-exam" data-id="${exam.id}">Edit</button><button class="btn-link" data-act="add-exam">+ Add</button></div></article>` :
-      `<article class="hero-card empty"><div class="hero-eyebrow">${ic('cal')}<span>NEXT EXAM</span></div><h2 class="hero-title">No exam yet</h2><div class="hero-sub">Add one to start the countdown.</div><button class="btn" style="margin-top:12px" data-act="add-exam">${ic('plus')} Add Exam</button></article>`;
-    const progressHero = `<article class="hero-card" data-act="open-dashboard" role="button"><div class="hero-eyebrow">${ic('check')}<span>OVERALL</span></div><div class="ring-wrap">${progressRingSVG(overall)}<div class="ring-center"><div class="ring-pct">${overall}<span>%</span></div><div class="ring-lbl">complete</div></div></div><div class="hero-progress-foot"><span><strong>${state.streak.count}</strong> day streak 🔥</span><span>${doneCount}/${totalCount} today</span></div></article>`;
+    // Bar drains from 100% (90+ days) → 0% (exam day)
+    const examBarPct = exam && examDays !== null ? Math.max(0, Math.min(100, Math.round((examDays / 90) * 100))) : 0;
+    const examBarColor = urgent
+      ? 'background:linear-gradient(90deg,#f87171,#fbbf24)'
+      : 'background:linear-gradient(90deg,#22d3ee,#67e8f9)';
+    const taskPct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+
+    const examCard = exam
+      ? `<article class="bento-card bento-exam${urgent ? ' bento-urgent' : ''}" data-act="add-exam" role="button" tabindex="0">
+          <div class="bento-eyebrow"><span class="bento-dot bento-dot-cyan"></span>NEXT EXAM</div>
+          <div class="bento-big" style="color:${urgent?'#f87171':'#22d3ee'}">${examDays !== null ? examDays : '—'}<span class="bento-unit">d</span></div>
+          <div class="bento-name">${escapeHTML(exam.name)}</div>
+          <div class="bento-spacer"></div>
+          <div class="bento-bar-track"><div class="bento-bar-fill" style="width:${examBarPct}%;${examBarColor}"></div></div>
+          <div class="bento-foot">${examBarPct}% time left</div>
+        </article>`
+      : `<article class="bento-card bento-exam" data-act="add-exam" role="button" tabindex="0" style="justify-content:center;align-items:center;text-align:center;gap:6px">
+          <div class="bento-eyebrow" style="justify-content:center"><span class="bento-dot bento-dot-cyan"></span>NEXT EXAM</div>
+          <div style="font-size:22px;color:#22d3ee;font-weight:900;line-height:1">No Exam</div>
+          <div class="bento-foot">Tap to add →</div>
+        </article>`;
+
+    const tasksCard = `<article class="bento-card bento-tasks" data-act="open-dashboard" role="button" tabindex="0" style="align-items:center;text-align:center">
+      <div class="bento-eyebrow"><span class="bento-dot bento-dot-pink"></span>TODAY</div>
+      <div class="bento-ring-wrap">
+        ${miniTaskRingSVG(doneCount, totalCount)}
+        <div class="bento-ring-label">
+          <div class="bento-ring-num">${doneCount}<span class="bento-ring-denom">/${totalCount}</span></div>
+          <div class="bento-ring-sub">done</div>
+        </div>
+      </div>
+      <div class="bento-foot">${taskPct}% complete</div>
+    </article>`;
+
+    const syllabusCard = `<article class="bento-card bento-syllabus" data-act="open-syllabus" role="button" tabindex="0">
+      <div class="bento-eyebrow"><span class="bento-dot bento-dot-lime"></span>MASTERY</div>
+      <div class="bento-big" style="color:#a3e635">${overall}<span class="bento-unit">%</span></div>
+      <div class="bento-name">syllabus done</div>
+      <div class="bento-spacer"></div>
+      <div class="bento-bar-track"><div class="bento-bar-fill" style="width:${overall}%;background:linear-gradient(90deg,#a3e635,#84cc16)"></div></div>
+      <div class="bento-foot">${state.streak.count} day streak 🔥</div>
+    </article>`;
+
+    return `<div class="bento-grid">${examCard}${tasksCard}${syllabusCard}</div>`;
+  }
+
+  function renderHome() {
+    const view = document.getElementById('view-home'); if (!view) return;
+    const overall = overallProgress();
+    const tasks = getActivePlanTasks(), doneCount = tasks.filter(t => t.done).length, totalCount = tasks.length;
+    const allDone = totalCount > 0 && doneCount === totalCount;
     const achievedBadge = allDone ? `<div class="daily-achieved" role="status">${_justCompletedDay === todayKey() ? renderConfettiBurst() : ''}<span class="da-glyph">🏆</span><div><div class="da-title">Daily Goal Achieved!</div><div class="da-sub">All ${totalCount} task${totalCount === 1 ? '' : 's'} done!</div></div></div>` : '';
     const motivationMsg = getRotatingQuote();
-    view.innerHTML = `<div class="home-profile"><div class="home-profile-avatar">T</div><div class="home-profile-info"><div class="home-profile-name">Tajwar</div><div class="home-profile-sub">CSE'26, BUET</div><div class="xp-row"><span class="xp-level-badge">Lv.${xpLevel()}</span><div class="xp-bar-wrap"><div class="xp-bar-fill" style="width:${(state.xp&&state.xp.total||0)%100}%"></div></div><span class="xp-label">${(state.xp&&state.xp.total||0)%100}/100 XP</span>${(state.focusStreak&&state.focusStreak.count>0)?`<span class="xp-focus-streak">🔥 ${state.focusStreak.count}d</span>`:''}</div></div><span class="home-profile-greeting">${greeting()} 👋</span></div><div class="motivation-line ${overall >= 80 ? 'is-hot' : overall < 20 ? 'is-cold' : ''}">${escapeHTML(motivationMsg)}</div><div class="hero-grid" style="margin-top:16px">${examHero}${progressHero}</div>${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${renderTasksList(tasks)}`;
+    view.innerHTML = `<div class="home-profile"><div class="home-profile-avatar">T</div><div class="home-profile-info"><div class="home-profile-name">Tajwar</div><div class="home-profile-sub">CSE'26, BUET</div><div class="xp-row"><span class="xp-level-badge">Lv.${xpLevel()}</span><div class="xp-bar-wrap"><div class="xp-bar-fill" style="width:${(state.xp&&state.xp.total||0)%100}%"></div></div><span class="xp-label">${(state.xp&&state.xp.total||0)%100}/100 XP</span>${(state.focusStreak&&state.focusStreak.count>0)?`<span class="xp-focus-streak">🔥 ${state.focusStreak.count}d</span>`:''}</div></div><span class="home-profile-greeting">${greeting()} 👋</span></div><div class="motivation-line ${overall >= 80 ? 'is-hot' : overall < 20 ? 'is-cold' : ''}">${escapeHTML(motivationMsg)}</div>${renderBentoGrid()}${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${renderTasksList(tasks)}`;
     if (_justPoppedKey) requestAnimationFrame(() => { _justPoppedKey = null; });
     if (_justCompletedDay) setTimeout(() => { _justCompletedDay = null; }, 1800);
   }
@@ -3407,6 +3464,7 @@
     if (act === 'fs-toggle-landscape' || act === 'vp-toggle-landscape') { toggleOrientLock(); return; }
 
     if (act === 'open-dashboard') { switchTab('dashboard'); renderDashboard(); return; }
+    if (act === 'open-syllabus')  { switchTab('syllabus');  renderSyllabus();  return; }
     if (act === 'open-plan') { closeModal(); switchTab('home'); renderHome(); return; }
     if (act === 'burnout-go-plan') { closeModal(); switchTab('home'); renderHome(); return; }
     if (act === 'burnout-popup') { showBurnoutPopup(); return; }
