@@ -183,6 +183,17 @@
     if (!iso) return '';
     return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   }
+  // Centralized minutes → human-readable hours converter
+  function minsToHrs(min) {
+    if (!min) return '0m';
+    if (min < 60) return min + 'm';
+    const h = Math.floor(min / 60), m = min % 60;
+    return m ? `${h}h ${m}m` : `${h}h`;
+  }
+  function minsToHrsShort(min) {
+    if (!min) return '0h';
+    return (min / 60).toFixed(1) + 'h';
+  }
   function formatTime12(hhmm) {
     if (!hhmm || !hhmm.includes(':')) return hhmm || '';
     const [h, m] = hhmm.split(':').map(Number);
@@ -3413,7 +3424,7 @@
 
       <div class="stats-chart-pair">
         <div class="stats-chart-half">
-          <div class="stats-section-head"><span>Weekly Focus</span><span class="stats-section-meta">${days7.reduce((a, b) => a + b.min, 0)}m this week</span></div>
+          <div class="stats-section-head"><span>Weekly Focus (HRS)</span><span class="stats-section-meta">${minsToHrs(days7.reduce((a, b) => a + b.min, 0))} this week</span></div>
           <div class="stats-chart-card"><div class="stats-chart-wrap"><canvas id="stats-weekly-chart"></canvas></div></div>
         </div>
         <div class="stats-chart-half">
@@ -3438,7 +3449,7 @@
       <div class="stats-chart-card stats-heatmap-card">
         <div class="stats-hm-day-labels"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
         <div class="stats-heatmap">${heatmapCells.map(c => `<div class="shm-cell ${c.lvl}${c.isToday ? ' shm-today' : ''}" title="${c.title}"></div>`).join('')}</div>
-        <div class="stats-hm-legend"><span>Less</span><div class="shm-cell lv0"></div><div class="shm-cell lv1"></div><div class="shm-cell lv2"></div><div class="shm-cell lv3"></div><div class="shm-cell lv4"></div><span>More</span></div>
+        <div class="stats-hm-legend"><span>0m</span><div class="shm-cell lv0" title="No focus"></div><div class="shm-cell lv1" title="1–30 min"></div><div class="shm-cell lv2" title="31–60 min"></div><div class="shm-cell lv3" title="1–2 hrs"></div><div class="shm-cell lv4" title="2+ hrs"></div><span>2h+</span></div>
       </div>
 
       <div class="stats-row" style="margin-top:16px">
@@ -3538,7 +3549,7 @@
   function initStatsCharts(days7, pieSubjects, days7cls) {
     if (!window.Chart) { setTimeout(() => initStatsCharts(days7, pieSubjects, days7cls), 300); return; }
 
-    // Weekly bar chart
+    // Weekly bar chart — data in hours, Y-axis 0–18h with 6h step marks
     const weeklyCanvas = document.getElementById('stats-weekly-chart');
     if (weeklyCanvas) {
       const prev = Chart.getChart(weeklyCanvas); if (prev) prev.destroy();
@@ -3547,11 +3558,11 @@
         data: {
           labels: days7.map(d => d.label),
           datasets: [{
-            data: days7.map(d => d.min),
+            data: days7.map(d => parseFloat((d.min / 60).toFixed(2))),
             backgroundColor: days7.map((d, i) => {
-              if (i === 6) return 'rgba(77,168,255,0.90)';       // today — bright
-              if (d.min > 0) return 'rgba(77,168,255,0.42)';      // past with data
-              return 'rgba(77,168,255,0.14)';                      // past, no data
+              if (i === 6) return 'rgba(77,168,255,0.90)';   // today — bright
+              if (d.min > 0) return 'rgba(77,168,255,0.42)'; // past with data
+              return 'rgba(77,168,255,0.14)';                 // past, no data
             }),
             borderColor: days7.map((_, i) => i === 6 ? '#4da8ff' : 'transparent'),
             borderWidth: days7.map((_, i) => i === 6 ? 2 : 0),
@@ -3566,12 +3577,16 @@
             tooltip: {
               backgroundColor: '#0d1b2a', borderColor: 'rgba(77,168,255,0.4)', borderWidth: 1,
               titleColor: '#f0f6ff', bodyColor: '#94a3b8', padding: 10,
-              callbacks: { label: ctx => ` ${ctx.parsed.y} min` }
+              callbacks: { label: ctx => ` ${ctx.parsed.y.toFixed(1)} hrs` }
             }
           },
           scales: {
             x: { grid: { display: false }, border: { display: false }, ticks: { color: 'rgba(148,163,184,0.75)', font: { size: 11, weight: '600' } } },
-            y: { grid: { color: 'rgba(255,255,255,0.05)' }, border: { display: false }, ticks: { color: 'rgba(148,163,184,0.6)', font: { size: 10 }, callback: v => v + 'm', maxTicksLimit: 4 }, beginAtZero: true }
+            y: {
+              min: 0, suggestedMax: 18,
+              grid: { color: 'rgba(255,255,255,0.05)' }, border: { display: false },
+              ticks: { color: 'rgba(148,163,184,0.6)', font: { size: 10 }, stepSize: 6, callback: v => v + 'h' }
+            }
           }
         }
       });
