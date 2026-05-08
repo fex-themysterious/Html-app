@@ -213,6 +213,8 @@
     }
     return total ? Math.round((done / total) * 100) : 0;
   }
+  // Canonical alias — single source of truth for syllabus progress across all views
+  function getGlobalSyllabusProgress() { return overallProgress(); }
   function nextExam() {
     const today = todayKey();
     return state.exams.filter(e => e.date >= today).sort((a, b) => a.date.localeCompare(b.date))[0] || null;
@@ -2270,12 +2272,12 @@
     document.title = focusRunning ? `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')} — Focus` : 'Syllabus Tracker';
     const el = document.getElementById('focus-time-display');
     if (el) { el.textContent = formatted; el.classList.remove('fs-overtime-text'); }
-    const r = 96, c = 2 * Math.PI * r, off = c * (1 - Math.max(0, Math.min(1, focusSeconds / total)));
-    const ring = document.getElementById('focus-ring-circle'); if (ring) ring.style.strokeDashoffset = off.toFixed(2);
+    const ring = document.getElementById('focus-ring-circle');
+    if (ring) { const r = 96, c = 2 * Math.PI * r; ring.style.strokeDashoffset = (c * (1 - Math.max(0, Math.min(1, focusSeconds / total)))).toFixed(2); }
     const fsEl = document.getElementById('fs-time-display');
     if (fsEl) { fsEl.textContent = formatted; fsEl.classList.remove('fs-overtime-text'); }
-    const rr = 120, cc = 2 * Math.PI * rr, oo = cc * (1 - Math.max(0, Math.min(1, focusSeconds / total)));
-    const fsRing = document.getElementById('fs-ring-circle'); if (fsRing) fsRing.style.strokeDashoffset = oo.toFixed(2);
+    const fsRing = document.getElementById('fs-ring-circle');
+    if (fsRing) { const rr = 120, cc = 2 * Math.PI * rr; fsRing.style.strokeDashoffset = (cc * (1 - Math.max(0, Math.min(1, focusSeconds / total)))).toFixed(2); }
     if (overlay) { overlay.classList.toggle('fs-is-running', focusRunning); overlay.classList.remove('fs-overtime'); }
   }
 
@@ -2876,11 +2878,13 @@
       moveDrag(e.touches[0].clientX, e.touches[0].clientY);
     }, { passive: false });
     el.addEventListener('touchend', e => {
-      if (_moved) { e.preventDefault(); e.stopPropagation(); }
+      const wasMoved = _moved;
+      _moved = false;
       endDrag();
+      if (wasMoved && !e.target.closest('button')) { e.preventDefault(); e.stopPropagation(); }
     }, { passive: false });
     el.addEventListener('click', e => {
-      // Allow button clicks through even after drag movement
+      // Block synthetic click after a mouse-drag (touch path already handled above)
       if (_moved) { _moved = false; if (!e.target.closest('button')) e.stopImmediatePropagation(); }
     }, true);
     el.addEventListener('mousedown', e => {
