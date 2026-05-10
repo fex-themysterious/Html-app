@@ -639,7 +639,7 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 }
 
 /* ── Full Calendar Heatmap ───────────────────────────────────── */
-.stats-cal-card { padding: 14px 14px 12px; }
+.stats-cal-card { padding: 14px 14px 12px; overflow: hidden; }
 
 .cal-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -759,8 +759,8 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 /* Legend row */
 .stats-hm-legend {
   display: flex; align-items: center; gap: 5px;
-  justify-content: flex-end; margin-top: 6px;
-  font-size: 10px; color: var(--text-muted); font-weight: 600; flex-wrap: wrap; row-gap: 5px;
+  justify-content: center; margin-top: 10px;
+  font-size: 10px; color: var(--text-muted); font-weight: 600; flex-wrap: wrap; row-gap: 6px;
 }
 .stats-hm-legend .shm-cell {
   width: 11px; height: 11px; flex-shrink: 0; border-radius: 2px;
@@ -769,7 +769,7 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .hm-lgd-txt { font-size: 9px; font-weight: 600; color: var(--text-muted); }
 .hm-lgd-scale {
   display: flex; gap: 5px; font-size: 9px; font-weight: 700;
-  margin-left: 6px; align-items: center; flex-wrap: wrap;
+  align-items: center; flex-wrap: wrap; justify-content: center;
 }
 
 /* ================================================================
@@ -1091,7 +1091,7 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .goal-percent { font-size: 20px; font-weight: 900; letter-spacing: -0.5px; }
 .goal-meta { font-size: 11px; color: var(--text-muted); margin-top: 5px; font-weight: 500; }
 .goal-progress { margin-bottom: 4px; }
-.empty-goals { text-align: center; padding: 20px 14px; background: var(--surface); border-radius: var(--radius); color: var(--text-muted); font-size: 13.5px; border: 1px solid var(--border); }
+.empty-goals { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 28px 14px; background: var(--surface); border-radius: var(--radius); color: var(--text-muted); font-size: 13.5px; border: 1px solid var(--border); }
 
 /* Smart suggestions */
 .suggestion-card { background: var(--surface); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 14px; box-shadow: var(--shadow); border: 1px solid var(--border); }
@@ -1832,8 +1832,8 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .cal-nav-btn:active { transform: scale(0.92); }
 .cal-dow-row { display: grid; grid-template-columns: repeat(7, 1fr); padding: 10px 8px 5px; }
 .cal-dow { text-align: center; font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; padding: 4px 0; }
-.cal-cells { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; padding: 4px 8px 12px; }
-.cal-cell { position: relative; aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: var(--radius-xs); cursor: pointer; border: 1.5px solid transparent; transition: background var(--t-fast), border-color var(--t-fast), transform var(--t-fast); user-select: none; -webkit-tap-highlight-color: transparent; }
+.cal-cells { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; padding: 4px 8px 12px; }
+.cal-cell { position: relative; aspect-ratio: 1; min-height: 36px; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: var(--radius-xs); cursor: pointer; border: 1.5px solid transparent; transition: background var(--t-fast), border-color var(--t-fast), transform var(--t-fast); user-select: none; -webkit-tap-highlight-color: transparent; }
 .cal-cell:hover { background: var(--surface-2); border-color: var(--border); }
 .cal-cell:active { transform: scale(0.9); }
 .cal-cell.cal-empty { cursor: default; pointer-events: none; }

@@ -1956,9 +1956,9 @@
     const today = todayKey();
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
-    const startDow = firstDay.getDay();
+    const startDow = (firstDay.getDay() + 6) % 7;
     const monthLabel = firstDay.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-    const dowLabels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const dowLabels = ['Mo','Tu','We','Th','Fr','Sa','Su'];
     let cells = '';
     for (let i = 0; i < startDow; i++) cells += `<div class="cal-cell cal-empty"></div>`;
     for (let d = 1; d <= lastDay.getDate(); d++) {
