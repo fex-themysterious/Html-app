@@ -34,14 +34,14 @@ An offline-capable Progressive Web App for tracking study progress with spaced r
 - Pomodoro focus timer with ambient audio
 - Streak and activity tracking
 - Weak-topic detection
-- Stats dashboard with Chart.js charts
+- Stats dashboard with Chart.js charts, daily efficiency score, focus-by-subject bars, and achievement badge grid
 - Offline support via PWA service worker
 
 ## User preferences
 _Populate as you build_
 
 ## Gotchas
-- Cache-busting query param on `script.js?v=55` and `style.css?v=49` — increment when making changes; SW cache is `syllabus-tracker-v64`
+- Cache-busting query param on `script.js?v=56` and `style.css?v=50` — increment when making changes; SW cache is `syllabus-tracker-v65`
 - Audio files need HTTP Range request support (already handled in `server.js` and `sw.js`)
 - Global orientation is **portrait-locked** (manifest + JS `lock('portrait')` on startup). Full Focus Mode and Video Player expose a ⤢ landscape toggle button that calls `toggleOrientLock()`; exiting either mode calls `lockPortrait()` to restore portrait. `--real-vh` CSS var is set by JS on every `orientationchange`/`resize` for iOS Safari.
 - Full Focus overlay uses a **flat CSS Grid** layout. Direct children of `.fs-content`: `fs-top` (badge+dots), `fs-task-box`, `fs-timer-wrap`, `fs-ctrl-col`, `fs-motivation-box`, `fs-footer` (hint only). Portrait grid: `"top task" / "ring ctrl" / "moti moti" / "foot foot"`. Landscape grid (both mobile ≤500px and desktop): 3-column `"top ring task" / "moti ring ctrl" / "foot foot foot"` — left=navy motivation panel, center=dominant timer (270px/76px mobile, 300px/80px desktop), right=indigo panel (task top + controls bottom, `border-top: none` to appear seamless). `_fsMotiQuote` set once in `startFullSession()`.

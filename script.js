@@ -91,12 +91,13 @@
       burnout: { installDate: todayKey(), popupDismissedDate: null, bannerDismissedDate: null },
       goals: [],
       classroom: { groups: [] },
-      focusStats: { sessions: {}, minutesByDate: {} },
+      focusStats: { sessions: {}, minutesByDate: {}, minutesBySubject: {} },
       rankTestHours: 0,
       recurringTasks: [],
       alarms: [],
       xp: { total: 0, streakBonusDate: null },
       focusStreak: { count: 0, lastDate: null, best: 0 },
+      badges: {},
       eyeCareMode: false
     };
   }
@@ -181,6 +182,8 @@
     if (!s.focusStreak || typeof s.focusStreak !== 'object') s.focusStreak = { count: 0, lastDate: null, best: 0 };
     if (!s.focusStreak.best) s.focusStreak.best = s.focusStreak.count || 0;
     if (!s.focusStats.videoMinutes || typeof s.focusStats.videoMinutes !== 'object') s.focusStats.videoMinutes = {};
+    if (!s.focusStats.minutesBySubject || typeof s.focusStats.minutesBySubject !== 'object') s.focusStats.minutesBySubject = {};
+    if (!s.badges || typeof s.badges !== 'object') s.badges = {};
     if (typeof s.eyeCareMode !== 'boolean') s.eyeCareMode = false;
     if (typeof s.rankTestHours !== 'number' || isNaN(s.rankTestHours)) s.rankTestHours = 0;
     if (!s.classroom || typeof s.classroom !== 'object') s.classroom = { groups: [] };
@@ -406,6 +409,68 @@
   // Legacy wrapper — existing call sites (focus timer, video, classroom) delegate here
   function awardXP(minutes, dateStr) {
     gamificationManager.addFocusXP(minutes, dateStr);
+  }
+
+  // ========== Badge System ==========
+  const BADGES = [
+    { id: 'first_session',    icon: '🎯', name: 'First Session',    desc: 'Complete your first focus session' },
+    { id: 'early_bird',       icon: '🌅', name: 'Early Bird',       desc: 'Start a focus session before 7 AM' },
+    { id: 'night_owl',        icon: '🦉', name: 'Night Owl',        desc: 'Start a session after 11 PM' },
+    { id: 'deep_diver',       icon: '🏊', name: 'Deep Diver',       desc: 'Complete a 2-hour continuous session' },
+    { id: 'consistency_king', icon: '👑', name: 'Consistency King', desc: 'Maintain a 7-day study streak' },
+    { id: 'century_club',     icon: '💯', name: 'Century Club',     desc: 'Reach 100 total study hours' },
+    { id: 'week_warrior',     icon: '⚔️', name: 'Week Warrior',     desc: '7 focus sessions in one week' },
+    { id: 'topic_master',     icon: '📚', name: 'Topic Master',     desc: 'Complete 10 or more topics' },
+  ];
+
+  function achievementToast(badge) {
+    const wrap = document.getElementById('toast-container'); if (!wrap) return;
+    const el = document.createElement('div');
+    el.className = 'toast achievement-toast';
+    el.innerHTML = `<div class="ach-toast-icon">${badge.icon}</div><div class="ach-toast-body"><div class="ach-toast-title">Achievement Unlocked!</div><div class="ach-toast-name">${badge.name}</div><div class="ach-toast-desc">${badge.desc}</div></div>`;
+    wrap.appendChild(el);
+    gamificationManager._flashGlow('rgba(250,204,21,0.18)');
+    setTimeout(() => el.remove(), 6000);
+  }
+
+  function checkBadges({ sessionMinutes = 0, sessionStartHour = null } = {}) {
+    if (!state.badges || typeof state.badges !== 'object') state.badges = {};
+    const newlyUnlocked = [];
+    const totalFocusMin = Object.values(state.focusStats.minutesByDate || {}).reduce((a, b) => a + b, 0);
+    const totalFocusSessions = Object.values(state.focusStats.sessions || {}).reduce((a, b) => a + b, 0);
+    const doneTopics = state.subjects.reduce((a, sub) => a + sub.chapters.reduce((b, ch) => b + ch.topics.filter(t => t.done).length, 0), 0);
+    const today = todayKey();
+    let weekSessions = 0;
+    for (let i = 0; i < 7; i++) weekSessions += (state.focusStats.sessions[addDaysISO(today, -i)] || 0);
+    const conditions = {
+      first_session:    totalFocusSessions >= 1,
+      early_bird:       sessionStartHour !== null && sessionStartHour < 7,
+      night_owl:        sessionStartHour !== null && sessionStartHour >= 23,
+      deep_diver:       sessionMinutes >= 120,
+      consistency_king: (state.streak.count || 0) >= 7,
+      century_club:     totalFocusMin / 60 >= 100,
+      week_warrior:     weekSessions >= 7,
+      topic_master:     doneTopics >= 10,
+    };
+    for (const badge of BADGES) {
+      if (!state.badges[badge.id] && conditions[badge.id]) {
+        state.badges[badge.id] = { unlockedAt: new Date().toISOString() };
+        newlyUnlocked.push(badge);
+      }
+    }
+    if (newlyUnlocked.length) {
+      saveState();
+      newlyUnlocked.forEach((b, i) => setTimeout(() => achievementToast(b), i * 800));
+    }
+  }
+
+  function _recordSubjectMinutes(elapsedMin) {
+    if (!elapsedMin || elapsedMin <= 0) return;
+    const task = focusCurrentTaskKey ? getActivePlanTasks().find(t => t.key === focusCurrentTaskKey) : null;
+    if (task && task.subId) {
+      if (!state.focusStats.minutesBySubject) state.focusStats.minutesBySubject = {};
+      state.focusStats.minutesBySubject[task.subId] = (state.focusStats.minutesBySubject[task.subId] || 0) + elapsedMin;
+    }
   }
 
   // ========== Export / Import ==========
@@ -2519,8 +2584,10 @@
       // Credit the planned duration for this completed session
       const elapsedMin = _plannedSecs !== null ? Math.floor(_plannedSecs / 60) : customDurations.work;
       state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + elapsedMin;
+      _recordSubjectMinutes(elapsedMin);
       awardXP(elapsedMin, todayStr);
       bumpActivity(); saveState();
+      checkBadges({ sessionMinutes: elapsedMin });
       // Only re-render Stats if it is currently the active tab; otherwise it will render fresh on next visit
       if (document.body.classList.contains('tab-stats')) renderStats();
 
@@ -3644,6 +3711,15 @@
       return { name: sub.name, done, color: NEON_PALETTE[idx % NEON_PALETTE.length] };
     }).filter(s => s.done > 0);
 
+    const planTasks = getActivePlanTasks();
+    const planDone = planTasks.filter(t => t.done).length;
+    const planTotal = planTasks.length;
+    const taskEffPct = planTotal > 0 ? Math.min(100, Math.round((planDone / planTotal) * 100)) : 0;
+    const focusEffPct = Math.min(100, Math.round((todayFocusMin / 120) * 100));
+    const efficiencyPct = Math.round(taskEffPct * 0.5 + focusEffPct * 0.5);
+    const effColor = efficiencyPct >= 80 ? '#4ade80' : efficiencyPct >= 50 ? '#38bdf8' : efficiencyPct >= 25 ? '#f59e0b' : '#f87171';
+    const effLabel = efficiencyPct >= 80 ? '🔥 Outstanding — keep pushing!' : efficiencyPct >= 50 ? '👍 Good — steady progress!' : efficiencyPct >= 25 ? '📈 Building momentum' : '🌱 Get started — you\'ve got this!';
+
     view.innerHTML = `
       <div class="page-header"><h1>Stats</h1><div class="subtitle">Premium study analytics</div></div>
 
@@ -3689,6 +3765,25 @@
           </div>
         </div>
       </div>
+
+      <div class="stats-section-head" style="margin-top:10px"><span>⚡ Daily Efficiency</span><span class="stats-section-meta">${efficiencyPct >= 80 ? '🔥 On fire!' : efficiencyPct >= 50 ? '👍 Good' : '📈 Keep going'}</span></div>
+      <div class="stats-chart-card efficiency-card">
+        <div class="eff-score-row">
+          <div class="eff-score-circle">
+            <svg viewBox="0 0 56 56" class="eff-svg">
+              <circle class="eff-track" cx="28" cy="28" r="22"/>
+              <circle class="eff-fill" cx="28" cy="28" r="22" stroke-dasharray="${(2*Math.PI*22).toFixed(1)}" stroke-dashoffset="${((1-efficiencyPct/100)*2*Math.PI*22).toFixed(1)}" style="stroke:${effColor}"/>
+            </svg>
+            <span class="eff-pct-label" style="color:${effColor}">${efficiencyPct}%</span>
+          </div>
+          <div class="eff-breakdown">
+            <div class="eff-row"><span>Tasks</span><div class="eff-mini-bar"><div style="width:${taskEffPct}%;background:#a78bfa"></div></div><span>${taskEffPct}%</span></div>
+            <div class="eff-row"><span>Focus</span><div class="eff-mini-bar"><div style="width:${focusEffPct}%;background:#38bdf8"></div></div><span>${focusEffPct}%</span></div>
+          </div>
+        </div>
+        <div class="eff-label">${escapeHTML(effLabel)}</div>
+      </div>
+
       <div class="stats-chart-pair">
         <div class="stats-chart-half">
           <div class="stats-section-head"><span>Weekly Focus (HRS)</span><span class="stats-section-meta">${minsToHrs(days7.reduce((a, b) => a + b.min, 0))} this week</span></div>
@@ -3711,6 +3806,27 @@
           <div class="stat-tile"><div class="v">${classroomFmt(classroomMinTotal)}</div><div class="k">All Time</div></div>
         </div>
       </div>
+
+      ${(() => {
+        const subjectMins = state.focusStats.minutesBySubject || {};
+        const entries = state.subjects
+          .filter(s => (subjectMins[s.id] || 0) > 0)
+          .map(s => ({ name: s.name, color: s.color, min: subjectMins[s.id] }))
+          .sort((a, b) => b.min - a.min);
+        if (!entries.length) return '';
+        const maxMin = entries[0].min;
+        return `<div class="stats-section-head" style="margin-top:18px"><span>🎯 Focus by Subject</span><span class="stats-section-meta">all time</span></div>
+        <div class="stats-chart-card" style="padding:14px 16px">
+          ${entries.map(e => `<div style="margin-bottom:10px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+              <span class="color-dot" style="background:${e.color}"></span>
+              <span style="font-size:13px;font-weight:700;flex:1">${escapeHTML(e.name)}</span>
+              <span style="font-size:12px;font-weight:800;color:${e.color}">${minsToHrs(e.min)}</span>
+            </div>
+            <div class="progress" style="height:7px"><span style="width:${Math.round(e.min/maxMin*100)}%;background:${e.color}"></span></div>
+          </div>`).join('')}
+        </div>`;
+      })()}
 
       <div class="stats-section-head"><span>📅 Focus Calendar</span><span class="stats-section-meta" id="cal-focus-summary"></span></div>
       <div class="stats-chart-card stats-cal-card">
@@ -3799,6 +3915,20 @@
       <h2 style="margin:16px 0 10px">By Subject</h2>
       ${subjectCards}
 
+      <h2 style="margin:16px 0 10px">🏅 Achievements</h2>
+      <div class="badge-grid">
+        ${BADGES.map(b => {
+          const unlocked = !!(state.badges && state.badges[b.id]);
+          const dateStr = unlocked ? new Date(state.badges[b.id].unlockedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+          return `<div class="badge-card ${unlocked ? 'badge-unlocked' : 'badge-locked'}">
+            <div class="badge-icon">${b.icon}</div>
+            <div class="badge-name">${escapeHTML(b.name)}</div>
+            <div class="badge-desc">${escapeHTML(b.desc)}</div>
+            ${unlocked ? `<div class="badge-date">${dateStr}</div>` : '<div class="badge-locked-label">🔒 Locked</div>'}
+          </div>`;
+        }).join('')}
+      </div>
+
       <div class="backup-glass-card">
         <div class="bgc-header">
           <span class="bgc-icon">🛡️</span>
@@ -3826,6 +3956,7 @@
 
     initStatsCharts(days7, pieSubjects, days7);
     generateCalendarHeatmap();
+    checkBadges();
 
     // Rank-up glow: animate badge when rank tier increases
     if (rank.tierIndex > _lastRankIdx && _lastRankIdx >= 0) {
@@ -4348,6 +4479,7 @@
           if (elapsedMin > 0) {
             const todayStr = todayKey();
             state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + elapsedMin;
+            _recordSubjectMinutes(elapsedMin);
             saveState();
           }
         }
@@ -4356,6 +4488,7 @@
         updateMiniTimer();
       } else if (focusOvertime) {
         // User ending overtime — save extra minutes then switch to break
+
         finishOvertimeAndSwitch();
         renderFocus(); return;
       } else {
@@ -4365,6 +4498,7 @@
           focusSessions++;
           state.focusStats.sessions[todayStr] = (state.focusStats.sessions[todayStr] || 0) + 1;
           saveState();
+          checkBadges({ sessionStartHour: new Date().getHours() });
         }
         if (notifPermission() === 'default') requestNotifPermission();
         focusRunning = true;
@@ -4396,6 +4530,7 @@
           if (elapsedMin > 0) {
             const todayStr = todayKey();
             state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + elapsedMin;
+            _recordSubjectMinutes(elapsedMin);
             saveState();
           }
         }
@@ -4403,6 +4538,7 @@
         focusStartTime = null; focusStartSeconds = null;
       } else if (focusOvertime) {
         // User ending overtime in full-session view — save extra minutes, switch to break
+
         finishOvertimeAndSwitch();
         renderFullSession(); return;
       } else {
@@ -4412,6 +4548,7 @@
           focusSessions++;
           state.focusStats.sessions[todayStr] = (state.focusStats.sessions[todayStr] || 0) + 1;
           saveState();
+          checkBadges({ sessionStartHour: new Date().getHours() });
         }
         if (notifPermission() === 'default') requestNotifPermission();
         focusRunning = true;
