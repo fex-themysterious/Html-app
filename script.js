@@ -3441,18 +3441,9 @@
     return { ...tier, tierIndex: tierIdx, next, pct, hrsToNext };
   }
 
-  let _lastRankIdx = -1;
+  let _lastRankIdx  = -1;
+  let _hmViewDate   = null;  // Tracks which month the calendar is showing
 
-  function initRankTestButtons() {
-    document.querySelectorAll('[data-act="rank-add-hours"]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        state.rankTestHours = (state.rankTestHours || 0) + (parseInt(btn.dataset.hours) || 1);
-        saveState(); renderStats();
-      });
-    });
-    const rst = document.querySelector('[data-act="rank-reset-test"]');
-    if (rst) rst.addEventListener('click', () => { state.rankTestHours = 0; saveState(); renderStats(); });
-  }
 
   // ========== Stats (Enhanced A-Z Analysis) ==========
   function renderStats() {
@@ -3698,14 +3689,6 @@
           </div>
         </div>
       </div>
-      <div class="rank-test-row">
-        <span class="rtb-label">🧪 Test Rank</span>
-        ${testHrs > 0 ? `<span class="rtb-added">+${testHrs}h added</span>` : ''}
-        <button class="rtb-btn" data-act="rank-add-hours" data-hours="1">+1h</button>
-        <button class="rtb-btn" data-act="rank-add-hours" data-hours="10">+10h</button>
-        <button class="rtb-btn rtb-reset" data-act="rank-reset-test"${testHrs === 0 ? ' disabled' : ''}>Reset</button>
-      </div>
-
       <div class="stats-chart-pair">
         <div class="stats-chart-half">
           <div class="stats-section-head"><span>Weekly Focus (HRS)</span><span class="stats-section-meta">${minsToHrs(days7.reduce((a, b) => a + b.min, 0))} this week</span></div>
@@ -3729,14 +3712,19 @@
         </div>
       </div>
 
-      <div class="stats-section-head"><span>Focus Heatmap</span><span class="stats-section-meta">Last 5 weeks</span></div>
-      <div class="stats-chart-card stats-heatmap-card">
-        <div class="stats-hm-wrap">
-          <div class="stats-hm-days"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
-          <div class="stats-heatmap" id="stats-heatmap-grid"></div>
+      <div class="stats-section-head"><span>📅 Focus Calendar</span><span class="stats-section-meta" id="cal-focus-summary"></span></div>
+      <div class="stats-chart-card stats-cal-card">
+        <div class="cal-header">
+          <button class="cal-nav-btn" id="cal-prev" aria-label="Previous month">&#8249;</button>
+          <span class="cal-month-label" id="cal-month-label"></span>
+          <button class="cal-nav-btn" id="cal-next" aria-label="Next month">&#8250;</button>
         </div>
-        <div class="hm-info-label" id="hm-info-label">Hover or tap a day to see focus time</div>
-        <div class="stats-hm-legend">
+        <div class="cal-day-headers">
+          <span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span>
+        </div>
+        <div class="cal-grid" id="cal-grid" role="grid" aria-label="Focus calendar"></div>
+        <div class="cal-tooltip" id="cal-tooltip"></div>
+        <div class="stats-hm-legend" style="margin-top:10px">
           <div class="hm-off-legend"><div class="shm-cell lv-off"></div><span>Off Day</span></div>
           <span class="hm-lgd-txt" style="margin-left:4px">Less</span>
           <div class="shm-cell lv0"></div><div class="shm-cell lv1"></div><div class="shm-cell lv2"></div><div class="shm-cell lv3"></div><div class="shm-cell lv4"></div><div class="shm-cell lv5"></div>
@@ -3837,8 +3825,7 @@
       </div>`;
 
     initStatsCharts(days7, pieSubjects, days7);
-    generateHeatmap();
-    initRankTestButtons();
+    generateCalendarHeatmap();
 
     // Rank-up glow: animate badge when rank tier increases
     if (rank.tierIndex > _lastRankIdx && _lastRankIdx >= 0) {
@@ -3850,28 +3837,55 @@
     _lastRankIdx = rank.tierIndex;
   }
 
-  // ========== Focus Heatmap ==========
-  function generateHeatmap() {
-    const grid = document.getElementById('stats-heatmap-grid');
+  // ========== Full Calendar Heatmap ==========
+  function generateCalendarHeatmap() {
+    const grid = document.getElementById('cal-grid');
     if (!grid) return;
-    const infoLabel = document.getElementById('hm-info-label');
 
-    const hmKey  = todayKey();
-    const now    = new Date();
-    const dow    = now.getDay();                              // 0=Sun … 6=Sat
-    const start  = new Date(now);
-    start.setDate(start.getDate() - (dow + 28));             // back to start of 5th-ago week (Sun)
+    const todayStr      = todayKey();
+    const installStr    = (state.burnout && state.burnout.installDate) || todayStr;
+    const now           = new Date();
+    const currentYear   = now.getFullYear();
+    const currentMonth  = now.getMonth();
 
-    const cells = Array.from({ length: 35 }, (_, i) => {
-      const d  = new Date(start); d.setDate(d.getDate() + i);
-      const k  = d.toISOString().slice(0, 10);
-      const isFuture = k > hmKey;
-      const isToday  = k === hmKey;
-      const min = isFuture ? 0 : (state.focusStats.minutesByDate[k] || 0);
-      const hrs = min / 60;
-      const _hmInstall = (state.burnout && state.burnout.installDate) || hmKey;
-      const isOffDay = !isFuture && !isToday && min === 0 && k >= _hmInstall;
-      // Color tiers: off-day → crimson, 0 → dark-grey, 0–3h → purple, 3–6h → teal, 6–9h → green, 9–12h → orange, 12h+ → red
+    // Default to current month on first call
+    if (!_hmViewDate) _hmViewDate = new Date(currentYear, currentMonth, 1);
+
+    const viewYear  = _hmViewDate.getFullYear();
+    const viewMonth = _hmViewDate.getMonth();
+
+    // ── Month label & summary ──────────────────────────────────
+    const labelEl = document.getElementById('cal-month-label');
+    if (labelEl) labelEl.textContent = _hmViewDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+
+    const monthPrefix = `${String(viewYear).padStart(4,'0')}-${String(viewMonth+1).padStart(2,'0')}`;
+    let monthMin = 0;
+    Object.entries(state.focusStats.minutesByDate || {}).forEach(([k, v]) => { if (k.startsWith(monthPrefix)) monthMin += v; });
+    const summaryEl = document.getElementById('cal-focus-summary');
+    if (summaryEl) summaryEl.textContent = monthMin > 0 ? minsToHrs(monthMin) + ' this month' : '';
+
+    // ── Nav button states ──────────────────────────────────────
+    const prevBtn = document.getElementById('cal-prev');
+    const nextBtn = document.getElementById('cal-next');
+    const installDate  = new Date(installStr + 'T00:00:00');
+    if (prevBtn) prevBtn.disabled = (viewYear < installDate.getFullYear() || (viewYear === installDate.getFullYear() && viewMonth <= installDate.getMonth()));
+    if (nextBtn) nextBtn.disabled = (viewYear > currentYear || (viewYear === currentYear && viewMonth >= currentMonth));
+
+    // ── Build cell data ────────────────────────────────────────
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    // ISO weekday offset: 0=Mon … 6=Sun
+    const firstDow = (new Date(viewYear, viewMonth, 1).getDay() + 6) % 7;
+
+    const cells = [];
+    for (let i = 0; i < firstDow; i++) cells.push(null); // empty padding
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr   = `${monthPrefix}-${String(d).padStart(2,'0')}`;
+      const isFuture  = dateStr > todayStr;
+      const isToday   = dateStr === todayStr;
+      const min       = state.focusStats.minutesByDate[dateStr] || 0;
+      const hrs       = min / 60;
+      const isOffDay  = !isFuture && !isToday && min === 0 && dateStr >= installStr;
       const lvl = isFuture  ? 'future'
         : isOffDay  ? 'lv-off'
         : min === 0 ? 'lv0'
@@ -3880,35 +3894,65 @@
         : hrs < 9   ? 'lv3'
         : hrs < 12  ? 'lv4'
         : 'lv5';
-      const dateStr = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-      const timeStr = isFuture  ? '—'
+      const dateLabel = new Date(dateStr + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+      const timeLabel = isFuture  ? '—'
         : isOffDay  ? 'No data recorded · Off-day'
-        : min === 0 ? 'No focus yet today'
+        : min === 0 ? 'No focus yet'
         : min < 60  ? `${min}m focused`
-        : `${Math.floor(min / 60)}h${min % 60 ? ' ' + (min % 60) + 'm' : ''} focused`;
-      return { k, min, lvl, isToday, isOffDay, label: `${dateStr}  ·  ${timeStr}` };
-    });
+        : `${Math.floor(min/60)}h${min%60 ? ' '+min%60+'m' : ''} focused`;
+      cells.push({ d, dateStr, isFuture, isToday, isOffDay, lvl, dateLabel, timeLabel });
+    }
 
-    // Render cells with data attributes for interaction
-    grid.innerHTML = cells.map(c =>
-      `<div class="shm-cell ${c.lvl}${c.isToday ? ' shm-today' : ''}" data-date="${c.k}" data-min="${c.min}" data-label="${escapeHTML(c.label)}" tabindex="${c.lvl === 'future' ? -1 : 0}" role="gridcell" aria-label="${escapeHTML(c.label)}"></div>`
-    ).join('');
+    // ── Render grid ────────────────────────────────────────────
+    grid.innerHTML = cells.map(c => {
+      if (!c) return `<div class="cal-cell empty" aria-hidden="true"></div>`;
+      const cls = ['cal-cell', c.lvl, c.isToday ? 'today' : ''].filter(Boolean).join(' ');
+      return `<div class="${cls}" data-date="${c.dateStr}" data-date-label="${escapeHTML(c.dateLabel)}" data-time-label="${escapeHTML(c.timeLabel)}" role="gridcell" aria-label="${escapeHTML(c.dateLabel + ' · ' + c.timeLabel)}" tabindex="${c.isFuture ? -1 : 0}">${c.d}</div>`;
+    }).join('');
 
-    // Interaction: update info label on hover / focus / click
-    const setLabel = (text, active) => {
-      if (!infoLabel) return;
-      infoLabel.textContent = text;
-      infoLabel.classList.toggle('active', active);
+    // ── Tooltip ────────────────────────────────────────────────
+    const tooltip = document.getElementById('cal-tooltip');
+    let _tipTimer = null;
+
+    const showTip = (cell) => {
+      if (!tooltip) return;
+      clearTimeout(_tipTimer);
+      tooltip.innerHTML = `<div class="ct-date">${cell.dataset.dateLabel}</div><div class="ct-time">${cell.dataset.timeLabel}</div>`;
+      const rect = cell.getBoundingClientRect();
+      let tx = rect.left + rect.width / 2 - 75;
+      let ty = rect.top - 72;
+      if (ty < 8) ty = rect.bottom + 8;
+      if (tx < 8) tx = 8;
+      if (tx + 160 > window.innerWidth) tx = window.innerWidth - 168;
+      tooltip.style.left = tx + 'px';
+      tooltip.style.top  = ty + 'px';
+      tooltip.classList.add('visible');
     };
-    const defaultMsg = 'Hover or tap a day to see focus time';
+    const hideTip = (delay = 0) => {
+      _tipTimer = setTimeout(() => { if (tooltip) tooltip.classList.remove('visible'); }, delay);
+    };
 
-    grid.querySelectorAll('.shm-cell:not(.future)').forEach(cell => {
-      cell.addEventListener('mouseenter', () => setLabel(cell.dataset.label, true));
-      cell.addEventListener('focus',      () => setLabel(cell.dataset.label, true));
-      cell.addEventListener('mouseleave', () => setLabel(defaultMsg, false));
-      cell.addEventListener('blur',       () => setLabel(defaultMsg, false));
-      cell.addEventListener('click',      () => setLabel(cell.dataset.label, true));
+    grid.querySelectorAll('.cal-cell:not(.empty):not(.future)').forEach(cell => {
+      cell.addEventListener('mouseenter', () => showTip(cell));
+      cell.addEventListener('mouseleave', () => hideTip(120));
+      cell.addEventListener('focus',      () => showTip(cell));
+      cell.addEventListener('blur',       () => hideTip(200));
+      cell.addEventListener('click',      () => { showTip(cell); hideTip(2500); });
     });
+
+    // ── Nav buttons ────────────────────────────────────────────
+    if (prevBtn) {
+      prevBtn.onclick = () => {
+        _hmViewDate = new Date(_hmViewDate.getFullYear(), _hmViewDate.getMonth() - 1, 1);
+        generateCalendarHeatmap();
+      };
+    }
+    if (nextBtn) {
+      nextBtn.onclick = () => {
+        _hmViewDate = new Date(_hmViewDate.getFullYear(), _hmViewDate.getMonth() + 1, 1);
+        generateCalendarHeatmap();
+      };
+    }
   }
 
   function initStatsCharts(days7, pieSubjects, days7cls) {
