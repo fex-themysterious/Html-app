@@ -1,10 +1,12 @@
 (() => {
   'use strict';
 
-  // ── Cloud sync state ─────────────────────────────────────────────────────
+  // ── Cloud sync / auth state ──────────────────────────────────────────────
   let _db             = null;
+  let _auth           = null;
   let _userId         = null;
   let _cloudSyncTimer = null;
+  let _authMode       = 'login'; // 'login' | 'signup'
 
   const STORAGE_KEY = 'syllabus_tracker_v2';
   const BACKUP_DATE_KEY = 'backup_last_date';
@@ -230,13 +232,10 @@
           appId:             '1:18536531099:web:6b691f03283530c927f23e'
         });
       }
-      _db = firebase.firestore();
-      _userId = localStorage.getItem('syllabus_uid') || (() => {
-        const id = 'u_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 9);
-        localStorage.setItem('syllabus_uid', id);
-        return id;
-      })();
-      _setCloudStatus('idle');
+      _db   = firebase.firestore();
+      _auth = firebase.auth();
+      _auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
+      _auth.onAuthStateChanged(_handleAuthStateChange);
     } catch (e) { console.warn('[Firebase] Init failed:', e.message); }
   }
 
@@ -254,7 +253,7 @@
   }
 
   function _scheduledCloudSync() {
-    if (!_db || !_userId) return;
+    if (!_db || !_userId || !(_auth && _auth.currentUser)) return;
     clearTimeout(_cloudSyncTimer);
     _setCloudStatus('syncing');
     _cloudSyncTimer = setTimeout(() => {
@@ -294,6 +293,143 @@
       _setCloudStatus('error');
       setTimeout(() => _setCloudStatus('idle'), 5000);
     }
+  }
+
+  // ── Auth State Handler ───────────────────────────────────────────────────
+  async function _handleAuthStateChange(user) {
+    if (user) {
+      _userId = user.uid;
+      hideAuthModal();
+      refreshSettingsIfOpen();
+      if (!_db) return;
+      _setCloudStatus('syncing');
+      try {
+        const snap = await _db.collection('users').doc(user.uid).get();
+        if (snap.exists && snap.data() && snap.data().data) {
+          const parsed = JSON.parse(snap.data().data);
+          if (parsed && Array.isArray(parsed.subjects)) {
+            state = migrate(JSON.parse(JSON.stringify(parsed)));
+            try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {}
+            renderAll();
+            _setCloudStatus('synced');
+            setTimeout(() => _setCloudStatus('idle'), 3000);
+            toast('\u2601\ufe0f Synced from your account!', 'success', 4000);
+            return;
+          }
+        }
+        await _db.collection('users').doc(user.uid).set({
+          data:      JSON.stringify(state),
+          uid:       user.uid,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        _setCloudStatus('synced');
+        setTimeout(() => _setCloudStatus('idle'), 3000);
+        toast('\u2705 Account linked! Data saved to cloud.', 'success', 4000);
+      } catch (e) {
+        console.warn('[Auth] Sync error:', e.message);
+        _setCloudStatus('error');
+        setTimeout(() => _setCloudStatus('idle'), 5000);
+      }
+    } else {
+      _userId = null;
+      _setCloudStatus('idle');
+      showAuthModal();
+      refreshSettingsIfOpen();
+    }
+  }
+
+  // ── Auth UI Helpers ──────────────────────────────────────────────────────
+  function showAuthModal() {
+    const el = document.getElementById('auth-overlay');
+    if (el) el.classList.remove('hidden');
+  }
+  function hideAuthModal() {
+    const el = document.getElementById('auth-overlay');
+    if (el) el.classList.add('hidden');
+    _clearAuthError();
+  }
+  function _showAuthError(msg) {
+    const el = document.getElementById('auth-error');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.remove('hidden');
+  }
+  function _clearAuthError() {
+    const el = document.getElementById('auth-error');
+    if (el) el.classList.add('hidden');
+  }
+  function _setAuthLoading(loading) {
+    const btn = document.getElementById('auth-submit');
+    if (!btn) return;
+    btn.disabled = loading;
+    btn.textContent = loading
+      ? 'Please wait\u2026'
+      : (_authMode === 'login' ? 'Sign In' : 'Create Account');
+  }
+  function _authErrorMsg(code) {
+    const map = {
+      'auth/invalid-email':        'Invalid email address.',
+      'auth/user-not-found':       'No account found with this email.',
+      'auth/wrong-password':       'Incorrect password.',
+      'auth/invalid-credential':   'Invalid email or password.',
+      'auth/email-already-in-use': 'An account with this email already exists.',
+      'auth/weak-password':        'Password must be at least 6 characters.',
+      'auth/too-many-requests':    'Too many attempts. Please try again later.',
+      'auth/network-request-failed':'Network error. Check your connection.',
+      'auth/popup-blocked':        'Popup was blocked. Please allow popups and try again.',
+      'auth/popup-closed-by-user': ''
+    };
+    return map[code] || 'Authentication failed. Please try again.';
+  }
+
+  // ── Auth Actions ─────────────────────────────────────────────────────────
+  function _authToggleMode() {
+    _authMode = _authMode === 'login' ? 'signup' : 'login';
+    const isLogin = _authMode === 'login';
+    const el = (id) => document.getElementById(id);
+    if (el('auth-submit'))      el('auth-submit').textContent    = isLogin ? 'Sign In' : 'Create Account';
+    if (el('auth-toggle-btn'))  el('auth-toggle-btn').textContent = isLogin ? 'Sign Up' : 'Sign In';
+    if (el('auth-toggle-text')) el('auth-toggle-text').textContent = isLogin ? "Don't have an account?" : 'Already have an account?';
+    if (el('auth-subtitle'))    el('auth-subtitle').textContent   = isLogin ? 'Sign in to sync your progress' : 'Create an account to save your progress';
+    _clearAuthError();
+  }
+  async function _authSubmit() {
+    if (!_auth) return;
+    const email    = (document.getElementById('auth-email')?.value    || '').trim();
+    const password =  document.getElementById('auth-password')?.value || '';
+    if (!email)    { _showAuthError('Please enter your email address.'); return; }
+    if (!password) { _showAuthError('Please enter your password.'); return; }
+    _setAuthLoading(true);
+    _clearAuthError();
+    try {
+      if (_authMode === 'login') {
+        await _auth.signInWithEmailAndPassword(email, password);
+      } else {
+        await _auth.createUserWithEmailAndPassword(email, password);
+      }
+    } catch (e) {
+      _setAuthLoading(false);
+      const msg = _authErrorMsg(e.code);
+      if (msg) _showAuthError(msg);
+    }
+  }
+  async function _authSignInWithGoogle() {
+    if (!_auth) return;
+    _clearAuthError();
+    try {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      await _auth.signInWithPopup(provider);
+    } catch (e) {
+      const msg = _authErrorMsg(e.code);
+      if (msg) _showAuthError(msg);
+    }
+  }
+  async function _authSignOut() {
+    if (!_auth) return;
+    try {
+      await _auth.signOut();
+      toast('Signed out successfully', 'info', 3000);
+    } catch (e) { console.warn('[Auth] Sign out error:', e.message); }
   }
 
   // Safe render helper — calls fn(), returns fallback string on any throw
@@ -4304,7 +4440,29 @@
     else if (perm === 'granted')  { permCls = 'ok';   permText = 'Notifications are allowed.'; }
     else if (perm === 'denied')   { permCls = 'err';  permText = 'Notifications are blocked. Enable in browser settings.'; }
     const chips = (which, list) => list.map((t, i) => `<span class="time-chip"><button type="button" class="time-chip-edit" data-act="open-time-picker" data-which="${which}" data-i="${i}">${escapeHTML(formatTime12(t))}</button><button type="button" class="time-chip-del" data-act="del-time-slot" data-which="${which}" data-i="${i}">×</button></span>`).join('');
+    const _authUser = _auth ? _auth.currentUser : null;
+    const accountSection = _authUser
+      ? `<div class="settings-section settings-auth-section">
+          <h4>☁️ Account</h4>
+          <div class="auth-profile-row">
+            ${_authUser.photoURL
+              ? `<img src="${escapeHTML(_authUser.photoURL)}" class="auth-avatar-img" alt=""/>`
+              : `<div class="auth-avatar-initial">${(_authUser.email || '?')[0].toUpperCase()}</div>`}
+            <div class="auth-profile-info">
+              ${_authUser.displayName ? `<div class="auth-profile-name">${escapeHTML(_authUser.displayName)}</div>` : ''}
+              <div class="auth-profile-email">${escapeHTML(_authUser.email || 'Anonymous')}</div>
+              <div class="auth-sync-badge">☁️ Cloud sync active</div>
+            </div>
+          </div>
+          <button class="btn btn-ghost" style="margin-top:10px;width:100%;color:#ef4444;border-color:rgba(239,68,68,.25)" data-act="auth-logout">Sign Out</button>
+        </div>`
+      : `<div class="settings-section settings-auth-section">
+          <h4>☁️ Account</h4>
+          <p style="font-size:13px;color:var(--text-muted);margin:0 0 10px">Sign in to sync your study data across devices.</p>
+          <button class="btn btn-block" data-act="auth-show-modal">Sign In / Sign Up</button>
+        </div>`;
     openModal(`<h3>Settings</h3>
+      ${accountSection}
       <div class="settings-section" id="profile-settings-section">
         <h4>👤 Profile</h4>
         <div class="field"><label>Your Name</label><input id="set-profile-name" placeholder="Enter your name…" maxlength="40" value="${escapeHTML(state.profile.name)}"/></div>
@@ -4383,7 +4541,12 @@
     const act = el.dataset.act;
 
     if (el.hasAttribute('data-close')) { closeModal(); return; }
-    if (act === 'open-settings') { modalSettings(); return; }
+    if (act === 'open-settings')    { modalSettings(); return; }
+    if (act === 'auth-toggle-form') { _authToggleMode(); return; }
+    if (act === 'auth-google')      { _authSignInWithGoogle(); return; }
+    if (act === 'auth-submit')      { _authSubmit(); return; }
+    if (act === 'auth-logout')      { _authSignOut(); closeModal(); return; }
+    if (act === 'auth-show-modal')  { closeModal(); showAuthModal(); return; }
     if (act === 'save-profile') {
       const root = document.querySelector('#modal-root .modal');
       if (root) {
@@ -5022,7 +5185,10 @@
     setTimeout(maybeAutoShowBurnoutPopup, 2500);
     maybeShowBackupReminder();
     _initFirebase();
-    if (!_hadLocalData) setTimeout(_restoreFromCloud, 600);
+    // Enter key submits auth form
+    document.getElementById('auth-overlay')?.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); _authSubmit(); }
+    });
   }
 
   function safeInit() {
