@@ -67,7 +67,7 @@
       rankTestHours: 0,
       recurringTasks: [],
       alarms: [],
-      xp: { total: 0 },
+      xp: { total: 0, streakBonusDate: null },
       focusStreak: { count: 0, lastDate: null, best: 0 },
       eyeCareMode: false
     };
@@ -146,6 +146,7 @@
     s.alarms = s.alarms.map(a => ({ id: a.id || uid(), label: a.label || 'Alarm', time: a.time || '07:00', enabled: typeof a.enabled === 'boolean' ? a.enabled : true }));
     if (!s.xp || typeof s.xp !== 'object') s.xp = { total: 0 };
     if (typeof s.xp.total !== 'number' || isNaN(s.xp.total)) s.xp.total = 0;
+    if (!('streakBonusDate' in s.xp)) s.xp.streakBonusDate = null;
     if (!s.focusStreak || typeof s.focusStreak !== 'object') s.focusStreak = { count: 0, lastDate: null, best: 0 };
     if (!s.focusStreak.best) s.focusStreak.best = s.focusStreak.count || 0;
     if (!s.focusStats.videoMinutes || typeof s.focusStats.videoMinutes !== 'object') s.focusStats.videoMinutes = {};
@@ -256,30 +257,124 @@
     checkGoalCompletions();
   }
 
-  // ========== XP & Level System ==========
-  function xpLevel() {
-    return Math.floor((state.xp && state.xp.total || 0) / 100) + 1;
-  }
-  function awardXP(minutes, dateStr) {
-    if (!minutes || minutes <= 0) return;
-    if (!state.xp || typeof state.xp !== 'object') state.xp = { total: 0 };
-    const prevLevel = xpLevel();
-    state.xp.total = (state.xp.total || 0) + minutes;
-    const newLevel = xpLevel();
-    // Bump focus streak if session was 25+ min (a proper Pomodoro)
-    if (minutes >= 25) {
-      if (!state.focusStreak || typeof state.focusStreak !== 'object') state.focusStreak = { count: 0, lastDate: null, best: 0 };
-      const d  = dateStr || todayKey();
-      const yd = addDaysISO(d, -1);
+  // ========== XP & Gamification System ==========
+  // Triangular leveling: Level N requires N×100 XP to complete.
+  // Total XP at start of level N = 100×(1+2+…+(N-1)) = 50×N×(N-1)
+  const gamificationManager = {
+
+    calculateLevel(totalXP) {
+      let level = 1, threshold = 0;
+      while (true) {
+        const needed = level * 100;                      // XP to finish this level
+        if (totalXP < threshold + needed)
+          return { level, currentLevelXP: totalXP - threshold, nextLevelXP: needed,
+            percent: Math.min(100, Math.round(((totalXP - threshold) / needed) * 100)) };
+        threshold += needed;
+        level++;
+        if (level > 9999) break;
+      }
+      return { level: 9999, currentLevelXP: 0, nextLevelXP: 100, percent: 100 };
+    },
+
+    // Core XP addition — does NOT call saveState (caller's responsibility)
+    addXP(amount, reason) {
+      if (!amount || amount <= 0) return 0;
+      if (!state.xp || typeof state.xp !== 'object') state.xp = { total: 0, streakBonusDate: null };
+      const prev = this.calculateLevel(state.xp.total || 0);
+      state.xp.total = (state.xp.total || 0) + amount;
+      const next = this.calculateLevel(state.xp.total);
+      if (next.level > prev.level) {
+        setTimeout(() => {
+          toast(`⚡ Level Up! You are now Level ${next.level} — keep grinding!`, 'success', 5500);
+          this._flashGlow('rgba(99,102,241,0.22)');
+        }, 700);
+      }
+      this._updateXPBar();
+      return amount;
+    },
+
+    // Focus XP: 25 XP per 30 min (proportional, minimum 1 XP)
+    addFocusXP(elapsedMin, dateStr) {
+      if (!elapsedMin || elapsedMin <= 0) return;
+      const amount = Math.max(1, Math.round(elapsedMin * 25 / 30));
+      this.addXP(amount, 'focus');
+      this._updateFocusStreak(elapsedMin, dateStr);
+      this.checkStreakBonus();
+    },
+
+    // Task XP: exactly 10 XP per completed task
+    addTaskXP() {
+      this.addXP(10, 'task');
+      toast('+10 XP ⚡', 'success', 1600);
+    },
+
+    // 7-day streak bonus: award 100 XP once per qualifying streak
+    // Qualifies if last 7 consecutive days each have ≥ 180 min (3 h) of focus
+    checkStreakBonus() {
+      const today = todayKey();
+      if (state.xp && state.xp.streakBonusDate === today) return;
+      const mins = (state.focusStats && state.focusStats.minutesByDate) || {};
+      let streak = 0;
+      for (let i = 0; i < 7; i++) {
+        if ((mins[addDaysISO(today, -i)] || 0) >= 180) streak++;
+        else break;
+      }
+      if (streak >= 7) {
+        if (!state.xp) state.xp = { total: 0, streakBonusDate: null };
+        state.xp.streakBonusDate = today;
+        this.addXP(100, 'streak_bonus');
+        saveState();
+        setTimeout(() => {
+          toast('🔥 7-Day Consistency Bonus! +100 XP — incredible dedication!', 'success', 7000);
+          this._flashGlow('rgba(249,115,22,0.26)');
+        }, 400);
+      }
+    },
+
+    // Momentary full-screen color flash (level-ups / streak bonuses)
+    _flashGlow(color) {
+      const el = document.createElement('div');
+      el.style.cssText = `position:fixed;inset:0;background:${color};opacity:0;z-index:99998;pointer-events:none;transition:opacity 0.38s ease`;
+      document.body.appendChild(el);
+      requestAnimationFrame(() => {
+        el.style.opacity = '1';
+        setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 420); }, 560);
+      });
+    },
+
+    // Update the XP widgets in the current DOM without a full re-render
+    _updateXPBar() {
+      const info = this.calculateLevel((state.xp && state.xp.total) || 0);
+      const badge = document.querySelector('.xp-level-badge');
+      const fill  = document.querySelector('.xp-bar-fill');
+      const label = document.querySelector('.xp-label');
+      if (badge) badge.textContent = `Lv.${info.level}`;
+      if (fill)  fill.style.width  = `${info.percent}%`;
+      if (label) label.textContent = `${info.currentLevelXP}/${info.nextLevelXP} XP`;
+    },
+
+    // Focus-streak tracker (was embedded in old awardXP)
+    _updateFocusStreak(minutes, dateStr) {
+      if (minutes < 25) return;
+      if (!state.focusStreak || typeof state.focusStreak !== 'object')
+        state.focusStreak = { count: 0, lastDate: null, best: 0 };
+      const d = dateStr || todayKey(), yd = addDaysISO(d, -1);
       if (state.focusStreak.lastDate !== d) {
         state.focusStreak.count = state.focusStreak.lastDate === yd ? state.focusStreak.count + 1 : 1;
         state.focusStreak.lastDate = d;
-        if (!state.focusStreak.best || state.focusStreak.count > state.focusStreak.best) state.focusStreak.best = state.focusStreak.count;
+        if (!state.focusStreak.best || state.focusStreak.count > state.focusStreak.best)
+          state.focusStreak.best = state.focusStreak.count;
       }
     }
-    if (newLevel > prevLevel) {
-      setTimeout(() => toast(`⚡ Level ${newLevel} Unlocked! +${minutes} XP — keep grinding!`, 'success', 5500), 800);
-    }
+  };
+
+  // Compatibility wrapper — used in renderHome / renderStats HTML templates
+  function xpLevel() {
+    return gamificationManager.calculateLevel((state.xp && state.xp.total) || 0).level;
+  }
+  // Legacy wrapper — existing call sites (focus timer, video, classroom) delegate here
+  function awardXP(minutes, dateStr) {
+    gamificationManager.addFocusXP(minutes, dateStr);
   }
 
   // ========== Export / Import ==========
@@ -1619,7 +1714,8 @@
     const taglineHtml = profTagline
       ? `<div class="home-profile-sub">${escapeHTML(profTagline)}</div>`
       : '';
-    view.innerHTML = `<div class="home-profile" data-act="open-settings" role="button" tabindex="0" style="cursor:pointer" title="Edit profile"><div class="home-profile-avatar">${profInitial}</div><div class="home-profile-info">${nameHtml}${taglineHtml}<div class="xp-row"><span class="xp-level-badge">Lv.${xpLevel()}</span><div class="xp-bar-wrap"><div class="xp-bar-fill" style="width:${(state.xp&&state.xp.total||0)%100}%"></div></div><span class="xp-label">${(state.xp&&state.xp.total||0)%100}/100 XP</span>${(state.focusStreak&&state.focusStreak.count>0)?`<span class="xp-focus-streak">🔥 ${state.focusStreak.count}d</span>`:''}</div></div><span class="home-profile-greeting">${greeting()} 👋</span></div><div class="motivation-line ${overall >= 80 ? 'is-hot' : overall < 20 ? 'is-cold' : ''}">${escapeHTML(motivationMsg)}</div>${renderBentoGrid()}${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${renderTasksList(tasks)}`;
+    const _lvInfo = gamificationManager.calculateLevel((state.xp && state.xp.total) || 0);
+    view.innerHTML = `<div class="home-profile" data-act="open-settings" role="button" tabindex="0" style="cursor:pointer" title="Edit profile"><div class="home-profile-avatar">${profInitial}</div><div class="home-profile-info">${nameHtml}${taglineHtml}<div class="xp-row"><span class="xp-level-badge">Lv.${_lvInfo.level}</span><div class="xp-bar-wrap" title="${_lvInfo.currentLevelXP} / ${_lvInfo.nextLevelXP} XP to next level"><div class="xp-bar-fill" style="width:${_lvInfo.percent}%"></div></div><span class="xp-label">${_lvInfo.currentLevelXP}/${_lvInfo.nextLevelXP} XP</span>${(state.focusStreak&&state.focusStreak.count>0)?`<span class="xp-focus-streak">🔥 ${state.focusStreak.count}d</span>`:''}</div></div><span class="home-profile-greeting">${greeting()} 👋</span></div><div class="motivation-line ${overall >= 80 ? 'is-hot' : overall < 20 ? 'is-cold' : ''}">${escapeHTML(motivationMsg)}</div>${renderBentoGrid()}${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${renderTasksList(tasks)}`;
     if (_justPoppedKey) requestAnimationFrame(() => { _justPoppedKey = null; });
     if (_justCompletedDay) setTimeout(() => { _justCompletedDay = null; }, 1800);
   }
@@ -3951,8 +4047,8 @@
     if (act === 'regen-plan') { const k = todayKey(); if (state.dailyPlans[k]) { state.dailyPlans[k].generated = false; state.dailyPlans[k].auto = []; state.dailyPlans[k].custom = state.dailyPlans[k].custom.filter(c => !c.rolledOver); } saveState(); ensureTodayPlan(); renderHome(); renderDashboard(); toast('Plan regenerated', 'info'); return; }
     if (act === 'toggle-plan-task') {
       const type = el.dataset.type;
-      if (type === 'auto') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { const wasDone = t.done; t.done = !t.done; if (t.done) { bumpActivity(); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); _justPoppedKey = `auto:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`; } else onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, false); const tasks = getActivePlanTasks(); if (tasks.length > 0 && tasks.every(x => x.done) && !wasDone) _justCompletedDay = todayKey(); saveState(); renderHome(); renderSyllabus(); renderRevision(); } }
-      else { const plan = state.dailyPlans[todayKey()]; if (plan) { const ct = plan.custom.find(c => c.id === el.dataset.id); if (ct) { ct.done = !ct.done; if (ct.done) bumpActivity(); saveState(); renderHome(); renderDashboard(); } } }
+      if (type === 'auto') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { const wasDone = t.done; t.done = !t.done; if (t.done) { bumpActivity(); gamificationManager.addTaskXP(); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); _justPoppedKey = `auto:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`; } else onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, false); const tasks = getActivePlanTasks(); if (tasks.length > 0 && tasks.every(x => x.done) && !wasDone) _justCompletedDay = todayKey(); saveState(); renderHome(); renderSyllabus(); renderRevision(); } }
+      else { const plan = state.dailyPlans[todayKey()]; if (plan) { const ct = plan.custom.find(c => c.id === el.dataset.id); if (ct) { ct.done = !ct.done; if (ct.done) { bumpActivity(); gamificationManager.addTaskXP(); } saveState(); renderHome(); renderDashboard(); } } }
       return;
     }
     if (act === 'remove-plan-task') {
