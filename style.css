@@ -517,27 +517,80 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .stats-pie-wrap { position: relative; height: 280px; }
 .stats-empty-chart { text-align: center; color: var(--text-muted); font-size: 13px; padding: 22px 0; font-style: italic; }
 
-/* ── Focus Heatmap ───────────────────────────────────────────── */
+/* ── Focus Heatmap (GitHub-style: weeks = columns, days = rows) ── */
 .stats-heatmap-card { padding: 14px 14px 10px; }
-.stats-hm-day-labels { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-bottom: 4px; }
-.stats-hm-day-labels span { text-align: center; font-size: 9px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.stats-heatmap { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
-.shm-cell { aspect-ratio: 1; border-radius: 4px; cursor: default; }
-.shm-cell:hover { opacity: 0.75; }
-.shm-cell.lv0    { background: rgba(255,255,255,0.06); }
-.shm-cell.lv1    { background: rgba(124,58,237,0.72); }  /* violet — 0–3 hrs   */
-.shm-cell.lv2    { background: rgba(6,182,212,0.80); }   /* cyan   — 3–6 hrs   */
-.shm-cell.lv3    { background: rgba(34,197,94,0.88); }   /* green  — 6–9 hrs   */
-.shm-cell.lv4    { background: #f97316; }                /* orange — 9–12 hrs  */
-.shm-cell.lv5    { background: #ef4444; }                /* red    — 12 hrs+   */
-.shm-cell.future  { background: rgba(255,255,255,0.04); opacity: 0.45; }
-.shm-cell.shm-today {
-  outline: 2px solid rgba(255,255,255,0.72);
-  outline-offset: 1px;
-  box-shadow: 0 0 6px rgba(255,255,255,0.22);
+
+/* Flex row: day-labels on left, grid on right */
+.stats-hm-wrap { display: flex; gap: 5px; align-items: flex-start; }
+
+/* Vertical day-of-week labels — one per row, matching cell height + gap */
+.stats-hm-days {
+  display: flex; flex-direction: column; gap: 3px;
+  flex-shrink: 0; width: 18px; padding-top: 1px;
 }
-.stats-hm-legend { display: flex; align-items: center; gap: 5px; justify-content: flex-end; margin-top: 9px; font-size: 10px; color: var(--text-muted); font-weight: 600; }
-.stats-hm-legend .shm-cell { width: 11px; height: 11px; aspect-ratio: unset; flex-shrink: 0; border-radius: 3px; }
+.stats-hm-days span {
+  height: 14px; line-height: 14px; font-size: 8px; font-weight: 700;
+  color: var(--text-muted); text-transform: uppercase; text-align: right;
+}
+
+/* Grid: 7 rows (days) × 5 columns (weeks), column-first auto-flow */
+.stats-heatmap {
+  display: grid;
+  grid-template-rows: repeat(7, 14px);
+  grid-template-columns: repeat(5, 1fr);
+  grid-auto-flow: column;
+  gap: 3px;
+  flex: 1; min-width: 0;
+}
+
+/* Individual cells */
+.shm-cell {
+  height: 14px; border-radius: 3px;
+  cursor: pointer; transition: transform 0.12s, box-shadow 0.12s;
+  outline: none;
+}
+.shm-cell:hover, .shm-cell:focus-visible {
+  transform: scale(1.3); z-index: 2; position: relative;
+  box-shadow: 0 0 8px rgba(255,255,255,0.18);
+}
+
+/* Color tiers */
+.shm-cell.lv0    { background: rgba(255,255,255,0.07); }             /* 0 hrs   — dark grey  */
+.shm-cell.lv1    { background: rgba(167,108,255,0.80); }             /* 1–3 hrs — purple     */
+.shm-cell.lv2    { background: rgba(6,182,212,0.85); }               /* 3–6 hrs — teal/cyan  */
+.shm-cell.lv3    { background: rgba(74,222,128,0.88); }              /* 6–9 hrs — green      */
+.shm-cell.lv4    { background: #f97316; }                            /* 9–12 hrs— orange     */
+.shm-cell.lv5    { background: #ef4444; }                            /* 12h+    — red        */
+.shm-cell.future { background: rgba(255,255,255,0.04); opacity: 0.4; cursor: default; pointer-events: none; }
+.shm-cell.shm-today {
+  outline: 2px solid rgba(255,255,255,0.75);
+  outline-offset: 1px;
+  box-shadow: 0 0 7px rgba(255,255,255,0.22);
+}
+
+/* Info label — updates on hover/click to show date + time */
+.hm-info-label {
+  font-size: 11.5px; color: var(--text-muted); text-align: center;
+  margin: 9px 0 3px; min-height: 15px; font-weight: 500;
+  transition: color 0.18s; letter-spacing: 0.01em;
+}
+.hm-info-label.active { color: var(--text); }
+
+/* Legend row */
+.stats-hm-legend {
+  display: flex; align-items: center; gap: 5px;
+  justify-content: flex-end; margin-top: 6px;
+  font-size: 10px; color: var(--text-muted); font-weight: 600; flex-wrap: wrap; row-gap: 5px;
+}
+.stats-hm-legend .shm-cell {
+  width: 11px; height: 11px; flex-shrink: 0; border-radius: 2px;
+  cursor: default; pointer-events: none; transform: none !important;
+}
+.hm-lgd-txt { font-size: 9px; font-weight: 600; color: var(--text-muted); }
+.hm-lgd-scale {
+  display: flex; gap: 5px; font-size: 9px; font-weight: 700;
+  margin-left: 6px; align-items: center; flex-wrap: wrap;
+}
 
 /* ================================================================
    HOME — HERO CARDS
@@ -1575,6 +1628,11 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   .stats-pie-wrap   { height: 150px; }
   .stats-chart-card { padding: 12px; }
   .stats-heatmap-card { padding: 10px 10px 8px; }
+  .stats-heatmap { gap: 2px; grid-template-rows: repeat(7, 12px); }
+  .stats-hm-days { gap: 2px; } .stats-hm-days span { height: 12px; line-height: 12px; font-size: 7px; }
+  .shm-cell { height: 12px; }
+  .hm-info-label { font-size: 10.5px; }
+  .hm-lgd-scale { display: none; }
 
   /* Stat tiles: 4-across instead of 2-across */
   .stats-row { grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px !important; }

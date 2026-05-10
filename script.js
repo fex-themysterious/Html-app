@@ -3399,22 +3399,6 @@
       ? `${Math.floor(totalFocusMin / 60)}h${totalFocusMin % 60 ? ' ' + (totalFocusMin % 60) + 'm' : ''}`
       : `${totalFocusMin}m`;
 
-    // Heatmap: 5 complete weeks (Sun → Sat), aligned to Sun column
-    const hmTodayKey = todayKey();
-    const hmDow = today.getDay();
-    const hmStart = new Date(today); hmStart.setDate(hmStart.getDate() - (hmDow + 28));
-    const heatmapCells = Array.from({ length: 35 }, (_, i) => {
-      const d = new Date(hmStart); d.setDate(d.getDate() + i);
-      const k = d.toISOString().slice(0, 10);
-      const isFuture = k > hmTodayKey;
-      const isToday = k === hmTodayKey;
-      // Always read fresh from state.focusStats (same source as timer)
-      const min = isFuture ? 0 : (state.focusStats.minutesByDate[k] || 0);
-      // 3-hour interval bands (180 min each): violet → cyan → green → orange → red
-      const lvl = isFuture ? 'future' : min === 0 ? 'lv0' : min < 180 ? 'lv1' : min < 360 ? 'lv2' : min < 540 ? 'lv3' : min < 720 ? 'lv4' : 'lv5';
-      return { k, min, lvl, isToday, title: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ': ' + (isFuture ? '—' : min + 'm focused') };
-    });
-
     // Neon palette for subject distribution — distinct colors regardless of stored subject color
     const NEON_PALETTE = ['#00e5ff','#ff4d9e','#00ff88','#ffd600','#7c4dff','#ff6d00','#40c4ff','#f50057','#69ff47','#ff9100'];
 
@@ -3471,9 +3455,17 @@
 
       <div class="stats-section-head"><span>Focus Heatmap</span><span class="stats-section-meta">Last 5 weeks</span></div>
       <div class="stats-chart-card stats-heatmap-card">
-        <div class="stats-hm-day-labels"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
-        <div class="stats-heatmap">${heatmapCells.map(c => `<div class="shm-cell ${c.lvl}${c.isToday ? ' shm-today' : ''}" title="${c.title}"></div>`).join('')}</div>
-        <div class="stats-hm-legend"><span>0</span><div class="shm-cell lv0" title="No focus"></div><div class="shm-cell lv1" title="0–3 hrs"></div><div class="shm-cell lv2" title="3–6 hrs"></div><div class="shm-cell lv3" title="6–9 hrs"></div><div class="shm-cell lv4" title="9–12 hrs"></div><div class="shm-cell lv5" title="12+ hrs"></div><span>12h+</span></div>
+        <div class="stats-hm-wrap">
+          <div class="stats-hm-days"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
+          <div class="stats-heatmap" id="stats-heatmap-grid"></div>
+        </div>
+        <div class="hm-info-label" id="hm-info-label">Hover or tap a day to see focus time</div>
+        <div class="stats-hm-legend">
+          <span class="hm-lgd-txt">Less</span>
+          <div class="shm-cell lv0"></div><div class="shm-cell lv1"></div><div class="shm-cell lv2"></div><div class="shm-cell lv3"></div><div class="shm-cell lv4"></div><div class="shm-cell lv5"></div>
+          <span class="hm-lgd-txt">More</span>
+          <div class="hm-lgd-scale"><span>0h</span><span style="color:rgba(167,108,255,.95)">1–3h</span><span style="color:rgba(6,182,212,.95)">3–6h</span><span style="color:#4ade80">6–9h</span><span style="color:#f97316">9–12h</span><span style="color:#ef4444">12h+</span></div>
+        </div>
       </div>
 
       <div class="stats-row" style="margin-top:16px">
@@ -3568,6 +3560,64 @@
       </div>`;
 
     initStatsCharts(days7, pieSubjects, days7);
+    generateHeatmap();
+  }
+
+  // ========== Focus Heatmap ==========
+  function generateHeatmap() {
+    const grid = document.getElementById('stats-heatmap-grid');
+    if (!grid) return;
+    const infoLabel = document.getElementById('hm-info-label');
+
+    const hmKey  = todayKey();
+    const now    = new Date();
+    const dow    = now.getDay();                              // 0=Sun … 6=Sat
+    const start  = new Date(now);
+    start.setDate(start.getDate() - (dow + 28));             // back to start of 5th-ago week (Sun)
+
+    const cells = Array.from({ length: 35 }, (_, i) => {
+      const d  = new Date(start); d.setDate(d.getDate() + i);
+      const k  = d.toISOString().slice(0, 10);
+      const isFuture = k > hmKey;
+      const isToday  = k === hmKey;
+      const min = isFuture ? 0 : (state.focusStats.minutesByDate[k] || 0);
+      const hrs = min / 60;
+      // Color tiers: 0 → dark-grey, 0–3h → purple, 3–6h → teal, 6–9h → green, 9–12h → orange, 12h+ → red
+      const lvl = isFuture  ? 'future'
+        : min === 0 ? 'lv0'
+        : hrs < 3   ? 'lv1'
+        : hrs < 6   ? 'lv2'
+        : hrs < 9   ? 'lv3'
+        : hrs < 12  ? 'lv4'
+        : 'lv5';
+      const dateStr = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+      const timeStr = isFuture   ? '—'
+        : min === 0  ? 'No focus'
+        : min < 60   ? `${min}m focused`
+        : `${Math.floor(min / 60)}h${min % 60 ? ' ' + (min % 60) + 'm' : ''} focused`;
+      return { k, min, lvl, isToday, label: `${dateStr}  ·  ${timeStr}` };
+    });
+
+    // Render cells with data attributes for interaction
+    grid.innerHTML = cells.map(c =>
+      `<div class="shm-cell ${c.lvl}${c.isToday ? ' shm-today' : ''}" data-date="${c.k}" data-min="${c.min}" data-label="${escapeHTML(c.label)}" tabindex="${c.lvl === 'future' ? -1 : 0}" role="gridcell" aria-label="${escapeHTML(c.label)}"></div>`
+    ).join('');
+
+    // Interaction: update info label on hover / focus / click
+    const setLabel = (text, active) => {
+      if (!infoLabel) return;
+      infoLabel.textContent = text;
+      infoLabel.classList.toggle('active', active);
+    };
+    const defaultMsg = 'Hover or tap a day to see focus time';
+
+    grid.querySelectorAll('.shm-cell:not(.future)').forEach(cell => {
+      cell.addEventListener('mouseenter', () => setLabel(cell.dataset.label, true));
+      cell.addEventListener('focus',      () => setLabel(cell.dataset.label, true));
+      cell.addEventListener('mouseleave', () => setLabel(defaultMsg, false));
+      cell.addEventListener('blur',       () => setLabel(defaultMsg, false));
+      cell.addEventListener('click',      () => setLabel(cell.dataset.label, true));
+    });
   }
 
   function initStatsCharts(days7, pieSubjects, days7cls) {
