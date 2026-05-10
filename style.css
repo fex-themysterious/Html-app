@@ -409,6 +409,57 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 @keyframes toastIn  { from { opacity: 0; transform: translateY(-12px) scale(0.95); } to { opacity: 1; transform: none; } }
 @keyframes toastOut { to { opacity: 0; transform: translateY(-8px); } }
 
+/* ── Motivation Toast (Glassmorphism) ──────────────────────────── */
+#moti-toast-el {
+  position: fixed;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 72px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(420px, 92vw);
+  z-index: 250;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: rgba(11, 18, 32, 0.78);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(91, 173, 255, 0.28);
+  box-shadow: 0 8px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(91,173,255,0.08) inset, 0 1px 0 rgba(255,255,255,0.06) inset;
+  animation: motiToastIn 0.38s cubic-bezier(0.34, 1.56, 0.64, 1);
+  cursor: default;
+}
+#moti-toast-el.urgent {
+  border-color: rgba(248, 113, 113, 0.38);
+  box-shadow: 0 8px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(248,113,113,0.08) inset, 0 0 24px rgba(248,113,113,0.18);
+}
+.moti-toast-icon { font-size: 28px; line-height: 1; flex: none; margin-top: 1px; }
+.moti-toast-body { flex: 1; min-width: 0; }
+.moti-toast-label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.9px; color: var(--primary); margin-bottom: 5px;
+}
+#moti-toast-el.urgent .moti-toast-label { color: var(--danger); }
+.moti-toast-quote { font-size: 13.5px; font-weight: 500; color: var(--text); line-height: 1.5; }
+.moti-toast-close {
+  background: none; border: none; color: var(--text-muted);
+  font-size: 20px; line-height: 1; cursor: pointer;
+  padding: 0 0 0 4px; flex: none; transition: color 0.2s; align-self: flex-start;
+}
+.moti-toast-close:hover { color: var(--text); }
+@keyframes motiToastIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(22px) scale(0.94); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+
+/* ── Motivation interval row in settings ───────────────────────── */
+.moti-interval-row {
+  display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap;
+}
+.moti-interval-label { font-size: 13px; color: var(--text-muted); font-weight: 500; }
+.moti-interval-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+
 /* ================================================================
    SYLLABUS TAB
    ================================================================ */

@@ -6,6 +6,33 @@
   const todayKey = () => new Date().toISOString().slice(0, 10);
   const uid = () => Math.random().toString(36).slice(2, 10);
 
+  // ── Built-in Motivation Quotes (interval system) ─────────────────
+  const MOTIVATION_QUOTES = [
+    "Stay focused. The results will speak for themselves.",
+    "Consistency is the bridge between goals and accomplishment.",
+    "One more topic. One step closer to your dream.",
+    "The pain of studying is temporary. The pride of success is permanent.",
+    "Every page you study today is a wall between you and failure.",
+    "Champions don't skip study sessions. Neither do you.",
+    "Your future self is watching you right now — make them proud.",
+    "Small daily improvements lead to stunning yearly results.",
+    "Discipline is choosing what you want most over what you want now.",
+    "You are not tired. You are just momentarily weak. Push through.",
+    "The difference between ordinary and extraordinary is that little extra.",
+    "Hard days build strong scholars. This is one of those days.",
+    "Every revision you do today is an exam answer tomorrow.",
+    "Genius is 1% inspiration and 99% sweating over textbooks.",
+    "The only way out is through. Keep studying."
+  ];
+  const MOTIVATION_QUOTES_URGENT = [
+    "You haven't studied in a while. Your goals are still waiting.",
+    "Wake up! Every hour you delay is ground you have to make up later.",
+    "Your mastery is low — but it's not too late. Open the app and grind.",
+    "Exams don't care about excuses. Get back to studying NOW.",
+    "Danger zone! Low progress detected. Time to turn it around.",
+    "You didn't come this far to only come this far. KEEP GOING."
+  ];
+
   function addDaysISO(base, days) {
     const d = new Date(base + 'T00:00:00'); d.setDate(d.getDate() + days);
     return d.toISOString().slice(0, 10);
@@ -59,6 +86,7 @@
       dailyPlans: {},
       smartReminder: { enabled: false, times: ['20:00'], lastFired: {} },
       motivationReminders: { enabled: false, times: ['09:00', '14:00', '20:00'], lastFired: {} },
+      motivationInterval: { enabled: true, intervalHours: 2, lastFired: null },
       revisions: [],
       burnout: { installDate: todayKey(), popupDismissedDate: null, bannerDismissedDate: null },
       goals: [],
@@ -122,6 +150,9 @@
     if (!s.motivationReminders || typeof s.motivationReminders !== 'object') s.motivationReminders = { enabled: false, times: ['09:00', '20:00'], lastFired: {} };
     s.motivationReminders.lastFired = s.motivationReminders.lastFired || {};
     if (!Array.isArray(s.motivationReminders.times) || !s.motivationReminders.times.length) s.motivationReminders.times = ['09:00', '20:00'];
+    if (!s.motivationInterval || typeof s.motivationInterval !== 'object') s.motivationInterval = { enabled: true, intervalHours: 2, lastFired: null };
+    if (typeof s.motivationInterval.enabled !== 'boolean') s.motivationInterval.enabled = true;
+    if (typeof s.motivationInterval.intervalHours !== 'number' || s.motivationInterval.intervalHours < 1) s.motivationInterval.intervalHours = 2;
     s.burnout = s.burnout || { installDate: todayKey(), popupDismissedDate: null, bannerDismissedDate: null };
     if (!s.burnout.installDate) s.burnout.installDate = todayKey();
     s.goals = Array.isArray(s.goals) ? s.goals.map(g => ({
@@ -737,7 +768,8 @@
     for (const t of mr.times) {
       if (t !== cur) continue; const stampKey = today + 'T' + t; if (mr.lastFired[stampKey]) continue;
       mr.lastFired[stampKey] = true; saveState();
-      const quotes = state.motivationQuotes; const quote = quotes.length ? quotes[Math.floor(Math.random() * quotes.length)] : "";
+      const _mqPool = state.motivationQuotes.length ? [...MOTIVATION_QUOTES, ...state.motivationQuotes] : MOTIVATION_QUOTES;
+      const quote = _mqPool[Math.floor(Math.random() * _mqPool.length)];
       if (notifPermission() === 'granted') showWebNotification('💪 Stay focused', quote, { tag: `mot-${stampKey}` });
       else toast(`💪 ${quote}`, 'info', 5000);
       break;
@@ -789,8 +821,8 @@
         const stampKey = todayKey() + 'T' + timeStr;
         if (!mr.lastFired[stampKey]) {
           mr.lastFired[stampKey] = true; saveState();
-          const quotes = state.motivationQuotes;
-          const quote = quotes.length ? quotes[Math.floor(Math.random() * quotes.length)] : 'Keep going! 💪';
+          const _mPool = state.motivationQuotes.length ? [...MOTIVATION_QUOTES, ...state.motivationQuotes] : MOTIVATION_QUOTES;
+          const quote = _mPool[Math.floor(Math.random() * _mPool.length)];
           if (notifPermission() === 'granted') {
             showWebNotification('💪 Stay Focused!', quote, { tag: 'mot-' + timeStr, requireInteraction: false });
           } else {
@@ -837,6 +869,64 @@
     }).catch(() => {});
   }
 
+
+  // ========== Interval-Based Motivation System ==========
+  let _motivationIntervalTimer = null;
+
+  function isQuietHours() {
+    const h = new Date().getHours();
+    return h >= 0 && h < 6;
+  }
+
+  function isStudyUrgent() {
+    const mastery = overallProgress();
+    if (mastery < 30) return true;
+    const yesterday = addDaysISO(todayKey(), -1);
+    if ((state.activity[todayKey()] || 0) === 0 && (state.activity[yesterday] || 0) === 0) return true;
+    return false;
+  }
+
+  function showMotivationToast(quote, urgent) {
+    const existing = document.getElementById('moti-toast-el');
+    if (existing) existing.remove();
+    const el = document.createElement('div');
+    el.id = 'moti-toast-el';
+    el.className = 'moti-toast' + (urgent ? ' urgent' : '');
+    el.innerHTML = `<div class="moti-toast-icon">${urgent ? '🚨' : '💪'}</div><div class="moti-toast-body"><div class="moti-toast-label">${urgent ? 'Wake-Up Call' : 'Stay Motivated'}</div><div class="moti-toast-quote">${escapeHTML(quote)}</div></div><button class="moti-toast-close" aria-label="Dismiss">×</button>`;
+    el.querySelector('.moti-toast-close').onclick = () => el.remove();
+    const app = document.getElementById('app');
+    if (app) app.appendChild(el);
+    setTimeout(() => { if (el.parentNode) el.remove(); }, 9000);
+  }
+
+  function fireMotivationReminder() {
+    if (isQuietHours()) return;
+    const urgent = isStudyUrgent();
+    const pool = urgent ? MOTIVATION_QUOTES_URGENT : MOTIVATION_QUOTES;
+    const userQuotes = state.motivationQuotes || [];
+    const combined = userQuotes.length > 0 ? [...pool, ...userQuotes] : pool;
+    const quote = combined[Math.floor(Math.random() * combined.length)];
+    if (notifPermission() === 'granted') {
+      showWebNotification(
+        urgent ? '🚨 Study Alert!' : '💪 Stay Focused!',
+        quote,
+        { tag: 'mot-interval-' + Date.now(), requireInteraction: urgent }
+      );
+    }
+    showMotivationToast(quote, urgent);
+    state.motivationInterval.lastFired = Date.now();
+    saveState();
+  }
+
+  function startMotivationIntervalLoop() {
+    if (_motivationIntervalTimer) { clearInterval(_motivationIntervalTimer); _motivationIntervalTimer = null; }
+    const mi = state.motivationInterval;
+    if (!mi || !mi.enabled) return;
+    const ms = Math.max(1, mi.intervalHours || 2) * 60 * 60 * 1000;
+    _motivationIntervalTimer = setInterval(() => {
+      if (state.motivationInterval && state.motivationInterval.enabled) fireMotivationReminder();
+    }, ms);
+  }
 
   // ========== Motivational Sleeper Alarm ==========
   const ALARM_QUOTES_DEFAULT = [
@@ -3927,7 +4017,7 @@
 
   // ========== Settings Modal ==========
   function modalSettings() {
-    const sr = state.smartReminder, mr = state.motivationReminders, perm = notifPermission();
+    const sr = state.smartReminder, mr = state.motivationReminders, mi = state.motivationInterval, perm = notifPermission();
     let permCls = 'warn', permText = 'Permission not yet requested.';
     if (perm === 'unsupported') { permCls = 'warn'; permText = 'Notifications not supported on this browser.'; }
     else if (perm === 'granted')  { permCls = 'ok';   permText = 'Notifications are allowed.'; }
@@ -3942,6 +4032,7 @@
       </div>
       <div class="settings-section"><h4>Daily Study Reminder</h4><div class="settings-row"><div class="label">Notify when tasks aren't done<div class="sub">Multiple reminder times supported.</div></div><label class="switch"><input type="checkbox" id="set-sr-toggle" ${sr.enabled ? 'checked' : ''} data-act="toggle-smart-reminder"/><span class="slider"></span></label></div><div class="time-chip-row" style="${sr.enabled ? '' : 'opacity:.55;pointer-events:none'}">${sr.times.length ? chips('reminder', sr.times) : '<span class="muted">No times set.</span>'}<button type="button" class="time-chip add" data-act="open-time-picker" data-which="reminder" data-i="-1">+ Add</button></div></div>
       <div class="settings-section"><h4>Motivation Notifications</h4><div class="settings-row"><div class="label">Motivational push messages<div class="sub">Random quote at each scheduled time.</div></div><label class="switch"><input type="checkbox" id="set-mr-toggle" ${mr.enabled ? 'checked' : ''} data-act="toggle-motivation"/><span class="slider"></span></label></div><div class="time-chip-row" style="${mr.enabled ? '' : 'opacity:.55;pointer-events:none'}">${mr.times.length ? chips('motivation', mr.times) : '<span class="muted">No times set.</span>'}<button type="button" class="time-chip add" data-act="open-time-picker" data-which="motivation" data-i="-1">+ Add</button></div></div>
+      <div class="settings-section"><h4>🔔 Interval Reminders</h4><div class="settings-row"><div class="label">Motivational boost every few hours<div class="sub">Smart quotes — urgent tone when you are behind on studying.</div></div><label class="switch"><input type="checkbox" id="set-mi-toggle" ${mi.enabled ? 'checked' : ''} data-act="toggle-motivation-interval"/><span class="slider"></span></label></div><div class="moti-interval-row" style="${mi.enabled ? '' : 'opacity:.55;pointer-events:none'}"><span class="moti-interval-label">Every</span><div class="moti-interval-btns">${[1, 2, 3, 4, 6].map(h => `<button type="button" class="tp-chip${mi.intervalHours === h ? ' on' : ''}" data-act="set-motivation-interval" data-h="${h}">${h}h</button>`).join('')}</div></div></div>
       <div class="settings-section"><h4>Notifications Status</h4><div class="notif-status ${permCls}">${escapeHTML(permText)}</div>${(perm === 'default' || perm === 'denied') ? `<div style="margin-top:9px"><button class="btn btn-block" data-act="sr-request-perm">${perm === 'denied' ? 'Try requesting again' : 'Allow notifications'}</button></div>` : ''}</div>
       <div class="settings-section"><h4>My Motivation Quotes</h4><p style="font-size:12px;color:var(--text-muted);margin:0 0 10px">These quotes appear on the home screen and in Full Focus mode. Add as many as you like.</p><div class="quote-list">${state.motivationQuotes.length ? state.motivationQuotes.map((q, i) => `<div class="quote-row"><div class="text">${escapeHTML(q)}</div><button class="menu-btn" data-act="del-quote" data-i="${i}">${ic('trash')}</button></div>`).join('') : '<div style="font-size:12px;color:var(--text-muted);padding:4px 0">No quotes yet. Add one below!</div>'}</div><div class="quote-add-row"><input id="set-new-quote" placeholder="Add a motivation quote…" maxlength="200"/><button class="btn" data-act="add-quote">${ic('plus')}</button></div></div>
       <div class="settings-section"><h4>🌙 Night Study Mode</h4><div class="settings-row"><div class="label">Warm amber overlay — reduces eye strain<div class="sub">Also reminds you to take a 20-second eye break every 40 min of video watching.</div></div><label class="switch"><input type="checkbox" id="set-eye-care" ${state.eyeCareMode ? 'checked' : ''} data-act="toggle-eye-care"/><span class="slider"></span></label></div></div>
@@ -4450,6 +4541,20 @@
     // Settings actions
     if (act === 'toggle-smart-reminder') { state.smartReminder.enabled = el.checked; saveState(); refreshSettingsIfOpen(); scheduleAllNotifications(); return; }
     if (act === 'toggle-motivation') { state.motivationReminders.enabled = el.checked; saveState(); refreshSettingsIfOpen(); scheduleAllNotifications(); return; }
+    if (act === 'toggle-motivation-interval') {
+      state.motivationInterval.enabled = el.checked; saveState(); refreshSettingsIfOpen();
+      if (state.motivationInterval.enabled) startMotivationIntervalLoop();
+      else { if (_motivationIntervalTimer) { clearInterval(_motivationIntervalTimer); _motivationIntervalTimer = null; } }
+      toast(state.motivationInterval.enabled ? '🔔 Interval reminders on' : 'Interval reminders off', 'info');
+      return;
+    }
+    if (act === 'set-motivation-interval') {
+      const h = parseInt(el.dataset.h, 10);
+      state.motivationInterval.intervalHours = h; saveState(); refreshSettingsIfOpen();
+      startMotivationIntervalLoop();
+      toast(`Reminders set every ${h} hour${h > 1 ? 's' : ''} ✓`, 'success');
+      return;
+    }
     if (act === 'open-time-picker') { modalSetReminderTime(el.dataset.which, parseInt(el.dataset.i, 10)); return; }
     if (act === 'del-time-slot') { const target = el.dataset.which === 'motivation' ? state.motivationReminders : state.smartReminder; target.times.splice(parseInt(el.dataset.i, 10), 1); saveState(); refreshSettingsIfOpen(); scheduleAllNotifications(); return; }
     if (act === 'sr-request-perm') { requestNotifPermission().then(() => { refreshSettingsIfOpen(); scheduleAllNotifications(); }); return; }
@@ -4626,6 +4731,7 @@
     scheduleAllAlarms();
     applyEyCareMode();
     startMotivationRotation();
+    startMotivationIntervalLoop();
     setTimeout(maybeAutoShowBurnoutPopup, 2500);
     maybeShowBackupReminder();
   }
