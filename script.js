@@ -444,6 +444,7 @@
   let _socialUnsubPresence = null;
   let _socialUnsubRoom     = null;
   let _socialHeartbeatId   = null;
+  let _socialLobbyCode     = null;
 
   function _sDisplayName() {
     if (state.profile && state.profile.name) return state.profile.name;
@@ -605,6 +606,7 @@
         await ref.set({ roomCode: code, createdBy: _userId, createdAt: firebase.firestore.FieldValue.serverTimestamp(), groupGoals: [], duels: [] });
       }
       _socialRoomCode = code;
+      _socialLobbyCode = null;
       try { localStorage.setItem('social_room_code', code); } catch (e) {}
       await _sUpdatePresence('break');
       _sSubscribe();
@@ -623,6 +625,7 @@
         .update({ status: 'offline' }).catch(() => {});
     }
     _socialRoomCode = null; _socialMembers = {}; _socialRoomData = null;
+    _socialLobbyCode = null;
     try { localStorage.removeItem('social_room_code'); } catch (e) {}
     renderSocial(); toast('Left the room', 'info');
   }
@@ -652,13 +655,13 @@
   async function _sHandleFocusBounty() {
     if (!_db || !_userId || !_socialRoomCode) return;
     const others = Object.values(_socialMembers).filter(m => m.uid !== _userId && _sStatusOf(m) !== 'offline');
+    if (!others.length) return;
     const deduct = Math.min(SOCIAL_BOUNTY_XP, Math.max(0, (state.xp && state.xp.total) || 0));
     if (deduct <= 0) return;
     state.xp.total = Math.max(0, state.xp.total - deduct);
     gamificationManager._updateXPBar(); saveState();
     const n = others.length;
     toast(`⚠️ Early quit! −${deduct} XP distributed to ${n} teammate${n !== 1 ? 's' : ''}`, 'warn', 5000);
-    if (!n) return;
     const share = Math.max(1, Math.floor(deduct / n));
     await Promise.all(others.map(m =>
       _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(m.uid)
@@ -716,7 +719,8 @@
   }
 
   function _renderSocialLobby() {
-    const code = _sGenerateCode();
+    if (!_socialLobbyCode) _socialLobbyCode = _sGenerateCode();
+    const code = _socialLobbyCode;
     return `<div class="social-lobby">
       <div class="social-lobby-hero"><div class="social-lobby-icon">👥</div><h1 class="social-lobby-title">Study Together</h1><p class="social-lobby-sub">Join a room to see friends live focus, duel for XP, and hit group goals together.</p></div>
       <div class="social-lobby-cards">
