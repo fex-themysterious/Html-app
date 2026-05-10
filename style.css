@@ -645,7 +645,7 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 12px;
 }
-.cal-nav-btn {
+.stats-cal-card .cal-nav-btn {
   background: rgba(255,255,255,0.07);
   border: 1px solid rgba(255,255,255,0.13);
   color: var(--text); border-radius: 9px;
@@ -654,8 +654,8 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   cursor: pointer; transition: background .15s, transform .1s;
   flex-shrink: 0;
 }
-.cal-nav-btn:hover { background: rgba(255,255,255,0.14); transform: scale(1.08); }
-.cal-nav-btn:disabled { opacity: 0.3; cursor: default; transform: none; }
+.stats-cal-card .cal-nav-btn:hover { background: rgba(255,255,255,0.14); transform: scale(1.08); }
+.stats-cal-card .cal-nav-btn:disabled { opacity: 0.3; cursor: default; transform: none; }
 .cal-month-label {
   font-size: 15px; font-weight: 800; letter-spacing: .02em; color: var(--text);
 }
@@ -667,29 +667,30 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   text-align: center; font-size: 10px; font-weight: 700;
   color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; padding: 2px 0;
 }
-.cal-grid {
+.stats-cal-card .cal-grid {
   display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;
 }
-.cal-cell {
+.stats-cal-card .cal-cell {
   aspect-ratio: 1; border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
   font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.85);
   cursor: pointer; position: relative;
   transition: transform .12s, box-shadow .12s;
   min-height: 34px; user-select: none;
+  border: none;
 }
-.cal-cell.empty   { background: transparent; cursor: default; pointer-events: none; }
-.cal-cell.future  { background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.22); cursor: default; pointer-events: none; }
-.cal-cell:not(.empty):not(.future):hover { transform: scale(1.13); z-index: 2; box-shadow: 0 4px 16px rgba(0,0,0,0.45); }
-.cal-cell.today   { box-shadow: 0 0 0 2px var(--primary), inset 0 0 0 1px rgba(255,255,255,0.12) !important; color: #fff !important; font-weight: 900; }
-.cal-cell.lv0     { background: rgba(255,255,255,0.07); }
-.cal-cell.lv1     { background: rgba(167,108,255,0.80); }
-.cal-cell.lv2     { background: rgba(6,182,212,0.85); }
-.cal-cell.lv3     { background: rgba(74,222,128,0.88); }
-.cal-cell.lv4     { background: #f97316; }
-.cal-cell.lv5     { background: #ef4444; }
-.cal-cell.lv-off  { background: rgba(185,28,28,0.55); box-shadow: inset 0 0 0 1px rgba(239,68,68,0.35); }
-.cal-cell.lv-off:hover { background: rgba(220,38,38,0.75); box-shadow: 0 4px 14px rgba(220,38,38,0.4), inset 0 0 0 1px rgba(239,68,68,0.5) !important; }
+.stats-cal-card .cal-cell.empty   { background: transparent; cursor: default; pointer-events: none; }
+.stats-cal-card .cal-cell.future  { background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.22); cursor: default; pointer-events: none; }
+.stats-cal-card .cal-cell:not(.empty):not(.future):hover { transform: scale(1.13); z-index: 2; box-shadow: 0 4px 16px rgba(0,0,0,0.45); }
+.stats-cal-card .cal-cell.today   { box-shadow: 0 0 0 2px var(--primary), inset 0 0 0 1px rgba(255,255,255,0.12) !important; color: #fff !important; font-weight: 900; }
+.stats-cal-card .cal-cell.lv0     { background: rgba(255,255,255,0.07); }
+.stats-cal-card .cal-cell.lv1     { background: rgba(167,108,255,0.80); }
+.stats-cal-card .cal-cell.lv2     { background: rgba(6,182,212,0.85); }
+.stats-cal-card .cal-cell.lv3     { background: rgba(74,222,128,0.88); }
+.stats-cal-card .cal-cell.lv4     { background: #f97316; }
+.stats-cal-card .cal-cell.lv5     { background: #ef4444; }
+.stats-cal-card .cal-cell.lv-off  { background: rgba(185,28,28,0.55); box-shadow: inset 0 0 0 1px rgba(239,68,68,0.35); }
+.stats-cal-card .cal-cell.lv-off:hover { background: rgba(220,38,38,0.75); box-shadow: 0 4px 14px rgba(220,38,38,0.4), inset 0 0 0 1px rgba(239,68,68,0.5) !important; }
 
 /* Floating tooltip */
 .cal-tooltip {
