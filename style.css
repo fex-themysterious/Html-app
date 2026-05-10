@@ -3971,6 +3971,23 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 }
 .auth-toggle-btn:hover { color: #a5b4fc; }
 
+.auth-skip-row {
+  margin-top: 18px;
+  text-align: center;
+}
+.auth-skip-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted, #64748b);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: color 0.15s;
+}
+.auth-skip-btn:hover { color: var(--text, #e2e8f0); }
+
 /* ── Settings — Account section ─────────────────────────────────────────── */
 .settings-auth-section .auth-profile-row {
   display: flex;

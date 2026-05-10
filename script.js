@@ -218,6 +218,11 @@
     _scheduledCloudSync();
   }
 
+  // ── Offline/Skip Auth ────────────────────────────────────────────────────
+  let _authSkipped = (function() {
+    try { return localStorage.getItem('stk_auth_skipped') === '1'; } catch(_) { return false; }
+  })();
+
   // ── Firebase / Cloud Sync ────────────────────────────────────────────────
   function _initFirebase() {
     if (typeof firebase === 'undefined') return;
@@ -297,6 +302,8 @@
   async function _handleAuthStateChange(user) {
     if (user) {
       _userId = user.uid;
+      _authSkipped = false;
+      try { localStorage.removeItem('stk_auth_skipped'); } catch(_) {}
       hideAuthModal();
       _sSocialInit();
       refreshSettingsIfOpen();
@@ -332,7 +339,7 @@
     } else {
       _userId = null;
       _setCloudStatus('idle');
-      showAuthModal();
+      if (!_authSkipped) showAuthModal();
       refreshSettingsIfOpen();
     }
   }
@@ -5094,7 +5101,8 @@
     if (act === 'auth-google')      { _authSignInWithGoogle(); return; }
     if (act === 'auth-submit')      { _authSubmit(); return; }
     if (act === 'auth-logout')      { _authSignOut(); closeModal(); return; }
-    if (act === 'auth-show-modal')  { closeModal(); showAuthModal(); return; }
+    if (act === 'auth-show-modal')  { _authSkipped = false; try { localStorage.removeItem('stk_auth_skipped'); } catch(_) {} closeModal(); showAuthModal(); return; }
+    if (act === 'auth-use-offline') { _authSkipped = true; try { localStorage.setItem('stk_auth_skipped', '1'); } catch(_) {} hideAuthModal(); toast('Using app offline — sign in anytime via ⚙️ Settings', 'info', 4500); return; }
     if (act === 'save-profile') {
       const root = document.querySelector('#modal-root .modal');
       if (root) {
