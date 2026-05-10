@@ -442,7 +442,9 @@
   let _socialUnsubPresence = null;
   let _socialUnsubRoom     = null;
   let _socialHeartbeatId   = null;
-  let _socialLobbyCode     = null;
+  let _socialLobbyCode      = null;
+  let _socialPrevStatuses   = {};
+  let _momentumConfettiFired = false;
 
   function _sDisplayName() {
     if (state.profile && state.profile.name) return state.profile.name;
@@ -482,6 +484,17 @@
   async function _sUpdatePresence(status, extra) {
     if (!_db || !_userId || !_socialRoomCode) return;
     const u = _auth && _auth.currentUser;
+    let focusSubjectName = '';
+    if (status === 'focusing' && typeof focusCurrentTaskKey !== 'undefined' && focusCurrentTaskKey) {
+      try {
+        const tasks = typeof getActivePlanTasks === 'function' ? getActivePlanTasks() : [];
+        const task = tasks.find(t => t.key === focusCurrentTaskKey);
+        if (task && task.subId) {
+          const sub = state.subjects.find(s => s.id === task.subId);
+          if (sub) focusSubjectName = sub.name;
+        }
+      } catch (_) {}
+    }
     try {
       await _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId).set({
         uid: _userId, displayName: _sDisplayName(), email: (u && u.email) || '',
@@ -490,6 +503,8 @@
         weeklyMinutes: _sWeeklyMinutes(),
         subjectMinutes: (state.focusStats && state.focusStats.minutesBySubject) || {},
         focusStartedAt: status === 'focusing' ? (focusStartTime || Date.now()) : null,
+        focusSubjectName: status === 'focusing' ? focusSubjectName : '',
+        studyStreak: (state.streak && state.streak.count) || 0,
         ...(extra || {})
       }, { merge: true });
     } catch (e) { console.warn('[Social] Presence failed:', e.message); }
@@ -506,6 +521,15 @@
           const data = { ...change.doc.data() };
           if (data.lastSeen && typeof data.lastSeen.toMillis === 'function') data.lastSeen = data.lastSeen.toMillis();
           _socialMembers[data.uid] = data;
+          // Real-time toast: detect when a teammate starts focusing
+          if (data.uid !== _userId && data.status === 'focusing') {
+            const prev = _socialPrevStatuses[data.uid];
+            if (prev !== undefined && prev !== 'focusing') {
+              const subNote = data.focusSubjectName ? ` on ${escapeHTML(data.focusSubjectName)}` : '';
+              toast(`🎯 ${escapeHTML(data.displayName || 'A teammate')} just started a focus session${subNote}!`, 'info', 4500);
+            }
+          }
+          _socialPrevStatuses[data.uid] = data.status;
           if (data.uid !== _userId) return;
           // Nudge (poke)
           if (data.nudge && data.nudge.ts && Date.now() - data.nudge.ts < 12000) {
@@ -601,7 +625,7 @@
     try {
       const ref = _db.collection('groups').doc(code);
       if (!(await ref.get()).exists) {
-        await ref.set({ roomCode: code, createdBy: _userId, createdAt: firebase.firestore.FieldValue.serverTimestamp(), groupGoals: [], duels: [] });
+        await ref.set({ roomCode: code, createdBy: _userId, createdAt: firebase.firestore.FieldValue.serverTimestamp(), groupGoals: [], duels: [], groupVault: null });
       }
       _socialRoomCode = code;
       _socialLobbyCode = null;
@@ -696,6 +720,68 @@
     catch (e) { console.warn('[Social] Goal contribution failed:', e.message); }
   }
 
+  function _sSubjectEmoji(name) {
+    const n = (name || '').toLowerCase();
+    if (n.includes('physics')) return '⚛️';
+    if (n.includes('chem')) return '🧪';
+    if (n.includes('math') || n.includes('calc') || n.includes('algebra') || n.includes('stat')) return '📐';
+    if (n.includes('bio')) return '🧬';
+    if (n.includes('english') || n.includes('liter') || n.includes('writing') || n.includes('essay')) return '📝';
+    if (n.includes('hist')) return '📜';
+    if (n.includes('geo')) return '🌍';
+    if (n.includes('computer') || n.includes(' cs') || n.includes('program') || n.includes('coding') || n.includes('software')) return '💻';
+    if (n.includes('econ')) return '📊';
+    if (n.includes('art') || n.includes('design')) return '🎨';
+    if (n.includes('music')) return '🎵';
+    if (n.includes('french') || n.includes('spanish') || n.includes('german') || n.includes('lang')) return '🗣️';
+    if (n.includes('law') || n.includes('legal')) return '⚖️';
+    if (n.includes('med') || n.includes('anatomy')) return '🏥';
+    return '📚';
+  }
+
+  function _sFireConfetti() {
+    const colors = ['#5badff','#a78bfa','#f472b6','#34d399','#fbbf24','#fb7185','#60a5fa','#4ade80'];
+    for (let i = 0; i < 90; i++) {
+      const el = document.createElement('div');
+      el.className = 'confetti-piece';
+      const size = 6 + Math.random() * 8;
+      el.style.cssText = `left:${Math.random() * 100}vw;background:${colors[Math.floor(Math.random() * colors.length)]};animation-duration:${0.9 + Math.random() * 1.4}s;animation-delay:${Math.random() * 0.6}s;width:${size}px;height:${size}px;border-radius:${Math.random() > 0.5 ? '50%' : '3px'};`;
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 2800);
+    }
+    toast('🎉 Collective Momentum maxed! Your group is on fire!', 'success', 5000);
+  }
+
+  async function _sDonateToVault(xpAmount) {
+    if (!_db || !_userId || !_socialRoomCode || !_socialRoomData) return;
+    const myXP = (state.xp && state.xp.total) || 0;
+    if (xpAmount <= 0 || xpAmount > myXP) { toast('Invalid XP amount', 'warn'); return; }
+    const vault = _socialRoomData.groupVault;
+    if (!vault || !vault.goal) { toast('No vault active', 'warn'); return; }
+    const vaultTotal = Object.values(vault.contributions || {}).reduce((a, b) => a + b, 0);
+    if (vaultTotal >= vault.goal) { toast('Vault already unlocked!', 'info'); return; }
+    state.xp.total = Math.max(0, myXP - xpAmount);
+    gamificationManager._updateXPBar(); saveState();
+    const newContribs = { ...(vault.contributions || {}), [_userId]: ((vault.contributions || {})[_userId] || 0) + xpAmount };
+    try {
+      await _db.collection('groups').doc(_socialRoomCode).update({ 'groupVault.contributions': newContribs });
+      toast(`⚡ Donated ${xpAmount} XP to the vault!`, 'success');
+      const newTotal = Object.values(newContribs).reduce((a, b) => a + b, 0);
+      if (newTotal >= vault.goal) {
+        setTimeout(_sFireConfetti, 400);
+        toast('🏦 Vault Unlocked! Special theme unlocked for the whole group!', 'success', 6000);
+      }
+    } catch (e) { toast('Donation failed', 'danger'); }
+  }
+
+  async function _sCreateVault(goal) {
+    if (!_db || !_socialRoomCode || !goal || goal < 100) { toast('Enter a valid XP goal (min 100)', 'warn'); return; }
+    try {
+      await _db.collection('groups').doc(_socialRoomCode).update({ groupVault: { goal, contributions: {}, createdAt: Date.now() } });
+      toast('🏦 Group Vault created!', 'success');
+    } catch (e) { toast('Failed to create vault', 'danger'); }
+  }
+
   async function _sSocialInit() {
     const saved = (() => { try { return localStorage.getItem('social_room_code'); } catch (e) { return null; } })();
     if (saved && _db && _userId && !_socialRoomCode) {
@@ -709,10 +795,20 @@
     const view = document.getElementById('view-social');
     if (!view) return;
     if (!_userId) {
-      view.innerHTML = `<div class="social-gate"><div class="social-gate-icon">👥</div><h2 class="social-gate-title">Social Study Rooms</h2><p class="social-gate-sub">Sign in to join a room and study with friends, compete in duels, and track group goals.</p><button class="btn" data-act="auth-show-modal">Sign In to Continue</button></div>`;
+      view.innerHTML = `<div class="social-gate"><div class="social-gate-icon">👥</div><h2 class="social-gate-title">Social Study Rooms</h2><p class="social-gate-sub">Sign in to join a room and study with friends, compete in duels, and hit group goals together.</p><button class="btn" data-act="auth-show-modal">Sign In to Continue</button></div>`;
       return;
     }
     if (!_socialRoomCode) { view.innerHTML = _renderSocialLobby(); return; }
+    // Confetti check for momentum bar
+    const _momMembers = Object.values(_socialMembers);
+    const _momXP = _momMembers.reduce((s, m) => s + (m.weeklyXP || 0), 0);
+    const _momTarget = Math.max(500, _momMembers.length * 300);
+    const _momPct = Math.min(100, Math.round(_momXP / _momTarget * 100));
+    if (_momPct >= 100 && !_momentumConfettiFired) {
+      _momentumConfettiFired = true;
+      setTimeout(_sFireConfetti, 700);
+    }
+    if (_momPct < 90) _momentumConfettiFired = false;
     view.innerHTML = _renderSocialRoom();
   }
 
@@ -720,10 +816,10 @@
     if (!_socialLobbyCode) _socialLobbyCode = _sGenerateCode();
     const code = _socialLobbyCode;
     return `<div class="social-lobby">
-      <div class="social-lobby-hero"><div class="social-lobby-icon">👥</div><h1 class="social-lobby-title">Study Together</h1><p class="social-lobby-sub">Join a room to see friends live focus, duel for XP, and hit group goals together.</p></div>
+      <div class="social-lobby-hero"><div class="social-lobby-icon">👥</div><h1 class="social-lobby-title">Study Together</h1><p class="social-lobby-sub">Join a room to see friends' live focus, duel for XP, and hit group goals together.</p></div>
       <div class="social-lobby-cards">
-        <div class="card social-lobby-card"><div class="slc-icon">🔗</div><div class="slc-title">Create a Room</div><div class="slc-code">${code}</div><div class="slc-hint">Share this code with friends</div><button class="btn btn-block" data-act="social-create" data-code="${code}">Create &amp; Join</button></div>
-        <div class="card social-lobby-card"><div class="slc-icon">🚪</div><div class="slc-title">Join a Room</div><input id="social-join-input" class="auth-input" style="margin:12px 0 8px;text-align:center;text-transform:uppercase;letter-spacing:4px;font-weight:700;font-size:18px" maxlength="6" placeholder="XXXXXX" autocomplete="off" spellcheck="false"/><button class="btn btn-block" data-act="social-join">Join Room</button></div>
+        <div class="social-lobby-card"><div class="slc-icon">🔗</div><div class="slc-title">Create a Room</div><div class="slc-code">${code}</div><div class="slc-hint">Share this code with friends</div><button class="btn btn-block" data-act="social-create" data-code="${code}">Create &amp; Join</button></div>
+        <div class="social-lobby-card"><div class="slc-icon">🚪</div><div class="slc-title">Join a Room</div><input id="social-join-input" class="auth-input" style="margin:12px 0 8px;text-align:center;text-transform:uppercase;letter-spacing:4px;font-weight:700;font-size:18px" maxlength="6" placeholder="XXXXXX" autocomplete="off" spellcheck="false"/><button class="btn btn-block" data-act="social-join">Join Room</button></div>
       </div>
       <p class="social-lobby-privacy">🔒 Only members of the same room can see your data.</p>
     </div>`;
@@ -737,25 +833,60 @@
       if (a.uid === _userId) return -1; if (b.uid === _userId) return 1;
       return sRank[_sStatusOf(a)] - sRank[_sStatusOf(b)];
     });
+
+    // ── Collective Momentum Bar ──
+    const totalWeeklyXP = members.reduce((s, m) => s + (m.weeklyXP || 0), 0);
+    const momentumTarget = Math.max(500, members.length * 300);
+    const momentumPct = Math.min(100, Math.round(totalWeeklyXP / momentumTarget * 100));
+    const momentumComplete = momentumPct >= 100;
+    const momentumHTML = `<div class="social-momentum">
+      <div class="momentum-top">
+        <div class="momentum-label"><span class="momentum-label-icon">⚡</span>Collective Momentum</div>
+        <span class="momentum-pct">${momentumPct}%</span>
+      </div>
+      <div class="momentum-track"><div class="momentum-fill${momentumComplete ? ' momentum-complete' : ''}" style="width:${momentumPct}%"></div></div>
+      <div class="momentum-sub">${totalWeeklyXP.toLocaleString()} / ${momentumTarget.toLocaleString()} XP this week${momentumComplete ? ' 🎉 Goal smashed!' : ` · ${members.length} member${members.length !== 1 ? 's' : ''}`}</div>
+    </div>`;
+
+    // ── Member Cards (glassmorphism + subject pill + streak flame) ──
     const memberCards = sorted.map(m => {
       const st = _sStatusOf(m);
-      const dot = st === 'focusing' ? '🟢' : st === 'break' ? '🟡' : '⚪';
-      const stTxt = st === 'focusing' ? 'Focusing' : st === 'break' ? 'On Break' : 'Offline';
       const isMe = m.uid === _userId;
       const ini = _sInitials(m.displayName || 'S');
-      let ft = ''; if (st === 'focusing' && m.focusStartedAt) { const e = Math.floor((now - m.focusStartedAt) / 60000); ft = ` · ${e}m`; }
-      const acts = !isMe && st !== 'offline' ? `<div class="sm-actions"><button class="btn btn-sm btn-ghost" data-act="social-nudge" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName || '')}">👋 Poke</button><button class="btn btn-sm" data-act="social-duel" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName || '')}">⚔️ Duel</button></div>` : '';
+      const isFocusing = st === 'focusing';
+      const isOnline = st !== 'offline';
+      let cardClass = 'social-member-card';
+      if (isFocusing) cardClass += ' sm-focusing';
+      else if (isOnline) cardClass += ' sm-online';
+      else cardClass += ' sm-offline';
+      let ft = '';
+      if (isFocusing && m.focusStartedAt) { const e = Math.floor((now - m.focusStartedAt) / 60000); ft = ` · ${e}m`; }
+      const dot = isFocusing ? '🔵' : isOnline ? '🟢' : '⚪';
+      const stTxt = isFocusing ? 'In Focus Session' : isOnline ? 'Online' : 'Offline';
+      const subPill = isFocusing && m.focusSubjectName ? `<div class="sm-subject-pill">${_sSubjectEmoji(m.focusSubjectName)} Studying: ${escapeHTML(m.focusSubjectName)}</div>` : '';
+      const streakN = m.studyStreak || 0;
+      const streakBadge = streakN >= 2 ? `<span class="sm-streak">🔥 ${streakN}d</span>` : '';
+      const ring = isOnline ? `<div class="sm-focus-ring${isFocusing ? ' ring-blue' : ''}"></div>` : '';
+      let acts = '';
+      if (!isMe) {
+        const nudgeBtn = `<button class="btn btn-sm btn-ghost" data-act="social-nudge" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName || '')}">👋 Poke</button>`;
+        const duelBtn = isOnline ? `<button class="btn btn-sm" data-act="social-duel" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName || '')}">⚔️ Duel</button>` : '';
+        acts = `<div class="sm-actions">${nudgeBtn}${duelBtn}</div>`;
+      }
       const youB = isMe ? '<span class="sm-you-badge">You</span>' : '';
-      return `<div class="social-member-card${st === 'offline' ? ' sm-offline' : ''}"><div class="sm-avatar" style="background:${_sAvatarColor(m.uid)}">${ini}</div><div class="sm-info"><div class="sm-name">${escapeHTML(m.displayName || 'Anonymous')}${youB}</div><div class="sm-status">${dot} ${stTxt}${ft}</div><div class="sm-xp">⚡ ${(m.xpTotal || 0).toLocaleString()} XP · 📚 ${minsToHrs(m.weeklyMinutes || 0)} this week</div></div>${acts}</div>`;
-    }).join('') || '<div class="empty">No one else here yet — share the code!</div>';
+      return `<div class="${cardClass}"><div class="sm-ring-wrap">${ring}<div class="sm-avatar" style="background:${_sAvatarColor(m.uid)}">${ini}</div></div><div class="sm-info"><div class="sm-name-row"><span class="sm-name">${escapeHTML(m.displayName || 'Anonymous')}</span>${youB}${streakBadge}</div><div class="sm-status">${dot} ${stTxt}${ft}</div>${subPill}<div class="sm-xp">⚡ ${(m.xpTotal || 0).toLocaleString()} XP · 📚 ${minsToHrs(m.weeklyMinutes || 0)} this week</div></div>${acts}</div>`;
+    }).join('') || '<div class="empty" style="padding:16px">No one here yet — share the code!</div>';
 
+    // ── Leaderboard with streak flames ──
     const lb = [...members].sort((a, b) => (b.weeklyXP || 0) - (a.weeklyXP || 0));
     const lbRows = lb.map((m, i) => {
       const med = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
       const isMe = m.uid === _userId;
-      return `<div class="lb-row${isMe ? ' lb-me' : ''}"><span class="lb-rank">${med}</span><span class="lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName || 'S')}</span><span class="lb-name">${escapeHTML(m.displayName || 'Anonymous')}</span><span class="lb-val">⚡ ${(m.weeklyXP || 0).toLocaleString()} XP</span><span class="lb-val2">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span></div>`;
+      const streak = (m.studyStreak || 0) >= 2 ? `<span class="lb-streak">🔥${m.studyStreak}</span>` : '';
+      return `<div class="lb-row${isMe ? ' lb-me' : ''}"><span class="lb-rank">${med}</span><span class="lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName || 'S')}</span><span class="lb-name">${escapeHTML(m.displayName || 'Anonymous')}${streak}</span><span class="lb-val">⚡ ${(m.weeklyXP || 0).toLocaleString()} XP</span><span class="lb-val2">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span></div>`;
     }).join('') || '<div class="empty" style="padding:8px 0">No data yet</div>';
 
+    // ── Subject Mastery with 3D glowing badges ──
     const subMap = {};
     members.forEach(m => Object.entries(m.subjectMinutes || {}).forEach(([sid, mins]) => {
       if (!subMap[sid]) subMap[sid] = [];
@@ -769,9 +900,11 @@
     })).sort((a, b) => b.total - a.total).slice(0, 3);
     const masteryHTML = subRanked.length ? subRanked.map(sr => {
       const top = sr.top[0];
-      return `<div class="mastery-card" style="border-left-color:${sr.color}"><div class="mc-sub">${escapeHTML(sr.name)}</div><div class="mc-king">👑 ${escapeHTML(top ? top.name || '—' : '—')} <span class="mc-king-h">${minsToHrs(top ? top.mins : 0)}</span></div><div class="mc-members">${sr.top.map(t => `<div class="mc-m"><span class="mc-m-av" style="background:${_sAvatarColor(t.uid)}">${_sInitials(t.name || 'S')}</span><div class="mc-m-bw"><div class="mc-m-bar" style="width:${sr.total ? Math.round(t.mins / sr.top[0].mins * 100) : 0}%;background:${sr.color}"></div></div><span class="mc-m-min">${minsToHrs(t.mins)}</span></div>`).join('')}</div></div>`;
-    }).join('') : '<div class="empty">Complete focus sessions to populate mastery.</div>';
+      const emoji = _sSubjectEmoji(sr.name);
+      return `<div class="mastery-card"><div class="mc-header"><div class="mc-badge" style="background:${sr.color}1a;color:${sr.color};border-color:${sr.color}30">${emoji}</div><div style="flex:1"><div class="mc-sub">${escapeHTML(sr.name)}</div><div class="mc-king">👑 ${escapeHTML(top ? top.name || '—' : '—')} <span class="mc-king-h">${minsToHrs(top ? top.mins : 0)}</span></div></div></div><div class="mc-members">${sr.top.map(t => `<div class="mc-m"><span class="mc-m-av" style="background:${_sAvatarColor(t.uid)}">${_sInitials(t.name || 'S')}</span><div class="mc-m-bw"><div class="mc-m-bar" style="width:${sr.total ? Math.round(t.mins / sr.top[0].mins * 100) : 0}%;background:${sr.color}"></div></div><span class="mc-m-min">${minsToHrs(t.mins)}</span></div>`).join('')}</div></div>`;
+    }).join('') : '<div class="empty" style="padding:0 16px">Complete focus sessions to populate mastery.</div>';
 
+    // ── Active Duels ──
     const activeDuels = ((_socialRoomData && _socialRoomData.duels) || []).filter(d => !d.winner && d.endsAt > now && (d.challenger === _userId || d.opponent === _userId));
     const duelsHTML = activeDuels.map(d => {
       const iAm = d.challenger === _userId;
@@ -786,7 +919,7 @@
       const tl = rem >= 60 ? `${Math.floor(rem / 60)}h ${rem % 60}m` : `${rem}m`;
       const myP = Math.max(myG, oppG) > 0 ? Math.round(myG / Math.max(myG, oppG) * 100) : 50;
       const win = myG >= oppG;
-      return `<div class="duel-card"><div class="duel-header"><span class="duel-title">⚔️ XP Duel</span><span class="duel-time">⏱ ${tl} left</span></div><div class="duel-combatants"><div class="duel-side${win ? ' duel-winning' : ''}"><div class="duel-av" style="background:${_sAvatarColor(_userId)}">${_sInitials(_sDisplayName())}</div><div class="duel-name">You</div><div class="duel-xp">+${myG} XP</div></div><div class="duel-vs">VS</div><div class="duel-side${!win ? ' duel-winning' : ''}"><div class="duel-av" style="background:${_sAvatarColor(oppUid)}">${_sInitials(oppN || 'S')}</div><div class="duel-name">${escapeHTML(oppN || 'Opponent')}</div><div class="duel-xp">+${oppG} XP</div></div></div><div class="duel-bar-wrap"><div class="duel-bar-fill" style="width:${myP}%;background:${win ? '#22c55e' : '#f87171'}"></div></div></div>`;
+      return `<div class="duel-card"><div class="duel-header"><span class="duel-title">⚔️ Focus Duel</span><span class="duel-time">⏱ ${tl} left</span></div><div class="duel-combatants"><div class="duel-side${win ? ' duel-winning' : ''}"><div class="duel-av" style="background:${_sAvatarColor(_userId)}">${_sInitials(_sDisplayName())}</div><div class="duel-name">You</div><div class="duel-xp">+${myG} XP</div></div><div class="duel-vs">VS</div><div class="duel-side${!win ? ' duel-winning' : ''}"><div class="duel-av" style="background:${_sAvatarColor(oppUid)}">${_sInitials(oppN || 'S')}</div><div class="duel-name">${escapeHTML(oppN || 'Opponent')}</div><div class="duel-xp">+${oppG} XP</div></div></div><div class="duel-bar-wrap"><div class="duel-bar-fill" style="width:${myP}%;background:${win ? '#22c55e' : '#f87171'}"></div></div></div>`;
     }).join('');
 
     const pastDuels = ((_socialRoomData && _socialRoomData.duels) || []).filter(d => d.winner && (d.challenger === _userId || d.opponent === _userId)).slice(-3).reverse();
@@ -796,6 +929,24 @@
       return `<div class="past-duel${won ? ' past-duel-won' : ' past-duel-lost'}"><span>${won ? '🏆 Won' : '💀 Lost'}</span><span>vs ${escapeHTML(oN || '?')}</span><span>${won ? 'Victor!' : 'Rematch?'}</span></div>`;
     }).join('');
 
+    // ── Group XP Vault ──
+    const vault = (_socialRoomData && _socialRoomData.groupVault) || null;
+    const myXPTotal = (state.xp && state.xp.total) || 0;
+    let vaultSection = '';
+    if (vault && vault.goal) {
+      const vaultTotal = Object.values(vault.contributions || {}).reduce((a, b) => a + b, 0);
+      const vaultPct = Math.min(100, Math.round(vaultTotal / vault.goal * 100));
+      const myContrib = (vault.contributions || {})[_userId] || 0;
+      const isUnlocked = vaultPct >= 100;
+      vaultSection = `<h2 class="social-section-head">Group XP Vault</h2><div class="social-vault-wrap"><div class="group-vault"><div class="vault-header"><div class="vault-title">🏦 Group XP Vault</div><div class="vault-goal">${vaultTotal.toLocaleString()} / ${vault.goal.toLocaleString()} XP</div></div><div class="vault-bar-track"><div class="vault-bar-fill" style="width:${vaultPct}%"></div></div><div class="vault-stats"><span>My donation: ⚡ ${myContrib.toLocaleString()} XP</span><span class="vault-pct">${vaultPct}%</span></div>${isUnlocked ? '<div class="vault-unlock-msg">🎉 Vault Unlocked! Special theme unlocked for the whole group!</div>' : `<div class="vault-donate-row"><input id="vault-xp-input" class="auth-input vault-input" type="number" min="1" max="${myXPTotal}" placeholder="XP to donate"/><button class="btn btn-sm" data-act="social-vault-donate">Donate ⚡</button></div>`}</div></div>`;
+    } else {
+      const isCreator = _userId === (_socialRoomData && _socialRoomData.createdBy);
+      if (isCreator) {
+        vaultSection = `<h2 class="social-section-head">Group XP Vault</h2><div class="social-vault-wrap"><div class="group-vault"><div class="vault-header"><div class="vault-title">🏦 Group XP Vault</div></div><p style="font-size:13px;color:var(--text-muted);margin:0 0 12px">Pool XP to unlock a special group theme for everyone. Set a goal to begin.</p><div class="vault-donate-row"><input id="vault-goal-input" class="auth-input vault-input" type="number" min="100" placeholder="XP Goal (e.g. 1000)"/><button class="btn btn-sm" data-act="social-vault-create">Create 🏦</button></div></div></div>`;
+      }
+    }
+
+    // ── Group Goals ──
     const goals = (_socialRoomData && _socialRoomData.groupGoals) || [];
     const goalsHTML = goals.map(g => {
       const tot = Object.values(g.contributions || {}).reduce((a, b) => a + b, 0);
@@ -805,21 +956,23 @@
         .map(([u_, m_]) => { const mb = _socialMembers[u_]; const n = mb ? mb.displayName : u_.slice(0, 4); return `<span class="gg-av" title="${escapeHTML(n)}: ${minsToHrs(m_)}" style="background:${_sAvatarColor(u_)}">${_sInitials(n)}</span>`; }).join('');
       const canDel = _userId === (_socialRoomData && _socialRoomData.createdBy);
       return `<div class="group-goal-card${pct >= 100 ? ' gg-complete' : ''}"><div class="gg-header"><span class="gg-title">${pct >= 100 ? '🏆 ' : '🎯 '}${escapeHTML(g.title)}</span>${canDel ? `<button class="gg-del" data-act="social-del-goal" data-gid="${g.id}">×</button>` : ''}</div><div class="gg-bar-row"><div class="gg-bar-track"><div class="gg-bar-fill" style="width:${pct}%"></div></div><span class="gg-pct">${pct}%</span></div><div class="gg-stats"><span>${minsToHrs(tot)} / ${minsToHrs(g.targetMinutes)} · Mine: ${minsToHrs(myC)}</span><div class="gg-contribs">${cs}</div></div></div>`;
-    }).join('') || '<div class="empty">No group goals yet — create one below!</div>';
+    }).join('') || '<div class="empty" style="padding:0 16px">No group goals yet — create one below!</div>';
 
     return `<div class="social-room">
       <div class="social-room-header"><div class="srh-left"><div class="srh-code-wrap"><span class="srh-label">ROOM</span><span class="srh-code">${_socialRoomCode}</span></div><span class="srh-count">${members.length} member${members.length !== 1 ? 's' : ''}</span></div><button class="btn btn-ghost srh-leave" data-act="social-leave">Leave</button></div>
+      ${momentumHTML}
       <h2 class="social-section-head">Live Focus Map</h2>
       <div class="social-members">${memberCards}</div>
-      ${duelsHTML ? `<h2 class="social-section-head">Active Duels</h2><div class="social-duels">${duelsHTML}</div>` : ''}
+      ${duelsHTML ? `<h2 class="social-section-head">Active Duel</h2><div class="social-duels">${duelsHTML}</div>` : ''}
       ${pastHTML ? `<div class="past-duels">${pastHTML}</div>` : ''}
       <h2 class="social-section-head">Weekly Leaderboard</h2>
-      <div class="card social-lb">${lbRows}</div>
+      <div class="social-lb">${lbRows}</div>
       <h2 class="social-section-head">Subject Mastery</h2>
       <div class="social-mastery">${masteryHTML}</div>
+      ${vaultSection}
       <h2 class="social-section-head">Group Challenges</h2>
       <div class="social-goals">${goalsHTML}</div>
-      <div class="card social-add-goal"><div class="sag-title">Create Group Goal</div><input id="gg-title-input" class="auth-input" placeholder="e.g. 50 hours of study this week" maxlength="60" style="margin:8px 0"/><div class="gg-add-row"><input id="gg-hours-input" class="auth-input gg-hours-input" type="number" min="1" max="1000" placeholder="Hours" value="50"/><button class="btn" data-act="social-add-goal">Set Goal</button></div></div>
+      <div class="social-add-goal"><div class="sag-title">Create Group Goal</div><input id="gg-title-input" class="auth-input" placeholder="e.g. 50 hours of study this week" maxlength="60" style="margin:8px 0"/><div class="gg-add-row"><input id="gg-hours-input" class="auth-input gg-hours-input" type="number" min="1" max="1000" placeholder="Hours" value="50"/><button class="btn" data-act="social-add-goal">Set Goal</button></div></div>
     </div>`;
   }
 
@@ -5132,6 +5285,19 @@
       _sAddGroupGoal(t, h).catch(() => {}); return;
     }
     if (act === 'social-del-goal') { _sRemoveGroupGoal(el.dataset.gid).catch(() => {}); return; }
+    if (act === 'social-vault-donate') {
+      const inp = document.getElementById('vault-xp-input');
+      const amt = inp ? parseInt(inp.value, 10) : 0;
+      if (!amt || amt < 1) { toast('Enter a valid XP amount', 'warn'); return; }
+      _sDonateToVault(amt).catch(() => {});
+      return;
+    }
+    if (act === 'social-vault-create') {
+      const inp = document.getElementById('vault-goal-input');
+      const goal = inp ? parseInt(inp.value, 10) : 0;
+      _sCreateVault(goal).catch(() => {});
+      return;
+    }
     if (act === 'focus-toggle') {
       if (focusRunning) {
         // Partial-credit: save elapsed minutes for work sessions stopped early
