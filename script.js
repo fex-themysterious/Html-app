@@ -220,23 +220,21 @@
 
   // ── Firebase / Cloud Sync ────────────────────────────────────────────────
   function _initFirebase() {
-    try {
-      if (typeof firebase === 'undefined') return;
-      if (!firebase.apps || !firebase.apps.length) {
-        firebase.initializeApp({
-          apiKey:            'AIzaSyCRg1W9ueQp80kfDbS-o5VdDZmW7I9AbMQ',
-          authDomain:        'study-hub-app-f3431.firebaseapp.com',
-          projectId:         'study-hub-app-f3431',
-          storageBucket:     'study-hub-app-f3431.firebasestorage.app',
-          messagingSenderId: '18536531099',
-          appId:             '1:18536531099:web:6b691f03283530c927f23e'
-        });
-      }
-      _db   = firebase.firestore();
-      _auth = firebase.auth();
-      _auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
-      _auth.onAuthStateChanged(_handleAuthStateChange);
-    } catch (e) { console.warn('[Firebase] Init failed:', e.message); }
+    if (typeof firebase === 'undefined') return;
+    fetch('/api/config')
+      .then(r => r.json())
+      .then(cfg => {
+        try {
+          if (!firebase.apps || !firebase.apps.length) {
+            firebase.initializeApp(cfg);
+          }
+          _db   = firebase.firestore();
+          _auth = firebase.auth();
+          _auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
+          _auth.onAuthStateChanged(_handleAuthStateChange);
+        } catch (e) { console.warn('[Firebase] Init failed:', e.message); }
+      })
+      .catch(e => console.warn('[Firebase] Config fetch failed:', e.message));
   }
 
   function _setCloudStatus(status) {

@@ -31,6 +31,21 @@ const server = http.createServer((req, res) => {
   }
 
   let urlPath = req.url.split('?')[0];
+
+  if (urlPath === '/api/config') {
+    const config = {
+      apiKey:            process.env.FIREBASE_API_KEY            || '',
+      authDomain:        process.env.FIREBASE_AUTH_DOMAIN        || '',
+      projectId:         process.env.FIREBASE_PROJECT_ID         || '',
+      storageBucket:     process.env.FIREBASE_STORAGE_BUCKET     || '',
+      messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || '',
+      appId:             process.env.FIREBASE_APP_ID             || ''
+    };
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(config));
+    return;
+  }
+
   if (urlPath === '/') urlPath = '/index.html';
 
   const filePath = path.join(__dirname, urlPath);
