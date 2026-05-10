@@ -3480,6 +3480,18 @@
     const bestStreak = state.streak.best || state.streak.count || 0;
     const activeDays30 = (() => { let c = 0; for (let i = 0; i < 30; i++) { const d = new Date(today); d.setDate(d.getDate() - i); if ((state.activity[d.toISOString().slice(0,10)] || 0) > 0) c++; } return c; })();
 
+    // Off-day / missed-day tracking (since install date)
+    const installDate30 = (state.burnout && state.burnout.installDate) || todayKey();
+    const daysSinceInstall = Math.min(30, Math.max(0, daysBetween(installDate30, todayKey())));
+    const missedDays30 = (() => {
+      let c = 0;
+      for (let i = 1; i <= daysSinceInstall; i++) {
+        const d = new Date(today); d.setDate(d.getDate() - i);
+        if ((state.activity[d.toISOString().slice(0, 10)] || 0) === 0) c++;
+      }
+      return c;
+    })();
+
     // Revisions
     const totalRevDone = state.revisions.reduce((a, r) => a + r.schedule.filter(s => s.done).length, 0);
     const totalRevPending = dueRevisionItems().length;
@@ -3522,8 +3534,8 @@
       </div>`;
     }).join('') : `<div class="empty">No subjects yet.</div>`;
 
-    // Study consistency (% of last 30 days active)
-    const consistencyPct = Math.round((activeDays30 / 30) * 100);
+    // Study consistency (% of tracked days active, using installDate as floor)
+    const consistencyPct = daysSinceInstall === 0 ? 0 : Math.min(100, Math.round((activeDays30 / daysSinceInstall) * 100));
     const consistencyLabel = consistencyPct >= 80 ? '🔥 Excellent' : consistencyPct >= 50 ? '👍 Good' : consistencyPct >= 25 ? '📈 Building' : '🌱 Just Starting';
 
     // Topic health breakdown
@@ -3725,10 +3737,11 @@
         </div>
         <div class="hm-info-label" id="hm-info-label">Hover or tap a day to see focus time</div>
         <div class="stats-hm-legend">
-          <span class="hm-lgd-txt">Less</span>
+          <div class="hm-off-legend"><div class="shm-cell lv-off"></div><span>Off Day</span></div>
+          <span class="hm-lgd-txt" style="margin-left:4px">Less</span>
           <div class="shm-cell lv0"></div><div class="shm-cell lv1"></div><div class="shm-cell lv2"></div><div class="shm-cell lv3"></div><div class="shm-cell lv4"></div><div class="shm-cell lv5"></div>
           <span class="hm-lgd-txt">More</span>
-          <div class="hm-lgd-scale"><span>0h</span><span style="color:rgba(167,108,255,.95)">1–3h</span><span style="color:rgba(6,182,212,.95)">3–6h</span><span style="color:#4ade80">6–9h</span><span style="color:#f97316">9–12h</span><span style="color:#ef4444">12h+</span></div>
+          <div class="hm-lgd-scale"><span style="color:rgba(248,113,113,.75)">Off</span><span>0h</span><span style="color:rgba(167,108,255,.95)">1–3h</span><span style="color:rgba(6,182,212,.95)">3–6h</span><span style="color:#4ade80">6–9h</span><span style="color:#f97316">9–12h</span><span style="color:#ef4444">12h+</span></div>
         </div>
       </div>
 
@@ -3736,7 +3749,7 @@
         <div class="stat-tile"><div class="v">${overall}%</div><div class="k">Overall</div></div>
         <div class="stat-tile"><div class="v">${state.streak.count} 🔥</div><div class="k">Streak</div></div>
         <div class="stat-tile"><div class="v">${consistencyPct}%</div><div class="k">Consistency</div></div>
-        <div class="stat-tile"><div class="v">${activeDays30}/30</div><div class="k">Active Days</div></div>
+        <div class="stat-tile"><div class="v">${activeDays30}/${daysSinceInstall || 1}</div><div class="k">Active Days</div></div>
       </div>
 
       <div class="stats-row" style="margin-top:8px">
@@ -3773,12 +3786,12 @@
       <h2 style="margin:16px 0 10px">Study Consistency</h2>
       <div class="card" style="padding:13px 14px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <div><div style="font-size:13px;font-weight:700">Last 30 Days</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px">${consistencyLabel}</div></div>
+          <div><div style="font-size:13px;font-weight:700">${daysSinceInstall <= 1 ? 'Today' : `Last ${daysSinceInstall} Days`}</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px">${consistencyLabel}</div></div>
           <div style="font-size:24px;font-weight:900;color:var(--primary)">${consistencyPct}%</div>
         </div>
         <div class="progress" style="height:8px"><span style="width:${consistencyPct}%"></span></div>
         <div style="display:flex;justify-content:space-between;margin-top:5px;font-size:10px;color:var(--text-muted)">
-          <span>${activeDays30} active days out of 30</span>
+          <span>${activeDays30} active · <span style="color:rgba(248,113,113,.8)">${missedDays30} off-day${missedDays30 !== 1 ? 's' : ''}</span></span>
           <span>Best day: ${bestDay}</span>
         </div>
       </div>
@@ -3856,8 +3869,11 @@
       const isToday  = k === hmKey;
       const min = isFuture ? 0 : (state.focusStats.minutesByDate[k] || 0);
       const hrs = min / 60;
-      // Color tiers: 0 → dark-grey, 0–3h → purple, 3–6h → teal, 6–9h → green, 9–12h → orange, 12h+ → red
+      const _hmInstall = (state.burnout && state.burnout.installDate) || hmKey;
+      const isOffDay = !isFuture && !isToday && min === 0 && k >= _hmInstall;
+      // Color tiers: off-day → crimson, 0 → dark-grey, 0–3h → purple, 3–6h → teal, 6–9h → green, 9–12h → orange, 12h+ → red
       const lvl = isFuture  ? 'future'
+        : isOffDay  ? 'lv-off'
         : min === 0 ? 'lv0'
         : hrs < 3   ? 'lv1'
         : hrs < 6   ? 'lv2'
@@ -3865,11 +3881,12 @@
         : hrs < 12  ? 'lv4'
         : 'lv5';
       const dateStr = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-      const timeStr = isFuture   ? '—'
-        : min === 0  ? 'No focus'
-        : min < 60   ? `${min}m focused`
+      const timeStr = isFuture  ? '—'
+        : isOffDay  ? 'No data recorded · Off-day'
+        : min === 0 ? 'No focus yet today'
+        : min < 60  ? `${min}m focused`
         : `${Math.floor(min / 60)}h${min % 60 ? ' ' + (min % 60) + 'm' : ''} focused`;
-      return { k, min, lvl, isToday, label: `${dateStr}  ·  ${timeStr}` };
+      return { k, min, lvl, isToday, isOffDay, label: `${dateStr}  ·  ${timeStr}` };
     });
 
     // Render cells with data attributes for interaction
