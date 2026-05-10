@@ -1,6 +1,11 @@
 (() => {
   'use strict';
 
+  // ── Cloud sync state ─────────────────────────────────────────────────────
+  let _db             = null;
+  let _userId         = null;
+  let _cloudSyncTimer = null;
+
   const STORAGE_KEY = 'syllabus_tracker_v2';
   const BACKUP_DATE_KEY = 'backup_last_date';
   const todayKey = () => new Date().toISOString().slice(0, 10);
@@ -206,7 +211,90 @@
     try { const r = localStorage.getItem(STORAGE_KEY); return r ? migrate(JSON.parse(r)) : defaultState(); }
     catch (e) { return defaultState(); }
   }
-  function saveState() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {} }
+  function saveState() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+    _scheduledCloudSync();
+  }
+
+  // ── Firebase / Cloud Sync ────────────────────────────────────────────────
+  function _initFirebase() {
+    try {
+      if (typeof firebase === 'undefined') return;
+      if (!firebase.apps || !firebase.apps.length) {
+        firebase.initializeApp({
+          apiKey:            'AIzaSyCRg1W9ueQp80kfDbS-o5VdDZmW7I9AbMQ',
+          authDomain:        'study-hub-app-f3431.firebaseapp.com',
+          projectId:         'study-hub-app-f3431',
+          storageBucket:     'study-hub-app-f3431.firebasestorage.app',
+          messagingSenderId: '18536531099',
+          appId:             '1:18536531099:web:6b691f03283530c927f23e'
+        });
+      }
+      _db = firebase.firestore();
+      _userId = localStorage.getItem('syllabus_uid') || (() => {
+        const id = 'u_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 9);
+        localStorage.setItem('syllabus_uid', id);
+        return id;
+      })();
+      _setCloudStatus('idle');
+    } catch (e) { console.warn('[Firebase] Init failed:', e.message); }
+  }
+
+  function _setCloudStatus(status) {
+    const el = document.getElementById('cloud-sync-icon');
+    if (!el) return;
+    el.className = 'cloud-sync-icon cloud-' + status;
+    const msgs = {
+      idle:    'Cloud sync ready',
+      syncing: 'Saving to cloud\u2026',
+      synced:  'Saved to cloud \u2713',
+      error:   'Sync failed \u2014 working offline'
+    };
+    el.title = msgs[status] || '';
+  }
+
+  function _scheduledCloudSync() {
+    if (!_db || !_userId) return;
+    clearTimeout(_cloudSyncTimer);
+    _setCloudStatus('syncing');
+    _cloudSyncTimer = setTimeout(() => {
+      _db.collection('users').doc(_userId).set({
+        data:       JSON.stringify(state),
+        uid:        _userId,
+        updatedAt:  firebase.firestore.FieldValue.serverTimestamp()
+      }).then(() => {
+        _setCloudStatus('synced');
+        setTimeout(() => _setCloudStatus('idle'), 3000);
+      }).catch(e => {
+        console.warn('[Firestore] Write failed:', e.message);
+        _setCloudStatus('error');
+        setTimeout(() => _setCloudStatus('idle'), 5000);
+      });
+    }, 3000);
+  }
+
+  async function _restoreFromCloud() {
+    if (!_db || !_userId) return;
+    try {
+      _setCloudStatus('syncing');
+      const snap = await _db.collection('users').doc(_userId).get();
+      if (!snap.exists) { _setCloudStatus('idle'); return; }
+      const raw = snap.data().data;
+      if (!raw) { _setCloudStatus('idle'); return; }
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.subjects)) { _setCloudStatus('idle'); return; }
+      state = migrate(JSON.parse(JSON.stringify(parsed)));
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {}
+      renderAll();
+      _setCloudStatus('synced');
+      setTimeout(() => _setCloudStatus('idle'), 3000);
+      toast('\u2601\ufe0f Data restored from cloud!', 'success', 4500);
+    } catch (e) {
+      console.warn('[Firestore] Restore failed:', e.message);
+      _setCloudStatus('error');
+      setTimeout(() => _setCloudStatus('idle'), 5000);
+    }
+  }
 
   // Safe render helper — calls fn(), returns fallback string on any throw
   function _safe(fn, fallback) {
@@ -214,6 +302,7 @@
     try { return fn(); } catch (e) { console.error('[Render error]', e); return fallback; }
   }
 
+  const _hadLocalData = !!localStorage.getItem(STORAGE_KEY);
   let state = loadState();
 
   // ========== Helpers ==========
@@ -4932,6 +5021,8 @@
     startMotivationIntervalLoop();
     setTimeout(maybeAutoShowBurnoutPopup, 2500);
     maybeShowBackupReminder();
+    _initFirebase();
+    if (!_hadLocalData) setTimeout(_restoreFromCloud, 600);
   }
 
   function safeInit() {
