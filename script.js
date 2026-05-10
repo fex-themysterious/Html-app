@@ -37,6 +37,7 @@
 
   function defaultState() {
     return {
+      profile: { name: '', tagline: '' },
       subjects: [
         seedSubject('Mathematics', '#38bdf8', [
           { name: 'Differential Calculus', priority: 'high', topics: ['Limits', 'Derivatives', 'Applications'] },
@@ -92,6 +93,9 @@
       }))
     }));
     s.exams = s.exams || [];
+    if (!s.profile || typeof s.profile !== 'object') s.profile = { name: '', tagline: '' };
+    if (typeof s.profile.name !== 'string') s.profile.name = '';
+    if (typeof s.profile.tagline !== 'string') s.profile.tagline = '';
     const _legacyDefaults = new Set([
       "Small steps every day lead to big results.",
       "Discipline beats motivation.",
@@ -308,7 +312,7 @@
     banner.innerHTML = `
       <div class="brb-icon">🛡️</div>
       <div class="brb-text">
-        <div class="brb-title">Keep your progress safe, Tajwar!</div>
+        <div class="brb-title">Keep your progress safe, ${escapeHTML(state.profile.name || 'friend')}!</div>
         <div class="brb-sub">No backup taken today. Download one to prevent data loss.</div>
       </div>
       <button class="brb-btn" id="brb-download-btn">Download</button>
@@ -1559,7 +1563,7 @@
     const taskPct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
 
     const examCard = exam
-      ? `<article class="bento-card bento-exam${urgent ? ' bento-urgent' : ''}" data-act="add-exam" role="button" tabindex="0">
+      ? `<article class="bento-card bento-exam${urgent ? ' bento-urgent' : ''}" data-act="edit-exam" data-id="${exam.id}" role="button" tabindex="0">
           <div class="bento-eyebrow"><span class="bento-dot bento-dot-cyan"></span>NEXT EXAM</div>
           <div class="bento-big" style="color:${urgent?'#f87171':'#22d3ee'}">${examDays !== null ? examDays : '—'}<span class="bento-unit">d</span></div>
           <div class="bento-name">${escapeHTML(exam.name)}</div>
@@ -1604,7 +1608,16 @@
     const allDone = totalCount > 0 && doneCount === totalCount;
     const achievedBadge = allDone ? `<div class="daily-achieved" role="status">${_justCompletedDay === todayKey() ? renderConfettiBurst() : ''}<span class="da-glyph">🏆</span><div><div class="da-title">Daily Goal Achieved!</div><div class="da-sub">All ${totalCount} task${totalCount === 1 ? '' : 's'} done!</div></div></div>` : '';
     const motivationMsg = getRotatingQuote();
-    view.innerHTML = `<div class="home-profile"><div class="home-profile-avatar">T</div><div class="home-profile-info"><div class="home-profile-name">Tajwar</div><div class="home-profile-sub">CSE'26, BUET</div><div class="xp-row"><span class="xp-level-badge">Lv.${xpLevel()}</span><div class="xp-bar-wrap"><div class="xp-bar-fill" style="width:${(state.xp&&state.xp.total||0)%100}%"></div></div><span class="xp-label">${(state.xp&&state.xp.total||0)%100}/100 XP</span>${(state.focusStreak&&state.focusStreak.count>0)?`<span class="xp-focus-streak">🔥 ${state.focusStreak.count}d</span>`:''}</div></div><span class="home-profile-greeting">${greeting()} 👋</span></div><div class="motivation-line ${overall >= 80 ? 'is-hot' : overall < 20 ? 'is-cold' : ''}">${escapeHTML(motivationMsg)}</div>${renderBentoGrid()}${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${renderTasksList(tasks)}`;
+    const profName    = state.profile.name    || '';
+    const profTagline = state.profile.tagline || '';
+    const profInitial = profName ? profName.trim().charAt(0).toUpperCase() : '?';
+    const nameHtml    = profName
+      ? `<div class="home-profile-name">${escapeHTML(profName)}</div>`
+      : `<div class="home-profile-name home-profile-name--empty" style="opacity:.55;font-style:italic;font-size:14px">Tap to set name</div>`;
+    const taglineHtml = profTagline
+      ? `<div class="home-profile-sub">${escapeHTML(profTagline)}</div>`
+      : '';
+    view.innerHTML = `<div class="home-profile" data-act="open-settings" role="button" tabindex="0" style="cursor:pointer" title="Edit profile"><div class="home-profile-avatar">${profInitial}</div><div class="home-profile-info">${nameHtml}${taglineHtml}<div class="xp-row"><span class="xp-level-badge">Lv.${xpLevel()}</span><div class="xp-bar-wrap"><div class="xp-bar-fill" style="width:${(state.xp&&state.xp.total||0)%100}%"></div></div><span class="xp-label">${(state.xp&&state.xp.total||0)%100}/100 XP</span>${(state.focusStreak&&state.focusStreak.count>0)?`<span class="xp-focus-streak">🔥 ${state.focusStreak.count}d</span>`:''}</div></div><span class="home-profile-greeting">${greeting()} 👋</span></div><div class="motivation-line ${overall >= 80 ? 'is-hot' : overall < 20 ? 'is-cold' : ''}">${escapeHTML(motivationMsg)}</div>${renderBentoGrid()}${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${renderTasksList(tasks)}`;
     if (_justPoppedKey) requestAnimationFrame(() => { _justPoppedKey = null; });
     if (_justCompletedDay) setTimeout(() => { _justCompletedDay = null; }, 1800);
   }
@@ -3687,6 +3700,12 @@
     else if (perm === 'denied')   { permCls = 'err';  permText = 'Notifications are blocked. Enable in browser settings.'; }
     const chips = (which, list) => list.map((t, i) => `<span class="time-chip"><button type="button" class="time-chip-edit" data-act="open-time-picker" data-which="${which}" data-i="${i}">${escapeHTML(formatTime12(t))}</button><button type="button" class="time-chip-del" data-act="del-time-slot" data-which="${which}" data-i="${i}">×</button></span>`).join('');
     openModal(`<h3>Settings</h3>
+      <div class="settings-section" id="profile-settings-section">
+        <h4>👤 Profile</h4>
+        <div class="field"><label>Your Name</label><input id="set-profile-name" placeholder="Enter your name…" maxlength="40" value="${escapeHTML(state.profile.name)}"/></div>
+        <div class="field"><label>Tagline</label><input id="set-profile-tagline" placeholder="e.g. CSE'26, BUET" maxlength="60" value="${escapeHTML(state.profile.tagline)}"/></div>
+        <div style="margin-top:10px"><button class="btn btn-block" data-act="save-profile">Save Profile</button></div>
+      </div>
       <div class="settings-section"><h4>Daily Study Reminder</h4><div class="settings-row"><div class="label">Notify when tasks aren't done<div class="sub">Multiple reminder times supported.</div></div><label class="switch"><input type="checkbox" id="set-sr-toggle" ${sr.enabled ? 'checked' : ''} data-act="toggle-smart-reminder"/><span class="slider"></span></label></div><div class="time-chip-row" style="${sr.enabled ? '' : 'opacity:.55;pointer-events:none'}">${sr.times.length ? chips('reminder', sr.times) : '<span class="muted">No times set.</span>'}<button type="button" class="time-chip add" data-act="open-time-picker" data-which="reminder" data-i="-1">+ Add</button></div></div>
       <div class="settings-section"><h4>Motivation Notifications</h4><div class="settings-row"><div class="label">Motivational push messages<div class="sub">Random quote at each scheduled time.</div></div><label class="switch"><input type="checkbox" id="set-mr-toggle" ${mr.enabled ? 'checked' : ''} data-act="toggle-motivation"/><span class="slider"></span></label></div><div class="time-chip-row" style="${mr.enabled ? '' : 'opacity:.55;pointer-events:none'}">${mr.times.length ? chips('motivation', mr.times) : '<span class="muted">No times set.</span>'}<button type="button" class="time-chip add" data-act="open-time-picker" data-which="motivation" data-i="-1">+ Add</button></div></div>
       <div class="settings-section"><h4>Notifications Status</h4><div class="notif-status ${permCls}">${escapeHTML(permText)}</div>${(perm === 'default' || perm === 'denied') ? `<div style="margin-top:9px"><button class="btn btn-block" data-act="sr-request-perm">${perm === 'denied' ? 'Try requesting again' : 'Allow notifications'}</button></div>` : ''}</div>
@@ -3759,6 +3778,20 @@
 
     if (el.hasAttribute('data-close')) { closeModal(); return; }
     if (act === 'open-settings') { modalSettings(); return; }
+    if (act === 'save-profile') {
+      const root = document.querySelector('#modal-root .modal');
+      if (root) {
+        const name    = (root.querySelector('#set-profile-name')?.value  || '').trim();
+        const tagline = (root.querySelector('#set-profile-tagline')?.value || '').trim();
+        if (!name) { toast('Name is required', 'warn'); return; }
+        state.profile.name    = name;
+        state.profile.tagline = tagline;
+        saveState();
+        renderHome();
+        toast('Profile saved ✓', 'success');
+      }
+      return;
+    }
     if (act === 'fs-toggle-landscape' || act === 'vp-toggle-landscape') { toggleOrientLock(); return; }
 
     if (act === 'open-dashboard') { switchTab('dashboard'); renderDashboard(); return; }
