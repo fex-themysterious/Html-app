@@ -300,6 +300,7 @@
     if (user) {
       _userId = user.uid;
       hideAuthModal();
+      _sSocialInit();
       refreshSettingsIfOpen();
       if (!_db) return;
       _setCloudStatus('syncing');
@@ -430,6 +431,394 @@
       await _auth.signOut();
       toast('Signed out successfully', 'info', 3000);
     } catch (e) { console.warn('[Auth] Sign out error:', e.message); }
+  }
+
+  // ======================================================================
+  // ========== Social Study System =======================================
+  // ======================================================================
+  const SOCIAL_OFFLINE_MS = 3 * 60 * 1000;
+  const SOCIAL_BOUNTY_XP  = 50;
+  let _socialRoomCode      = null;
+  let _socialMembers       = {};
+  let _socialRoomData      = null;
+  let _socialUnsubPresence = null;
+  let _socialUnsubRoom     = null;
+  let _socialHeartbeatId   = null;
+
+  function _sDisplayName() {
+    if (state.profile && state.profile.name) return state.profile.name;
+    const u = _auth && _auth.currentUser;
+    if (u) return u.displayName || (u.email && u.email.split('@')[0]) || 'Studier';
+    return 'Studier';
+  }
+  function _sInitials(name) {
+    const p = (name || 'S').trim().split(/\s+/);
+    return (p.length >= 2 ? p[0][0] + p[1][0] : (name || 'S').slice(0, 2)).toUpperCase();
+  }
+  function _sStatusOf(m) {
+    if (!m || !m.lastSeen) return 'offline';
+    const ms = typeof m.lastSeen === 'number' ? m.lastSeen : (m.lastSeen.toMillis ? m.lastSeen.toMillis() : 0);
+    return (!ms || Date.now() - ms > SOCIAL_OFFLINE_MS) ? 'offline' : (m.status || 'break');
+  }
+  function _sAvatarColor(uid_) {
+    const C = ['#5badff','#a78bfa','#f472b6','#34d399','#fbbf24','#fb7185','#38bdf8','#818cf8'];
+    let h = 0; for (let i = 0; i < (uid_ || '').length; i++) h = ((h << 5) - h + uid_.charCodeAt(i)) | 0;
+    return C[Math.abs(h) % C.length];
+  }
+  function _sWeekStart() {
+    const d = new Date(todayKey() + 'T00:00:00'), dow = d.getDay();
+    d.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
+    return d.toISOString().slice(0, 10);
+  }
+  function _sWeeklyMinutes() {
+    const m = (state.focusStats && state.focusStats.minutesByDate) || {}, s = _sWeekStart();
+    return Object.entries(m).reduce((a, [k, v]) => a + (k >= s ? v : 0), 0);
+  }
+  function _sWeeklyXP() { return Math.round(_sWeeklyMinutes() * 25 / 30); }
+  function _sGenerateCode() {
+    const C = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    return Array.from({ length: 6 }, () => C[Math.floor(Math.random() * C.length)]).join('');
+  }
+
+  async function _sUpdatePresence(status, extra) {
+    if (!_db || !_userId || !_socialRoomCode) return;
+    const u = _auth && _auth.currentUser;
+    try {
+      await _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId).set({
+        uid: _userId, displayName: _sDisplayName(), email: (u && u.email) || '',
+        status, lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
+        xpTotal: (state.xp && state.xp.total) || 0, weeklyXP: _sWeeklyXP(),
+        weeklyMinutes: _sWeeklyMinutes(),
+        subjectMinutes: (state.focusStats && state.focusStats.minutesBySubject) || {},
+        focusStartedAt: status === 'focusing' ? (focusStartTime || Date.now()) : null,
+        ...(extra || {})
+      }, { merge: true });
+    } catch (e) { console.warn('[Social] Presence failed:', e.message); }
+  }
+
+  function _sSubscribe() {
+    if (!_db || !_socialRoomCode) return;
+    if (_socialUnsubPresence) { _socialUnsubPresence(); _socialUnsubPresence = null; }
+    if (_socialUnsubRoom)     { _socialUnsubRoom();     _socialUnsubRoom = null; }
+    _socialUnsubPresence = _db.collection('groups').doc(_socialRoomCode).collection('presence')
+      .onSnapshot(snap => {
+        snap.docChanges().forEach(change => {
+          if (change.type === 'removed') { delete _socialMembers[change.doc.id]; return; }
+          const data = { ...change.doc.data() };
+          if (data.lastSeen && typeof data.lastSeen.toMillis === 'function') data.lastSeen = data.lastSeen.toMillis();
+          _socialMembers[data.uid] = data;
+          if (data.uid !== _userId) return;
+          // Nudge (poke)
+          if (data.nudge && data.nudge.ts && Date.now() - data.nudge.ts < 12000) {
+            toast(`👋 ${escapeHTML(data.nudge.fromName)} is poking you — get back to studying!`, 'warn', 6000);
+            _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId)
+              .update({ nudge: firebase.firestore.FieldValue.delete() }).catch(() => {});
+          }
+          // Focus Bounty
+          if (data.pendingBounty && data.pendingBounty > 0) {
+            const bounty = data.pendingBounty;
+            gamificationManager.addXP(bounty, 'focus_bounty');
+            saveState();
+            toast(`🎁 +${bounty} XP Focus Bounty — a teammate quit early!`, 'success', 5000);
+            _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId)
+              .update({ pendingBounty: firebase.firestore.FieldValue.delete() }).catch(() => {});
+          }
+          // Duel Challenge
+          if (data.pendingDuelChallenge && Date.now() - data.pendingDuelChallenge.ts < 20000) {
+            const ch = { ...data.pendingDuelChallenge };
+            _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId)
+              .update({ pendingDuelChallenge: firebase.firestore.FieldValue.delete() }).catch(() => {});
+            openModal(`<h3>⚔️ XP Duel Challenge!</h3>
+              <p style="color:var(--text-muted);font-size:14px;margin:8px 0 16px">
+                <strong>${escapeHTML(ch.fromName)}</strong> challenges you to a <strong>2-hour XP Duel</strong>!<br>
+                The player who earns the most XP wins the <strong>⚔️ Duel Victor</strong> badge.
+              </p>
+              <div class="actions"><button class="btn btn-ghost" id="duel-decline">Decline</button><button class="btn" id="duel-accept">⚔️ Accept!</button></div>`,
+              root => {
+                root.querySelector('#duel-decline').onclick = () => { closeModal(); toast('Duel declined', 'info'); };
+                root.querySelector('#duel-accept').onclick = async () => {
+                  closeModal();
+                  const duel = {
+                    id: uid(), challenger: ch.fromUid, challengerName: ch.fromName, challengerXPStart: ch.challengerXPStart,
+                    opponent: _userId, opponentName: _sDisplayName(), opponentXPStart: (state.xp && state.xp.total) || 0,
+                    startedAt: Date.now(), endsAt: Date.now() + 2 * 60 * 60 * 1000, winner: null
+                  };
+                  try {
+                    await _db.collection('groups').doc(_socialRoomCode).update({ duels: firebase.firestore.FieldValue.arrayUnion(duel) });
+                    toast('⚔️ Duel started! 2 hours — fight!', 'success', 5000);
+                  } catch (e2) { toast('Failed to start duel', 'danger'); }
+                };
+              });
+          }
+        });
+        if (_currentTab === 'social') renderSocial();
+      }, e => { console.warn('[Social] Presence error:', e.message); });
+    _socialUnsubRoom = _db.collection('groups').doc(_socialRoomCode)
+      .onSnapshot(snap => {
+        _socialRoomData = snap.exists ? snap.data() : null;
+        _sCheckDuelResults();
+        if (_currentTab === 'social') renderSocial();
+      }, e => { console.warn('[Social] Room error:', e.message); });
+    if (_socialHeartbeatId) clearInterval(_socialHeartbeatId);
+    _socialHeartbeatId = setInterval(() => {
+      _sUpdatePresence((focusRunning && focusMode === 'work') ? 'focusing' : 'break');
+    }, 30000);
+  }
+
+  function _sCheckDuelResults() {
+    if (!_socialRoomData || !Array.isArray(_socialRoomData.duels)) return;
+    const now = Date.now();
+    _socialRoomData.duels.forEach(duel => {
+      if (duel.winner || duel.endsAt > now) return;
+      if (duel.challenger !== _userId && duel.opponent !== _userId) return;
+      const iAm = duel.challenger === _userId;
+      const myXPS = iAm ? duel.challengerXPStart : duel.opponentXPStart;
+      const oppUid = iAm ? duel.opponent : duel.challenger;
+      const myG = Math.max(0, ((state.xp && state.xp.total) || 0) - myXPS);
+      const opp = _socialMembers[oppUid];
+      const oppXPS = iAm ? duel.opponentXPStart : duel.challengerXPStart;
+      const oppG = opp ? Math.max(0, (opp.xpTotal || 0) - oppXPS) : 0;
+      const winnerId = myG >= oppG ? _userId : oppUid;
+      const updated = (_socialRoomData.duels || []).map(d => d.id === duel.id ? { ...d, winner: winnerId } : d);
+      _db.collection('groups').doc(_socialRoomCode).update({ duels: updated }).catch(() => {});
+      if (winnerId === _userId) {
+        toast(`🏆 Duel Victor! +${myG} XP vs ${oppG} XP — you won!`, 'success', 7000);
+        if (!state.badges) state.badges = {};
+        if (!state.badges['duel_victor']) {
+          state.badges['duel_victor'] = { unlockedAt: new Date().toISOString() };
+          saveState();
+          achievementToast({ icon: '⚔️', name: 'Duel Victor', desc: 'Won a 2-hour XP Duel against a friend' });
+        }
+      } else {
+        toast(`⚔️ Duel over. They won (+${oppG} vs +${myG} XP). Train harder!`, 'warn', 7000);
+      }
+    });
+  }
+
+  async function _sJoinRoom(code) {
+    if (!_db || !_userId) { toast('Sign in to use Social Study', 'warn'); return false; }
+    code = (code || '').toString().trim().toUpperCase();
+    if (!code || code.length !== 6 || !/^[A-Z0-9]{6}$/.test(code)) { toast('Enter a valid 6-character room code', 'warn'); return false; }
+    try {
+      const ref = _db.collection('groups').doc(code);
+      if (!(await ref.get()).exists) {
+        await ref.set({ roomCode: code, createdBy: _userId, createdAt: firebase.firestore.FieldValue.serverTimestamp(), groupGoals: [], duels: [] });
+      }
+      _socialRoomCode = code;
+      try { localStorage.setItem('social_room_code', code); } catch (e) {}
+      await _sUpdatePresence('break');
+      _sSubscribe();
+      toast(`✅ Joined room ${code}!`, 'success');
+      renderSocial();
+      return true;
+    } catch (e) { console.warn('[Social] Join failed:', e.message); toast('Failed to join room', 'danger'); return false; }
+  }
+
+  function _sLeaveRoom() {
+    if (_socialUnsubPresence) { _socialUnsubPresence(); _socialUnsubPresence = null; }
+    if (_socialUnsubRoom)     { _socialUnsubRoom();     _socialUnsubRoom = null; }
+    if (_socialHeartbeatId)   { clearInterval(_socialHeartbeatId); _socialHeartbeatId = null; }
+    if (_db && _userId && _socialRoomCode) {
+      _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId)
+        .update({ status: 'offline' }).catch(() => {});
+    }
+    _socialRoomCode = null; _socialMembers = {}; _socialRoomData = null;
+    try { localStorage.removeItem('social_room_code'); } catch (e) {}
+    renderSocial(); toast('Left the room', 'info');
+  }
+
+  async function _sNudge(memberUid, memberName) {
+    if (!_db || !_userId || !_socialRoomCode) return;
+    try {
+      await _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(memberUid)
+        .update({ nudge: { from: _userId, fromName: _sDisplayName(), ts: Date.now() } });
+      toast(`👋 Poked ${escapeHTML(memberName)}!`, 'success');
+    } catch (e) { toast('Poke failed', 'danger'); }
+  }
+
+  async function _sChallengeDuel(memberUid, memberName) {
+    if (!_db || !_userId || !_socialRoomCode) return;
+    const existing = (_socialRoomData && _socialRoomData.duels || []).find(d =>
+      !d.winner && d.endsAt > Date.now() &&
+      ((d.challenger === _userId && d.opponent === memberUid) || (d.opponent === _userId && d.challenger === memberUid)));
+    if (existing) { toast('A duel with this person is already active!', 'warn'); return; }
+    try {
+      await _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(memberUid)
+        .update({ pendingDuelChallenge: { fromUid: _userId, fromName: _sDisplayName(), challengerXPStart: (state.xp && state.xp.total) || 0, ts: Date.now() } });
+      toast(`⚔️ Duel challenge sent to ${escapeHTML(memberName)}!`, 'success');
+    } catch (e) { toast('Failed to send challenge', 'danger'); }
+  }
+
+  async function _sHandleFocusBounty() {
+    if (!_db || !_userId || !_socialRoomCode) return;
+    const others = Object.values(_socialMembers).filter(m => m.uid !== _userId && _sStatusOf(m) !== 'offline');
+    const deduct = Math.min(SOCIAL_BOUNTY_XP, Math.max(0, (state.xp && state.xp.total) || 0));
+    if (deduct <= 0) return;
+    state.xp.total = Math.max(0, state.xp.total - deduct);
+    gamificationManager._updateXPBar(); saveState();
+    const n = others.length;
+    toast(`⚠️ Early quit! −${deduct} XP distributed to ${n} teammate${n !== 1 ? 's' : ''}`, 'warn', 5000);
+    if (!n) return;
+    const share = Math.max(1, Math.floor(deduct / n));
+    await Promise.all(others.map(m =>
+      _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(m.uid)
+        .update({ pendingBounty: firebase.firestore.FieldValue.increment(share) }).catch(() => {})));
+  }
+
+  async function _sAddGroupGoal(title, targetHours) {
+    if (!_db || !_socialRoomCode) return;
+    const g = { id: uid(), title, targetMinutes: Math.round(targetHours * 60), contributions: {}, createdAt: Date.now() };
+    try {
+      await _db.collection('groups').doc(_socialRoomCode).update({ groupGoals: firebase.firestore.FieldValue.arrayUnion(g) });
+      toast('Group goal created! 🎯', 'success');
+    } catch (e) { toast('Failed to add goal', 'danger'); }
+  }
+
+  async function _sRemoveGroupGoal(goalId) {
+    if (!_db || !_socialRoomCode || !_socialRoomData) return;
+    try {
+      await _db.collection('groups').doc(_socialRoomCode).update({ groupGoals: (_socialRoomData.groupGoals || []).filter(g => g.id !== goalId) });
+      toast('Goal removed', 'info');
+    } catch (e) { toast('Failed to remove goal', 'danger'); }
+  }
+
+  async function _sContributeToGoals(minutes) {
+    if (!_db || !_userId || !_socialRoomCode || !_socialRoomData || !minutes) return;
+    const goals = _socialRoomData.groupGoals || [];
+    if (!goals.length) return;
+    const updated = goals.map(g => {
+      const tot = Object.values(g.contributions || {}).reduce((a, b) => a + b, 0);
+      if (tot >= g.targetMinutes) return g;
+      return { ...g, contributions: { ...(g.contributions || {}), [_userId]: ((g.contributions || {})[_userId] || 0) + minutes } };
+    });
+    try { await _db.collection('groups').doc(_socialRoomCode).update({ groupGoals: updated }); }
+    catch (e) { console.warn('[Social] Goal contribution failed:', e.message); }
+  }
+
+  async function _sSocialInit() {
+    const saved = (() => { try { return localStorage.getItem('social_room_code'); } catch (e) { return null; } })();
+    if (saved && _db && _userId && !_socialRoomCode) {
+      _socialRoomCode = saved;
+      await _sUpdatePresence('break');
+      _sSubscribe();
+    }
+  }
+
+  function renderSocial() {
+    const view = document.getElementById('view-social');
+    if (!view) return;
+    if (!_userId) {
+      view.innerHTML = `<div class="social-gate"><div class="social-gate-icon">👥</div><h2 class="social-gate-title">Social Study Rooms</h2><p class="social-gate-sub">Sign in to join a room and study with friends, compete in duels, and track group goals.</p><button class="btn" data-act="auth-show-modal">Sign In to Continue</button></div>`;
+      return;
+    }
+    if (!_socialRoomCode) { view.innerHTML = _renderSocialLobby(); return; }
+    view.innerHTML = _renderSocialRoom();
+  }
+
+  function _renderSocialLobby() {
+    const code = _sGenerateCode();
+    return `<div class="social-lobby">
+      <div class="social-lobby-hero"><div class="social-lobby-icon">👥</div><h1 class="social-lobby-title">Study Together</h1><p class="social-lobby-sub">Join a room to see friends live focus, duel for XP, and hit group goals together.</p></div>
+      <div class="social-lobby-cards">
+        <div class="card social-lobby-card"><div class="slc-icon">🔗</div><div class="slc-title">Create a Room</div><div class="slc-code">${code}</div><div class="slc-hint">Share this code with friends</div><button class="btn btn-block" data-act="social-create" data-code="${code}">Create &amp; Join</button></div>
+        <div class="card social-lobby-card"><div class="slc-icon">🚪</div><div class="slc-title">Join a Room</div><input id="social-join-input" class="auth-input" style="margin:12px 0 8px;text-align:center;text-transform:uppercase;letter-spacing:4px;font-weight:700;font-size:18px" maxlength="6" placeholder="XXXXXX" autocomplete="off" spellcheck="false"/><button class="btn btn-block" data-act="social-join">Join Room</button></div>
+      </div>
+      <p class="social-lobby-privacy">🔒 Only members of the same room can see your data.</p>
+    </div>`;
+  }
+
+  function _renderSocialRoom() {
+    const now = Date.now();
+    const members = Object.values(_socialMembers);
+    const sRank = { focusing: 0, break: 1, offline: 2 };
+    const sorted = members.slice().sort((a, b) => {
+      if (a.uid === _userId) return -1; if (b.uid === _userId) return 1;
+      return sRank[_sStatusOf(a)] - sRank[_sStatusOf(b)];
+    });
+    const memberCards = sorted.map(m => {
+      const st = _sStatusOf(m);
+      const dot = st === 'focusing' ? '🟢' : st === 'break' ? '🟡' : '⚪';
+      const stTxt = st === 'focusing' ? 'Focusing' : st === 'break' ? 'On Break' : 'Offline';
+      const isMe = m.uid === _userId;
+      const ini = _sInitials(m.displayName || 'S');
+      let ft = ''; if (st === 'focusing' && m.focusStartedAt) { const e = Math.floor((now - m.focusStartedAt) / 60000); ft = ` · ${e}m`; }
+      const acts = !isMe && st !== 'offline' ? `<div class="sm-actions"><button class="btn btn-sm btn-ghost" data-act="social-nudge" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName || '')}">👋 Poke</button><button class="btn btn-sm" data-act="social-duel" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName || '')}">⚔️ Duel</button></div>` : '';
+      const youB = isMe ? '<span class="sm-you-badge">You</span>' : '';
+      return `<div class="social-member-card${st === 'offline' ? ' sm-offline' : ''}"><div class="sm-avatar" style="background:${_sAvatarColor(m.uid)}">${ini}</div><div class="sm-info"><div class="sm-name">${escapeHTML(m.displayName || 'Anonymous')}${youB}</div><div class="sm-status">${dot} ${stTxt}${ft}</div><div class="sm-xp">⚡ ${(m.xpTotal || 0).toLocaleString()} XP · 📚 ${minsToHrs(m.weeklyMinutes || 0)} this week</div></div>${acts}</div>`;
+    }).join('') || '<div class="empty">No one else here yet — share the code!</div>';
+
+    const lb = [...members].sort((a, b) => (b.weeklyXP || 0) - (a.weeklyXP || 0));
+    const lbRows = lb.map((m, i) => {
+      const med = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
+      const isMe = m.uid === _userId;
+      return `<div class="lb-row${isMe ? ' lb-me' : ''}"><span class="lb-rank">${med}</span><span class="lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName || 'S')}</span><span class="lb-name">${escapeHTML(m.displayName || 'Anonymous')}</span><span class="lb-val">⚡ ${(m.weeklyXP || 0).toLocaleString()} XP</span><span class="lb-val2">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span></div>`;
+    }).join('') || '<div class="empty" style="padding:8px 0">No data yet</div>';
+
+    const subMap = {};
+    members.forEach(m => Object.entries(m.subjectMinutes || {}).forEach(([sid, mins]) => {
+      if (!subMap[sid]) subMap[sid] = [];
+      subMap[sid].push({ uid: m.uid, name: m.displayName, mins });
+    }));
+    const subRanked = Object.entries(subMap).map(([sid, arr]) => ({
+      sid,
+      name: (s => s ? s.name : sid)(state.subjects.find(x => x.id === sid)),
+      color: (s => s ? s.color : '#5badff')(state.subjects.find(x => x.id === sid)),
+      total: arr.reduce((a, b) => a + b.mins, 0), top: arr.slice().sort((a, b) => b.mins - a.mins)
+    })).sort((a, b) => b.total - a.total).slice(0, 3);
+    const masteryHTML = subRanked.length ? subRanked.map(sr => {
+      const top = sr.top[0];
+      return `<div class="mastery-card" style="border-left-color:${sr.color}"><div class="mc-sub">${escapeHTML(sr.name)}</div><div class="mc-king">👑 ${escapeHTML(top ? top.name || '—' : '—')} <span class="mc-king-h">${minsToHrs(top ? top.mins : 0)}</span></div><div class="mc-members">${sr.top.map(t => `<div class="mc-m"><span class="mc-m-av" style="background:${_sAvatarColor(t.uid)}">${_sInitials(t.name || 'S')}</span><div class="mc-m-bw"><div class="mc-m-bar" style="width:${sr.total ? Math.round(t.mins / sr.top[0].mins * 100) : 0}%;background:${sr.color}"></div></div><span class="mc-m-min">${minsToHrs(t.mins)}</span></div>`).join('')}</div></div>`;
+    }).join('') : '<div class="empty">Complete focus sessions to populate mastery.</div>';
+
+    const activeDuels = ((_socialRoomData && _socialRoomData.duels) || []).filter(d => !d.winner && d.endsAt > now && (d.challenger === _userId || d.opponent === _userId));
+    const duelsHTML = activeDuels.map(d => {
+      const iAm = d.challenger === _userId;
+      const myXPS = iAm ? d.challengerXPStart : d.opponentXPStart;
+      const myG = Math.max(0, ((state.xp && state.xp.total) || 0) - myXPS);
+      const oppUid = iAm ? d.opponent : d.challenger;
+      const oppN = iAm ? d.opponentName : d.challengerName;
+      const opp = _socialMembers[oppUid];
+      const oppXPS = iAm ? d.opponentXPStart : d.challengerXPStart;
+      const oppG = opp ? Math.max(0, (opp.xpTotal || 0) - oppXPS) : 0;
+      const rem = Math.max(0, Math.ceil((d.endsAt - now) / 60000));
+      const tl = rem >= 60 ? `${Math.floor(rem / 60)}h ${rem % 60}m` : `${rem}m`;
+      const myP = Math.max(myG, oppG) > 0 ? Math.round(myG / Math.max(myG, oppG) * 100) : 50;
+      const win = myG >= oppG;
+      return `<div class="duel-card"><div class="duel-header"><span class="duel-title">⚔️ XP Duel</span><span class="duel-time">⏱ ${tl} left</span></div><div class="duel-combatants"><div class="duel-side${win ? ' duel-winning' : ''}"><div class="duel-av" style="background:${_sAvatarColor(_userId)}">${_sInitials(_sDisplayName())}</div><div class="duel-name">You</div><div class="duel-xp">+${myG} XP</div></div><div class="duel-vs">VS</div><div class="duel-side${!win ? ' duel-winning' : ''}"><div class="duel-av" style="background:${_sAvatarColor(oppUid)}">${_sInitials(oppN || 'S')}</div><div class="duel-name">${escapeHTML(oppN || 'Opponent')}</div><div class="duel-xp">+${oppG} XP</div></div></div><div class="duel-bar-wrap"><div class="duel-bar-fill" style="width:${myP}%;background:${win ? '#22c55e' : '#f87171'}"></div></div></div>`;
+    }).join('');
+
+    const pastDuels = ((_socialRoomData && _socialRoomData.duels) || []).filter(d => d.winner && (d.challenger === _userId || d.opponent === _userId)).slice(-3).reverse();
+    const pastHTML = pastDuels.map(d => {
+      const won = d.winner === _userId;
+      const oN = d.challenger === _userId ? d.opponentName : d.challengerName;
+      return `<div class="past-duel${won ? ' past-duel-won' : ' past-duel-lost'}"><span>${won ? '🏆 Won' : '💀 Lost'}</span><span>vs ${escapeHTML(oN || '?')}</span><span>${won ? 'Victor!' : 'Rematch?'}</span></div>`;
+    }).join('');
+
+    const goals = (_socialRoomData && _socialRoomData.groupGoals) || [];
+    const goalsHTML = goals.map(g => {
+      const tot = Object.values(g.contributions || {}).reduce((a, b) => a + b, 0);
+      const pct = Math.min(100, Math.round(tot / g.targetMinutes * 100));
+      const myC = (g.contributions || {})[_userId] || 0;
+      const cs = Object.entries(g.contributions || {}).sort(([, a], [, b]) => b - a)
+        .map(([u_, m_]) => { const mb = _socialMembers[u_]; const n = mb ? mb.displayName : u_.slice(0, 4); return `<span class="gg-av" title="${escapeHTML(n)}: ${minsToHrs(m_)}" style="background:${_sAvatarColor(u_)}">${_sInitials(n)}</span>`; }).join('');
+      const canDel = _userId === (_socialRoomData && _socialRoomData.createdBy);
+      return `<div class="group-goal-card${pct >= 100 ? ' gg-complete' : ''}"><div class="gg-header"><span class="gg-title">${pct >= 100 ? '🏆 ' : '🎯 '}${escapeHTML(g.title)}</span>${canDel ? `<button class="gg-del" data-act="social-del-goal" data-gid="${g.id}">×</button>` : ''}</div><div class="gg-bar-row"><div class="gg-bar-track"><div class="gg-bar-fill" style="width:${pct}%"></div></div><span class="gg-pct">${pct}%</span></div><div class="gg-stats"><span>${minsToHrs(tot)} / ${minsToHrs(g.targetMinutes)} · Mine: ${minsToHrs(myC)}</span><div class="gg-contribs">${cs}</div></div></div>`;
+    }).join('') || '<div class="empty">No group goals yet — create one below!</div>';
+
+    return `<div class="social-room">
+      <div class="social-room-header"><div class="srh-left"><div class="srh-code-wrap"><span class="srh-label">ROOM</span><span class="srh-code">${_socialRoomCode}</span></div><span class="srh-count">${members.length} member${members.length !== 1 ? 's' : ''}</span></div><button class="btn btn-ghost srh-leave" data-act="social-leave">Leave</button></div>
+      <h2 class="social-section-head">Live Focus Map</h2>
+      <div class="social-members">${memberCards}</div>
+      ${duelsHTML ? `<h2 class="social-section-head">Active Duels</h2><div class="social-duels">${duelsHTML}</div>` : ''}
+      ${pastHTML ? `<div class="past-duels">${pastHTML}</div>` : ''}
+      <h2 class="social-section-head">Weekly Leaderboard</h2>
+      <div class="card social-lb">${lbRows}</div>
+      <h2 class="social-section-head">Subject Mastery</h2>
+      <div class="social-mastery">${masteryHTML}</div>
+      <h2 class="social-section-head">Group Challenges</h2>
+      <div class="social-goals">${goalsHTML}</div>
+      <div class="card social-add-goal"><div class="sag-title">Create Group Goal</div><input id="gg-title-input" class="auth-input" placeholder="e.g. 50 hours of study this week" maxlength="60" style="margin:8px 0"/><div class="gg-add-row"><input id="gg-hours-input" class="auth-input gg-hours-input" type="number" min="1" max="1000" placeholder="Hours" value="50"/><button class="btn" data-act="social-add-goal">Set Goal</button></div></div>
+    </div>`;
   }
 
   // Safe render helper — calls fn(), returns fallback string on any throw
@@ -646,6 +1035,7 @@
     { id: 'century_club',     icon: '💯', name: 'Century Club',     desc: 'Reach 100 total study hours' },
     { id: 'week_warrior',     icon: '⚔️', name: 'Week Warrior',     desc: '7 focus sessions in one week' },
     { id: 'topic_master',     icon: '📚', name: 'Topic Master',     desc: 'Complete 10 or more topics' },
+    { id: 'duel_victor',      icon: '⚔️', name: 'Duel Victor',      desc: 'Won a 2-hour XP Duel against a friend' },
   ];
 
   function achievementToast(badge) {
@@ -2000,6 +2390,7 @@
     else if (tab === 'syllabus')  renderSyllabus();
     else if (tab === 'revision')  renderRevision();
     else if (tab === 'stats')     renderStats();
+    else if (tab === 'social')    renderSocial();
     // 'focus' is handled separately by renderFocus()
   }
   function renderAll() {
@@ -2811,6 +3202,8 @@
       state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + elapsedMin;
       _recordSubjectMinutes(elapsedMin);
       awardXP(elapsedMin, todayStr);
+      _sUpdatePresence('break').catch(() => {});
+      _sContributeToGoals(elapsedMin).catch(() => {});
       bumpActivity(); saveState();
       checkBadges({ sessionMinutes: elapsedMin });
       // Only re-render Stats if it is currently the active tab; otherwise it will render fresh on next visit
@@ -4723,6 +5116,20 @@
       else { if (confirm('Stop current timer and switch mode?')) { clearInterval(focusTimer); focusTimer = null; focusRunning = false; focusStartTime = null; focusStartSeconds = null; focusMode = newMode; focusSeconds = customDurations[newMode] * 60; renderFocus(); document.title = 'Syllabus Tracker'; updateMiniTimer(); } }
       return;
     }
+    // ── Social Study System ──────────────────────────────────────────────
+    if (act === 'social-create') { _sJoinRoom(el.dataset.code).catch(() => {}); return; }
+    if (act === 'social-join')   { const inp = document.getElementById('social-join-input'); _sJoinRoom(inp ? inp.value.trim().toUpperCase() : '').catch(() => {}); return; }
+    if (act === 'social-leave')  { _sLeaveRoom(); return; }
+    if (act === 'social-nudge')  { _sNudge(el.dataset.uid, el.dataset.name).catch(() => {}); return; }
+    if (act === 'social-duel')   { _sChallengeDuel(el.dataset.uid, el.dataset.name).catch(() => {}); return; }
+    if (act === 'social-add-goal') {
+      const t = (document.getElementById('gg-title-input')?.value || '').trim();
+      const h = parseFloat(document.getElementById('gg-hours-input')?.value || '0');
+      if (!t) { toast('Enter a goal title', 'warn'); return; }
+      if (!h || h < 1) { toast('Enter target hours (min 1)', 'warn'); return; }
+      _sAddGroupGoal(t, h).catch(() => {}); return;
+    }
+    if (act === 'social-del-goal') { _sRemoveGroupGoal(el.dataset.gid).catch(() => {}); return; }
     if (act === 'focus-toggle') {
       if (focusRunning) {
         // Partial-credit: save elapsed minutes for work sessions stopped early
@@ -4735,6 +5142,8 @@
             saveState();
           }
         }
+        if (_socialRoomCode && focusMode === 'work' && focusSeconds > 0) _sHandleFocusBounty().catch(() => {});
+        if (_socialRoomCode) _sUpdatePresence('break').catch(() => {});
         clearInterval(focusTimer); focusTimer = null; focusRunning = false;
         focusStartTime = null; focusStartSeconds = null;
         updateMiniTimer();
@@ -4758,6 +5167,7 @@
         focusStartTime = Date.now();
         focusStartSeconds = focusSeconds;
         focusTimer = setInterval(focusTick, 1000);
+        if (_socialRoomCode) _sUpdatePresence('focusing').catch(() => {});
         resumeAmbientIfNeeded();
       }
       renderFocus(); return;
@@ -4786,6 +5196,8 @@
             saveState();
           }
         }
+        if (_socialRoomCode && focusMode === 'work' && focusSeconds > 0) _sHandleFocusBounty().catch(() => {});
+        if (_socialRoomCode) _sUpdatePresence('break').catch(() => {});
         clearInterval(focusTimer); focusTimer = null; focusRunning = false;
         focusStartTime = null; focusStartSeconds = null;
       } else if (focusOvertime) {
@@ -4807,6 +5219,7 @@
         focusStartTime = Date.now();
         focusStartSeconds = focusSeconds;
         focusTimer = setInterval(focusTick, 1000);
+        if (_socialRoomCode) _sUpdatePresence('focusing').catch(() => {});
         resumeAmbientIfNeeded();
       }
       renderFullSession(); return;
@@ -5084,6 +5497,10 @@
       if (fsSessionActive) { exitFullSession(); stopAmbient(); ambientMode = 'none'; }
       else closeModal();
     }
+    if (e.key === 'Enter' && e.target && e.target.id === 'social-join-input') {
+      e.preventDefault();
+      _sJoinRoom(e.target.value.trim().toUpperCase()).catch(() => {});
+    }
     if (e.key === 'Enter' && e.target && e.target.id === 'cls-url-input') {
       e.preventDefault();
       const url = e.target.value.trim();
@@ -5185,6 +5602,7 @@
     setTimeout(maybeAutoShowBurnoutPopup, 2500);
     maybeShowBackupReminder();
     _initFirebase();
+    setTimeout(_sSocialInit, 3000); // resume social room after Firebase auth resolves
     // Enter key submits auth form
     document.getElementById('auth-overlay')?.addEventListener('keydown', e => {
       if (e.key === 'Enter') { e.preventDefault(); _authSubmit(); }

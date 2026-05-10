@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="./style.css?v=52"/>
+  <link rel="stylesheet" href="./style.css?v=53"/>
   <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
@@ -35,6 +35,7 @@
     <main id="view-focus"     class="view"></main>
     <main id="view-revision"  class="view"></main>
     <main id="view-stats"     class="view"></main>
+    <main id="view-social"    class="view"></main>
 
     <nav class="bottom-nav" role="tablist" aria-label="Main navigation">
       <button class="nav-btn active" data-tab="home" role="tab" aria-label="Home">
@@ -60,6 +61,10 @@
       <button class="nav-btn" data-tab="stats" role="tab" aria-label="Stats">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
         <span>Stats</span>
+      </button>
+      <button class="nav-btn" data-tab="social" role="tab" aria-label="Social">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span>Social</span>
       </button>
     </nav>
 
@@ -98,7 +103,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-  <script src="./script.js?v=58"></script>
+  <script src="./script.js?v=59"></script>
   <script>
     /* ── Service Worker ── */
     if ('serviceWorker' in navigator) {
