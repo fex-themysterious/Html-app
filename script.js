@@ -64,6 +64,7 @@
       goals: [],
       classroom: { groups: [] },
       focusStats: { sessions: {}, minutesByDate: {} },
+      rankTestHours: 0,
       recurringTasks: [],
       alarms: [],
       xp: { total: 0 },
@@ -149,6 +150,7 @@
     if (!s.focusStreak.best) s.focusStreak.best = s.focusStreak.count || 0;
     if (!s.focusStats.videoMinutes || typeof s.focusStats.videoMinutes !== 'object') s.focusStats.videoMinutes = {};
     if (typeof s.eyeCareMode !== 'boolean') s.eyeCareMode = false;
+    if (typeof s.rankTestHours !== 'number' || isNaN(s.rankTestHours)) s.rankTestHours = 0;
     if (!s.classroom || typeof s.classroom !== 'object') s.classroom = { groups: [] };
     if (!Array.isArray(s.classroom.groups)) s.classroom.groups = [];
     s.classroom.groups = s.classroom.groups.map(g => ({
@@ -3221,6 +3223,51 @@
     view.innerHTML = `<div class="page-header"><h1>Revision</h1><div class="subtitle">Spaced repetition schedule</div></div><div class="section-head"><h2>Due Today${dueItems.length ? ` (${dueItems.length})` : ''}</h2></div>${!dueItems.length ? `<div class="empty">No revisions due — great work!</div>` : `<div class="list">${dueItems.map(item => `<div class="card card-row revision-item is-overdue"><span class="color-dot" style="background:${item.sub ? item.sub.color : 'var(--primary)'}"></span><div style="flex:1;min-width:0"><div class="title">${escapeHTML(item.topic ? item.topic.name : '?')}</div><div class="meta">${escapeHTML(item.sub ? item.sub.name : '')} · ${escapeHTML(item.ch ? item.ch.name : '')}</div><div style="margin-top:4px">${item.daysOverdue > 0 ? `<span class="pill pill-overdue">${item.daysOverdue}d overdue</span>` : `<span class="pill pill-today">Due today</span>`}</div></div><div style="display:flex;gap:6px"><button class="btn btn-sm" data-act="rev-done" data-rev="${item.revisionId}" data-off="${item.step.offset}">${ic('check')}</button><button class="menu-btn" data-act="rev-dismiss" data-rev="${item.revisionId}">${ic('trash')}</button></div></div>`).join('')}</div>`}<div class="section-head"><h2>Upcoming</h2></div>${!upcoming.length ? `<div class="empty">No upcoming revisions scheduled.</div>` : `<div class="list">${upcoming.map(item => `<div class="card card-row revision-item upcoming"><span class="color-dot" style="background:${item.sub ? item.sub.color : 'var(--primary)'}"></span><div style="flex:1;min-width:0"><div class="title">${escapeHTML(item.topic ? item.topic.name : '?')}</div><div class="meta">${escapeHTML(item.sub ? item.sub.name : '')} · ${escapeHTML(item.ch ? item.ch.name : '')}</div><div style="margin-top:4px"><span class="pill pill-upcoming">In ${item.daysUntil}d · ${formatDate(item.step.dueDate)}</span></div></div></div>`).join('')}</div>`}`;
   }
 
+  // ========== Rank System ==========
+  const RANK_TIERS = [
+    { label: 'Seeker',      icon: '🌱', color: '#94a3b8', glow: 'rgba(148,163,184,0.45)', minHrs: 0,    maxHrs: 5,    group: 'Novice'  },
+    { label: 'Apprentice',  icon: '📖', color: '#6ee7b7', glow: 'rgba(110,231,183,0.45)', minHrs: 5,    maxHrs: 15,   group: 'Novice'  },
+    { label: 'Disciple',    icon: '🕯️', color: '#67e8f9', glow: 'rgba(103,232,249,0.45)', minHrs: 15,   maxHrs: 30,   group: 'Novice'  },
+    { label: 'Scholar',     icon: '🎓', color: '#93c5fd', glow: 'rgba(147,197,253,0.45)', minHrs: 30,   maxHrs: 50,   group: 'Adept'   },
+    { label: 'Tactician',   icon: '♟️', color: '#818cf8', glow: 'rgba(129,140,248,0.5)',  minHrs: 50,   maxHrs: 75,   group: 'Adept'   },
+    { label: 'Sage',        icon: '🔮', color: '#c084fc', glow: 'rgba(192,132,252,0.5)',  minHrs: 75,   maxHrs: 100,  group: 'Adept'   },
+    { label: 'Catalyst',    icon: '⚡', color: '#e879f9', glow: 'rgba(232,121,249,0.55)', minHrs: 100,  maxHrs: 150,  group: 'Elite'   },
+    { label: 'Visionary',   icon: '🌙', color: '#f9a8d4', glow: 'rgba(249,168,212,0.55)', minHrs: 150,  maxHrs: 200,  group: 'Elite'   },
+    { label: 'Artisan',     icon: '🛠️', color: '#fde68a', glow: 'rgba(253,230,138,0.55)', minHrs: 200,  maxHrs: 250,  group: 'Elite'   },
+    { label: 'Grandmaster', icon: '👑', color: '#fbbf24', glow: 'rgba(251,191,36,0.6)',   minHrs: 250,  maxHrs: 350,  group: 'Master'  },
+    { label: 'Sovereign',   icon: '🏛️', color: '#f97316', glow: 'rgba(249,115,22,0.6)',   minHrs: 350,  maxHrs: 500,  group: 'Master'  },
+    { label: 'Ascendant',   icon: '🌟', color: '#f87171', glow: 'rgba(248,113,113,0.6)',  minHrs: 500,  maxHrs: 750,  group: 'Master'  },
+    { label: 'Paragon',     icon: '💎', color: '#60a5fa', glow: 'rgba(96,165,250,0.65)',  minHrs: 750,  maxHrs: 1000, group: 'Legend'  },
+    { label: 'Immortal',    icon: '🔱', color: '#a78bfa', glow: 'rgba(167,139,250,0.65)', minHrs: 1000, maxHrs: 1500, group: 'Legend'  },
+    { label: 'Eternal',     icon: '♾️', color: '#f0f6ff', glow: 'rgba(240,246,255,0.75)', minHrs: 1500, maxHrs: null, group: 'Legend'  },
+  ];
+
+  function calculateRank(totalHours) {
+    let tierIdx = 0;
+    for (let i = RANK_TIERS.length - 1; i >= 0; i--) {
+      if (totalHours >= RANK_TIERS[i].minHrs) { tierIdx = i; break; }
+    }
+    const tier = RANK_TIERS[tierIdx];
+    const next = RANK_TIERS[tierIdx + 1] || null;
+    const span = next ? (next.minHrs - tier.minHrs) : 1;
+    const pct  = next ? Math.min(100, Math.round(((totalHours - tier.minHrs) / span) * 100)) : 100;
+    const hrsToNext = next ? Math.max(0, Math.ceil(next.minHrs - totalHours)) : 0;
+    return { ...tier, tierIndex: tierIdx, next, pct, hrsToNext };
+  }
+
+  let _lastRankIdx = -1;
+
+  function initRankTestButtons() {
+    document.querySelectorAll('[data-act="rank-add-hours"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.rankTestHours = (state.rankTestHours || 0) + (parseInt(btn.dataset.hours) || 1);
+        saveState(); renderStats();
+      });
+    });
+    const rst = document.querySelector('[data-act="rank-reset-test"]');
+    if (rst) rst.addEventListener('click', () => { state.rankTestHours = 0; saveState(); renderStats(); });
+  }
+
   // ========== Stats (Enhanced A-Z Analysis) ==========
   function renderStats() {
     const view = document.getElementById('view-stats'); if (!view) return;
@@ -3392,9 +3439,8 @@
 
     // ── Premium stats extra computations ─────────────────────────
     const totalFocusHours = totalFocusMin / 60;
-    const rank = totalFocusHours >= 20 ? { label: 'Flight Commander', icon: '🚀', color: '#a78bfa' }
-      : totalFocusHours >= 5  ? { label: 'Pilot',   icon: '👨‍✈️', color: '#38bdf8' }
-      : { label: 'Rookie', icon: '🌱', color: '#94a3b8' };
+    const testHrs = state.rankTestHours || 0;
+    const rank = calculateRank(totalFocusHours + testHrs);
     const focusDisplay = totalFocusMin >= 60
       ? `${Math.floor(totalFocusMin / 60)}h${totalFocusMin % 60 ? ' ' + (totalFocusMin % 60) + 'm' : ''}`
       : `${totalFocusMin}m`;
@@ -3423,11 +3469,43 @@
           <div class="sgc-value">${totalFocusSessions}</div>
           <div class="sgc-label">Pomodoros</div>
         </div>
-        <div class="stats-glass-card" style="border-color:${rank.color}44">
-          <div class="sgc-icon">${rank.icon}</div>
+        <div class="stats-glass-card sgc-rank-card" style="border-color:${rank.color}44">
+          <div class="sgc-icon" style="filter:drop-shadow(0 0 7px ${rank.glow})">${rank.icon}</div>
           <div class="sgc-value sgc-rank" style="color:${rank.color}">${rank.label}</div>
-          <div class="sgc-label">Your Rank</div>
+          <div class="sgc-label">${rank.group} Tier</div>
         </div>
+      </div>
+
+      <div class="rank-showcase" id="rank-showcase" style="--rc:${rank.color};--rg:${rank.glow}">
+        <div class="rs-left">
+          <div class="rs-badge" id="rs-badge">${rank.icon}</div>
+          <div class="rs-group-pill" style="background:${rank.color}22;color:${rank.color}">${rank.group}</div>
+        </div>
+        <div class="rs-body">
+          <div class="rs-name-row">
+            <span class="rs-name" style="color:${rank.color}">${rank.label}</span>
+            <span class="rs-tier-idx" style="color:${rank.color}99">#${rank.tierIndex + 1}&thinsp;/&thinsp;${RANK_TIERS.length}</span>
+          </div>
+          <div class="rs-next">${rank.next
+            ? `${rank.hrsToNext}h more unlocks ${rank.next.icon} <strong style="color:${rank.next.color}">${rank.next.label}</strong>`
+            : `<span style="color:${rank.color}">✦ Maximum rank achieved — you are Eternal ✦</span>`
+          }</div>
+          <div class="rs-bar-track">
+            <div class="rs-bar-fill" style="width:${rank.pct}%;background:linear-gradient(90deg,${rank.color}88,${rank.color})"></div>
+          </div>
+          <div class="rs-bar-labels">
+            <span>${rank.minHrs}h</span>
+            <span style="color:${rank.color};font-weight:700">${rank.pct}%</span>
+            ${rank.next ? `<span>${rank.next.minHrs}h</span>` : ''}
+          </div>
+        </div>
+      </div>
+      <div class="rank-test-row">
+        <span class="rtb-label">🧪 Test Rank</span>
+        ${testHrs > 0 ? `<span class="rtb-added">+${testHrs}h added</span>` : ''}
+        <button class="rtb-btn" data-act="rank-add-hours" data-hours="1">+1h</button>
+        <button class="rtb-btn" data-act="rank-add-hours" data-hours="10">+10h</button>
+        <button class="rtb-btn rtb-reset" data-act="rank-reset-test"${testHrs === 0 ? ' disabled' : ''}>Reset</button>
       </div>
 
       <div class="stats-chart-pair">
@@ -3561,6 +3639,16 @@
 
     initStatsCharts(days7, pieSubjects, days7);
     generateHeatmap();
+    initRankTestButtons();
+
+    // Rank-up glow: animate badge when rank tier increases
+    if (rank.tierIndex > _lastRankIdx && _lastRankIdx >= 0) {
+      const badge = document.getElementById('rs-badge');
+      const card  = document.getElementById('rank-showcase');
+      if (badge) { badge.classList.remove('rankup-pop'); void badge.offsetWidth; badge.classList.add('rankup-pop'); }
+      if (card)  { card.classList.remove('rankup-glow');  void card.offsetWidth;  card.classList.add('rankup-glow');  }
+    }
+    _lastRankIdx = rank.tierIndex;
   }
 
   // ========== Focus Heatmap ==========

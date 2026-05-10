@@ -478,7 +478,7 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
    ================================================================ */
 
 /* ── Glass Metric Cards ──────────────────────────────────────── */
-.stats-glass-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 4px; }
+.stats-glass-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
 .stats-glass-card {
   background: linear-gradient(145deg, rgba(255,255,255,0.055), rgba(255,255,255,0.018));
   border: 1px solid rgba(77,168,255,0.22);
@@ -516,6 +516,98 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .stats-chart-wrap { position: relative; height: 170px; }
 .stats-pie-wrap { position: relative; height: 280px; }
 .stats-empty-chart { text-align: center; color: var(--text-muted); font-size: 13px; padding: 22px 0; font-style: italic; }
+
+/* ── Rank Showcase Card ──────────────────────────────────────── */
+.rank-showcase {
+  display: flex; gap: 16px; align-items: center;
+  background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%);
+  border: 1px solid color-mix(in srgb, var(--rc) 35%, transparent);
+  border-radius: 20px; padding: 18px 20px;
+  margin-bottom: 10px; position: relative; overflow: hidden;
+  transition: border-color 0.4s, box-shadow 0.4s;
+  box-shadow: 0 0 0 transparent;
+}
+.rank-showcase::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(60% 80% at 0% 50%, color-mix(in srgb, var(--rc) 12%, transparent) 0%, transparent 100%);
+  pointer-events: none;
+}
+.rank-showcase.rankup-glow {
+  animation: rankup-card-glow 1.6s ease forwards;
+}
+/* Left: badge */
+.rs-left { display: flex; flex-direction: column; align-items: center; gap: 7px; flex-shrink: 0; }
+.rs-badge {
+  font-size: 42px; line-height: 1; display: flex; align-items: center; justify-content: center;
+  width: 68px; height: 68px; border-radius: 50%;
+  background: color-mix(in srgb, var(--rc) 15%, transparent);
+  border: 2px solid color-mix(in srgb, var(--rc) 40%, transparent);
+  box-shadow: 0 0 18px var(--rg), inset 0 1px 0 rgba(255,255,255,0.15);
+  transition: box-shadow 0.4s;
+}
+.rs-badge.rankup-pop { animation: rankup-badge-pop 0.7s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+.rs-group-pill {
+  font-size: 9px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.12em; padding: 3px 9px; border-radius: 99px;
+  border: 1px solid currentColor; opacity: 0.9;
+}
+/* Right: info */
+.rs-body { flex: 1; min-width: 0; }
+.rs-name-row { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+.rs-name { font-size: clamp(20px, 5vw, 28px); font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
+.rs-tier-idx { font-size: 10px; font-weight: 700; letter-spacing: 0.05em; }
+.rs-next { font-size: 11.5px; color: var(--text-muted); margin-bottom: 10px; line-height: 1.4; }
+.rs-bar-track {
+  height: 7px; background: rgba(255,255,255,0.08); border-radius: 99px;
+  overflow: hidden; margin-bottom: 5px;
+}
+.rs-bar-fill {
+  height: 100%; border-radius: 99px;
+  transition: width 0.6s cubic-bezier(0.4,0,0.2,1);
+  box-shadow: 0 0 8px var(--rc);
+}
+.rs-bar-labels {
+  display: flex; justify-content: space-between;
+  font-size: 9px; color: var(--text-muted); font-weight: 700; letter-spacing: 0.04em;
+}
+
+/* ── Rank Test Row ───────────────────────────────────────────── */
+.rank-test-row {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  padding: 8px 14px; margin-bottom: 18px;
+  background: rgba(255,255,255,0.03);
+  border: 1px dashed rgba(255,255,255,0.10);
+  border-radius: 12px;
+}
+.rtb-label { font-size: 11px; font-weight: 700; color: var(--text-muted); flex-shrink: 0; }
+.rtb-added {
+  font-size: 10px; font-weight: 800; color: #4ade80;
+  background: rgba(74,222,128,0.12); border-radius: 6px; padding: 2px 7px;
+}
+.rtb-btn {
+  padding: 4px 12px; font-size: 11px; font-weight: 700; border-radius: 8px;
+  background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15);
+  color: var(--text); cursor: pointer; transition: background 0.15s, transform 0.1s;
+}
+.rtb-btn:hover:not(:disabled) { background: rgba(255,255,255,0.14); transform: translateY(-1px); }
+.rtb-btn:disabled { opacity: 0.35; cursor: default; }
+.rtb-reset { border-color: rgba(239,68,68,0.35); color: #f87171; }
+.rtb-reset:hover:not(:disabled) { background: rgba(239,68,68,0.12); }
+
+/* ── Rank-up Animations ─────────────────────────────────────── */
+@keyframes rankup-card-glow {
+  0%   { box-shadow: 0 0 0 transparent; }
+  25%  { box-shadow: 0 0 40px var(--rg), 0 0 80px var(--rg); }
+  70%  { box-shadow: 0 0 20px var(--rg); }
+  100% { box-shadow: 0 0 0 transparent; }
+}
+@keyframes rankup-badge-pop {
+  0%   { transform: scale(1) rotate(0deg); }
+  30%  { transform: scale(1.4) rotate(-8deg); }
+  55%  { transform: scale(1.25) rotate(5deg); }
+  75%  { transform: scale(1.1) rotate(-2deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
 
 /* ── Focus Heatmap (GitHub-style: weeks = columns, days = rows) ── */
 .stats-heatmap-card { padding: 14px 14px 10px; }
