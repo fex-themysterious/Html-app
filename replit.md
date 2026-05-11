@@ -25,9 +25,10 @@ An offline-capable Progressive Web App for tracking study progress with spaced r
 ## Architecture decisions
 - All data persisted in `localStorage` under key `syllabus_tracker_v2` — primary store
 - Cloud sync via Firebase Firestore v8 compat CDN + Firebase Auth v8 compat
-- Auth: Email/password + Google sign-in. `firebase.auth.Auth.Persistence.LOCAL` — stays logged in. `onAuthStateChanged` drives all sync
-- On login: if user has Firestore data → restore it; if not → upload current local data. All Firestore writes under `users/{auth.uid}`
-- Login modal: dark glassmorphism overlay (`#auth-overlay`) with Sign In / Sign Up toggle + Google button + Enter-key support. Appears whenever user is not authenticated
+- Auth: **Email/password only** (Google removed). `firebase.auth.Auth.Persistence.LOCAL` — verified users stay logged in. `onAuthStateChanged` drives all sync
+- Strict email verification: signup sends verification email then immediately signs user out. Login checks `user.emailVerified` — if false, shows "verify your email" message + "Resend Verification Email" button (user stays temporarily signed in to allow resend, then signed out). `_awaitingEmailVerification` flag prevents `_handleAuthStateChange` from signing out the unverified user while the resend UI is displayed
+- On login (verified): if user has Firestore data → restore it; if not → upload current local data. All Firestore writes under `users/{auth.uid}`
+- Login modal: dark glassmorphism overlay (`#auth-overlay`) with Email + Password fields, Sign In / Sign Up toggle, Forgot Password link, Enter-key support. No Google button.
 - Cloud sync icon (top-right, left of settings): gray=idle, amber-pulsing=syncing, green=saved, red=error. Only active when authenticated
 - Settings modal shows ☁️ Account section at top: avatar + email + Sign Out button (or Sign In CTA if not logged in)
 - Single large vanilla JS IIFE in `script.js` manages all state and rendering
@@ -51,7 +52,7 @@ An offline-capable Progressive Web App for tracking study progress with spaced r
 _Populate as you build_
 
 ## Gotchas
-- Cache-busting query param on `script.js?v=70` and `style.css?v=59` — increment when making changes; SW cache is `syllabus-tracker-v79`
+- Cache-busting query param on `script.js?v=79` and `style.css?v=60` — increment when making changes; SW cache is `syllabus-tracker-v89`
 - Audio files need HTTP Range request support (already handled in `server.js` and `sw.js`)
 - Global orientation is **portrait-locked** (manifest + JS `lock('portrait')` on startup). Full Focus Mode and Video Player expose a ⤢ landscape toggle button that calls `toggleOrientLock()`; exiting either mode calls `lockPortrait()` to restore portrait. `--real-vh` CSS var is set by JS on every `orientationchange`/`resize` for iOS Safari.
 - Full Focus overlay uses a **flat CSS Grid** layout. Direct children of `.fs-content`: `fs-top` (badge+dots), `fs-task-box`, `fs-timer-wrap`, `fs-ctrl-col`, `fs-motivation-box`, `fs-footer` (hint only). Portrait grid: `"top task" / "ring ctrl" / "moti moti" / "foot foot"`. Landscape grid (both mobile ≤500px and desktop): 3-column `"top ring task" / "moti ring ctrl" / "foot foot foot"` — left=navy motivation panel, center=dominant timer (270px/76px mobile, 300px/80px desktop), right=indigo panel (task top + controls bottom, `border-top: none` to appear seamless). `_fsMotiQuote` set once in `startFullSession()`.

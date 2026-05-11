@@ -3923,17 +3923,6 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .auth-btn-primary         { background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: #fff; }
 .auth-btn-primary:hover   { opacity: 0.9; }
 .auth-btn-primary:disabled{ opacity: 0.5; cursor: not-allowed; transform: none; }
-.auth-btn-google {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.12);
-  color: #e2e8f0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  margin-bottom: 0;
-}
-.auth-btn-google:hover { background: rgba(255,255,255,0.09); }
 
 .auth-divider {
   width: 100%;
@@ -4026,10 +4015,8 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 /* Spinner hidden once auth is ready; form/buttons hidden while loading */
 .auth-overlay:not(.auth-loading) #auth-spinner { display: none; }
 .auth-overlay.auth-loading #auth-form,
-.auth-overlay.auth-loading .auth-btn-google,
 .auth-overlay.auth-loading .auth-toggle,
-.auth-overlay.auth-loading .auth-skip-row,
-.auth-overlay.auth-loading .auth-divider { display: none !important; }
+.auth-overlay.auth-loading .auth-skip-row { display: none !important; }
 
 /* ── Settings — Account section ─────────────────────────────────────────── */
 .settings-auth-section .auth-profile-row {

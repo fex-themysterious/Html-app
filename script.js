@@ -232,6 +232,8 @@
   let _redirectCheckDone = false;
   // Timer handle for the 3-second modal delay
   let _modalDelayTimer = null;
+  // True while an unverified user is signed in awaiting email verification resend
+  let _awaitingEmailVerification = false;
   // Persisted flag: was the user signed in during the last session?
   // Used to keep the modal hidden while the redirect bounce is resolving.
   function _wasLoggedIn() {
@@ -243,8 +245,6 @@
   // result before interrupting the user. Cancelled immediately if a user signs in.
   function _scheduleModal() {
     if (_authSkipped) return;
-    // A Google redirect is actively in-flight — never show modal during bounce
-    try { if (localStorage.getItem('stk_google_redirect') === '1') return; } catch(_) {}
     // Returning user: Firebase will fire onAuthStateChanged(user) soon — don't rush
     if (!_redirectCheckDone && _wasLoggedIn()) return;
     // Cancel any existing pending timer before setting a new one
@@ -252,8 +252,7 @@
     _modalDelayTimer = setTimeout(() => {
       _modalDelayTimer = null;
       if (_authSkipped) return;
-      if (_auth && _auth.currentUser) return;
-      try { if (localStorage.getItem('stk_google_redirect') === '1') return; } catch(_) {}
+      if (_auth && _auth.currentUser && _auth.currentUser.emailVerified) return;
       showAuthModal();
     }, 3000);
   }
@@ -340,48 +339,17 @@
 
       console.log('[Firebase] Initialized successfully. Auth:', !!_auth, '| Project:', FIREBASE_CONFIG.projectId);
 
-      // Set LOCAL persistence — fire-and-forget, does NOT need to complete before
-      // getRedirectResult (persistence only affects future sign-in attempts).
+      // Set LOCAL persistence so verified users stay logged in across sessions.
       _auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
         .then(() => console.log('[Firebase] Persistence set to LOCAL.'))
         .catch(e => console.warn('[Firebase] Persistence warning:', e.message));
 
-      // Register auth-state listener BEFORE getRedirectResult so it captures
-      // the resolved user the moment Firebase applies the redirect credential.
-      _auth.onAuthStateChanged(_handleAuthStateChange);
+      // No redirect flow — mark as resolved immediately so _scheduleModal
+      // can run for new users right away (still delayed 3 s by the timer).
+      _redirectCheckDone = true;
 
-      // Process any pending OAuth redirect result immediately — independent of
-      // the persistence chain above. The 3-second delay inside _scheduleModal()
-      // ensures the modal never appears before this promise settles.
-      _auth.getRedirectResult()
-        .then(result => {
-          if (result && result.user) {
-            // onAuthStateChanged(user) will fire and handle everything,
-            // including clearing stk_google_redirect at the confirmed-login point.
-            console.log('[Auth] Redirect sign-in completed:', result.user.email);
-          } else {
-            // No redirect was in flight — safe to clear the pending flag now.
-            try { localStorage.removeItem('stk_google_redirect'); } catch(_) {}
-          }
-          _redirectCheckDone = true;
-          if (!_auth.currentUser && !_authSkipped) {
-            try { localStorage.removeItem('stk_logged_in'); } catch(_) {}
-            _scheduleModal();
-          }
-        })
-        .catch(e => {
-          try { localStorage.removeItem('stk_google_redirect'); } catch(_) {}
-          _redirectCheckDone = true;
-          if (!_auth.currentUser && !_authSkipped) {
-            try { localStorage.removeItem('stk_logged_in'); } catch(_) {}
-            _scheduleModal();
-          }
-          if (e.code && e.code !== 'auth/null-user') {
-            console.error('[Auth] Redirect result error:', e.code, e.message);
-            var msg = _authErrorMsg(e.code);
-            if (msg) _showAuthError(msg);
-          }
-        });
+      // Register auth-state listener — fires with current user or null
+      _auth.onAuthStateChanged(_handleAuthStateChange);
     } catch (e) {
       clearTimeout(_initDeadline);
       console.error('[Firebase] initializeApp failed:', e.message);
@@ -454,12 +422,20 @@
   // ── Auth State Handler ───────────────────────────────────────────────────
   async function _handleAuthStateChange(user) {
     if (user) {
-      // ── Confirmed login: cancel any pending modal timer immediately ──
+      if (!user.emailVerified) {
+        // Unverified user — block access to the app.
+        if (!_awaitingEmailVerification) {
+          // Unexpected state (e.g. persisted session before verification was added).
+          // Sign out cleanly; onAuthStateChanged(null) will schedule the modal.
+          _auth.signOut().catch(() => {});
+        }
+        // If _awaitingEmailVerification is true, _authSubmit is already
+        // showing the verification UI — don't interfere.
+        return;
+      }
+      // ── Verified confirmed login ──
+      _awaitingEmailVerification = false;
       _cancelModalTimer();
-      // Clear the Google redirect in-flight flag ONLY here — this is the
-      // definitive confirmed-login moment, not getRedirectResult().then().
-      try { localStorage.removeItem('stk_google_redirect'); } catch(_) {}
-      // Persist the logged-in flag for the next page load's redirect-bounce guard.
       try { localStorage.setItem('stk_logged_in', '1'); } catch(_) {}
       _userId = user.uid;
       _authSkipped = false;
@@ -503,10 +479,9 @@
         setTimeout(() => _setCloudStatus('idle'), 5000);
       }
     } else {
+      _awaitingEmailVerification = false;
       _userId = null;
       _setCloudStatus('idle');
-      // Delegate entirely to _scheduleModal() which enforces the 3-second delay
-      // and checks all guards (redirect in-flight, returning user, skipped).
       if (!_authSkipped) _scheduleModal();
       refreshSettingsIfOpen();
     }
@@ -523,12 +498,6 @@
     if (form && !form._authBound) {
       form._authBound = true;
       form.addEventListener('submit', e => { e.preventDefault(); _authSubmit(); });
-    }
-    // Belt-and-suspenders: bind Google button directly too
-    const googleBtn = el.querySelector('[data-act="auth-google"]');
-    if (googleBtn && !googleBtn._authBound) {
-      googleBtn._authBound = true;
-      googleBtn.addEventListener('click', e => { e.stopPropagation(); _authSignInWithGoogle(); });
     }
     // Belt-and-suspenders: bind Sign In button directly
     const submitBtn = document.getElementById('auth-submit');
@@ -617,14 +586,9 @@
       'auth/weak-password':          'Password must be at least 6 characters.',
       'auth/too-many-requests':      'Too many attempts. Please try again later.',
       'auth/network-request-failed': 'Network error. Check your connection.',
-      'auth/popup-blocked':          'Popup was blocked — trying redirect sign-in instead…',
-      'auth/popup-closed-by-user':   '',
-      'auth/cancelled-popup-request':'',
-      'auth/unauthorized-domain':    `Domain not authorized. In Firebase Console → Authentication → Settings → Authorized Domains, add: ${domain}`,
-      'auth/operation-not-supported-in-this-environment': 'Trying redirect sign-in instead…',
+      'auth/unauthorized-domain':    `Domain not authorized. Add this domain in Firebase Console → Authentication → Settings → Authorized Domains.`,
       'auth/internal-error':         'Authentication error. Please try again.',
-      'auth/user-disabled':          'This account has been disabled.',
-      'auth/account-exists-with-different-credential': 'An account already exists with this email using a different sign-in method.'
+      'auth/user-disabled':          'This account has been disabled.'
     };
     return map[code] !== undefined ? map[code] : 'Authentication failed. Please try again.';
   }
@@ -641,11 +605,7 @@
     _clearAuthError();
   }
   async function _authSubmit() {
-    // If auth not ready yet, queue and auto-execute once Firebase initialises
-    if (!_auth) {
-      _runWhenAuthReady(() => _authSubmit());
-      return;
-    }
+    if (!_auth) { _runWhenAuthReady(() => _authSubmit()); return; }
     const email    = (document.getElementById('auth-email')?.value    || '').trim();
     const password =  document.getElementById('auth-password')?.value || '';
     if (!email)    { _showAuthError('Please enter your email address.'); return; }
@@ -654,41 +614,62 @@
     _clearAuthError();
     try {
       if (_authMode === 'login') {
-        await _auth.signInWithEmailAndPassword(email, password);
+        const cred = await _auth.signInWithEmailAndPassword(email, password);
+        _setAuthLoading(false);
+        if (!cred.user.emailVerified) {
+          // Keep user temporarily signed in so the Resend button can call
+          // sendEmailVerification() on currentUser, then sign them out.
+          _awaitingEmailVerification = true;
+          _showVerificationRequired();
+          return;
+        }
+        // Verified — onAuthStateChanged(user) grants access and navigates to Home
       } else {
-        await _auth.createUserWithEmailAndPassword(email, password);
+        // Sign up: create account, send verification, immediately sign out
+        const cred = await _auth.createUserWithEmailAndPassword(email, password);
+        await cred.user.sendEmailVerification();
+        await _auth.signOut();
+        _setAuthLoading(false);
+        // Reset UI to login mode
+        _authMode = 'login';
+        const e2 = (id) => document.getElementById(id);
+        if (e2('auth-submit'))      e2('auth-submit').textContent      = 'Sign In';
+        if (e2('auth-toggle-btn'))  e2('auth-toggle-btn').textContent  = 'Sign Up';
+        if (e2('auth-toggle-text')) e2('auth-toggle-text').textContent = "Don't have an account?";
+        if (e2('auth-subtitle'))    e2('auth-subtitle').textContent    = 'Sign in to sync your progress';
+        _showAuthSuccess('✓ Account created! A verification email has been sent — check your inbox and spam folder, then sign in.');
       }
-      _setAuthLoading(false);
     } catch (e) {
-      console.error('[Auth] Email sign-in error:', e.code, e.message);
+      console.error('[Auth] Auth error:', e.code, e.message);
       _setAuthLoading(false);
-      const msg = _authErrorMsg(e.code);
-      const displayMsg = msg || e.message || 'Authentication failed. Please try again.';
-      _showAuthError(displayMsg);
-      toast(displayMsg, 'error', 5000);
+      const msg = _authErrorMsg(e.code) || e.message || 'Authentication failed. Please try again.';
+      _showAuthError(msg);
     }
   }
-  async function _authSignInWithGoogle() {
-    // If auth not ready yet, queue and auto-execute once Firebase initialises
-    if (!_auth) {
-      _runWhenAuthReady(() => _authSignInWithGoogle());
-      return;
-    }
-    _clearAuthError();
-    const provider = new firebase.auth.GoogleAuthProvider();
-    provider.setCustomParameters({ prompt: 'select_account' });
+  // Show the "verify your email" message + Resend button inside the auth error area
+  function _showVerificationRequired() {
+    const errEl = document.getElementById('auth-error');
+    if (!errEl) return;
+    errEl.classList.remove('hidden', 'auth-success');
+    errEl.innerHTML =
+      '<div style="margin-bottom:9px;line-height:1.45">Please verify your email first.' +
+      '<br><span style="font-size:11px;opacity:0.75">Check your inbox and spam folder.</span></div>' +
+      '<button data-act="auth-resend-verification" style="background:rgba(129,140,248,0.15);' +
+      'border:1px solid rgba(129,140,248,0.4);color:#a5b4fc;font-size:12px;font-family:inherit;' +
+      'padding:6px 18px;border-radius:20px;cursor:pointer;font-weight:600">Resend Verification Email</button>';
+  }
+  // Called when the user clicks "Resend Verification Email"
+  async function _authResendVerification() {
+    const user = _auth && _auth.currentUser;
+    if (!user) { _showAuthError('Session expired. Please sign in again.'); return; }
     try {
-      // Set flag BEFORE the redirect so the auth-state null flash on return
-      // doesn't re-show the modal (covers first-time users where stk_logged_in isn't set yet)
-      try { localStorage.setItem('stk_google_redirect', '1'); } catch(_) {}
-      _showAuthError('Redirecting to Google… please wait.');
-      await _auth.signInWithRedirect(provider);
+      await user.sendEmailVerification();
+      await _auth.signOut();
+      _awaitingEmailVerification = false;
+      _showAuthSuccess('✓ Verification email sent! Check your inbox and spam folder, then sign in.');
     } catch (e) {
-      try { localStorage.removeItem('stk_google_redirect'); } catch(_) {}
-      console.error('[Auth] Google redirect error:', e.code, e.message);
-      _clearAuthError();
-      const msg = _authErrorMsg(e.code);
-      if (msg) _showAuthError(msg);
+      console.error('[Auth] Resend verification error:', e.code, e.message);
+      _showAuthError(_authErrorMsg(e.code) || 'Failed to send. Please try again.');
     }
   }
   async function _authForgotPassword() {
@@ -5374,10 +5355,10 @@
 
     if (el.hasAttribute('data-close')) { closeModal(); return; }
     if (act === 'open-settings')    { modalSettings(); return; }
-    if (act === 'auth-toggle-form') { _authToggleMode(); return; }
-    if (act === 'auth-google')      { _authSignInWithGoogle(); return; }
-    if (act === 'auth-submit')      { _authSubmit(); return; }
-    if (act === 'auth-forgot')      { _authForgotPassword(); return; }
+    if (act === 'auth-toggle-form')         { _authToggleMode(); return; }
+    if (act === 'auth-submit')              { _authSubmit(); return; }
+    if (act === 'auth-forgot')              { _authForgotPassword(); return; }
+    if (act === 'auth-resend-verification') { _authResendVerification(); return; }
     if (act === 'auth-logout')      { _authSignOut(); closeModal(); return; }
     if (act === 'auth-show-modal')  { _authSkipped = false; try { localStorage.removeItem('stk_auth_skipped'); } catch(_) {} closeModal(); showAuthModal(); return; }
     if (act === 'auth-use-offline') { _authSkipped = true; try { localStorage.setItem('stk_auth_skipped', '1'); } catch(_) {} hideAuthModal(); toast('Using app offline — sign in anytime via ⚙️ Settings', 'info', 4500); return; }
