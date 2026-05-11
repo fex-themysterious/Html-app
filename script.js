@@ -231,16 +231,16 @@
       return;
     }
 
-    // 3-second hard deadline: if _auth still null, unblock the modal with a clear message
+    // 5-second hard deadline: if _auth still null, unblock the modal with a Retry button
     const _initDeadline = setTimeout(() => {
       if (_auth) return; // resolved in time — nothing to do
-      console.warn('[Firebase] Auth not ready after 3 s — activating offline-friendly mode.');
+      console.warn('[Firebase] Auth not ready after 5 s — activating offline-friendly mode.');
       _authSetReady(); // reveal form / skip button so user isn't stuck on spinner
       if (!_authSkipped) {
         showAuthModal();
-        _showAuthError('Firebase is taking longer than expected. Use "Continue without signing in" to use the app offline, or reload to retry.');
+        _showAuthErrorWithRetry('Connection is taking too long. Check your network or');
       }
-    }, 3000);
+    }, 5000);
 
     fetch('/api/config', { cache: 'no-store' })
       .then(r => r.json())
@@ -303,6 +303,12 @@
       .catch(e => {
         clearTimeout(_initDeadline);
         console.warn('[Firebase] Config fetch failed:', e.message);
+        _authConfigured = false;
+        _authSetReady();
+        if (!_authSkipped) {
+          showAuthModal();
+          _showAuthErrorWithRetry('Could not reach the server. Check your connection or');
+        }
       });
   }
 
@@ -438,6 +444,12 @@
       submitBtn._authBound = true;
       submitBtn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); _authSubmit(); });
     }
+    // Belt-and-suspenders: bind Forgot Password button directly
+    const forgotBtn = el.querySelector('[data-act="auth-forgot"]');
+    if (forgotBtn && !forgotBtn._authBound) {
+      forgotBtn._authBound = true;
+      forgotBtn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); _authForgotPassword(); });
+    }
 
     // Inject domain hint so user knows which domain to authorize in Firebase if Google fails
     const existingHint = document.getElementById('auth-domain-hint');
@@ -472,7 +484,25 @@
   }
   function _clearAuthError() {
     const el = document.getElementById('auth-error');
-    if (el) el.classList.add('hidden');
+    if (!el) return;
+    el.classList.add('hidden');
+    el.classList.remove('auth-success');
+    el.innerHTML = '';
+  }
+  function _showAuthSuccess(msg) {
+    const el = document.getElementById('auth-error');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.remove('hidden');
+    el.classList.add('auth-success');
+  }
+  // Show error with an inline Retry (reload) button
+  function _showAuthErrorWithRetry(msg) {
+    const el = document.getElementById('auth-error');
+    if (!el) return;
+    el.classList.remove('auth-success');
+    el.innerHTML = `${msg} <button onclick="window.location.reload()" style="background:none;border:none;color:#a5b4fc;text-decoration:underline;cursor:pointer;font-size:inherit;padding:0;font-family:inherit;font-weight:600">Retry</button>`;
+    el.classList.remove('hidden');
   }
   // Call once Firebase is ready (or we give up waiting) to reveal the sign-in form
   function _authSetReady() {
@@ -572,6 +602,22 @@
       _clearAuthError();
       const msg = _authErrorMsg(e.code);
       if (msg) _showAuthError(msg);
+    }
+  }
+  async function _authForgotPassword() {
+    if (!_auth) {
+      _showAuthError('Sign-in is not available right now.');
+      return;
+    }
+    const email = (document.getElementById('auth-email')?.value || '').trim();
+    if (!email) { _showAuthError('Enter your email address above first.'); return; }
+    try {
+      await _auth.sendPasswordResetEmail(email);
+      _showAuthSuccess('✓ Reset email sent! Check your inbox (and spam folder).');
+    } catch (e) {
+      console.error('[Auth] Password reset error:', e.code, e.message);
+      const msg = _authErrorMsg(e.code) || 'Failed to send reset email. Please try again.';
+      _showAuthError(msg);
     }
   }
   async function _authSignOut() {
@@ -5243,6 +5289,7 @@
     if (act === 'auth-toggle-form') { _authToggleMode(); return; }
     if (act === 'auth-google')      { _authSignInWithGoogle(); return; }
     if (act === 'auth-submit')      { _authSubmit(); return; }
+    if (act === 'auth-forgot')      { _authForgotPassword(); return; }
     if (act === 'auth-logout')      { _authSignOut(); closeModal(); return; }
     if (act === 'auth-show-modal')  { _authSkipped = false; try { localStorage.removeItem('stk_auth_skipped'); } catch(_) {} closeModal(); showAuthModal(); return; }
     if (act === 'auth-use-offline') { _authSkipped = true; try { localStorage.setItem('stk_auth_skipped', '1'); } catch(_) {} hideAuthModal(); toast('Using app offline — sign in anytime via ⚙️ Settings', 'info', 4500); return; }

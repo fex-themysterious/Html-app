@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="./style.css?v=58"/>
+  <link rel="stylesheet" href="./style.css?v=59"/>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
@@ -83,6 +83,9 @@
       <form id="auth-form" class="auth-fields" autocomplete="on" onsubmit="return false">
         <input type="email"    id="auth-email"    class="auth-input" placeholder="Email address"  autocomplete="email"/>
         <input type="password" id="auth-password" class="auth-input" placeholder="Password"       autocomplete="current-password"/>
+        <div class="auth-forgot-row">
+          <button type="button" class="auth-forgot-btn" data-act="auth-forgot">Forgot Password?</button>
+        </div>
         <button class="auth-btn auth-btn-primary" id="auth-submit" data-act="auth-submit" type="submit">Sign In</button>
       </form>
       <div class="auth-divider" style="margin-top:0"><span>or</span></div>
@@ -106,7 +109,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-  <script src="./script.js?v=68"></script>
+  <script src="./script.js?v=69"></script>
   <script>
     /* ── Service Worker ── */
     if ('serviceWorker' in navigator) {

@@ -3988,6 +3988,23 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 }
 .auth-skip-btn:hover { color: var(--text, #e2e8f0); }
 
+/* ── Forgot password link ───────────────────────────────────────────────── */
+.auth-forgot-row { text-align: right; margin: -2px 0 8px; }
+.auth-forgot-btn {
+  background: none; border: none;
+  color: #818cf8; font-size: 12px;
+  cursor: pointer; padding: 2px 0;
+  font-family: inherit; transition: color 0.15s;
+}
+.auth-forgot-btn:hover { color: #a5b4fc; }
+
+/* ── Auth success message (password reset confirmation) ─────────────────── */
+.auth-error.auth-success {
+  background: rgba(16,185,129,0.12);
+  border: 1px solid rgba(16,185,129,0.3);
+  color: #6ee7b7;
+}
+
 /* ── Auth loading spinner ───────────────────────────────────────────────── */
 .auth-spinner {
   display: flex;
