@@ -227,6 +227,14 @@
   // ── Firebase / Cloud Sync ────────────────────────────────────────────────
   // 'loading' → still initialising | 'ready' → _auth set | 'failed' → gave up
   let _authInitState = 'loading';
+  // True once getRedirectResult() has settled — suppresses the login modal
+  // during the brief null flash that happens before a redirect result is applied
+  let _redirectCheckDone = false;
+  // Persisted flag: was the user signed in during the last session?
+  // Used to keep the modal hidden while the redirect bounce is resolving.
+  function _wasLoggedIn() {
+    try { return localStorage.getItem('stk_logged_in') === '1'; } catch(_) { return false; }
+  }
 
   // Called when a sign-in button is tapped before Firebase is ready.
   // Only polls when Firebase IS configured (just slow). Gives up cleanly at 7 s.
@@ -307,24 +315,39 @@
 
       console.log('[Firebase] Initialized successfully. Auth:', !!_auth, '| Project:', FIREBASE_CONFIG.projectId);
 
-      _auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
-        .then(() => console.log('[Firebase] Persistence set to LOCAL.'))
-        .catch(e => console.warn('[Firebase] Persistence error:', e.message));
-
+      // Register auth-state listener immediately so persisted sessions
+      // are detected without waiting for the redirect check.
       _auth.onAuthStateChanged(_handleAuthStateChange);
 
-      // Process the result of any signInWithRedirect that just returned
-      _auth.getRedirectResult().then(result => {
-        if (result && result.user) {
-          console.log('[Auth] Redirect sign-in succeeded:', result.user.email);
-        }
-      }).catch(e => {
-        if (e.code && e.code !== 'auth/null-user') {
-          console.error('[Auth] Redirect result error:', e.code, e.message);
-          var msg = _authErrorMsg(e.code);
-          if (msg) _showAuthError(msg);
-        }
-      });
+      // Chain: ensure LOCAL persistence is set, THEN process any redirect
+      // result. Only after both settle do we mark _redirectCheckDone = true
+      // and allow the login modal to appear (prevents the null-flash flicker).
+      _auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+        .then(() => {
+          console.log('[Firebase] Persistence set to LOCAL.');
+          return _auth.getRedirectResult();
+        })
+        .then(result => {
+          if (result && result.user) {
+            console.log('[Auth] Redirect sign-in succeeded:', result.user.email);
+          }
+          _redirectCheckDone = true;
+          // If onAuthStateChanged already fired null AND user isn't logged in
+          // via the redirect, reveal the modal now.
+          if (!_auth.currentUser && !_authSkipped) {
+            try { localStorage.removeItem('stk_logged_in'); } catch(_) {}
+            showAuthModal();
+          }
+        })
+        .catch(e => {
+          _redirectCheckDone = true;
+          if (!_auth.currentUser && !_authSkipped) showAuthModal();
+          if (e.code && e.code !== 'auth/null-user') {
+            console.error('[Auth] Redirect result error:', e.code, e.message);
+            var msg = _authErrorMsg(e.code);
+            if (msg) _showAuthError(msg);
+          }
+        });
     } catch (e) {
       clearTimeout(_initDeadline);
       console.error('[Firebase] initializeApp failed:', e.message);
@@ -397,6 +420,9 @@
   // ── Auth State Handler ───────────────────────────────────────────────────
   async function _handleAuthStateChange(user) {
     if (user) {
+      // Persist the "user is logged in" flag so we can suppress the modal
+      // during the redirect-result null-flash on the next page load.
+      try { localStorage.setItem('stk_logged_in', '1'); } catch(_) {}
       _userId = user.uid;
       _authSkipped = false;
       try { localStorage.removeItem('stk_auth_skipped'); } catch(_) {}
@@ -441,7 +467,18 @@
     } else {
       _userId = null;
       _setCloudStatus('idle');
-      if (!_authSkipped) showAuthModal();
+      // Only show the modal once the redirect check has settled.
+      // If the user was previously logged in, the redirect may still be
+      // resolving — keep the modal hidden to prevent a flicker.
+      if (!_authSkipped) {
+        if (_redirectCheckDone) {
+          showAuthModal();
+        } else if (!_wasLoggedIn()) {
+          // First-time visitor with no prior session — safe to show immediately
+          showAuthModal();
+        }
+        // Otherwise: wait for _redirectCheckDone (handled in the redirect chain above)
+      }
       refreshSettingsIfOpen();
     }
   }
@@ -640,6 +677,7 @@
   async function _authSignOut() {
     if (!_auth) return;
     try {
+      try { localStorage.removeItem('stk_logged_in'); } catch(_) {}
       await _auth.signOut();
       toast('Signed out successfully', 'info', 3000);
     } catch (e) { console.warn('[Auth] Sign out error:', e.message); }
