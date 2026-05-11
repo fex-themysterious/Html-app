@@ -225,39 +225,46 @@
   })();
 
   // ── Firebase / Cloud Sync ────────────────────────────────────────────────
-  // Queue for actions attempted before _auth is ready (e.g. user taps Sign In during init)
-  let _pendingAuthAction = null;
+  // 'loading' → still initialising | 'ready' → _auth set | 'failed' → gave up
+  let _authInitState = 'loading';
 
+  // Called when a sign-in button is tapped before Firebase is ready.
+  // Only polls when Firebase IS configured (just slow). Gives up cleanly at 7 s.
   function _runWhenAuthReady(fn) {
     if (_auth) { fn(); return; }
-    // Store latest pending action — shows "Connecting…" and auto-fires when ready
-    _pendingAuthAction = fn;
-    _showAuthError('Connecting to Firebase… please wait.');
-    // Poll every 500 ms for up to 15 s then execute the queued action
+
+    // Config fetch already failed — no point waiting
+    if (_authInitState === 'failed') {
+      _showAuthErrorWithRetry('Sign-in unavailable.');
+      return;
+    }
+
+    // Firebase is configured but still connecting — wait up to 7 s, then try anyway
+    _showAuthError('Connecting… please wait a moment.');
     let waited = 0;
     const poll = setInterval(() => {
       waited += 500;
       if (_auth) {
         clearInterval(poll);
         _clearAuthError();
-        const action = _pendingAuthAction;
-        _pendingAuthAction = null;
-        if (action) action();
-      } else if (waited >= 15000) {
+        fn();
+      } else if (_authInitState === 'failed' || waited >= 7000) {
         clearInterval(poll);
-        _pendingAuthAction = null;
-        _showAuthErrorWithRetry('Could not connect to Firebase.');
+        _clearAuthError();
+        // Attempt the action anyway — Firebase may still accept the call
+        if (_auth) { fn(); } else { _showAuthErrorWithRetry('Connection slow — tap again or'); }
       }
     }, 500);
   }
 
   function _initFirebase() {
     if (typeof firebase === 'undefined') {
-      // SDK might still be loading — retry after 2 s before giving up
+      // SDK CDN might still be loading — retry once after 2 s
       console.warn('[Firebase] SDK not loaded yet — retrying in 2 s…');
       setTimeout(() => {
         if (typeof firebase === 'undefined') {
-          console.warn('[Firebase] SDK still unavailable — running offline.');
+          console.error('[Firebase] SDK unavailable after retry — running offline.');
+          _authInitState = 'failed';
           _authSetReady();
           if (!_authSkipped) showAuthModal();
         } else {
@@ -267,22 +274,21 @@
       return;
     }
 
-    // 15-second hard deadline: if _auth still null, unblock the modal
+    // 7-second deadline: unblock the form so user isn't staring at a spinner
     const _initDeadline = setTimeout(() => {
       if (_auth) return;
-      console.warn('[Firebase] Auth not ready after 15 s — activating offline-friendly mode.');
+      console.warn('[Firebase] Auth not ready after 7 s — showing form anyway.');
       _authSetReady();
-      if (!_authSkipped) {
-        showAuthModal();
-        _showAuthErrorWithRetry('Firebase is taking too long to connect.');
-      }
-    }, 15000);
+      if (!_authSkipped) showAuthModal();
+      // Don't set state to 'failed' here — Firebase may still connect in the background
+    }, 7000);
 
     function _applyConfig(cfg) {
       const configured = !!(cfg && cfg.apiKey && cfg.authDomain && cfg.projectId);
       if (!configured) {
         clearTimeout(_initDeadline);
-        console.warn('[Firebase] Config is empty — set FIREBASE_* environment variables.');
+        console.error('[Firebase] Init failed: config is empty. Ensure FIREBASE_* env vars are set.');
+        _authInitState  = 'failed';
         _authConfigured = false;
         _authSetReady();
         if (!_authSkipped) {
@@ -292,6 +298,7 @@
         return;
       }
 
+      console.log('[Firebase] Applying config for project:', cfg.projectId);
       try {
         if (!firebase.apps || !firebase.apps.length) {
           firebase.initializeApp(cfg);
@@ -299,13 +306,16 @@
         _db             = firebase.firestore();
         _auth           = firebase.auth();
         _authConfigured = true;
+        _authInitState  = 'ready';
         clearTimeout(_initDeadline);
         _authSetReady();
 
-        console.log('[Firebase] Auth State:', _auth);
-        console.log('[Firebase] Project:', cfg.projectId);
+        console.log('[Firebase] Initialized successfully. Auth:', !!_auth, '| Project:', cfg.projectId);
 
-        _auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
+        _auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+          .then(() => console.log('[Firebase] Persistence set to LOCAL.'))
+          .catch(e => console.warn('[Firebase] Persistence error:', e.message));
+
         _auth.onAuthStateChanged(_handleAuthStateChange);
 
         // Handle return from signInWithRedirect
@@ -322,7 +332,8 @@
         });
       } catch (e) {
         clearTimeout(_initDeadline);
-        console.warn('[Firebase] initializeApp failed:', e.message);
+        console.error('[Firebase] initializeApp failed:', e.message);
+        _authInitState  = 'failed';
         _authConfigured = false;
         _authSetReady();
         if (!_authSkipped) {
@@ -335,24 +346,27 @@
     // Prefer the config injected server-side into the page (bypasses SW cache).
     // Fall back to fetching /api/config with retries if the inline config isn't present.
     if (window.__FIREBASE_CONFIG__ && window.__FIREBASE_CONFIG__.apiKey) {
+      console.log('[Firebase] Using server-injected config.');
       _applyConfig(window.__FIREBASE_CONFIG__);
     } else {
+      console.warn('[Firebase] No inline config found — fetching /api/config…');
       function _fetchConfig(attemptsLeft) {
         fetch('/api/config', { cache: 'no-store' })
           .then(r => r.json())
           .then(cfg => _applyConfig(cfg))
           .catch(e => {
             if (attemptsLeft > 1) {
-              console.warn('[Firebase] Config fetch failed, retrying…', e.message);
+              console.warn('[Firebase] Config fetch failed, retrying… (' + attemptsLeft + ' left):', e.message);
               setTimeout(() => _fetchConfig(attemptsLeft - 1), 2000);
             } else {
               clearTimeout(_initDeadline);
-              console.warn('[Firebase] Config fetch failed after retries:', e.message);
+              console.error('[Firebase] Config fetch failed after all retries:', e.message);
+              _authInitState  = 'failed';
               _authConfigured = false;
               _authSetReady();
               if (!_authSkipped) {
                 showAuthModal();
-                _showAuthErrorWithRetry('Could not reach the server. Check your connection or');
+                _showAuthErrorWithRetry('Could not reach the server.');
               }
             }
           });

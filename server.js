@@ -23,9 +23,26 @@ const mimeTypes = {
 
 const AUDIO_EXTS = new Set(['.mp3', '.wav', '.ogg', '.m4a']);
 
+// Security headers added to every response
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'SAMEORIGIN',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  // Explicitly allow Firebase / Google domains so auth works on any hosting
+  'Content-Security-Policy': [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' https://www.gstatic.com https://cdn.jsdelivr.net https://apis.google.com",
+    "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com wss://*.firebaseio.com",
+    "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com",
+    "img-src 'self' data: https:",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+  ].join('; ')
+};
+
 const server = http.createServer((req, res) => {
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, { 'Access-Control-Allow-Origin': '*' });
+    res.writeHead(204, { 'Access-Control-Allow-Origin': '*', ...SECURITY_HEADERS });
     res.end();
     return;
   }
@@ -68,7 +85,7 @@ const server = http.createServer((req, res) => {
         '<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>',
         `<script>window.__FIREBASE_CONFIG__ = ${JSON.stringify(config)};</script>\n  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>`
       );
-      res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' });
+      res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store', ...SECURITY_HEADERS });
       res.end(injected);
     });
     return;
