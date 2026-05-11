@@ -969,6 +969,148 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   flex-shrink: 0;
 }
 
+/* ── Home Motivation Card ─────────────────────────────────────────────────── */
+.home-moti-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  margin-bottom: 10px;
+  background: linear-gradient(135deg, rgba(99,102,241,0.07) 0%, rgba(139,92,246,0.05) 100%);
+  border: 1px solid rgba(99,102,241,0.17);
+  border-radius: 14px;
+}
+.home-moti-icon { font-size: 17px; flex-shrink: 0; margin-top: 1px; line-height: 1; }
+.home-moti-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin: 0;
+  font-style: italic;
+  animation: fadeQuote 0.5s var(--ease);
+}
+
+/* ── Home XP Board ────────────────────────────────────────────────────────── */
+.home-xp-board {
+  position: relative;
+  margin-bottom: 10px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, rgba(13,18,36,0.95) 0%, rgba(30,27,75,0.88) 100%);
+  border: 1px solid rgba(99,102,241,0.30);
+  border-radius: 16px;
+  box-shadow: 0 0 28px rgba(99,102,241,0.08), 0 6px 18px rgba(0,0,0,0.3);
+  overflow: hidden;
+}
+.home-xp-board::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+}
+.xp-board-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.xp-board-eyebrow {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.10em;
+  color: #818cf8;
+}
+.xp-board-rank-pill {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(99,102,241,0.18), rgba(139,92,246,0.18));
+  border: 1px solid rgba(99,102,241,0.30);
+  color: #a5b4fc;
+}
+.xp-board-body {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.xp-board-level-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  min-width: 42px;
+}
+.xp-board-lv-label {
+  font-size: 8px;
+  font-weight: 800;
+  color: #6366f1;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 1px;
+}
+.xp-board-lv-num {
+  font-size: 38px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -2px;
+  background: linear-gradient(135deg, #818cf8 0%, #c084fc 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 10px rgba(99,102,241,0.45));
+}
+.xp-board-bar-col { flex: 1; min-width: 0; }
+.xp-board-bar-track {
+  height: 9px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 6px;
+  border: 1px solid rgba(255,255,255,0.04);
+}
+.xp-board-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1 0%, #8b5cf6 55%, #ec4899 100%);
+  border-radius: 999px;
+  transition: width 0.8s cubic-bezier(0.2,0.8,0.2,1);
+  box-shadow: 0 0 10px rgba(99,102,241,0.55);
+}
+.xp-board-bar-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 700;
+  color: #475569;
+}
+.xp-board-streak-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  min-width: 46px;
+}
+.xp-board-streak-num {
+  font-size: 30px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -1px;
+  color: #f59e0b;
+  filter: drop-shadow(0 0 8px rgba(245,158,11,0.45));
+}
+.xp-board-streak-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: #92400e;
+  margin-top: 2px;
+  letter-spacing: 0.03em;
+}
+@media (max-width: 380px) {
+  .xp-board-lv-num  { font-size: 30px; }
+  .xp-board-streak-num { font-size: 24px; }
+}
+
 /* Daily achieved badge */
 .daily-achieved { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding: 14px 16px; border-radius: 16px; background: linear-gradient(135deg, rgba(34,197,94,0.14), rgba(77,168,255,0.12)); border: 1px solid rgba(52,211,153,0.35); animation: achievedIn 0.4s var(--ease); position: relative; overflow: hidden; }
 @keyframes achievedIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
