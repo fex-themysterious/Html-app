@@ -225,21 +225,58 @@
   })();
 
   // ── Firebase / Cloud Sync ────────────────────────────────────────────────
+  // Queue for actions attempted before _auth is ready (e.g. user taps Sign In during init)
+  let _pendingAuthAction = null;
+
+  function _runWhenAuthReady(fn) {
+    if (_auth) { fn(); return; }
+    // Store latest pending action — shows "Connecting…" and auto-fires when ready
+    _pendingAuthAction = fn;
+    _showAuthError('Connecting to Firebase… please wait.');
+    // Poll every 500 ms for up to 15 s then execute the queued action
+    let waited = 0;
+    const poll = setInterval(() => {
+      waited += 500;
+      if (_auth) {
+        clearInterval(poll);
+        _clearAuthError();
+        const action = _pendingAuthAction;
+        _pendingAuthAction = null;
+        if (action) action();
+      } else if (waited >= 15000) {
+        clearInterval(poll);
+        _pendingAuthAction = null;
+        _showAuthErrorWithRetry('Could not connect to Firebase.');
+      }
+    }, 500);
+  }
+
   function _initFirebase() {
     if (typeof firebase === 'undefined') {
-      console.warn('[Firebase] SDK not loaded — running offline.');
+      // SDK might still be loading — retry after 2 s before giving up
+      console.warn('[Firebase] SDK not loaded yet — retrying in 2 s…');
+      setTimeout(() => {
+        if (typeof firebase === 'undefined') {
+          console.warn('[Firebase] SDK still unavailable — running offline.');
+          _authSetReady();
+          if (!_authSkipped) showAuthModal();
+        } else {
+          _initFirebase();
+        }
+      }, 2000);
       return;
     }
 
-    // 12-second hard deadline: if _auth still null, unblock the modal
+    // 15-second hard deadline: if _auth still null, unblock the modal
     const _initDeadline = setTimeout(() => {
       if (_auth) return;
-      console.warn('[Firebase] Auth not ready after 12 s — activating offline-friendly mode.');
+      console.warn('[Firebase] Auth not ready after 15 s — activating offline-friendly mode.');
       _authSetReady();
       if (!_authSkipped) {
         showAuthModal();
+        _showAuthErrorWithRetry('Firebase is taking too long to connect.');
       }
-    }, 12000);
+    }, 15000);
 
     function _applyConfig(cfg) {
       const configured = !!(cfg && cfg.apiKey && cfg.authDomain && cfg.projectId);
@@ -561,11 +598,9 @@
     _clearAuthError();
   }
   async function _authSubmit() {
+    // If auth not ready yet, queue and auto-execute once Firebase initialises
     if (!_auth) {
-      const errMsg = _authConfigured
-        ? 'Firebase is still connecting — please wait a moment and try again.'
-        : 'Sign-in is not available right now. Use "Continue without signing in" to use the app offline.';
-      _showAuthError(errMsg);
+      _runWhenAuthReady(() => _authSubmit());
       return;
     }
     const email    = (document.getElementById('auth-email')?.value    || '').trim();
@@ -591,21 +626,17 @@
     }
   }
   async function _authSignInWithGoogle() {
+    // If auth not ready yet, queue and auto-execute once Firebase initialises
     if (!_auth) {
-      const errMsg = _authConfigured
-        ? 'Firebase is still connecting — please wait a moment and try again.'
-        : 'Sign-in is not available right now. Use "Continue without signing in" to use the app offline.';
-      _showAuthError(errMsg);
+      _runWhenAuthReady(() => _authSignInWithGoogle());
       return;
     }
     _clearAuthError();
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
-    // Use redirect sign-in (most reliable on mobile; page navigates away then returns)
     try {
       _showAuthError('Redirecting to Google… please wait.');
       await _auth.signInWithRedirect(provider);
-      // Execution stops here — browser redirects to Google
     } catch (e) {
       console.error('[Auth] Google redirect error:', e.code, e.message);
       _clearAuthError();
@@ -615,7 +646,7 @@
   }
   async function _authForgotPassword() {
     if (!_auth) {
-      _showAuthError('Sign-in is not available right now.');
+      _runWhenAuthReady(() => _authForgotPassword());
       return;
     }
     const email = (document.getElementById('auth-email')?.value || '').trim();
