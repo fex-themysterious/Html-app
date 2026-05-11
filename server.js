@@ -52,6 +52,28 @@ const server = http.createServer((req, res) => {
   const ext = path.extname(filePath).toLowerCase();
   const contentType = mimeTypes[ext] || 'application/octet-stream';
 
+  // Serve index.html with Firebase config injected inline so the SW can never serve stale config
+  if (urlPath === '/index.html') {
+    fs.readFile(filePath, 'utf8', (err, html) => {
+      if (err) { res.writeHead(500); res.end('Server error'); return; }
+      const config = {
+        apiKey:            process.env.FIREBASE_API_KEY            || '',
+        authDomain:        process.env.FIREBASE_AUTH_DOMAIN        || '',
+        projectId:         process.env.FIREBASE_PROJECT_ID         || '',
+        storageBucket:     process.env.FIREBASE_STORAGE_BUCKET     || '',
+        messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || '',
+        appId:             process.env.FIREBASE_APP_ID             || ''
+      };
+      const injected = html.replace(
+        '<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>',
+        `<script>window.__FIREBASE_CONFIG__ = ${JSON.stringify(config)};</script>\n  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>`
+      );
+      res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' });
+      res.end(injected);
+    });
+    return;
+  }
+
   // Audio files: stream with range request support (required for mobile browsers)
   if (AUDIO_EXTS.has(ext)) {
     fs.stat(filePath, (err, stat) => {

@@ -231,85 +231,97 @@
       return;
     }
 
-    // 5-second hard deadline: if _auth still null, unblock the modal with a Retry button
+    // 12-second hard deadline: if _auth still null, unblock the modal
     const _initDeadline = setTimeout(() => {
-      if (_auth) return; // resolved in time — nothing to do
-      console.warn('[Firebase] Auth not ready after 5 s — activating offline-friendly mode.');
-      _authSetReady(); // reveal form / skip button so user isn't stuck on spinner
+      if (_auth) return;
+      console.warn('[Firebase] Auth not ready after 12 s — activating offline-friendly mode.');
+      _authSetReady();
       if (!_authSkipped) {
         showAuthModal();
-        _showAuthErrorWithRetry('Connection is taking too long. Check your network or');
       }
-    }, 5000);
+    }, 12000);
 
-    fetch('/api/config', { cache: 'no-store' })
-      .then(r => r.json())
-      .then(cfg => {
-        // ── Config validation ────────────────────────────────────────────
-        const configured = !!(cfg && cfg.apiKey && cfg.authDomain && cfg.projectId);
-        if (!configured) {
-          clearTimeout(_initDeadline);
-          console.warn('[Firebase] Config is empty — set FIREBASE_* environment secrets.');
-          _authConfigured = false;
-          _authSetReady();
-          if (!_authSkipped) {
-            showAuthModal();
-            _showAuthError('Firebase is not configured. Use "Continue without signing in" to use the app offline.');
-          }
-          return;
-        }
-
-        // ── Initialise Firebase ──────────────────────────────────────────
-        try {
-          if (!firebase.apps || !firebase.apps.length) {
-            firebase.initializeApp(cfg);
-          }
-          _db             = firebase.firestore();
-          _auth           = firebase.auth();
-          _authConfigured = true;
-          clearTimeout(_initDeadline);
-          _authSetReady(); // spinner off — form & buttons now visible
-
-          // Debugging log requested by user
-          console.log('[Firebase] Auth State:', _auth);
-          console.log('[Firebase] Project:', cfg.projectId);
-
-          _auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
-          _auth.onAuthStateChanged(_handleAuthStateChange);
-
-          // Handle return from signInWithRedirect (Google popup fallback on mobile)
-          _auth.getRedirectResult().then(result => {
-            if (result && result.user) {
-              console.log('[Auth] Redirect sign-in succeeded:', result.user.email);
-            }
-          }).catch(e => {
-            if (e.code && e.code !== 'auth/null-user') {
-              console.error('[Auth] Redirect result error:', e.code, e.message);
-              const msg = _authErrorMsg(e.code);
-              if (msg) _showAuthError(msg);
-            }
-          });
-        } catch (e) {
-          clearTimeout(_initDeadline);
-          console.warn('[Firebase] initializeApp failed:', e.message);
-          _authConfigured = false;
-          _authSetReady();
-          if (!_authSkipped) {
-            showAuthModal();
-            _showAuthError('Firebase initialization failed. Use "Continue without signing in" to use the app offline.');
-          }
-        }
-      })
-      .catch(e => {
+    function _applyConfig(cfg) {
+      const configured = !!(cfg && cfg.apiKey && cfg.authDomain && cfg.projectId);
+      if (!configured) {
         clearTimeout(_initDeadline);
-        console.warn('[Firebase] Config fetch failed:', e.message);
+        console.warn('[Firebase] Config is empty — set FIREBASE_* environment variables.');
         _authConfigured = false;
         _authSetReady();
         if (!_authSkipped) {
           showAuthModal();
-          _showAuthErrorWithRetry('Could not reach the server. Check your connection or');
+          _showAuthError('Firebase is not configured. Use "Continue without signing in" to use the app offline.');
         }
-      });
+        return;
+      }
+
+      try {
+        if (!firebase.apps || !firebase.apps.length) {
+          firebase.initializeApp(cfg);
+        }
+        _db             = firebase.firestore();
+        _auth           = firebase.auth();
+        _authConfigured = true;
+        clearTimeout(_initDeadline);
+        _authSetReady();
+
+        console.log('[Firebase] Auth State:', _auth);
+        console.log('[Firebase] Project:', cfg.projectId);
+
+        _auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
+        _auth.onAuthStateChanged(_handleAuthStateChange);
+
+        // Handle return from signInWithRedirect
+        _auth.getRedirectResult().then(result => {
+          if (result && result.user) {
+            console.log('[Auth] Redirect sign-in succeeded:', result.user.email);
+          }
+        }).catch(e => {
+          if (e.code && e.code !== 'auth/null-user') {
+            console.error('[Auth] Redirect result error:', e.code, e.message);
+            const msg = _authErrorMsg(e.code);
+            if (msg) _showAuthError(msg);
+          }
+        });
+      } catch (e) {
+        clearTimeout(_initDeadline);
+        console.warn('[Firebase] initializeApp failed:', e.message);
+        _authConfigured = false;
+        _authSetReady();
+        if (!_authSkipped) {
+          showAuthModal();
+          _showAuthError('Firebase initialization failed. Use "Continue without signing in" to use the app offline.');
+        }
+      }
+    }
+
+    // Prefer the config injected server-side into the page (bypasses SW cache).
+    // Fall back to fetching /api/config with retries if the inline config isn't present.
+    if (window.__FIREBASE_CONFIG__ && window.__FIREBASE_CONFIG__.apiKey) {
+      _applyConfig(window.__FIREBASE_CONFIG__);
+    } else {
+      function _fetchConfig(attemptsLeft) {
+        fetch('/api/config', { cache: 'no-store' })
+          .then(r => r.json())
+          .then(cfg => _applyConfig(cfg))
+          .catch(e => {
+            if (attemptsLeft > 1) {
+              console.warn('[Firebase] Config fetch failed, retrying…', e.message);
+              setTimeout(() => _fetchConfig(attemptsLeft - 1), 2000);
+            } else {
+              clearTimeout(_initDeadline);
+              console.warn('[Firebase] Config fetch failed after retries:', e.message);
+              _authConfigured = false;
+              _authSetReady();
+              if (!_authSkipped) {
+                showAuthModal();
+                _showAuthErrorWithRetry('Could not reach the server. Check your connection or');
+              }
+            }
+          });
+      }
+      _fetchConfig(4);
+    }
   }
 
   function _setCloudStatus(status) {
@@ -451,25 +463,6 @@
       forgotBtn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); _authForgotPassword(); });
     }
 
-    // Inject domain hint so user knows which domain to authorize in Firebase if Google fails
-    const existingHint = document.getElementById('auth-domain-hint');
-    if (!existingHint) {
-      const hint = document.createElement('div');
-      hint.id = 'auth-domain-hint';
-      hint.style.cssText = 'margin-top:10px;font-size:11px;color:rgba(148,163,184,0.7);text-align:center;line-height:1.5';
-      hint.innerHTML = `If Google Sign-In fails, add this to Firebase&nbsp;→&nbsp;Auth&nbsp;→&nbsp;Authorized Domains:<br><span id="auth-domain-val" style="font-family:monospace;color:#94a3b8;cursor:pointer;text-decoration:underline dotted" title="Click to copy">${location.hostname}</span>`;
-      const card = el.querySelector('.auth-card');
-      if (card) card.appendChild(hint);
-      const domainVal = hint.querySelector('#auth-domain-val');
-      if (domainVal) {
-        domainVal.addEventListener('click', () => {
-          navigator.clipboard.writeText(location.hostname).then(() => {
-            domainVal.textContent = 'Copied!';
-            setTimeout(() => { domainVal.textContent = location.hostname; }, 2000);
-          }).catch(() => {});
-        });
-      }
-    }
   }
   function hideAuthModal() {
     const el = document.getElementById('auth-overlay');

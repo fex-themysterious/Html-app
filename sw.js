@@ -1,9 +1,9 @@
-const CACHE_NAME = 'syllabus-tracker-v79';
+const CACHE_NAME = 'syllabus-tracker-v81';
 const STATIC = [
   '/',
   '/index.html',
   '/style.css?v=59',
-  '/script.js?v=70',
+  '/script.js?v=71',
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png',
@@ -47,6 +47,8 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   if (e.request.url.includes('noembed.com') || e.request.url.includes('youtube.com')) return;
+  // Never cache API calls — always fetch from network
+  if (e.request.url.includes('/api/')) return;
 
   // Audio files: cache-first with Range request support for mobile browsers
   if (e.request.url.includes('/sounds/')) {
@@ -97,7 +99,23 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // All other static assets: cache-first, network fallback
+  // HTML and JS files: network-first so code changes are always picked up immediately
+  const url = e.request.url;
+  const isHtmlOrJs = url.endsWith('.html') || url.includes('.js') || url === self.registration.scope || url.endsWith('/');
+  if (isHtmlOrJs) {
+    e.respondWith(
+      fetch(e.request).then(resp => {
+        if (resp && resp.status === 200 && resp.type === 'basic') {
+          const clone = resp.clone();
+          caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+        }
+        return resp;
+      }).catch(() => caches.match(e.request).then(cached => cached || caches.match('/index.html')))
+    );
+    return;
+  }
+
+  // All other static assets (CSS, images, etc.): cache-first, network fallback
   e.respondWith(
     caches.match(e.request).then(cached => {
       if (cached) return cached;
