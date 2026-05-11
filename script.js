@@ -273,7 +273,8 @@
     projectId:         'study-hub-app-f3431',
     storageBucket:     'study-hub-app-f3431.firebasestorage.app',
     messagingSenderId: '18536531099',
-    appId:             '1:18536531099:web:6b691f03283530c927f23e'
+    appId:             '1:18536531099:web:6b691f03283530c927f23e',
+    measurementId:     'G-HSRVYWG6D6'
   };
 
   function _initFirebase() {
@@ -328,6 +329,7 @@
           return _auth.getRedirectResult();
         })
         .then(result => {
+          try { localStorage.removeItem('stk_google_redirect'); } catch(_) {}
           if (result && result.user) {
             console.log('[Auth] Redirect sign-in succeeded:', result.user.email);
           }
@@ -340,6 +342,7 @@
           }
         })
         .catch(e => {
+          try { localStorage.removeItem('stk_google_redirect'); } catch(_) {}
           _redirectCheckDone = true;
           if (!_auth.currentUser && !_authSkipped) showAuthModal();
           if (e.code && e.code !== 'auth/null-user') {
@@ -468,13 +471,16 @@
       _userId = null;
       _setCloudStatus('idle');
       // Only show the modal once the redirect check has settled.
-      // If the user was previously logged in, the redirect may still be
-      // resolving — keep the modal hidden to prevent a flicker.
+      // _wasLoggedIn() covers returning users; _pendingGoogleRedirect covers
+      // first-time Google sign-in so the modal doesn't flash during the bounce.
+      const _pendingGoogleRedirect = (function() {
+        try { return localStorage.getItem('stk_google_redirect') === '1'; } catch(_) { return false; }
+      })();
       if (!_authSkipped) {
         if (_redirectCheckDone) {
           showAuthModal();
-        } else if (!_wasLoggedIn()) {
-          // First-time visitor with no prior session — safe to show immediately
+        } else if (!_wasLoggedIn() && !_pendingGoogleRedirect) {
+          // First-time visitor with no prior session and not mid-redirect — show immediately
           showAuthModal();
         }
         // Otherwise: wait for _redirectCheckDone (handled in the redirect chain above)
@@ -649,9 +655,13 @@
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
     try {
+      // Set flag BEFORE the redirect so the auth-state null flash on return
+      // doesn't re-show the modal (covers first-time users where stk_logged_in isn't set yet)
+      try { localStorage.setItem('stk_google_redirect', '1'); } catch(_) {}
       _showAuthError('Redirecting to Google… please wait.');
       await _auth.signInWithRedirect(provider);
     } catch (e) {
+      try { localStorage.removeItem('stk_google_redirect'); } catch(_) {}
       console.error('[Auth] Google redirect error:', e.code, e.message);
       _clearAuthError();
       const msg = _authErrorMsg(e.code);
