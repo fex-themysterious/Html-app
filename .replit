@@ -42,9 +42,3 @@ run = ["node", "server.js"]
 [userenv]
 
 [userenv.shared]
-FIREBASE_API_KEY = "AIzaSyCRg1W9ueQp80kfDbS-o5VdDZmW7I9AbMQ"
-FIREBASE_AUTH_DOMAIN = "study-hub-app-f3431.firebaseapp.com"
-FIREBASE_PROJECT_ID = "study-hub-app-f3431"
-FIREBASE_STORAGE_BUCKET = "study-hub-app-f3431.firebasestorage.app"
-FIREBASE_MESSAGING_SENDER_ID = "18536531099"
-FIREBASE_APP_ID = "1:18536531099:web:6b691f03283530c927f23e"
