@@ -230,10 +230,35 @@
   // True once getRedirectResult() has settled — suppresses the login modal
   // during the brief null flash that happens before a redirect result is applied
   let _redirectCheckDone = false;
+  // Timer handle for the 3-second modal delay
+  let _modalDelayTimer = null;
   // Persisted flag: was the user signed in during the last session?
   // Used to keep the modal hidden while the redirect bounce is resolving.
   function _wasLoggedIn() {
     try { return localStorage.getItem('stk_logged_in') === '1'; } catch(_) { return false; }
+  }
+
+  // Schedule the login modal to appear after a 3-second delay.
+  // This gives Firebase time to restore a persisted session OR process a redirect
+  // result before interrupting the user. Cancelled immediately if a user signs in.
+  function _scheduleModal() {
+    if (_authSkipped) return;
+    // A Google redirect is actively in-flight — never show modal during bounce
+    try { if (localStorage.getItem('stk_google_redirect') === '1') return; } catch(_) {}
+    // Returning user: Firebase will fire onAuthStateChanged(user) soon — don't rush
+    if (!_redirectCheckDone && _wasLoggedIn()) return;
+    // Cancel any existing pending timer before setting a new one
+    if (_modalDelayTimer) { clearTimeout(_modalDelayTimer); _modalDelayTimer = null; }
+    _modalDelayTimer = setTimeout(() => {
+      _modalDelayTimer = null;
+      if (_authSkipped) return;
+      if (_auth && _auth.currentUser) return;
+      try { if (localStorage.getItem('stk_google_redirect') === '1') return; } catch(_) {}
+      showAuthModal();
+    }, 3000);
+  }
+  function _cancelModalTimer() {
+    if (_modalDelayTimer) { clearTimeout(_modalDelayTimer); _modalDelayTimer = null; }
   }
 
   // Called when a sign-in button is tapped before Firebase is ready.
@@ -279,14 +304,13 @@
 
   function _initFirebase() {
     if (typeof firebase === 'undefined') {
-      // CDN script might still be in flight — retry once after 2 s
       console.warn('[Firebase] SDK not loaded yet — retrying in 2 s…');
       setTimeout(() => {
         if (typeof firebase === 'undefined') {
           console.error('[Firebase] SDK unavailable after retry — running offline.');
           _authInitState = 'failed';
           _authSetReady();
-          if (!_authSkipped) showAuthModal();
+          if (!_authSkipped) _scheduleModal();
         } else {
           _initFirebase();
         }
@@ -294,12 +318,12 @@
       return;
     }
 
-    // 7-second safety net: unblock the sign-in form so the user isn't stuck
+    // 7-second safety net: unblock the form so the user is never permanently stuck
     var _initDeadline = setTimeout(() => {
       if (_auth) return;
       console.warn('[Firebase] Auth not ready after 7 s — showing form anyway.');
       _authSetReady();
-      if (!_authSkipped) showAuthModal();
+      if (!_authSkipped) _scheduleModal();
     }, 7000);
 
     console.log('[Firebase] Applying config for project:', FIREBASE_CONFIG.projectId);
@@ -316,35 +340,42 @@
 
       console.log('[Firebase] Initialized successfully. Auth:', !!_auth, '| Project:', FIREBASE_CONFIG.projectId);
 
-      // Register auth-state listener immediately so persisted sessions
-      // are detected without waiting for the redirect check.
+      // Set LOCAL persistence — fire-and-forget, does NOT need to complete before
+      // getRedirectResult (persistence only affects future sign-in attempts).
+      _auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+        .then(() => console.log('[Firebase] Persistence set to LOCAL.'))
+        .catch(e => console.warn('[Firebase] Persistence warning:', e.message));
+
+      // Register auth-state listener BEFORE getRedirectResult so it captures
+      // the resolved user the moment Firebase applies the redirect credential.
       _auth.onAuthStateChanged(_handleAuthStateChange);
 
-      // Chain: ensure LOCAL persistence is set, THEN process any redirect
-      // result. Only after both settle do we mark _redirectCheckDone = true
-      // and allow the login modal to appear (prevents the null-flash flicker).
-      _auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
-        .then(() => {
-          console.log('[Firebase] Persistence set to LOCAL.');
-          return _auth.getRedirectResult();
-        })
+      // Process any pending OAuth redirect result immediately — independent of
+      // the persistence chain above. The 3-second delay inside _scheduleModal()
+      // ensures the modal never appears before this promise settles.
+      _auth.getRedirectResult()
         .then(result => {
-          try { localStorage.removeItem('stk_google_redirect'); } catch(_) {}
           if (result && result.user) {
-            console.log('[Auth] Redirect sign-in succeeded:', result.user.email);
+            // onAuthStateChanged(user) will fire and handle everything,
+            // including clearing stk_google_redirect at the confirmed-login point.
+            console.log('[Auth] Redirect sign-in completed:', result.user.email);
+          } else {
+            // No redirect was in flight — safe to clear the pending flag now.
+            try { localStorage.removeItem('stk_google_redirect'); } catch(_) {}
           }
           _redirectCheckDone = true;
-          // If onAuthStateChanged already fired null AND user isn't logged in
-          // via the redirect, reveal the modal now.
           if (!_auth.currentUser && !_authSkipped) {
             try { localStorage.removeItem('stk_logged_in'); } catch(_) {}
-            showAuthModal();
+            _scheduleModal();
           }
         })
         .catch(e => {
           try { localStorage.removeItem('stk_google_redirect'); } catch(_) {}
           _redirectCheckDone = true;
-          if (!_auth.currentUser && !_authSkipped) showAuthModal();
+          if (!_auth.currentUser && !_authSkipped) {
+            try { localStorage.removeItem('stk_logged_in'); } catch(_) {}
+            _scheduleModal();
+          }
           if (e.code && e.code !== 'auth/null-user') {
             console.error('[Auth] Redirect result error:', e.code, e.message);
             var msg = _authErrorMsg(e.code);
@@ -358,7 +389,7 @@
       _authConfigured = false;
       _authSetReady();
       if (!_authSkipped) {
-        showAuthModal();
+        _scheduleModal();
         _showAuthError('Firebase initialization failed. Use "Continue without signing in" to use the app offline.');
       }
     }
@@ -423,8 +454,12 @@
   // ── Auth State Handler ───────────────────────────────────────────────────
   async function _handleAuthStateChange(user) {
     if (user) {
-      // Persist the "user is logged in" flag so we can suppress the modal
-      // during the redirect-result null-flash on the next page load.
+      // ── Confirmed login: cancel any pending modal timer immediately ──
+      _cancelModalTimer();
+      // Clear the Google redirect in-flight flag ONLY here — this is the
+      // definitive confirmed-login moment, not getRedirectResult().then().
+      try { localStorage.removeItem('stk_google_redirect'); } catch(_) {}
+      // Persist the logged-in flag for the next page load's redirect-bounce guard.
       try { localStorage.setItem('stk_logged_in', '1'); } catch(_) {}
       _userId = user.uid;
       _authSkipped = false;
@@ -470,21 +505,9 @@
     } else {
       _userId = null;
       _setCloudStatus('idle');
-      // Only show the modal once the redirect check has settled.
-      // _wasLoggedIn() covers returning users; _pendingGoogleRedirect covers
-      // first-time Google sign-in so the modal doesn't flash during the bounce.
-      const _pendingGoogleRedirect = (function() {
-        try { return localStorage.getItem('stk_google_redirect') === '1'; } catch(_) { return false; }
-      })();
-      if (!_authSkipped) {
-        if (_redirectCheckDone) {
-          showAuthModal();
-        } else if (!_wasLoggedIn() && !_pendingGoogleRedirect) {
-          // First-time visitor with no prior session and not mid-redirect — show immediately
-          showAuthModal();
-        }
-        // Otherwise: wait for _redirectCheckDone (handled in the redirect chain above)
-      }
+      // Delegate entirely to _scheduleModal() which enforces the 3-second delay
+      // and checks all guards (redirect in-flight, returning user, skipped).
+      if (!_authSkipped) _scheduleModal();
       refreshSettingsIfOpen();
     }
   }
