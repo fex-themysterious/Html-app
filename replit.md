@@ -25,9 +25,10 @@ An offline-capable Progressive Web App for tracking study progress with spaced r
 ## Architecture decisions
 - All data persisted in `localStorage` under key `syllabus_tracker_v2` — primary store
 - Cloud sync via Firebase Firestore v8 compat CDN + Firebase Auth v8 compat
-- Auth: **Email/password only** (Google removed). `firebase.auth.Auth.Persistence.LOCAL` — verified users stay logged in. `onAuthStateChanged` drives all sync
-- Strict email verification: signup sends verification email then immediately signs user out. Login checks `user.emailVerified` — if false, shows "verify your email" message + "Resend Verification Email" button (user stays temporarily signed in to allow resend, then signed out). `_awaitingEmailVerification` flag prevents `_handleAuthStateChange` from signing out the unverified user while the resend UI is displayed
-- On login (verified): if user has Firestore data → restore it; if not → upload current local data. All Firestore writes under `users/{auth.uid}`
+- Auth: **Email/password only** (Google removed). `firebase.auth.Auth.Persistence.LOCAL` — users stay logged in across sessions. `onAuthStateChanged` drives all sync
+- Signup: `createUserWithEmailAndPassword` → `onAuthStateChanged(user)` immediately grants Home tab access. No email verification gate.
+- Login: `signInWithEmailAndPassword` → `onAuthStateChanged(user)` grants access instantly. Client-side email format validation (`/^[^\s@]+@[^\s@]+\.[^\s@]+$/`) runs before any network call.
+- On login: if user has Firestore data → restore it; if not → upload current local data. All Firestore writes under `users/{auth.uid}`
 - Login modal: dark glassmorphism overlay (`#auth-overlay`) with Email + Password fields, Sign In / Sign Up toggle, Forgot Password link, Enter-key support. No Google button.
 - Cloud sync icon (top-right, left of settings): gray=idle, amber-pulsing=syncing, green=saved, red=error. Only active when authenticated
 - Settings modal shows ☁️ Account section at top: avatar + email + Sign Out button (or Sign In CTA if not logged in)
