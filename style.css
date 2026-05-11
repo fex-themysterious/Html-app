@@ -3988,6 +3988,32 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 }
 .auth-skip-btn:hover { color: var(--text, #e2e8f0); }
 
+/* ── Auth loading spinner ───────────────────────────────────────────────── */
+.auth-spinner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 0 8px;
+}
+.auth-spinner-ring {
+  width: 38px;
+  height: 38px;
+  border: 3px solid rgba(99,102,241,0.22);
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: auth-spin 0.75s linear infinite;
+}
+@keyframes auth-spin { to { transform: rotate(360deg); } }
+.auth-spinner-label { font-size: 12px; color: var(--text-muted,#94a3b8); margin: 0; }
+/* Spinner hidden once auth is ready; form/buttons hidden while loading */
+.auth-overlay:not(.auth-loading) #auth-spinner { display: none; }
+.auth-overlay.auth-loading #auth-form,
+.auth-overlay.auth-loading .auth-btn-google,
+.auth-overlay.auth-loading .auth-toggle,
+.auth-overlay.auth-loading .auth-skip-row,
+.auth-overlay.auth-loading .auth-divider { display: none !important; }
+
 /* ── Settings — Account section ─────────────────────────────────────────── */
 .settings-auth-section .auth-profile-row {
   display: flex;

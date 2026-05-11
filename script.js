@@ -235,6 +235,7 @@
     const _initDeadline = setTimeout(() => {
       if (_auth) return; // resolved in time — nothing to do
       console.warn('[Firebase] Auth not ready after 3 s — activating offline-friendly mode.');
+      _authSetReady(); // reveal form / skip button so user isn't stuck on spinner
       if (!_authSkipped) {
         showAuthModal();
         _showAuthError('Firebase is taking longer than expected. Use "Continue without signing in" to use the app offline, or reload to retry.');
@@ -250,9 +251,10 @@
           clearTimeout(_initDeadline);
           console.warn('[Firebase] Config is empty — set FIREBASE_* environment secrets.');
           _authConfigured = false;
+          _authSetReady();
           if (!_authSkipped) {
             showAuthModal();
-            _showAuthError('Firebase is not configured by the administrator. Use "Continue without signing in" to use the app offline.');
+            _showAuthError('Firebase is not configured. Use "Continue without signing in" to use the app offline.');
           }
           return;
         }
@@ -266,6 +268,7 @@
           _auth           = firebase.auth();
           _authConfigured = true;
           clearTimeout(_initDeadline);
+          _authSetReady(); // spinner off — form & buttons now visible
 
           // Debugging log requested by user
           console.log('[Firebase] Auth State:', _auth);
@@ -290,9 +293,10 @@
           clearTimeout(_initDeadline);
           console.warn('[Firebase] initializeApp failed:', e.message);
           _authConfigured = false;
+          _authSetReady();
           if (!_authSkipped) {
             showAuthModal();
-            _showAuthError('Firebase initialization failed — the configuration may be invalid. Use "Continue without signing in" to use the app offline.');
+            _showAuthError('Firebase initialization failed. Use "Continue without signing in" to use the app offline.');
           }
         }
       })
@@ -470,6 +474,11 @@
     const el = document.getElementById('auth-error');
     if (el) el.classList.add('hidden');
   }
+  // Call once Firebase is ready (or we give up waiting) to reveal the sign-in form
+  function _authSetReady() {
+    const overlay = document.getElementById('auth-overlay');
+    if (overlay) overlay.classList.remove('auth-loading');
+  }
   function _setAuthLoading(loading) {
     const btn = document.getElementById('auth-submit');
     if (!btn) return;
@@ -553,35 +562,16 @@
     _clearAuthError();
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
-    // Try popup first; fall back to redirect for blocked/unauthorized-domain errors
+    // Use redirect sign-in (most reliable on mobile; page navigates away then returns)
     try {
-      await _auth.signInWithPopup(provider);
+      _showAuthError('Redirecting to Google… please wait.');
+      await _auth.signInWithRedirect(provider);
+      // Execution stops here — browser redirects to Google
     } catch (e) {
-      console.error('[Auth] Google popup error:', e.code, e.message);
-      const redirectFallbackCodes = new Set([
-        'auth/popup-blocked',
-        'auth/popup-closed-by-user',
-        'auth/unauthorized-domain',
-        'auth/operation-not-supported-in-this-environment',
-        'auth/cancelled-popup-request'
-      ]);
-      if (redirectFallbackCodes.has(e.code)) {
-        // Silent fallback — show brief notice then redirect
-        if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') {
-          _showAuthError('Opening Google sign-in…');
-        }
-        try {
-          await _auth.signInWithRedirect(provider);
-          // Page will redirect; no further code runs here
-        } catch (redirectErr) {
-          console.error('[Auth] Google redirect error:', redirectErr.code, redirectErr.message);
-          const msg = _authErrorMsg(redirectErr.code);
-          if (msg) _showAuthError(msg);
-        }
-      } else {
-        const msg = _authErrorMsg(e.code);
-        if (msg) _showAuthError(msg);
-      }
+      console.error('[Auth] Google redirect error:', e.code, e.message);
+      _clearAuthError();
+      const msg = _authErrorMsg(e.code);
+      if (msg) _showAuthError(msg);
     }
   }
   async function _authSignOut() {

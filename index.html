@@ -15,10 +15,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="./style.css?v=57"/>
-  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+  <link rel="stylesheet" href="./style.css?v=58"/>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 </head>
 <body>
   <div id="app">
@@ -69,12 +69,17 @@
   </div>
 
   <!-- ── Firebase Auth Overlay ────────────────────────────────────────── -->
-  <div id="auth-overlay" class="auth-overlay hidden" role="dialog" aria-modal="true" aria-label="Sign in">
+  <div id="auth-overlay" class="auth-overlay hidden auth-loading" role="dialog" aria-modal="true" aria-label="Sign in">
     <div class="auth-card">
       <div class="auth-logo">📚</div>
       <h2 class="auth-title">Study Hub</h2>
       <p class="auth-subtitle" id="auth-subtitle">Sign in to sync your progress</p>
       <div id="auth-error" class="auth-error hidden"></div>
+      <!-- Spinner shown while Firebase is initialising -->
+      <div id="auth-spinner" class="auth-spinner" aria-label="Connecting…">
+        <div class="auth-spinner-ring"></div>
+        <p class="auth-spinner-label">Connecting…</p>
+      </div>
       <form id="auth-form" class="auth-fields" autocomplete="on" onsubmit="return false">
         <input type="email"    id="auth-email"    class="auth-input" placeholder="Email address"  autocomplete="email"/>
         <input type="password" id="auth-password" class="auth-input" placeholder="Password"       autocomplete="current-password"/>
@@ -101,7 +106,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-  <script src="./script.js?v=67"></script>
+  <script src="./script.js?v=68"></script>
   <script>
     /* ── Service Worker ── */
     if ('serviceWorker' in navigator) {
