@@ -257,9 +257,20 @@
     }, 500);
   }
 
+  // Firebase project config — safe to include in frontend code.
+  // Firebase security is enforced by Firestore Security Rules, not by keeping this secret.
+  var FIREBASE_CONFIG = {
+    apiKey:            'AIzaSyCRg1W9ueQp80kfDbS-o5VdDZmW7I9AbMQ',
+    authDomain:        'study-hub-app-f3431.firebaseapp.com',
+    projectId:         'study-hub-app-f3431',
+    storageBucket:     'study-hub-app-f3431.firebasestorage.app',
+    messagingSenderId: '18536531099',
+    appId:             '1:18536531099:web:6b691f03283530c927f23e'
+  };
+
   function _initFirebase() {
     if (typeof firebase === 'undefined') {
-      // SDK CDN might still be loading — retry once after 2 s
+      // CDN script might still be in flight — retry once after 2 s
       console.warn('[Firebase] SDK not loaded yet — retrying in 2 s…');
       setTimeout(() => {
         if (typeof firebase === 'undefined') {
@@ -274,104 +285,56 @@
       return;
     }
 
-    // 7-second deadline: unblock the form so user isn't staring at a spinner
-    const _initDeadline = setTimeout(() => {
+    // 7-second safety net: unblock the sign-in form so the user isn't stuck
+    var _initDeadline = setTimeout(() => {
       if (_auth) return;
       console.warn('[Firebase] Auth not ready after 7 s — showing form anyway.');
       _authSetReady();
       if (!_authSkipped) showAuthModal();
-      // Don't set state to 'failed' here — Firebase may still connect in the background
     }, 7000);
 
-    function _applyConfig(cfg) {
-      const configured = !!(cfg && cfg.apiKey && cfg.authDomain && cfg.projectId);
-      if (!configured) {
-        clearTimeout(_initDeadline);
-        console.error('[Firebase] Init failed: config is empty. Ensure FIREBASE_* env vars are set.');
-        _authInitState  = 'failed';
-        _authConfigured = false;
-        _authSetReady();
-        if (!_authSkipped) {
-          showAuthModal();
-          _showAuthError('Firebase is not configured. Use "Continue without signing in" to use the app offline.');
-        }
-        return;
+    console.log('[Firebase] Applying config for project:', FIREBASE_CONFIG.projectId);
+    try {
+      if (!firebase.apps || !firebase.apps.length) {
+        firebase.initializeApp(FIREBASE_CONFIG);
       }
+      _db             = firebase.firestore();
+      _auth           = firebase.auth();
+      _authConfigured = true;
+      _authInitState  = 'ready';
+      clearTimeout(_initDeadline);
+      _authSetReady();
 
-      console.log('[Firebase] Applying config for project:', cfg.projectId);
-      try {
-        if (!firebase.apps || !firebase.apps.length) {
-          firebase.initializeApp(cfg);
+      console.log('[Firebase] Initialized successfully. Auth:', !!_auth, '| Project:', FIREBASE_CONFIG.projectId);
+
+      _auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+        .then(() => console.log('[Firebase] Persistence set to LOCAL.'))
+        .catch(e => console.warn('[Firebase] Persistence error:', e.message));
+
+      _auth.onAuthStateChanged(_handleAuthStateChange);
+
+      // Process the result of any signInWithRedirect that just returned
+      _auth.getRedirectResult().then(result => {
+        if (result && result.user) {
+          console.log('[Auth] Redirect sign-in succeeded:', result.user.email);
         }
-        _db             = firebase.firestore();
-        _auth           = firebase.auth();
-        _authConfigured = true;
-        _authInitState  = 'ready';
-        clearTimeout(_initDeadline);
-        _authSetReady();
-
-        console.log('[Firebase] Initialized successfully. Auth:', !!_auth, '| Project:', cfg.projectId);
-
-        _auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
-          .then(() => console.log('[Firebase] Persistence set to LOCAL.'))
-          .catch(e => console.warn('[Firebase] Persistence error:', e.message));
-
-        _auth.onAuthStateChanged(_handleAuthStateChange);
-
-        // Handle return from signInWithRedirect
-        _auth.getRedirectResult().then(result => {
-          if (result && result.user) {
-            console.log('[Auth] Redirect sign-in succeeded:', result.user.email);
-          }
-        }).catch(e => {
-          if (e.code && e.code !== 'auth/null-user') {
-            console.error('[Auth] Redirect result error:', e.code, e.message);
-            const msg = _authErrorMsg(e.code);
-            if (msg) _showAuthError(msg);
-          }
-        });
-      } catch (e) {
-        clearTimeout(_initDeadline);
-        console.error('[Firebase] initializeApp failed:', e.message);
-        _authInitState  = 'failed';
-        _authConfigured = false;
-        _authSetReady();
-        if (!_authSkipped) {
-          showAuthModal();
-          _showAuthError('Firebase initialization failed. Use "Continue without signing in" to use the app offline.');
+      }).catch(e => {
+        if (e.code && e.code !== 'auth/null-user') {
+          console.error('[Auth] Redirect result error:', e.code, e.message);
+          var msg = _authErrorMsg(e.code);
+          if (msg) _showAuthError(msg);
         }
+      });
+    } catch (e) {
+      clearTimeout(_initDeadline);
+      console.error('[Firebase] initializeApp failed:', e.message);
+      _authInitState  = 'failed';
+      _authConfigured = false;
+      _authSetReady();
+      if (!_authSkipped) {
+        showAuthModal();
+        _showAuthError('Firebase initialization failed. Use "Continue without signing in" to use the app offline.');
       }
-    }
-
-    // Prefer the config injected server-side into the page (bypasses SW cache).
-    // Fall back to fetching /api/config with retries if the inline config isn't present.
-    if (window.__FIREBASE_CONFIG__ && window.__FIREBASE_CONFIG__.apiKey) {
-      console.log('[Firebase] Using server-injected config.');
-      _applyConfig(window.__FIREBASE_CONFIG__);
-    } else {
-      console.warn('[Firebase] No inline config found — fetching /api/config…');
-      function _fetchConfig(attemptsLeft) {
-        fetch('/api/config', { cache: 'no-store' })
-          .then(r => r.json())
-          .then(cfg => _applyConfig(cfg))
-          .catch(e => {
-            if (attemptsLeft > 1) {
-              console.warn('[Firebase] Config fetch failed, retrying… (' + attemptsLeft + ' left):', e.message);
-              setTimeout(() => _fetchConfig(attemptsLeft - 1), 2000);
-            } else {
-              clearTimeout(_initDeadline);
-              console.error('[Firebase] Config fetch failed after all retries:', e.message);
-              _authInitState  = 'failed';
-              _authConfigured = false;
-              _authSetReady();
-              if (!_authSkipped) {
-                showAuthModal();
-                _showAuthErrorWithRetry('Could not reach the server.');
-              }
-            }
-          });
-      }
-      _fetchConfig(4);
     }
   }
 
