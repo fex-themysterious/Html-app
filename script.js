@@ -2170,19 +2170,6 @@
     const quotes = state.motivationQuotes;
     if (!quotes || !quotes.length) return;
     _motivationIdx = (_motivationIdx + 1) % quotes.length;
-    // Refresh motivation line in home if on home tab
-    const homeView = document.getElementById('view-home');
-    if (homeView && homeView.classList.contains('active')) {
-      const line = homeView.querySelector('.motivation-line');
-      if (line) {
-        const overall = overallProgress();
-        const tasks = getActivePlanTasks();
-        const allDone = tasks.length > 0 && tasks.every(t => t.done);
-        const newMsg = getRotatingQuote();
-        line.className = `motivation-line ${overall >= 80 ? 'is-hot' : overall < 20 ? 'is-cold' : ''}`;
-        line.textContent = newMsg;
-      }
-    }
   }
   function startMotivationRotation() {
     clearInterval(_motivationRotateTimer);
@@ -2493,8 +2480,6 @@
     document.body.className = 'tab-' + tab;
     _currentTab = tab;
     closeDropdown();
-    // Rotate motivation quote when returning to home
-    if (tab === 'home') nextMotivationQuote();
     // Show/hide mini timer bubble
     updateMiniTimer();
   }
@@ -2547,10 +2532,8 @@
   // ========== Render All ==========
   // Only renders the currently visible tab to prevent CPU waste.
   function _renderOneTab(tab) {
-    if (tab === 'home')          renderHome();
-    else if (tab === 'dashboard') renderDashboard();
+    if (tab === 'dashboard') renderDashboard();
     else if (tab === 'syllabus')  renderSyllabus();
-    else if (tab === 'revision')  renderRevision();
     else if (tab === 'stats')     renderStats();
     else if (tab === 'social')    renderSocial();
     // 'focus' is handled separately by renderFocus()
@@ -2670,6 +2653,17 @@
   }
 
   // ========== Dashboard ==========
+  function renderRevisionZone() {
+    const dueItems = dueRevisionItems(), upcoming = upcomingRevisionItems(8);
+    const dueHtml = !dueItems.length
+      ? `<div class="empty">No revisions due — great work!</div>`
+      : `<div class="list">${dueItems.map(item => `<div class="card card-row revision-item is-overdue"><span class="color-dot" style="background:${item.sub ? item.sub.color : 'var(--primary)'}"></span><div style="flex:1;min-width:0"><div class="title">${escapeHTML(item.topic ? item.topic.name : '?')}</div><div class="meta">${escapeHTML(item.sub ? item.sub.name : '')} · ${escapeHTML(item.ch ? item.ch.name : '')}</div><div style="margin-top:4px">${item.daysOverdue > 0 ? `<span class="pill pill-overdue">${item.daysOverdue}d overdue</span>` : `<span class="pill pill-today">Due today</span>`}</div></div><div style="display:flex;gap:6px"><button class="btn btn-sm" data-act="rev-done" data-rev="${item.revisionId}" data-off="${item.step.offset}">${ic('check')}</button><button class="menu-btn" data-act="rev-dismiss" data-rev="${item.revisionId}">${ic('trash')}</button></div></div>`).join('')}</div>`;
+    const upcomingHtml = !upcoming.length
+      ? `<div class="empty">No upcoming revisions scheduled.</div>`
+      : `<div class="list">${upcoming.map(item => `<div class="card card-row revision-item upcoming"><span class="color-dot" style="background:${item.sub ? item.sub.color : 'var(--primary)'}"></span><div style="flex:1;min-width:0"><div class="title">${escapeHTML(item.topic ? item.topic.name : '?')}</div><div class="meta">${escapeHTML(item.sub ? item.sub.name : '')} · ${escapeHTML(item.ch ? item.ch.name : '')}</div><div style="margin-top:4px"><span class="pill pill-upcoming">In ${item.daysUntil}d · ${formatDate(item.step.dueDate)}</span></div></div></div>`).join('')}</div>`;
+    return `<div class="section-head" style="margin-top:20px"><h2>Revision Zone</h2>${dueItems.length ? `<span class="muted">${dueItems.length} due</span>` : ''}</div><div class="section-head" style="margin-top:12px"><h3 style="font-size:13px;font-weight:600;color:var(--text-muted)">Due Today${dueItems.length ? ` (${dueItems.length})` : ''}</h3></div>${dueHtml}<div class="section-head" style="margin-top:12px"><h3 style="font-size:13px;font-weight:600;color:var(--text-muted)">Upcoming</h3></div>${upcomingHtml}`;
+  }
+
   function renderDashboard() {
     const view = document.getElementById('view-dashboard'); if (!view) return;
     try {
@@ -2681,7 +2675,8 @@
       const _goals = _safe(renderGoals, '');
       const _sugg  = _safe(renderSmartSuggestions, '');
       const _weak  = _safe(renderWeakAreas, '');
-      view.innerHTML = `<div class="page-header"><h1>Dashboard</h1><div class="subtitle">Your study control center</div></div>${_bB}<div class="section-head"><h2>Today's Plan</h2><div style="display:flex;gap:8px;align-items:center"><span class="muted" style="font-size:13px">${doneCount}/${tasks.length} done</span><button class="btn-link" data-act="regen-plan">↻ Regen</button></div></div>${_tlist}${_padd}<div class="section-head" style="margin-top:20px"><h2>Study Calendar</h2></div>${_cal}${_goals}${_sugg}${_weak}`;
+      const _rev   = _safe(renderRevisionZone, '');
+      view.innerHTML = `<div class="page-header"><h1>Dashboard</h1><div class="subtitle">Your study control center</div></div>${_bB}<div class="section-head"><h2>Today's Plan</h2><div style="display:flex;gap:8px;align-items:center"><span class="muted" style="font-size:13px">${doneCount}/${tasks.length} done</span><button class="btn-link" data-act="regen-plan">↻ Regen</button></div></div>${_tlist}${_padd}<div class="section-head" style="margin-top:20px"><h2>Study Calendar</h2></div>${_cal}${_goals}${_sugg}${_weak}${_rev}`;
       bindPlanPickers();
     } catch (err) {
       console.error('[Dashboard] render failed:', err);
@@ -4133,7 +4128,7 @@
     state.focusStats.videoMinutes[todayStr]  = (state.focusStats.videoMinutes[todayStr]  || 0) + mins;
     awardXP(mins, todayStr);
     saveState();
-    renderHome();
+    renderDashboard();
     toast('🎉 Focus session complete! Great work!', 'success', 5000);
   }
 
@@ -5112,7 +5107,7 @@
         state.profile.name    = name;
         state.profile.tagline = tagline;
         saveState();
-        renderHome();
+        renderDashboard();
         toast('Profile saved ✓', 'success');
       }
       return;
@@ -5121,8 +5116,8 @@
 
     if (act === 'open-dashboard') { switchTab('dashboard'); renderDashboard(); return; }
     if (act === 'open-syllabus')  { switchTab('syllabus');  renderSyllabus();  return; }
-    if (act === 'open-plan') { closeModal(); switchTab('home'); renderHome(); return; }
-    if (act === 'burnout-go-plan') { closeModal(); switchTab('home'); renderHome(); return; }
+    if (act === 'open-plan') { closeModal(); switchTab('dashboard'); renderDashboard(); return; }
+    if (act === 'burnout-go-plan') { closeModal(); switchTab('dashboard'); renderDashboard(); return; }
     if (act === 'burnout-popup') { showBurnoutPopup(); return; }
     if (act === 'burnout-dismiss-banner') { state.burnout.bannerDismissedDate = todayKey(); saveState(); renderDashboard(); return; }
 
@@ -5135,27 +5130,27 @@
     if (act === 'edit-goal') { const g = (state.goals || []).find(g => g.id === el.dataset.id); if (g) modalAddGoal(g); return; }
 
     // Plan
-    if (act === 'regen-plan') { const k = todayKey(); if (state.dailyPlans[k]) { state.dailyPlans[k].generated = false; state.dailyPlans[k].auto = []; state.dailyPlans[k].custom = state.dailyPlans[k].custom.filter(c => !c.rolledOver); } saveState(); ensureTodayPlan(); renderHome(); renderDashboard(); toast('Plan regenerated', 'info'); return; }
+    if (act === 'regen-plan') { const k = todayKey(); if (state.dailyPlans[k]) { state.dailyPlans[k].generated = false; state.dailyPlans[k].auto = []; state.dailyPlans[k].custom = state.dailyPlans[k].custom.filter(c => !c.rolledOver); } saveState(); ensureTodayPlan(); renderDashboard(); toast('Plan regenerated', 'info'); return; }
     if (act === 'toggle-plan-task') {
       const type = el.dataset.type;
-      if (type === 'auto') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { const wasDone = t.done; t.done = !t.done; if (t.done) { bumpActivity(); gamificationManager.addTaskXP(); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); _justPoppedKey = `auto:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`; } else onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, false); const tasks = getActivePlanTasks(); if (tasks.length > 0 && tasks.every(x => x.done) && !wasDone) _justCompletedDay = todayKey(); saveState(); renderHome(); renderSyllabus(); renderRevision(); } }
-      else { const plan = state.dailyPlans[todayKey()]; if (plan) { const ct = plan.custom.find(c => c.id === el.dataset.id); if (ct) { ct.done = !ct.done; if (ct.done) { bumpActivity(); gamificationManager.addTaskXP(); } saveState(); renderHome(); renderDashboard(); } } }
+      if (type === 'auto') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { const wasDone = t.done; t.done = !t.done; if (t.done) { bumpActivity(); gamificationManager.addTaskXP(); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); _justPoppedKey = `auto:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`; } else onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, false); const tasks = getActivePlanTasks(); if (tasks.length > 0 && tasks.every(x => x.done) && !wasDone) _justCompletedDay = todayKey(); saveState(); renderDashboard(); renderSyllabus(); } }
+      else { const plan = state.dailyPlans[todayKey()]; if (plan) { const ct = plan.custom.find(c => c.id === el.dataset.id); if (ct) { ct.done = !ct.done; if (ct.done) { bumpActivity(); gamificationManager.addTaskXP(); } saveState(); renderDashboard(); } } }
       return;
     }
     if (act === 'remove-plan-task') {
       const type = el.dataset.type, plan = state.dailyPlans[todayKey()]; if (!plan) return;
-      if (type === 'auto') { const key = autoKey(el.dataset.sub, el.dataset.ch, el.dataset.t); const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.skipCount = (t.skipCount || 0) + 1; t.lastSkippedAt = todayKey(); } if (!plan.removed.includes(key)) plan.removed.push(key); saveState(); renderHome(); renderDashboard(); }
+      if (type === 'auto') { const key = autoKey(el.dataset.sub, el.dataset.ch, el.dataset.t); const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.skipCount = (t.skipCount || 0) + 1; t.lastSkippedAt = todayKey(); } if (!plan.removed.includes(key)) plan.removed.push(key); saveState(); renderDashboard(); }
       else {
         const rid = el.dataset.rid;
         if (rid) {
           confirmModal('This is a daily recurring task. Remove it forever so it stops repeating?', () => {
             state.recurringTasks = (state.recurringTasks || []).filter(r => r.id !== rid);
             plan.custom = plan.custom.filter(c => c.id !== el.dataset.id);
-            saveState(); renderHome(); renderDashboard();
+            saveState(); renderDashboard();
           }, { title: 'Stop Recurring Task?', yesLabel: 'Remove Forever', yesClass: 'btn', noLabel: 'Keep' });
         } else {
           plan.custom = plan.custom.filter(c => c.id !== el.dataset.id);
-          saveState(); renderHome(); renderDashboard();
+          saveState(); renderDashboard();
         }
       }
       return;
@@ -5187,7 +5182,7 @@
         plan.custom.push({ id: uid(), text, done: false });
       }
       if (input) input.value = '';
-      saveState(); renderHome(); renderDashboard();
+      saveState(); renderDashboard();
       return;
     }
     if (act === 'add-plan-from-syllabus') {
@@ -5209,7 +5204,7 @@
           plan.custom.push({ id: uid(), text: full, done: false });
           added++;
         }
-        saveState(); renderHome(); renderDashboard();
+        saveState(); renderDashboard();
         toast(added > 0 ? `Chapter task added to plan` : 'Already in today\'s plan', added > 0 ? 'success' : 'info');
         return;
       }
@@ -5233,7 +5228,7 @@
       };
       if (tId) { const t = findTopic(subId, chId, tId); if (t) addOneTopic(t); }
       else { for (const t of ch.topics) addOneTopic(t); }
-      saveState(); renderHome(); renderDashboard();
+      saveState(); renderDashboard();
       toast(added > 0 ? `${added} task${added > 1 ? 's' : ''} added to plan` : 'Already in today\'s plan', added > 0 ? 'success' : 'info');
       return;
     }
@@ -5548,13 +5543,13 @@
       if (!text) { toast('Enter a task', 'warn'); return; }
       if (!state.dailyPlans[date]) state.dailyPlans[date] = { auto: [], removed: [], custom: [], generated: false };
       state.dailyPlans[date].custom.push({ id: uid(), text, done: false });
-      saveState(); modalCalendarDay(date); renderDashboard(); renderHome();
+      saveState(); modalCalendarDay(date); renderDashboard();
       return;
     }
     if (act === 'toggle-cal-task') {
       const date = el.dataset.date, i = parseInt(el.dataset.i, 10);
       const plan = state.dailyPlans[date];
-      if (plan && plan.custom[i]) { plan.custom[i].done = !plan.custom[i].done; saveState(); modalCalendarDay(date); renderDashboard(); renderHome(); }
+      if (plan && plan.custom[i]) { plan.custom[i].done = !plan.custom[i].done; saveState(); modalCalendarDay(date); renderDashboard(); }
       return;
     }
     if (act === 'del-cal-task') {
@@ -5565,11 +5560,11 @@
     }
 
     // Revision
-    if (act === 'rev-done') { completeRevisionStep(el.dataset.rev, parseInt(el.dataset.off, 10)); renderRevision(); renderDashboard(); toast('Revision marked done', 'success'); return; }
-    if (act === 'rev-dismiss') { dismissRevisionEntry(el.dataset.rev); renderRevision(); return; }
+    if (act === 'rev-done') { completeRevisionStep(el.dataset.rev, parseInt(el.dataset.off, 10)); renderDashboard(); toast('Revision marked done', 'success'); return; }
+    if (act === 'rev-dismiss') { dismissRevisionEntry(el.dataset.rev); renderDashboard(); return; }
 
     // Smart suggestions
-    if (act === 'suggest-rev-done') { completeRevisionStep(el.dataset.rev, parseInt(el.dataset.off, 10)); renderDashboard(); renderRevision(); toast('Marked done', 'success'); return; }
+    if (act === 'suggest-rev-done') { completeRevisionStep(el.dataset.rev, parseInt(el.dataset.off, 10)); renderDashboard(); toast('Marked done', 'success'); return; }
     if (act === 'suggest-topic-done') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.done = true; bumpActivity(); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); saveState(); renderAll(); toast('Marked done', 'success'); } return; }
     if (act === 'suggest-open') { openSubjects.add(el.dataset.sub); openChapters.add(el.dataset.ch); switchTab('syllabus'); renderSyllabus(); return; }
 
@@ -5738,13 +5733,9 @@
     });
   }
 
-  // Page visibility — refresh quote + sync focus timer when tab becomes visible
+  // Page visibility — sync focus timer when tab becomes visible
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      const homeView = document.getElementById('view-home');
-      if (homeView && homeView.classList.contains('active')) {
-        nextMotivationQuote();
-      }
       // Sync timer to wall-clock elapsed time (fixes background throttling)
       if (focusRunning && focusStartTime !== null) {
         const elapsed = Math.floor((Date.now() - focusStartTime) / 1000);
@@ -5767,7 +5758,7 @@
   function init() {
     pruneRevisions();
     initMiniTimer();
-    switchTab('home');
+    switchTab('dashboard');
     renderAll();
     renderFocus();
     startTimers(); // calls scheduleAllNotifications() internally

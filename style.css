@@ -4024,10 +4024,8 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
    SOCIAL STUDY SYSTEM
    ══════════════════════════════════════════════════════════════ */
 
-/* Nav: shrink slightly when 7 buttons */
+/* Nav */
 .bottom-nav .nav-btn { min-width: 0; }
-.bottom-nav:has(:nth-child(7)) .nav-btn { font-size: 9px; }
-.bottom-nav:has(:nth-child(7)) .nav-btn svg { width: 20px; height: 20px; }
 
 /* Small button variant */
 .btn-sm { padding: 5px 10px; font-size: 11px; border-radius: var(--radius-xs); }
