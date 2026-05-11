@@ -317,8 +317,12 @@
       _authSkipped = false;
       try { localStorage.removeItem('stk_auth_skipped'); } catch(_) {}
       hideAuthModal();
+      // Always land on Home tab after login
+      switchTab('home');
+      renderAll();
       _sSocialInit();
       refreshSettingsIfOpen();
+      console.log('[Auth] Signed in:', user.email || user.uid);
       if (!_db) return;
       _setCloudStatus('syncing');
       try {
@@ -329,12 +333,14 @@
             state = migrate(JSON.parse(JSON.stringify(parsed)));
             try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {}
             renderAll();
+            if (_currentTab === 'social') renderSocial();
             _setCloudStatus('synced');
             setTimeout(() => _setCloudStatus('idle'), 3000);
             toast('\u2601\ufe0f Synced from your account!', 'success', 4000);
             return;
           }
         }
+        // No cloud data yet — upload current local state
         await _db.collection('users').doc(user.uid).set({
           data:      JSON.stringify(state),
           uid:       user.uid,
@@ -361,6 +367,26 @@
     const el = document.getElementById('auth-overlay');
     if (!el) return;
     el.classList.remove('hidden');
+
+    // Belt-and-suspenders: bind form submit directly (in case event delegation misses it)
+    const form = document.getElementById('auth-form');
+    if (form && !form._authBound) {
+      form._authBound = true;
+      form.addEventListener('submit', e => { e.preventDefault(); _authSubmit(); });
+    }
+    // Belt-and-suspenders: bind Google button directly too
+    const googleBtn = el.querySelector('[data-act="auth-google"]');
+    if (googleBtn && !googleBtn._authBound) {
+      googleBtn._authBound = true;
+      googleBtn.addEventListener('click', e => { e.stopPropagation(); _authSignInWithGoogle(); });
+    }
+    // Belt-and-suspenders: bind Sign In button directly
+    const submitBtn = document.getElementById('auth-submit');
+    if (submitBtn && !submitBtn._authBound) {
+      submitBtn._authBound = true;
+      submitBtn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); _authSubmit(); });
+    }
+
     // Inject domain hint so user knows which domain to authorize in Firebase if Google fails
     const existingHint = document.getElementById('auth-domain-hint');
     if (!existingHint) {
@@ -439,7 +465,12 @@
     _clearAuthError();
   }
   async function _authSubmit() {
-    if (!_auth) return;
+    if (!_auth) {
+      const errMsg = 'Firebase is still connecting — please wait a moment and try again.';
+      _showAuthError(errMsg);
+      toast(errMsg, 'warn', 4000);
+      return;
+    }
     const email    = (document.getElementById('auth-email')?.value    || '').trim();
     const password =  document.getElementById('auth-password')?.value || '';
     if (!email)    { _showAuthError('Please enter your email address.'); return; }
@@ -452,14 +483,23 @@
       } else {
         await _auth.createUserWithEmailAndPassword(email, password);
       }
+      _setAuthLoading(false);
     } catch (e) {
+      console.error('[Auth] Email sign-in error:', e.code, e.message);
       _setAuthLoading(false);
       const msg = _authErrorMsg(e.code);
-      if (msg) _showAuthError(msg);
+      const displayMsg = msg || e.message || 'Authentication failed. Please try again.';
+      _showAuthError(displayMsg);
+      toast(displayMsg, 'error', 5000);
     }
   }
   async function _authSignInWithGoogle() {
-    if (!_auth) return;
+    if (!_auth) {
+      const errMsg = 'Firebase is still connecting — please wait a moment and try again.';
+      _showAuthError(errMsg);
+      toast(errMsg, 'warn', 4000);
+      return;
+    }
     _clearAuthError();
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
