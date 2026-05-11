@@ -7,6 +7,7 @@
   let _userId         = null;
   let _cloudSyncTimer = null;
   let _authMode       = 'login'; // 'login' | 'signup'
+  let _authConfigured = false;   // true once Firebase config validated & auth object created
 
   const STORAGE_KEY = 'syllabus_tracker_v2';
   const BACKUP_DATE_KEY = 'backup_last_date';
@@ -225,19 +226,55 @@
 
   // ── Firebase / Cloud Sync ────────────────────────────────────────────────
   function _initFirebase() {
-    if (typeof firebase === 'undefined') return;
-    fetch('/api/config')
+    if (typeof firebase === 'undefined') {
+      console.warn('[Firebase] SDK not loaded — running offline.');
+      return;
+    }
+
+    // 3-second hard deadline: if _auth still null, unblock the modal with a clear message
+    const _initDeadline = setTimeout(() => {
+      if (_auth) return; // resolved in time — nothing to do
+      console.warn('[Firebase] Auth not ready after 3 s — activating offline-friendly mode.');
+      if (!_authSkipped) {
+        showAuthModal();
+        _showAuthError('Firebase is taking longer than expected. Use "Continue without signing in" to use the app offline, or reload to retry.');
+      }
+    }, 3000);
+
+    fetch('/api/config', { cache: 'no-store' })
       .then(r => r.json())
       .then(cfg => {
+        // ── Config validation ────────────────────────────────────────────
+        const configured = !!(cfg && cfg.apiKey && cfg.authDomain && cfg.projectId);
+        if (!configured) {
+          clearTimeout(_initDeadline);
+          console.warn('[Firebase] Config is empty — set FIREBASE_* environment secrets.');
+          _authConfigured = false;
+          if (!_authSkipped) {
+            showAuthModal();
+            _showAuthError('Firebase is not configured by the administrator. Use "Continue without signing in" to use the app offline.');
+          }
+          return;
+        }
+
+        // ── Initialise Firebase ──────────────────────────────────────────
         try {
           if (!firebase.apps || !firebase.apps.length) {
             firebase.initializeApp(cfg);
           }
-          _db   = firebase.firestore();
-          _auth = firebase.auth();
+          _db             = firebase.firestore();
+          _auth           = firebase.auth();
+          _authConfigured = true;
+          clearTimeout(_initDeadline);
+
+          // Debugging log requested by user
+          console.log('[Firebase] Auth State:', _auth);
+          console.log('[Firebase] Project:', cfg.projectId);
+
           _auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
           _auth.onAuthStateChanged(_handleAuthStateChange);
-          // Handle return from signInWithRedirect (Google popup fallback)
+
+          // Handle return from signInWithRedirect (Google popup fallback on mobile)
           _auth.getRedirectResult().then(result => {
             if (result && result.user) {
               console.log('[Auth] Redirect sign-in succeeded:', result.user.email);
@@ -249,9 +286,20 @@
               if (msg) _showAuthError(msg);
             }
           });
-        } catch (e) { console.warn('[Firebase] Init failed:', e.message); }
+        } catch (e) {
+          clearTimeout(_initDeadline);
+          console.warn('[Firebase] initializeApp failed:', e.message);
+          _authConfigured = false;
+          if (!_authSkipped) {
+            showAuthModal();
+            _showAuthError('Firebase initialization failed — the configuration may be invalid. Use "Continue without signing in" to use the app offline.');
+          }
+        }
       })
-      .catch(e => console.warn('[Firebase] Config fetch failed:', e.message));
+      .catch(e => {
+        clearTimeout(_initDeadline);
+        console.warn('[Firebase] Config fetch failed:', e.message);
+      });
   }
 
   function _setCloudStatus(status) {
@@ -466,9 +514,10 @@
   }
   async function _authSubmit() {
     if (!_auth) {
-      const errMsg = 'Firebase is still connecting — please wait a moment and try again.';
+      const errMsg = _authConfigured
+        ? 'Firebase is still connecting — please wait a moment and try again.'
+        : 'Sign-in is not available right now. Use "Continue without signing in" to use the app offline.';
       _showAuthError(errMsg);
-      toast(errMsg, 'warn', 4000);
       return;
     }
     const email    = (document.getElementById('auth-email')?.value    || '').trim();
@@ -495,9 +544,10 @@
   }
   async function _authSignInWithGoogle() {
     if (!_auth) {
-      const errMsg = 'Firebase is still connecting — please wait a moment and try again.';
+      const errMsg = _authConfigured
+        ? 'Firebase is still connecting — please wait a moment and try again.'
+        : 'Sign-in is not available right now. Use "Continue without signing in" to use the app offline.';
       _showAuthError(errMsg);
-      toast(errMsg, 'warn', 4000);
       return;
     }
     _clearAuthError();
@@ -2737,7 +2787,7 @@
       : '';
     const _lvInfo = gamificationManager.calculateLevel((state.xp && state.xp.total) || 0);
     const tasksHtml = totalCount === 0
-      ? `<div class="empty" style="text-align:center;padding:28px 16px 8px">No tasks for today.<br><button class="btn-link" data-act="switch-to-syllabus" style="margin-top:10px;font-size:14px">Go to Syllabus to add topics ›</button></div>`
+      ? `<div class="empty" style="text-align:center;padding:28px 16px 8px">No tasks for today — head to Dashboard to build your plan.</div>`
       : renderTasksList(tasks);
     view.innerHTML = `<div class="home-profile" data-act="open-settings" role="button" tabindex="0" style="cursor:pointer" title="Edit profile"><div class="home-profile-avatar">${profInitial}</div><div class="home-profile-info">${nameHtml}${taglineHtml}<div class="xp-row"><span class="xp-level-badge">Lv.${_lvInfo.level}</span><div class="xp-bar-wrap" title="${_lvInfo.currentLevelXP} / ${_lvInfo.nextLevelXP} XP to next level"><div class="xp-bar-fill" style="width:${_lvInfo.percent}%"></div></div><span class="xp-label">${_lvInfo.currentLevelXP}/${_lvInfo.nextLevelXP} XP</span>${(state.focusStreak&&state.focusStreak.count>0)?`<span class="xp-focus-streak">🔥 ${state.focusStreak.count}d</span>`:''}</div></div><span class="home-profile-greeting">${greeting()} 👋</span></div>${renderBentoGrid()}${achievedBadge}<div class="section-head"><h2>Today's Plan</h2></div>${tasksHtml}<div class="motivation-line ${overall >= 80 ? 'is-hot' : overall < 20 ? 'is-cold' : ''}" style="margin-top:16px">${escapeHTML(motivationMsg)}</div>`;
     if (_justPoppedKey) requestAnimationFrame(() => { _justPoppedKey = null; });
