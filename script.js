@@ -483,6 +483,11 @@
     if (form && !form._authBound) {
       form._authBound = true;
       form.addEventListener('submit', e => { e.preventDefault(); _authSubmit(); });
+      // With auth-submit as type="button", browsers won't fire submit on Enter in multi-field
+      // forms. Handle Enter key on any form input directly.
+      form.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); _authSubmit(); }
+      });
     }
     // Belt-and-suspenders: bind Sign In button directly
     const submitBtn = document.getElementById('auth-submit');
@@ -2846,7 +2851,7 @@
     const _sessionMins = Object.values((state.focusStats && state.focusStats.sessions) || {}).reduce((s, n) => s + (n || 0) * 25, 0);
     const _rankInfo = calculateRank(_sessionMins / 60) || {};
     const _streakCount = state.streak.count || 0;
-    view.innerHTML = `<div class="home-profile" data-act="open-settings" role="button" tabindex="0" style="cursor:pointer" title="Edit profile"><div class="home-profile-avatar">${profInitial}</div><div class="home-profile-info">${nameHtml}${taglineHtml}</div><span class="home-profile-greeting">${greeting()} 👋</span></div><div class="home-moti-card"><span class="home-moti-icon">💡</span><p class="home-moti-text" id="home-moti-text">${escapeHTML(motivationMsg)}</p></div><div class="home-xp-board"><div class="xp-board-header"><span class="xp-board-eyebrow">⚔️ STATS BOARD</span><span class="xp-board-rank-pill">${escapeHTML(_rankInfo.name || 'Seeker')}</span></div><div class="xp-board-body"><div class="xp-board-level-wrap"><span class="xp-board-lv-label">LEVEL</span><span class="xp-board-lv-num">${_lvInfo.level}</span></div><div class="xp-board-bar-col"><div class="xp-board-bar-track"><div class="xp-board-bar-fill" style="width:${_lvInfo.percent}%;${_lvInfo.percent>0?'min-width:4px':''}"></div></div><div class="xp-board-bar-label"><span>${_lvInfo.currentLevelXP} XP earned</span><span>${_lvInfo.nextLevelXP} XP next</span></div></div><div class="xp-board-streak-wrap"><span class="xp-board-streak-num">${_streakCount}</span><span class="xp-board-streak-label">🔥 streak</span></div></div></div>${renderBentoGrid()}${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${tasksHtml}`;
+    view.innerHTML = `<div class="home-profile" data-act="open-settings" role="button" tabindex="0" style="cursor:pointer" title="Edit profile"><div class="home-profile-avatar">${profInitial}</div><div class="home-profile-info">${nameHtml}${taglineHtml}</div><span class="home-profile-greeting">${greeting()} 👋</span></div><div class="home-moti-card"><span class="home-moti-icon">💡</span><p class="home-moti-text" id="home-moti-text">${escapeHTML(motivationMsg)}</p></div><div class="home-xp-board"><div class="xp-board-header"><span class="xp-board-eyebrow">⚡ STATS BOARD</span><span class="xp-board-rank-pill">${escapeHTML(_rankInfo.name || 'Seeker')}</span></div><div class="xp-board-body"><div class="xp-board-level-wrap"><span class="xp-board-lv-label">LEVEL</span><span class="xp-board-lv-num">${_lvInfo.level}</span></div><div class="xp-board-bar-col"><div class="xp-board-bar-track"><div class="xp-board-bar-fill" style="width:${_lvInfo.percent}%;${_lvInfo.percent>0?'min-width:4px':''}"></div></div><div class="xp-board-bar-label"><span>${_lvInfo.currentLevelXP} XP earned</span><span>${_lvInfo.nextLevelXP} XP next</span></div></div><div class="xp-board-streak-wrap"><span class="xp-board-streak-num">${_streakCount}</span><span class="xp-board-streak-label">🔥 streak</span></div></div></div>${renderBentoGrid()}${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${tasksHtml}`;
     if (_justPoppedKey) requestAnimationFrame(() => { _justPoppedKey = null; });
     if (_justCompletedDay) setTimeout(() => { _justCompletedDay = null; }, 1800);
   }
@@ -5322,7 +5327,7 @@
         state.profile.name    = name;
         state.profile.tagline = tagline;
         saveState();
-        renderDashboard();
+        renderAll();
         toast('Profile saved ✓', 'success');
       }
       return;
@@ -5987,10 +5992,8 @@
     maybeShowBackupReminder();
     _initFirebase();
     setTimeout(_sSocialInit, 3000); // resume social room after Firebase auth resolves
-    // Enter key submits auth form
-    document.getElementById('auth-overlay')?.addEventListener('keydown', e => {
-      if (e.key === 'Enter') { e.preventDefault(); _authSubmit(); }
-    });
+    // Enter key: handled natively by the form submit event (auth-submit is type="button",
+    // so form submit fires on Enter in email/password fields via the showAuthModal listener).
   }
 
   function safeInit() {
