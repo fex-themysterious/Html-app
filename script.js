@@ -489,13 +489,29 @@
     el.classList.remove('hidden');
     el.classList.add('auth-success');
   }
-  // Show error with an inline Retry (reload) button
+  // Show a small non-intrusive refresh button for connection issues (no red error box)
   function _showAuthErrorWithRetry(msg) {
-    const el = document.getElementById('auth-error');
-    if (!el) return;
-    el.classList.remove('auth-success');
-    el.innerHTML = `${msg} <button onclick="window.location.reload()" style="background:none;border:none;color:#a5b4fc;text-decoration:underline;cursor:pointer;font-size:inherit;padding:0;font-family:inherit;font-weight:600">Retry</button>`;
-    el.classList.remove('hidden');
+    // Hide the red error box — connection issues shouldn't alarm the user
+    const errEl = document.getElementById('auth-error');
+    if (errEl) errEl.classList.add('hidden');
+
+    const existingBtn = document.getElementById('auth-refresh-btn');
+    if (existingBtn) return; // already showing
+
+    const btn = document.createElement('button');
+    btn.id = 'auth-refresh-btn';
+    btn.textContent = '↻ Refresh to reconnect';
+    btn.style.cssText = [
+      'display:block', 'margin:10px auto 0', 'background:none', 'border:1px solid rgba(165,180,252,0.35)',
+      'color:rgba(165,180,252,0.85)', 'font-size:12px', 'font-family:inherit', 'padding:5px 14px',
+      'border-radius:20px', 'cursor:pointer', 'letter-spacing:0.02em', 'transition:opacity .2s'
+    ].join(';');
+    btn.onmouseenter = () => { btn.style.opacity = '0.7'; };
+    btn.onmouseleave = () => { btn.style.opacity = '1'; };
+    btn.onclick = () => window.location.reload();
+
+    const card = document.querySelector('.auth-card');
+    if (card) card.appendChild(btn);
   }
   // Call once Firebase is ready (or we give up waiting) to reveal the sign-in form
   function _authSetReady() {

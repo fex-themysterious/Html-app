@@ -65,8 +65,8 @@ const server = http.createServer((req, res) => {
         appId:             process.env.FIREBASE_APP_ID             || ''
       };
       const injected = html.replace(
-        '<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>',
-        `<script>window.__FIREBASE_CONFIG__ = ${JSON.stringify(config)};</script>\n  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>`
+        '<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>',
+        `<script>window.__FIREBASE_CONFIG__ = ${JSON.stringify(config)};</script>\n  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>`
       );
       res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' });
       res.end(injected);
