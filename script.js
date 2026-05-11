@@ -2532,7 +2532,8 @@
   // ========== Render All ==========
   // Only renders the currently visible tab to prevent CPU waste.
   function _renderOneTab(tab) {
-    if (tab === 'dashboard') renderDashboard();
+    if (tab === 'home')       renderHome();
+    else if (tab === 'dashboard') renderDashboard();
     else if (tab === 'syllabus')  renderSyllabus();
     else if (tab === 'stats')     renderStats();
     else if (tab === 'social')    renderSocial();
@@ -2631,7 +2632,10 @@
       ? `<div class="home-profile-sub">${escapeHTML(profTagline)}</div>`
       : '';
     const _lvInfo = gamificationManager.calculateLevel((state.xp && state.xp.total) || 0);
-    view.innerHTML = `<div class="home-profile" data-act="open-settings" role="button" tabindex="0" style="cursor:pointer" title="Edit profile"><div class="home-profile-avatar">${profInitial}</div><div class="home-profile-info">${nameHtml}${taglineHtml}<div class="xp-row"><span class="xp-level-badge">Lv.${_lvInfo.level}</span><div class="xp-bar-wrap" title="${_lvInfo.currentLevelXP} / ${_lvInfo.nextLevelXP} XP to next level"><div class="xp-bar-fill" style="width:${_lvInfo.percent}%"></div></div><span class="xp-label">${_lvInfo.currentLevelXP}/${_lvInfo.nextLevelXP} XP</span>${(state.focusStreak&&state.focusStreak.count>0)?`<span class="xp-focus-streak">🔥 ${state.focusStreak.count}d</span>`:''}</div></div><span class="home-profile-greeting">${greeting()} 👋</span></div><div class="motivation-line ${overall >= 80 ? 'is-hot' : overall < 20 ? 'is-cold' : ''}">${escapeHTML(motivationMsg)}</div>${renderBentoGrid()}${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${renderTasksList(tasks)}`;
+    const tasksHtml = totalCount === 0
+      ? `<div class="empty" style="text-align:center;padding:28px 16px 8px">No tasks for today.<br><button class="btn-link" data-act="switch-to-syllabus" style="margin-top:10px;font-size:14px">Go to Syllabus to add topics ›</button></div>`
+      : renderTasksList(tasks);
+    view.innerHTML = `<div class="home-profile" data-act="open-settings" role="button" tabindex="0" style="cursor:pointer" title="Edit profile"><div class="home-profile-avatar">${profInitial}</div><div class="home-profile-info">${nameHtml}${taglineHtml}<div class="xp-row"><span class="xp-level-badge">Lv.${_lvInfo.level}</span><div class="xp-bar-wrap" title="${_lvInfo.currentLevelXP} / ${_lvInfo.nextLevelXP} XP to next level"><div class="xp-bar-fill" style="width:${_lvInfo.percent}%"></div></div><span class="xp-label">${_lvInfo.currentLevelXP}/${_lvInfo.nextLevelXP} XP</span>${(state.focusStreak&&state.focusStreak.count>0)?`<span class="xp-focus-streak">🔥 ${state.focusStreak.count}d</span>`:''}</div></div><span class="home-profile-greeting">${greeting()} 👋</span></div>${renderBentoGrid()}${achievedBadge}<div class="section-head"><h2>Today's Plan</h2></div>${tasksHtml}<div class="motivation-line ${overall >= 80 ? 'is-hot' : overall < 20 ? 'is-cold' : ''}" style="margin-top:16px">${escapeHTML(motivationMsg)}</div>`;
     if (_justPoppedKey) requestAnimationFrame(() => { _justPoppedKey = null; });
     if (_justCompletedDay) setTimeout(() => { _justCompletedDay = null; }, 1800);
   }
@@ -5116,8 +5120,9 @@
 
     if (act === 'open-dashboard') { switchTab('dashboard'); renderDashboard(); return; }
     if (act === 'open-syllabus')  { switchTab('syllabus');  renderSyllabus();  return; }
-    if (act === 'open-plan') { closeModal(); switchTab('dashboard'); renderDashboard(); return; }
-    if (act === 'burnout-go-plan') { closeModal(); switchTab('dashboard'); renderDashboard(); return; }
+    if (act === 'open-plan') { closeModal(); switchTab('home'); renderHome(); return; }
+    if (act === 'burnout-go-plan') { closeModal(); switchTab('home'); renderHome(); return; }
+    if (act === 'switch-to-syllabus') { switchTab('syllabus'); renderSyllabus(); return; }
     if (act === 'burnout-popup') { showBurnoutPopup(); return; }
     if (act === 'burnout-dismiss-banner') { state.burnout.bannerDismissedDate = todayKey(); saveState(); renderDashboard(); return; }
 
@@ -5133,24 +5138,24 @@
     if (act === 'regen-plan') { const k = todayKey(); if (state.dailyPlans[k]) { state.dailyPlans[k].generated = false; state.dailyPlans[k].auto = []; state.dailyPlans[k].custom = state.dailyPlans[k].custom.filter(c => !c.rolledOver); } saveState(); ensureTodayPlan(); renderDashboard(); toast('Plan regenerated', 'info'); return; }
     if (act === 'toggle-plan-task') {
       const type = el.dataset.type;
-      if (type === 'auto') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { const wasDone = t.done; t.done = !t.done; if (t.done) { bumpActivity(); gamificationManager.addTaskXP(); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); _justPoppedKey = `auto:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`; } else onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, false); const tasks = getActivePlanTasks(); if (tasks.length > 0 && tasks.every(x => x.done) && !wasDone) _justCompletedDay = todayKey(); saveState(); renderDashboard(); renderSyllabus(); } }
-      else { const plan = state.dailyPlans[todayKey()]; if (plan) { const ct = plan.custom.find(c => c.id === el.dataset.id); if (ct) { ct.done = !ct.done; if (ct.done) { bumpActivity(); gamificationManager.addTaskXP(); } saveState(); renderDashboard(); } } }
+      if (type === 'auto') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { const wasDone = t.done; t.done = !t.done; if (t.done) { bumpActivity(); gamificationManager.addTaskXP(); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); _justPoppedKey = `auto:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`; } else onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, false); const tasks = getActivePlanTasks(); if (tasks.length > 0 && tasks.every(x => x.done) && !wasDone) _justCompletedDay = todayKey(); saveState(); renderAll(); renderSyllabus(); } }
+      else { const plan = state.dailyPlans[todayKey()]; if (plan) { const ct = plan.custom.find(c => c.id === el.dataset.id); if (ct) { ct.done = !ct.done; if (ct.done) { bumpActivity(); gamificationManager.addTaskXP(); } saveState(); renderAll(); } } }
       return;
     }
     if (act === 'remove-plan-task') {
       const type = el.dataset.type, plan = state.dailyPlans[todayKey()]; if (!plan) return;
-      if (type === 'auto') { const key = autoKey(el.dataset.sub, el.dataset.ch, el.dataset.t); const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.skipCount = (t.skipCount || 0) + 1; t.lastSkippedAt = todayKey(); } if (!plan.removed.includes(key)) plan.removed.push(key); saveState(); renderDashboard(); }
+      if (type === 'auto') { const key = autoKey(el.dataset.sub, el.dataset.ch, el.dataset.t); const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.skipCount = (t.skipCount || 0) + 1; t.lastSkippedAt = todayKey(); } if (!plan.removed.includes(key)) plan.removed.push(key); saveState(); renderAll(); }
       else {
         const rid = el.dataset.rid;
         if (rid) {
           confirmModal('This is a daily recurring task. Remove it forever so it stops repeating?', () => {
             state.recurringTasks = (state.recurringTasks || []).filter(r => r.id !== rid);
             plan.custom = plan.custom.filter(c => c.id !== el.dataset.id);
-            saveState(); renderDashboard();
+            saveState(); renderAll();
           }, { title: 'Stop Recurring Task?', yesLabel: 'Remove Forever', yesClass: 'btn', noLabel: 'Keep' });
         } else {
           plan.custom = plan.custom.filter(c => c.id !== el.dataset.id);
-          saveState(); renderDashboard();
+          saveState(); renderAll();
         }
       }
       return;
@@ -5758,7 +5763,7 @@
   function init() {
     pruneRevisions();
     initMiniTimer();
-    switchTab('dashboard');
+    switchTab('home');
     renderAll();
     renderFocus();
     startTimers(); // calls scheduleAllNotifications() internally

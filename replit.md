@@ -43,14 +43,15 @@ An offline-capable Progressive Web App for tracking study progress with spaced r
 - Stats dashboard with Chart.js charts, daily efficiency score, focus-by-subject bars, and achievement badge grid
 - Offline support via PWA service worker
 - Social Study Rooms (5th tab in nav): 6-digit room codes, live focus map (onSnapshot presence), XP Focus Bounty (−50 XP on early quit → distributed to online members), XP Duel (1v1, 2-hour countdown, Duel Victor badge), Subject Mastery Leaderboard, Weekly Friend Leaderboard, Group Challenges with progress bar, and Nudge/Poke system
-- Navigation (5 tabs): Dashboard → Syllabus → Focus → Social → Stats. Home tab removed; Revision tab removed and merged into Dashboard
-- Dashboard (formerly Board) combines: Today's Plan, Study Calendar, Goals, Smart Suggestions, Weak Areas, and Revision Zone (Due Today + Upcoming)
+- Navigation (6 tabs): Home → Dashboard → Syllabus → Focus → Social → Stats. Home is the default landing tab.
+- Home tab: Welcome greeting, XP/level bar, progress bento grid, Today's Plan (task list with checkboxes + delete only — NO add-from-syllabus), motivational quote at bottom.
+- Dashboard tab: Study Calendar/Heatmap, Goals, Smart Suggestions, Weak Areas, Revision Zone (Due Today + Upcoming). Plan adder (add from syllabus) stays on Dashboard only.
 
 ## User preferences
 _Populate as you build_
 
 ## Gotchas
-- Cache-busting query param on `script.js?v=63` and `style.css?v=57` — increment when making changes; SW cache is `syllabus-tracker-v72`
+- Cache-busting query param on `script.js?v=64` and `style.css?v=57` — increment when making changes; SW cache is `syllabus-tracker-v73`
 - Audio files need HTTP Range request support (already handled in `server.js` and `sw.js`)
 - Global orientation is **portrait-locked** (manifest + JS `lock('portrait')` on startup). Full Focus Mode and Video Player expose a ⤢ landscape toggle button that calls `toggleOrientLock()`; exiting either mode calls `lockPortrait()` to restore portrait. `--real-vh` CSS var is set by JS on every `orientationchange`/`resize` for iOS Safari.
 - Full Focus overlay uses a **flat CSS Grid** layout. Direct children of `.fs-content`: `fs-top` (badge+dots), `fs-task-box`, `fs-timer-wrap`, `fs-ctrl-col`, `fs-motivation-box`, `fs-footer` (hint only). Portrait grid: `"top task" / "ring ctrl" / "moti moti" / "foot foot"`. Landscape grid (both mobile ≤500px and desktop): 3-column `"top ring task" / "moti ring ctrl" / "foot foot foot"` — left=navy motivation panel, center=dominant timer (270px/76px mobile, 300px/80px desktop), right=indigo panel (task top + controls bottom, `border-top: none` to appear seamless). `_fsMotiQuote` set once in `startFullSession()`.
