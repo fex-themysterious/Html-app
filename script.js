@@ -237,6 +237,18 @@
           _auth = firebase.auth();
           _auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
           _auth.onAuthStateChanged(_handleAuthStateChange);
+          // Handle return from signInWithRedirect (Google popup fallback)
+          _auth.getRedirectResult().then(result => {
+            if (result && result.user) {
+              console.log('[Auth] Redirect sign-in succeeded:', result.user.email);
+            }
+          }).catch(e => {
+            if (e.code && e.code !== 'auth/null-user') {
+              console.error('[Auth] Redirect result error:', e.code, e.message);
+              const msg = _authErrorMsg(e.code);
+              if (msg) _showAuthError(msg);
+            }
+          });
         } catch (e) { console.warn('[Firebase] Init failed:', e.message); }
       })
       .catch(e => console.warn('[Firebase] Config fetch failed:', e.message));
@@ -347,7 +359,27 @@
   // ── Auth UI Helpers ──────────────────────────────────────────────────────
   function showAuthModal() {
     const el = document.getElementById('auth-overlay');
-    if (el) el.classList.remove('hidden');
+    if (!el) return;
+    el.classList.remove('hidden');
+    // Inject domain hint so user knows which domain to authorize in Firebase if Google fails
+    const existingHint = document.getElementById('auth-domain-hint');
+    if (!existingHint) {
+      const hint = document.createElement('div');
+      hint.id = 'auth-domain-hint';
+      hint.style.cssText = 'margin-top:10px;font-size:11px;color:rgba(148,163,184,0.7);text-align:center;line-height:1.5';
+      hint.innerHTML = `If Google Sign-In fails, add this to Firebase&nbsp;→&nbsp;Auth&nbsp;→&nbsp;Authorized Domains:<br><span id="auth-domain-val" style="font-family:monospace;color:#94a3b8;cursor:pointer;text-decoration:underline dotted" title="Click to copy">${location.hostname}</span>`;
+      const card = el.querySelector('.auth-card');
+      if (card) card.appendChild(hint);
+      const domainVal = hint.querySelector('#auth-domain-val');
+      if (domainVal) {
+        domainVal.addEventListener('click', () => {
+          navigator.clipboard.writeText(location.hostname).then(() => {
+            domainVal.textContent = 'Copied!';
+            setTimeout(() => { domainVal.textContent = location.hostname; }, 2000);
+          }).catch(() => {});
+        });
+      }
+    }
   }
   function hideAuthModal() {
     const el = document.getElementById('auth-overlay');
@@ -373,19 +405,26 @@
       : (_authMode === 'login' ? 'Sign In' : 'Create Account');
   }
   function _authErrorMsg(code) {
+    const domain = window.location.hostname;
     const map = {
-      'auth/invalid-email':        'Invalid email address.',
-      'auth/user-not-found':       'No account found with this email.',
-      'auth/wrong-password':       'Incorrect password.',
-      'auth/invalid-credential':   'Invalid email or password.',
-      'auth/email-already-in-use': 'An account with this email already exists.',
-      'auth/weak-password':        'Password must be at least 6 characters.',
-      'auth/too-many-requests':    'Too many attempts. Please try again later.',
-      'auth/network-request-failed':'Network error. Check your connection.',
-      'auth/popup-blocked':        'Popup was blocked. Please allow popups and try again.',
-      'auth/popup-closed-by-user': ''
+      'auth/invalid-email':          'Invalid email address.',
+      'auth/user-not-found':         'No account found with this email.',
+      'auth/wrong-password':         'Incorrect password.',
+      'auth/invalid-credential':     'Invalid email or password.',
+      'auth/email-already-in-use':   'An account with this email already exists.',
+      'auth/weak-password':          'Password must be at least 6 characters.',
+      'auth/too-many-requests':      'Too many attempts. Please try again later.',
+      'auth/network-request-failed': 'Network error. Check your connection.',
+      'auth/popup-blocked':          'Popup was blocked — trying redirect sign-in instead…',
+      'auth/popup-closed-by-user':   '',
+      'auth/cancelled-popup-request':'',
+      'auth/unauthorized-domain':    `Domain not authorized. In Firebase Console → Authentication → Settings → Authorized Domains, add: ${domain}`,
+      'auth/operation-not-supported-in-this-environment': 'Trying redirect sign-in instead…',
+      'auth/internal-error':         'Authentication error. Please try again.',
+      'auth/user-disabled':          'This account has been disabled.',
+      'auth/account-exists-with-different-credential': 'An account already exists with this email using a different sign-in method.'
     };
-    return map[code] || 'Authentication failed. Please try again.';
+    return map[code] !== undefined ? map[code] : 'Authentication failed. Please try again.';
   }
 
   // ── Auth Actions ─────────────────────────────────────────────────────────
@@ -422,12 +461,37 @@
   async function _authSignInWithGoogle() {
     if (!_auth) return;
     _clearAuthError();
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    // Try popup first; fall back to redirect for blocked/unauthorized-domain errors
     try {
-      const provider = new firebase.auth.GoogleAuthProvider();
       await _auth.signInWithPopup(provider);
     } catch (e) {
-      const msg = _authErrorMsg(e.code);
-      if (msg) _showAuthError(msg);
+      console.error('[Auth] Google popup error:', e.code, e.message);
+      const redirectFallbackCodes = new Set([
+        'auth/popup-blocked',
+        'auth/popup-closed-by-user',
+        'auth/unauthorized-domain',
+        'auth/operation-not-supported-in-this-environment',
+        'auth/cancelled-popup-request'
+      ]);
+      if (redirectFallbackCodes.has(e.code)) {
+        // Silent fallback — show brief notice then redirect
+        if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') {
+          _showAuthError('Opening Google sign-in…');
+        }
+        try {
+          await _auth.signInWithRedirect(provider);
+          // Page will redirect; no further code runs here
+        } catch (redirectErr) {
+          console.error('[Auth] Google redirect error:', redirectErr.code, redirectErr.message);
+          const msg = _authErrorMsg(redirectErr.code);
+          if (msg) _showAuthError(msg);
+        }
+      } else {
+        const msg = _authErrorMsg(e.code);
+        if (msg) _showAuthError(msg);
+      }
     }
   }
   async function _authSignOut() {
