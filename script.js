@@ -232,8 +232,6 @@
   let _redirectCheckDone = false;
   // Timer handle for the 3-second modal delay
   let _modalDelayTimer = null;
-  // True while an unverified user is signed in awaiting email verification resend
-  let _awaitingEmailVerification = false;
   // Persisted flag: was the user signed in during the last session?
   // Used to keep the modal hidden while the redirect bounce is resolving.
   function _wasLoggedIn() {
@@ -252,7 +250,7 @@
     _modalDelayTimer = setTimeout(() => {
       _modalDelayTimer = null;
       if (_authSkipped) return;
-      if (_auth && _auth.currentUser && _auth.currentUser.emailVerified) return;
+      if (_auth && _auth.currentUser) return;
       showAuthModal();
     }, 3000);
   }
@@ -422,19 +420,7 @@
   // ── Auth State Handler ───────────────────────────────────────────────────
   async function _handleAuthStateChange(user) {
     if (user) {
-      if (!user.emailVerified) {
-        // Unverified user — block access to the app.
-        if (!_awaitingEmailVerification) {
-          // Unexpected state (e.g. persisted session before verification was added).
-          // Sign out cleanly; onAuthStateChanged(null) will schedule the modal.
-          _auth.signOut().catch(() => {});
-        }
-        // If _awaitingEmailVerification is true, _authSubmit is already
-        // showing the verification UI — don't interfere.
-        return;
-      }
-      // ── Verified confirmed login ──
-      _awaitingEmailVerification = false;
+      // ── Confirmed login ──
       _cancelModalTimer();
       try { localStorage.setItem('stk_logged_in', '1'); } catch(_) {}
       _userId = user.uid;
@@ -479,7 +465,6 @@
         setTimeout(() => _setCloudStatus('idle'), 5000);
       }
     } else {
-      _awaitingEmailVerification = false;
       _userId = null;
       _setCloudStatus('idle');
       if (!_authSkipped) _scheduleModal();
@@ -609,67 +594,24 @@
     const email    = (document.getElementById('auth-email')?.value    || '').trim();
     const password =  document.getElementById('auth-password')?.value || '';
     if (!email)    { _showAuthError('Please enter your email address.'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      _showAuthError('Please enter a valid email address (e.g. user@example.com).');
+      return;
+    }
     if (!password) { _showAuthError('Please enter your password.'); return; }
     _setAuthLoading(true);
     _clearAuthError();
     try {
       if (_authMode === 'login') {
-        const cred = await _auth.signInWithEmailAndPassword(email, password);
-        _setAuthLoading(false);
-        if (!cred.user.emailVerified) {
-          // Keep user temporarily signed in so the Resend button can call
-          // sendEmailVerification() on currentUser, then sign them out.
-          _awaitingEmailVerification = true;
-          _showVerificationRequired();
-          return;
-        }
-        // Verified — onAuthStateChanged(user) grants access and navigates to Home
+        await _auth.signInWithEmailAndPassword(email, password);
       } else {
-        // Sign up: create account, send verification, immediately sign out
-        const cred = await _auth.createUserWithEmailAndPassword(email, password);
-        await cred.user.sendEmailVerification();
-        await _auth.signOut();
-        _setAuthLoading(false);
-        // Reset UI to login mode
-        _authMode = 'login';
-        const e2 = (id) => document.getElementById(id);
-        if (e2('auth-submit'))      e2('auth-submit').textContent      = 'Sign In';
-        if (e2('auth-toggle-btn'))  e2('auth-toggle-btn').textContent  = 'Sign Up';
-        if (e2('auth-toggle-text')) e2('auth-toggle-text').textContent = "Don't have an account?";
-        if (e2('auth-subtitle'))    e2('auth-subtitle').textContent    = 'Sign in to sync your progress';
-        _showAuthSuccess('✓ Account created! A verification email has been sent — check your inbox and spam folder, then sign in.');
+        await _auth.createUserWithEmailAndPassword(email, password);
       }
+      // onAuthStateChanged(user) fires next — handles navigation, sync, modal hide
     } catch (e) {
       console.error('[Auth] Auth error:', e.code, e.message);
       _setAuthLoading(false);
-      const msg = _authErrorMsg(e.code) || e.message || 'Authentication failed. Please try again.';
-      _showAuthError(msg);
-    }
-  }
-  // Show the "verify your email" message + Resend button inside the auth error area
-  function _showVerificationRequired() {
-    const errEl = document.getElementById('auth-error');
-    if (!errEl) return;
-    errEl.classList.remove('hidden', 'auth-success');
-    errEl.innerHTML =
-      '<div style="margin-bottom:9px;line-height:1.45">Please verify your email first.' +
-      '<br><span style="font-size:11px;opacity:0.75">Check your inbox and spam folder.</span></div>' +
-      '<button data-act="auth-resend-verification" style="background:rgba(129,140,248,0.15);' +
-      'border:1px solid rgba(129,140,248,0.4);color:#a5b4fc;font-size:12px;font-family:inherit;' +
-      'padding:6px 18px;border-radius:20px;cursor:pointer;font-weight:600">Resend Verification Email</button>';
-  }
-  // Called when the user clicks "Resend Verification Email"
-  async function _authResendVerification() {
-    const user = _auth && _auth.currentUser;
-    if (!user) { _showAuthError('Session expired. Please sign in again.'); return; }
-    try {
-      await user.sendEmailVerification();
-      await _auth.signOut();
-      _awaitingEmailVerification = false;
-      _showAuthSuccess('✓ Verification email sent! Check your inbox and spam folder, then sign in.');
-    } catch (e) {
-      console.error('[Auth] Resend verification error:', e.code, e.message);
-      _showAuthError(_authErrorMsg(e.code) || 'Failed to send. Please try again.');
+      _showAuthError(_authErrorMsg(e.code) || 'Invalid email or password.');
     }
   }
   async function _authForgotPassword() {
@@ -5355,10 +5297,9 @@
 
     if (el.hasAttribute('data-close')) { closeModal(); return; }
     if (act === 'open-settings')    { modalSettings(); return; }
-    if (act === 'auth-toggle-form')         { _authToggleMode(); return; }
-    if (act === 'auth-submit')              { _authSubmit(); return; }
-    if (act === 'auth-forgot')              { _authForgotPassword(); return; }
-    if (act === 'auth-resend-verification') { _authResendVerification(); return; }
+    if (act === 'auth-toggle-form') { _authToggleMode(); return; }
+    if (act === 'auth-submit')      { _authSubmit(); return; }
+    if (act === 'auth-forgot')      { _authForgotPassword(); return; }
     if (act === 'auth-logout')      { _authSignOut(); closeModal(); return; }
     if (act === 'auth-show-modal')  { _authSkipped = false; try { localStorage.removeItem('stk_auth_skipped'); } catch(_) {} closeModal(); showAuthModal(); return; }
     if (act === 'auth-use-offline') { _authSkipped = true; try { localStorage.setItem('stk_auth_skipped', '1'); } catch(_) {} hideAuthModal(); toast('Using app offline — sign in anytime via ⚙️ Settings', 'info', 4500); return; }
