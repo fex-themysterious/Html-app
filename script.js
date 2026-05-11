@@ -3180,7 +3180,7 @@
       </div>
       <div class="actions" style="margin-top:12px">
         <button class="btn btn-ghost" data-close>Close</button>
-        ${isToday ? `<button class="btn" data-act="regen-plan" data-close>↻ Regen Plan</button>` : ''}
+        ${isToday ? `<button class="btn" data-act="regen-plan">↻ Regen Plan</button>` : ''}
       </div>
     `, root => {
       const inp = root.querySelector('#cal-new-task');
@@ -4676,7 +4676,7 @@
     // Pie: subjects with completed chapters, using distinct neon colors by index
     const pieSubjects = state.subjects.map((sub, idx) => {
       let done = 0;
-      for (const ch of sub.chapters) if (ch.done) done++;
+      for (const ch of sub.chapters) if (isChapterEffectivelyDone(ch)) done++;
       return { name: sub.name, done, color: NEON_PALETTE[idx % NEON_PALETTE.length] };
     }).filter(s => s.done > 0);
 
@@ -5326,10 +5326,10 @@
     if (act === 'edit-goal') { const g = (state.goals || []).find(g => g.id === el.dataset.id); if (g) modalAddGoal(g); return; }
 
     // Plan
-    if (act === 'regen-plan') { const k = todayKey(); if (state.dailyPlans[k]) { state.dailyPlans[k].generated = false; state.dailyPlans[k].auto = []; state.dailyPlans[k].custom = state.dailyPlans[k].custom.filter(c => !c.rolledOver); } saveState(); ensureTodayPlan(); renderDashboard(); toast('Plan regenerated', 'info'); return; }
+    if (act === 'regen-plan') { closeModal(); const k = todayKey(); if (state.dailyPlans[k]) { state.dailyPlans[k].generated = false; state.dailyPlans[k].auto = []; state.dailyPlans[k].custom = state.dailyPlans[k].custom.filter(c => !c.rolledOver); } saveState(); ensureTodayPlan(); renderDashboard(); toast('Plan regenerated', 'info'); return; }
     if (act === 'toggle-plan-task') {
       const type = el.dataset.type;
-      if (type === 'auto') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { const wasDone = t.done; t.done = !t.done; if (t.done) { bumpActivity(); gamificationManager.addTaskXP(); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); _justPoppedKey = `auto:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`; } else onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, false); const tasks = getActivePlanTasks(); if (tasks.length > 0 && tasks.every(x => x.done) && !wasDone) _justCompletedDay = todayKey(); saveState(); renderAll(); renderSyllabus(); } }
+      if (type === 'auto') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { const wasDone = t.done; t.done = !t.done; if (t.done) { bumpActivity(); gamificationManager.addTaskXP(); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); _justPoppedKey = `auto:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`; } else onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, false); const tasks = getActivePlanTasks(); if (tasks.length > 0 && tasks.every(x => x.done) && !wasDone) _justCompletedDay = todayKey(); saveState(); renderAll(); } }
       else { const plan = state.dailyPlans[todayKey()]; if (plan) { const ct = plan.custom.find(c => c.id === el.dataset.id); if (ct) { ct.done = !ct.done; if (ct.done) { bumpActivity(); gamificationManager.addTaskXP(); } saveState(); renderAll(); } } }
       return;
     }
@@ -5583,6 +5583,7 @@
         }
         if (notifPermission() === 'default') requestNotifPermission();
         focusRunning = true;
+        pickNewQuote();
         focusStartTime = Date.now();
         focusStartSeconds = focusSeconds;
         focusTimer = setInterval(focusTick, 1000);
@@ -5592,7 +5593,7 @@
       renderFullSession(); return;
     }
     if (act === 'fs-cycle-ambient') {
-      const modes = SOUNDS.map(s => s.id);
+      const modes = ['none', ...SOUNDS.map(s => s.id)];
       ambientMode = modes[(modes.indexOf(ambientMode) + 1) % modes.length];
       startAmbient(ambientMode); renderFullSession(); return;
     }
