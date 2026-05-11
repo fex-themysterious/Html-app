@@ -4526,3 +4526,28 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   position: fixed; top: -12px; z-index: 99999; pointer-events: none;
   animation: confettiFall linear forwards;
 }
+
+/* ── XP Float Toast ────────────────────────────────────────── */
+.xp-float {
+  position: fixed;
+  z-index: 99999;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, #facc15 0%, #f59e0b 100%);
+  color: #1a1122;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 4px 12px;
+  border-radius: 999px;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 2px 14px rgba(250,204,21,0.55), 0 0 0 1.5px rgba(250,204,21,0.22);
+  animation: xpFloatUp 1.45s cubic-bezier(0.22,1,0.36,1) forwards;
+  will-change: transform, opacity;
+}
+@keyframes xpFloatUp {
+  0%   { opacity: 0;   transform: translateX(-50%) translateY(6px)   scale(0.6);  }
+  16%  { opacity: 1;   transform: translateX(-50%) translateY(-4px)  scale(1.14); }
+  55%  { opacity: 1;   transform: translateX(-50%) translateY(-36px) scale(1);    }
+  100% { opacity: 0;   transform: translateX(-50%) translateY(-66px) scale(0.88); }
+}

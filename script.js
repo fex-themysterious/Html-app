@@ -1316,12 +1316,18 @@
       this.addXP(amount, 'focus');
       this._updateFocusStreak(elapsedMin, dateStr);
       this.checkStreakBonus();
+      // Float near the timer ring (works in both normal and full-session views)
+      const ringEl = document.querySelector('.focus-ring-center') ||
+                     document.querySelector('.fs-timer-wrap')     ||
+                     document.querySelector('.focus-ring-wrap');
+      showXPFloat(amount, ringEl);
     },
 
     // Task XP: exactly 10 XP per completed task
-    addTaskXP() {
+    // sourceEl — the DOM element that was checked (used to position the float)
+    addTaskXP(sourceEl) {
       this.addXP(10, 'task');
-      toast('+10 XP ⚡', 'success', 1600);
+      showXPFloat(10, sourceEl || null);
     },
 
     // 7-day streak bonus: award 100 XP once per qualifying streak
@@ -2324,6 +2330,26 @@
     const t = document.createElement('div'); t.className = 'toast ' + kind;
     t.textContent = msg; wrap.appendChild(t);
     setTimeout(() => t.remove(), ms);
+  }
+
+  // ── XP Float: golden pill that rises from a tapped element ──────────────
+  function showXPFloat(amount, anchorEl) {
+    const el = document.createElement('div');
+    el.className = 'xp-float';
+    el.textContent = `+${amount} XP`;
+    let cx, cy;
+    if (anchorEl) {
+      const r = anchorEl.getBoundingClientRect();
+      cx = r.left + r.width  / 2;
+      cy = r.top  + r.height / 4;
+    } else {
+      cx = window.innerWidth  / 2;
+      cy = window.innerHeight * 0.42;
+    }
+    el.style.left = Math.round(cx) + 'px';
+    el.style.top  = Math.round(cy) + 'px';
+    document.body.appendChild(el);
+    el.addEventListener('animationend', () => el.remove(), { once: true });
   }
 
   // ========== Modal ==========
@@ -5354,8 +5380,8 @@
     if (act === 'regen-plan') { closeModal(); const k = todayKey(); if (state.dailyPlans[k]) { state.dailyPlans[k].generated = false; state.dailyPlans[k].auto = []; state.dailyPlans[k].custom = state.dailyPlans[k].custom.filter(c => !c.rolledOver); } saveState(); ensureTodayPlan(); renderDashboard(); toast('Plan regenerated', 'info'); return; }
     if (act === 'toggle-plan-task') {
       const type = el.dataset.type;
-      if (type === 'auto') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { const wasDone = t.done; t.done = !t.done; if (t.done) { bumpActivity(); gamificationManager.addTaskXP(); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); _justPoppedKey = `auto:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`; } else onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, false); const tasks = getActivePlanTasks(); if (tasks.length > 0 && tasks.every(x => x.done) && !wasDone) _justCompletedDay = todayKey(); saveState(); renderAll(); } }
-      else { const plan = state.dailyPlans[todayKey()]; if (plan) { const ct = plan.custom.find(c => c.id === el.dataset.id); if (ct) { ct.done = !ct.done; if (ct.done) { bumpActivity(); gamificationManager.addTaskXP(); } saveState(); renderAll(); } } }
+      if (type === 'auto') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { const wasDone = t.done; t.done = !t.done; if (t.done) { bumpActivity(); gamificationManager.addTaskXP(el); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); _justPoppedKey = `auto:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`; } else onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, false); const tasks = getActivePlanTasks(); if (tasks.length > 0 && tasks.every(x => x.done) && !wasDone) _justCompletedDay = todayKey(); saveState(); renderAll(); } }
+      else { const plan = state.dailyPlans[todayKey()]; if (plan) { const ct = plan.custom.find(c => c.id === el.dataset.id); if (ct) { ct.done = !ct.done; if (ct.done) { bumpActivity(); gamificationManager.addTaskXP(el); } saveState(); renderAll(); } } }
       return;
     }
     if (act === 'remove-plan-task') {
