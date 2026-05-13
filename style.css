@@ -4573,7 +4573,7 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .slob-room-card {
   background: linear-gradient(145deg, rgba(18,24,40,0.95), rgba(10,16,30,0.98));
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 18px; padding: 14px 14px 14px;
+  border-radius: 18px; padding: 14px;
   display: flex; flex-direction: column; gap: 10px;
 }
 .slob-room-card-header {
@@ -4587,25 +4587,14 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   transition: color var(--t-fast), background var(--t-fast); flex-shrink: 0;
 }
 .slob-room-settings:hover { color: var(--text); background: rgba(255,255,255,0.12); }
-.slob-room-tags { display: flex; gap: 6px; }
-.slob-tag {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 3px 10px; border-radius: 20px;
-  font-size: 11px; font-weight: 700;
-}
-.slob-tag-public { background: rgba(38,222,129,0.15); color: #26de81; border: 1px solid rgba(38,222,129,0.25); }
-.slob-tag-active { background: rgba(240,100,60,0.15); color: #f0643c; border: 1px solid rgba(240,100,60,0.25); }
-.slob-room-members-row {
+.slob-room-code-row {
   display: flex; align-items: center; gap: 8px;
 }
-.slob-room-avatars { display: flex; align-items: center; }
-.slob-room-card-av {
-  width: 26px; height: 26px; border-radius: 50%;
-  border: 2px solid rgba(10,16,30,0.9);
-  flex-shrink: 0;
+.slob-room-code-label { font-size: 12px; color: var(--text-muted); }
+.slob-room-code-val {
+  font-size: 14px; font-weight: 700; letter-spacing: 2px;
+  color: var(--primary); font-family: 'Courier New', monospace;
 }
-.slob-room-members-label { font-size: 13px; color: var(--text-muted); flex: 1; }
-.slob-room-status { font-size: 12px; color: var(--text-muted); }
 .slob-enter-room-btn {
   width: 100%; justify-content: center; gap: 8px;
   background: linear-gradient(135deg, #3b82f6, #2563eb);
