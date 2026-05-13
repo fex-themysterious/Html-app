@@ -5692,22 +5692,22 @@
     const notesSection = vpNotesHTML(groupId || '__quick__', item);
 
     return `
-      <div class="vp-header">
+      <div class="vp-header" id="vp-header">
         <button class="vp-back-btn" data-act="vp-close" aria-label="Back">${SVG_BACK}</button>
         <div class="vp-header-title">${escapeHTML(item.title)}</div>
+        <div id="vp-header-timer" class="vp-header-timer-wrap" style="display:none">
+          <span class="vp-header-timer-icon">⏱</span>
+          <span id="vp-header-timer-text" class="vp-header-timer-text">0:00</span>
+          <button class="vp-header-timer-stop" data-act="vfm-close" title="Stop focus session">✕</button>
+        </div>
         <button class="vp-yt-btn vfm-start-vp-btn" data-act="vfm-start" title="Start Focus Mode" aria-label="Focus Mode">⏱</button>
-        <button class="vp-yt-btn" id="vp-cinema-btn" data-act="vp-cinema" title="Cinema Mode (F)" aria-label="Cinema Mode">${SVG_CINEMA_ENTER}</button>
         <button class="vp-yt-btn vp-orient-btn" data-act="vp-toggle-landscape" title="Toggle landscape" aria-label="Toggle landscape">${SVG_ORIENT_LANDSCAPE}</button>
         <a href="${escapeHTML(item.url)}" target="_blank" rel="noopener" class="vp-yt-btn" title="Open externally">${SVG_EXTLINK}</a>
       </div>
       <div class="vp-split">
         <div class="vp-main">
           <div class="vp-embed-wrap">
-            <iframe id="vp-iframe" src="${embedUrl}" allow="autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write" allowfullscreen sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation" title="${escapeHTML(item.title)}"></iframe>
-            <div id="vp-seek-zones" class="vp-seek-zones">
-              <div class="vp-seek-zone vp-seek-l" id="vp-seek-flash-l"><div class="vp-seek-indicator"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="28" height="28"><polyline points="19 20 9 12 19 4"/><line x1="5" y1="19" x2="5" y2="5"/></svg><span>−10s</span></div></div>
-              <div class="vp-seek-zone vp-seek-r" id="vp-seek-flash-r"><div class="vp-seek-indicator"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="28" height="28"><polyline points="5 4 15 12 5 20"/><line x1="19" y1="4" x2="19" y2="20"/></svg><span>+10s</span></div></div>
-            </div>
+            <iframe id="vp-iframe" src="${embedUrl}" allow="autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write" allowfullscreen sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation" title="${escapeHTML(item.title)}" style="pointer-events:auto"></iframe>
             <div class="vp-ambient-glow"></div>
           </div>
           ${extHint}
@@ -5721,7 +5721,7 @@
         </div>
         <div class="vp-notes-col" id="vp-notes-col">${notesSection}</div>
       </div>
-      <div class="vp-cinema-hint" id="vp-cinema-hint">Press <kbd>F</kbd> or tap ⛶ for cinema · <kbd>Space</kbd> play/pause · <kbd>←→</kbd> seek · <kbd>M</kbd> minimize timer</div>`;
+      `;
   }
 
   // ========== Video Focus Mode ==========
@@ -5881,17 +5881,18 @@
   function startVfm(mins, title) {
     _vfmActive = true; _vfmDuration = mins * 60; _vfmRemaining = mins * 60;
     _vfmComplete = false; _vfmMinimized = false; _vfmTitle = title || '';
-    // Start paused if video is already paused/unstarted
     _vfmRunning = !(_ytPlayerReady && (_ytPlayerState === 2 || _ytPlayerState === 5 || _ytPlayerState === -1));
     document.getElementById('vfm-overlay')?.remove();
     document.getElementById('vfm-bubble')?.remove();
-    const el = document.createElement('div');
-    el.id = 'vfm-overlay';
-    el.innerHTML = _vfmOverlayHTML();
-    document.body.appendChild(el);
-    _bindVfmDrag(el);
+    // Show compact timer in the player header bar
+    const timerWrap = document.getElementById('vp-header-timer');
+    if (timerWrap) {
+      timerWrap.style.display = 'flex';
+      const timerText = document.getElementById('vp-header-timer-text');
+      if (timerText) timerText.textContent = _fmtVfm(_vfmRemaining);
+    }
     const vpFocusBtn = document.querySelector('.vfm-start-vp-btn');
-    if (vpFocusBtn) { vpFocusBtn.classList.add('vfm-btn-active'); vpFocusBtn.title = 'Focus Mode Active'; }
+    if (vpFocusBtn) { vpFocusBtn.style.display = 'none'; }
     _vfmTimer = setInterval(vfmTick, 1000);
     toast('Focus Mode started — stay locked in! 🎯', 'success', 3000);
   }
@@ -5914,8 +5915,10 @@
     document.getElementById('vfm-overlay')?.remove();
     document.getElementById('vfm-bubble')?.remove();
     document.getElementById('vfm-picker')?.remove();
+    const timerWrap = document.getElementById('vp-header-timer');
+    if (timerWrap) timerWrap.style.display = 'none';
     const vpFocusBtn = document.querySelector('.vfm-start-vp-btn');
-    if (vpFocusBtn) { vpFocusBtn.classList.remove('vfm-btn-active'); vpFocusBtn.title = 'Start Focus Mode'; }
+    if (vpFocusBtn) { vpFocusBtn.style.display = ''; vpFocusBtn.title = 'Start Focus Mode'; }
   }
 
   function vfmTick() {
@@ -5941,6 +5944,7 @@
   function updateVfmDisplay() {
     const prog   = _vfmDuration > 0 ? _vfmRemaining / _vfmDuration : 1;
     const offset = _VFM_C * (1 - prog);
+    // Update floating overlay (shown only on completion)
     const ringEl = document.getElementById('vfm-ring-fg');
     if (ringEl) ringEl.style.strokeDashoffset = offset;
     const timeEl = document.getElementById('vfm-time');
@@ -5954,11 +5958,31 @@
     if (bubbleRing) bubbleRing.style.strokeDashoffset = _VFM_BC * (1 - prog);
     const bubbleTime = document.getElementById('vfm-bubble-time');
     if (bubbleTime) bubbleTime.textContent = _fmtVfm(_vfmRemaining);
+    // Update compact header timer
+    const headerTimerText = document.getElementById('vp-header-timer-text');
+    if (headerTimerText) {
+      headerTimerText.textContent = _fmtVfm(_vfmRemaining);
+      headerTimerText.style.color = !_vfmRunning ? '#f59e0b' : '';
+    }
   }
 
   function onVfmComplete() {
     _vfmComplete = true; _vfmRunning = false;
     clearInterval(_vfmTimer); _vfmTimer = null;
+    // Hide header timer pill, show full completion overlay
+    const timerWrap = document.getElementById('vp-header-timer');
+    if (timerWrap) timerWrap.style.display = 'none';
+    const vpFocusBtn = document.querySelector('.vfm-start-vp-btn');
+    if (vpFocusBtn) vpFocusBtn.style.display = '';
+    // Show the completion overlay
+    document.getElementById('vfm-overlay')?.remove();
+    document.getElementById('vfm-bubble')?.remove();
+    const el = document.createElement('div');
+    el.id = 'vfm-overlay';
+    el.innerHTML = _vfmOverlayHTML();
+    document.body.appendChild(el);
+    _bindVfmDrag(el);
+    updateVfmDisplay();
     const ringEl = document.getElementById('vfm-ring-fg');
     if (ringEl) { ringEl.style.strokeDashoffset = 0; ringEl.classList.add('vfm-ring-done'); }
     const completeMsg = document.getElementById('vfm-complete-msg');
@@ -5969,7 +5993,6 @@
     if (exitBtn) { exitBtn.classList.remove('vfm-locked'); exitBtn.classList.add('vfm-unlocked'); exitBtn.textContent = '✅ Exit & Complete'; }
     const abandonLink = document.querySelector('.vfm-abandon-link');
     if (abandonLink) abandonLink.style.display = 'none';
-    if (_vfmMinimized) expandVfm();
     // Save focus stats
     const todayStr = todayKey();
     const mins = Math.round(_vfmDuration / 60);
@@ -6029,8 +6052,7 @@
       btn.innerHTML = _vpCinema ? SVG_CINEMA_EXIT : SVG_CINEMA_ENTER;
       btn.title = _vpCinema ? 'Exit Cinema (F)' : 'Cinema Mode (F)';
     }
-    if (_vpCinema) _vpResetAutoHide();
-    else { clearTimeout(_vpHudTimer); overlay.classList.remove('vp-hud-hidden'); }
+    _vpResetAutoHide();
   }
 
   function _vpResetAutoHide() {
@@ -6038,12 +6060,10 @@
     if (!overlay) return;
     overlay.classList.remove('vp-hud-hidden');
     clearTimeout(_vpHudTimer);
-    if (_vpCinema) {
-      _vpHudTimer = setTimeout(() => {
-        const el = document.getElementById('vp-overlay');
-        if (el && _vpCinema) el.classList.add('vp-hud-hidden');
-      }, 3200);
-    }
+    _vpHudTimer = setTimeout(() => {
+      const el = document.getElementById('vp-overlay');
+      if (el) el.classList.add('vp-hud-hidden');
+    }, 3000);
   }
 
   function _vpInitPlayer(overlay) {
@@ -6053,6 +6073,8 @@
     overlay.addEventListener('mousemove', onActivity, { passive: true });
     overlay.addEventListener('touchstart', onActivity, { passive: true });
     overlay.addEventListener('click', onActivity, { passive: true });
+    // Start auto-hide immediately
+    _vpResetAutoHide();
     if (_vpKeyHandler) document.removeEventListener('keydown', _vpKeyHandler);
     _vpKeyHandler = function(e) {
       if (!document.getElementById('vp-overlay')) {
@@ -6064,8 +6086,6 @@
           if (_vpCinema) { _vpToggleCinema(); e.preventDefault(); }
           else { closeVideoPlayer(); e.preventDefault(); }
           break;
-        case 'f': case 'F':
-          _vpToggleCinema(); e.preventDefault(); break;
         case ' ':
           if (_ytPlayerReady && _ytPlayer) {
             _ytPlayerState === 1 ? _ytPlayer.pauseVideo() : _ytPlayer.playVideo();
@@ -6076,31 +6096,10 @@
           if (_ytPlayerReady && _ytPlayer) { _ytPlayer.seekTo((_ytPlayer.getCurrentTime() || 0) + 10, true); e.preventDefault(); } break;
         case 'ArrowLeft':
           if (_ytPlayerReady && _ytPlayer) { _ytPlayer.seekTo(Math.max(0, (_ytPlayer.getCurrentTime() || 0) - 10), true); e.preventDefault(); } break;
-        case 'm': case 'M':
-          if (_vfmActive) { _vfmMinimized ? expandVfm() : minimizeVfm(); } break;
         case 'p': case 'P': _vpTryPiP(); break;
       }
     };
     document.addEventListener('keydown', _vpKeyHandler);
-    // Double-tap seek zones (active only in cinema mode via CSS pointer-events)
-    let _tapTimer = null, _tapSide = null;
-    const seekZones = document.getElementById('vp-seek-zones');
-    if (seekZones) {
-      seekZones.addEventListener('click', e => {
-        const rect = seekZones.getBoundingClientRect();
-        const side = (e.clientX - rect.left) < rect.width / 2 ? 'left' : 'right';
-        if (_tapTimer !== null && _tapSide === side) {
-          clearTimeout(_tapTimer); _tapTimer = null; _tapSide = null;
-          const secs = side === 'right' ? 10 : -10;
-          if (_ytPlayerReady && _ytPlayer) _ytPlayer.seekTo(Math.max(0, (_ytPlayer.getCurrentTime() || 0) + secs), true);
-          const flash = document.getElementById(side === 'right' ? 'vp-seek-flash-r' : 'vp-seek-flash-l');
-          if (flash) { flash.classList.add('vp-seek-active'); setTimeout(() => flash.classList.remove('vp-seek-active'), 700); }
-        } else {
-          _tapSide = side;
-          _tapTimer = setTimeout(() => { _tapTimer = null; _tapSide = null; }, 320);
-        }
-      });
-    }
   }
 
   function _vpTryPiP() {
