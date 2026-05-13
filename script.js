@@ -1560,39 +1560,84 @@
   function _renderSocialLobby() {
     if (!_socialLobbyCode) _socialLobbyCode = _sGenerateCode();
     const code = _socialLobbyCode;
-    const myGroupsHTML = _myGroupCodes.length > 0
-      ? `<div class="my-groups-section">
-          <h3 class="my-groups-title">📚 My Rooms</h3>
-          ${_myGroupCodes.map(c => `<div class="my-group-item">
-            <span class="my-group-code">${c}</span>
-            <div class="my-group-btns">
-              <button class="btn btn-sm" data-act="social-rejoin" data-code="${c}">Rejoin</button>
-              <button class="btn btn-sm btn-ghost my-group-remove" data-act="social-remove-group" data-code="${c}" title="Remove from list">✕</button>
-            </div>
-          </div>`).join('')}
-        </div>`
-      : '';
-    // Global leaderboard section in lobby
+
+    // ── Section 1: Global Leaderboard (primary — shown at top) ──
+    const top5HTML = _globalLbData.slice(0, 5).map((m, i) => {
+      const isMe = m.uid === _userId;
+      const medal = i === 0 ? '👑' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}`;
+      const chipCls = (i === 0 ? ' slb-chip-gold' : i === 1 ? ' slb-chip-silver' : i === 2 ? ' slb-chip-bronze' : '') + (isMe ? ' slb-chip-me' : '');
+      const xpLabel = (m.weeklyXP || 0) >= 1000 ? ((m.weeklyXP / 1000).toFixed(1) + 'k') : String(m.weeklyXP || 0);
+      return `<div class="slb-chip${chipCls}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name || 'Anonymous')}">
+        <div class="slb-chip-medal">${medal}</div>
+        <div class="slb-chip-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.name || 'S')}</div>
+        <div class="slb-chip-name">${escapeHTML((m.name || 'Anonymous').split(' ')[0])}</div>
+        <div class="slb-chip-xp">⚡ ${xpLabel}</div>
+      </div>`;
+    }).join('');
+
     const glbRows = _globalLbData.slice(0, 20).map((m, i) => {
       const isMe = m.uid === _userId;
       const topGlow = i === 0 ? ' lb-row-gold' : i === 1 ? ' lb-row-silver' : i === 2 ? ' lb-row-bronze' : '';
       const med = i === 0 ? '<span class="lb-crown">👑</span>' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="color:var(--text-muted)">${i + 1}.</span>`;
       return `<div class="lb-row${isMe ? ' lb-me' : ''}${topGlow}"><span class="lb-rank">${med}</span><span class="lb-av lb-av-click" style="background:${_sAvatarColor(m.uid)}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name || 'Anonymous')}">${_sInitials(m.name || 'S')}</span><span class="lb-name">${escapeHTML(m.name || 'Anonymous')}</span><span class="lb-val">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span><span class="lb-val2">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span></div>`;
-    }).join('') || '<div class="empty" style="padding:8px 0;font-size:13px">No global data yet — join a room and start focusing!</div>';
-    const globalLbSection = `<div class="social-global-lb-section">
-      <div class="social-global-lb-head"><span>🌍 Global Leaderboard</span><span class="slb-sub">Weekly XP — resets every Monday</span></div>
-      <div class="social-lb">${glbRows}</div>
+    }).join('') || '<div class="empty" style="padding:12px 0;font-size:13px">No global data yet — start a focus session to appear here!</div>';
+
+    const leaderboardSection = `<div class="slb-section">
+      <div class="slb-head-row">
+        <div>
+          <div class="slb-title">🌍 Global Leaderboard</div>
+          <div class="slb-sub-label">Weekly XP · resets every Monday</div>
+        </div>
+        <button class="slb-refresh-btn" data-act="social-lb-refresh" title="Refresh rankings">↻</button>
+      </div>
+      ${top5HTML ? `<div class="slb-top5-scroll">${top5HTML}</div>` : ''}
+      <div class="social-lb slb-full-list">${glbRows}</div>
+    </div>`;
+
+    // ── Section 2: My Rooms (only when user has joined rooms) ──
+    const myRoomsHTML = _myGroupCodes.length > 0 ? `<div class="my-rooms-section">
+      <div class="my-rooms-head">My Rooms</div>
+      <div class="my-rooms-list">
+        ${_myGroupCodes.map(c => `<div class="my-room-card">
+          <div class="mrc-info">
+            <div class="mrc-name">Room ${c}</div>
+            <div class="mrc-code">${c}</div>
+          </div>
+          <div class="mrc-actions">
+            <button class="btn btn-sm mrc-enter-btn" data-act="social-rejoin" data-code="${c}">Enter</button>
+            <button class="mrc-trash-btn" data-act="social-delete-group" data-code="${c}" title="Delete room">🗑</button>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>` : '';
+
+    // ── Section 3: Create & Join (2-column grid at bottom) ──
+    const discoverySection = `<div class="slb-discovery">
+      <div class="slb-disc-head">Join or Create</div>
+      <div class="social-lobby-cards slb-disc-cards">
+        <div class="social-lobby-card">
+          <div class="slc-icon">🔗</div>
+          <div class="slc-title">Create a Room</div>
+          <div class="slc-code-row">
+            <span class="slc-code">${code}</span>
+            <button class="slc-copy-btn" data-act="social-copy-lobby-code" data-code="${code}" title="Copy code">⧉</button>
+          </div>
+          <div class="slc-hint">Share this code with friends</div>
+          <button class="btn btn-block" data-act="social-create" data-code="${code}" style="margin-top:auto">Create &amp; Join</button>
+        </div>
+        <div class="social-lobby-card">
+          <div class="slc-icon">🚪</div>
+          <div class="slc-title">Join a Room</div>
+          <input id="social-join-input" class="auth-input slc-join-input" maxlength="6" placeholder="XXXXXX" autocomplete="off" spellcheck="false" inputmode="text"/>
+          <button class="btn btn-block" data-act="social-join">Join Room</button>
+        </div>
+      </div>
     </div>`;
 
     return `<div class="social-lobby">
-      <div class="social-lobby-hero"><div class="social-lobby-icon">👥</div><h1 class="social-lobby-title">Study Together</h1><p class="social-lobby-sub">Join a room to see friends' live focus, duel for XP, and hit group goals together.</p></div>
-      ${myGroupsHTML}
-      <div class="social-lobby-cards">
-        <div class="social-lobby-card"><div class="slc-icon">🔗</div><div class="slc-title">Create a Room</div><div class="slc-code">${code}</div><div class="slc-hint">Share this code with friends</div><button class="btn btn-block" data-act="social-create" data-code="${code}">Create &amp; Join</button></div>
-        <div class="social-lobby-card"><div class="slc-icon">🚪</div><div class="slc-title">Join a Room</div><input id="social-join-input" class="auth-input" style="margin:12px 0 8px;text-align:center;text-transform:uppercase;letter-spacing:4px;font-weight:700;font-size:18px" maxlength="6" placeholder="XXXXXX" autocomplete="off" spellcheck="false"/><button class="btn btn-block" data-act="social-join">Join Room</button></div>
-      </div>
-      ${globalLbSection}
-      <p class="social-lobby-privacy">🔒 Only members of the same room can see your data.</p>
+      ${leaderboardSection}
+      ${myRoomsHTML}
+      ${discoverySection}
     </div>`;
   }
 
@@ -7502,12 +7547,39 @@
     if (act === 'social-join')   { const inp = document.getElementById('social-join-input'); _sJoinRoom(inp ? inp.value.trim().toUpperCase() : '').catch(() => {}); return; }
     if (act === 'social-leave')  { _sLeaveRoom(); return; }
     if (act === 'social-rejoin') { _sJoinRoom(el.dataset.code).catch(() => {}); return; }
+    if (act === 'social-lb-refresh') { _loadGlobalLeaderboard().catch(() => {}); return; }
+    if (act === 'social-copy-lobby-code') {
+      const c_ = el.dataset.code || '';
+      if (c_) { navigator.clipboard.writeText(c_).then(() => toast(`Copied ${c_}!`, 'success')).catch(() => { const ta = document.createElement('textarea'); ta.value = c_; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); toast(`Copied ${c_}!`, 'success'); }); }
+      return;
+    }
     if (act === 'social-remove-group') {
       const code_ = el.dataset.code;
       _myGroupCodes = _myGroupCodes.filter(c => c !== code_);
       try { localStorage.setItem('my_group_codes', JSON.stringify(_myGroupCodes)); } catch(_) {}
       if (_db && _userId) _db.collection('users').doc(_userId).update({ joinedRooms: _myGroupCodes }).catch(() => {});
       renderSocial(); return;
+    }
+    if (act === 'social-delete-group') {
+      const code_ = el.dataset.code;
+      confirmModal(`Delete room ${code_}? This will permanently wipe all room data from the server.`, async () => {
+        _myGroupCodes = _myGroupCodes.filter(c => c !== code_);
+        try { localStorage.setItem('my_group_codes', JSON.stringify(_myGroupCodes)); } catch(_) {}
+        if (_db && _userId) _db.collection('users').doc(_userId).update({ joinedRooms: _myGroupCodes }).catch(() => {});
+        if (_db) {
+          try {
+            const groupRef = _db.collection('groups').doc(code_);
+            const presSnap = await groupRef.collection('presence').get();
+            const batch = _db.batch();
+            presSnap.docs.forEach(d => batch.delete(d.ref));
+            batch.delete(groupRef);
+            await batch.commit();
+            toast('Room deleted', 'success');
+          } catch(e) { toast('Removed from your list', 'info'); }
+        }
+        renderSocial();
+      }, { title: 'Delete Room?', yesLabel: 'Delete', yesClass: 'btn btn-danger', noLabel: 'Cancel' });
+      return;
     }
     if (act === 'view-profile')  { _viewMemberProfile(el.dataset.uid); return; }
     if (act === 'view-profile-global') { _viewGlobalProfile(el.dataset.uid, el.dataset.name); return; }

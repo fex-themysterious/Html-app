@@ -5844,5 +5844,157 @@ body[data-theme="golden"] .social-member-card.sm-focusing  { background: rgba(25
 }
 
 /* ── Social Lobby Redesign ──────────────────────────────────────── */
-/* Lobby styles consolidated at line ~4498 */
+
+/* Override lobby gap so sections control their own spacing */
+.social-lobby { gap: 0; padding-bottom: 80px; }
+/* Hide old hero + privacy note (no longer used) */
+.social-lobby-hero, .social-lobby-privacy { display: none !important; }
+
+/* ─── Section 1: Global Leaderboard ────────────────────────────── */
+.slb-section { padding: 0; }
+
+.slb-head-row {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: 16px 16px 10px;
+}
+.slb-title     { font-size: 15px; font-weight: 800; color: var(--text); }
+.slb-sub-label { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+
+.slb-refresh-btn {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text-muted); font-size: 16px; line-height: 1;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: background 0.2s, color 0.2s, transform 0.35s;
+  flex-shrink: 0;
+}
+.slb-refresh-btn:hover  { background: rgba(255,255,255,0.12); color: var(--text); }
+.slb-refresh-btn:active { transform: rotate(180deg); }
+
+/* Horizontal top-5 chips */
+.slb-top5-scroll {
+  display: flex; gap: 8px;
+  overflow-x: auto; padding: 0 16px 14px;
+  scrollbar-width: none;
+}
+.slb-top5-scroll::-webkit-scrollbar { display: none; }
+
+.slb-chip {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  min-width: 68px; padding: 12px 8px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 16px; cursor: pointer; flex-shrink: 0;
+  transition: border-color 0.2s, transform 0.18s, box-shadow 0.2s;
+  user-select: none;
+}
+.slb-chip:hover           { border-color: rgba(91,173,255,0.4); transform: translateY(-2px); box-shadow: 0 4px 16px rgba(91,173,255,0.1); }
+.slb-chip-gold            { border-color: rgba(251,191,36,0.35); background: rgba(251,191,36,0.06); }
+.slb-chip-silver          { border-color: rgba(203,213,225,0.3); background: rgba(203,213,225,0.04); }
+.slb-chip-bronze          { border-color: rgba(180,120,60,0.3);  background: rgba(180,120,60,0.04); }
+.slb-chip-me              { border-color: rgba(91,173,255,0.5);  background: rgba(91,173,255,0.08); }
+.slb-chip-medal           { font-size: 16px; line-height: 1; }
+.slb-chip-av {
+  width: 34px; height: 34px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800; color: #fff;
+}
+.slb-chip-name {
+  font-size: 11px; font-weight: 700; color: var(--text);
+  max-width: 62px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center;
+}
+.slb-chip-xp { font-size: 10px; color: var(--primary); font-weight: 700; }
+
+/* Full ranked list */
+.slb-full-list { margin: 0 16px 4px; }
+
+/* ─── Section 2: My Rooms ───────────────────────────────────────── */
+.my-rooms-section { padding: 4px 16px 0; }
+
+.my-rooms-head {
+  font-size: 11px; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 1.5px;
+  display: flex; align-items: center; gap: 8px;
+  margin: 18px 0 10px;
+}
+.my-rooms-head::after {
+  content: ''; flex: 1; height: 1px;
+  background: linear-gradient(90deg, rgba(91,173,255,0.28), transparent);
+}
+.my-rooms-list { display: flex; flex-direction: column; gap: 8px; }
+
+.my-room-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 13px 14px;
+  background: rgba(255,255,255,0.04);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 16px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.my-room-card:hover { border-color: rgba(91,173,255,0.3); box-shadow: 0 0 20px rgba(91,173,255,0.08); }
+
+.mrc-info     { flex: 1; min-width: 0; }
+.mrc-name     { font-size: 14px; font-weight: 800; color: var(--text); }
+.mrc-code     { font-size: 11px; color: var(--text-muted); letter-spacing: 2px; margin-top: 3px; font-family: 'Courier New', monospace; }
+.mrc-actions  { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+.mrc-enter-btn {
+  background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
+  border: none !important; color: #fff !important;
+  font-weight: 700 !important; padding: 7px 18px !important;
+  border-radius: 10px !important; font-size: 13px !important;
+  transition: opacity 0.2s, transform 0.18s !important;
+}
+.mrc-enter-btn:hover { opacity: 0.88; transform: scale(1.04); }
+
+.mrc-trash-btn {
+  width: 32px; height: 32px; flex-shrink: 0;
+  border: 1px solid rgba(255,255,255,0.09);
+  background: rgba(255,255,255,0.04); border-radius: 10px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  font-size: 15px; color: var(--text-muted);
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+.mrc-trash-btn:hover { background: rgba(248,113,113,0.13); border-color: rgba(248,113,113,0.3); color: #f87171; }
+
+/* ─── Section 3: Create & Join Discovery ────────────────────────── */
+.slb-discovery { padding: 0 16px; margin-top: 18px; }
+
+.slb-disc-head {
+  font-size: 11px; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 1.5px;
+  display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+}
+.slb-disc-head::after {
+  content: ''; flex: 1; height: 1px;
+  background: linear-gradient(90deg, rgba(91,173,255,0.28), transparent);
+}
+/* Remove double padding when cards are inside slb-discovery */
+.slb-disc-cards { padding: 0 !important; }
+
+/* Copy button in Create card code row */
+.slc-code-row {
+  display: flex; align-items: center; gap: 8px; margin: 4px 0 2px;
+}
+.slc-copy-btn {
+  width: 28px; height: 28px; flex-shrink: 0;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.06); border-radius: 8px;
+  cursor: pointer; color: var(--text-muted); font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.2s, color 0.2s;
+}
+.slc-copy-btn:hover { background: rgba(91,173,255,0.14); color: #5badff; }
+
+/* Join card input */
+.slc-join-input {
+  margin: 8px 0 6px !important;
+  text-align: center !important;
+  text-transform: uppercase !important;
+  letter-spacing: 4px !important;
+  font-weight: 700 !important;
+  font-size: 18px !important;
+}
 
