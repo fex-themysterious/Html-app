@@ -321,17 +321,17 @@
     }, 500);
   }
 
-  // Firebase project config — safe to include in frontend code.
-  // Firebase security is enforced by Firestore Security Rules, not by keeping this secret.
-  var FIREBASE_CONFIG = {
-    apiKey:            'AIzaSyCRg1W9ueQp80kfDbS-o5VdDZmW7I9AbMQ',
-    authDomain:        'study-hub-app-f3431.firebaseapp.com',
-    projectId:         'study-hub-app-f3431',
-    storageBucket:     'study-hub-app-f3431.firebasestorage.app',
-    messagingSenderId: '18536531099',
-    appId:             '1:18536531099:web:6b691f03283530c927f23e',
-    measurementId:     'G-HSRVYWG6D6'
-  };
+  var FIREBASE_CONFIG = (window.__FIREBASE_CONFIG__ && window.__FIREBASE_CONFIG__.apiKey)
+    ? window.__FIREBASE_CONFIG__
+    : {
+        apiKey:            'AIzaSyCRg1W9ueQp80kfDbS-o5VdDZmW7I9AbMQ',
+        authDomain:        'study-hub-app-f3431.firebaseapp.com',
+        projectId:         'study-hub-app-f3431',
+        storageBucket:     'study-hub-app-f3431.firebasestorage.app',
+        messagingSenderId: '18536531099',
+        appId:             '1:18536531099:web:6b691f03283530c927f23e',
+        measurementId:     'G-HSRVYWG6D6'
+      };
 
   function _initFirebase() {
     if (typeof firebase === 'undefined') {
