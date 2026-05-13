@@ -1332,6 +1332,25 @@
       if (!state.streak.best || state.streak.count > state.streak.best) state.streak.best = state.streak.count;
     }
     checkGoalCompletions();
+    _updateLiveStats();
+  }
+
+  // Patch live stat widgets across any visible DOM without a full re-render
+  function _updateLiveStats() {
+    const streak = state.streak.count || 0;
+    const totalFocusMin = Object.values(state.focusStats.minutesByDate || {}).reduce((a, b) => a + b, 0);
+    const todayMin = state.focusStats.minutesByDate[todayKey()] || 0;
+    // Streak badges
+    document.querySelectorAll('.live-streak-count').forEach(el => { el.textContent = streak + ' 🔥'; });
+    // Focus today badges
+    document.querySelectorAll('.live-focus-today').forEach(el => { el.textContent = minsToHrs(todayMin); });
+    // Total focus badges
+    document.querySelectorAll('.live-focus-total').forEach(el => { el.textContent = minsToHrs(totalFocusMin); });
+    // Stat tiles in stats view (patch without full re-render when not on stats tab)
+    const todayFocusTile = document.querySelector('[data-live="today-focus"] .v');
+    if (todayFocusTile) todayFocusTile.textContent = minsToHrs(todayMin);
+    const totalFocusTile = document.querySelector('[data-live="total-focus"] .v');
+    if (totalFocusTile) totalFocusTile.textContent = minsToHrs(totalFocusMin);
   }
 
   // ========== XP & Gamification System ==========
@@ -1740,26 +1759,45 @@
   }
 
   // ========== Badge System ==========
-  const BADGES = [
-    { id: 'first_session',    icon: '🎯', name: 'First Session',    desc: 'Complete your first focus session' },
-    { id: 'early_bird',       icon: '🌅', name: 'Early Bird',       desc: 'Start a focus session before 7 AM' },
-    { id: 'night_owl',        icon: '🦉', name: 'Night Owl',        desc: 'Start a session after 11 PM' },
-    { id: 'deep_diver',       icon: '🏊', name: 'Deep Diver',       desc: 'Complete a 2-hour continuous session' },
-    { id: 'consistency_king', icon: '👑', name: 'Consistency King', desc: 'Maintain a 7-day study streak' },
-    { id: 'century_club',     icon: '💯', name: 'Century Club',     desc: 'Reach 100 total study hours' },
-    { id: 'week_warrior',     icon: '⚔️', name: 'Week Warrior',     desc: '7 focus sessions in one week' },
-    { id: 'topic_master',     icon: '📚', name: 'Topic Master',     desc: 'Complete 10 or more topics' },
-    { id: 'duel_victor',      icon: '⚔️', name: 'Duel Victor',      desc: 'Won a 2-hour XP Duel against a friend' },
+  const ACHIEVEMENTS = [
+    // ── Easy Tier (Bronze) — +50 XP each ──────────────────────────────────
+    { id: 'first_session',    tier: 'easy',   icon: '🎯', name: 'First Step',        desc: 'Complete your first focus session',         xp: 50  },
+    { id: 'early_bird',       tier: 'easy',   icon: '🌅', name: 'Early Bird',         desc: 'Start a focus session before 7 AM',         xp: 50  },
+    { id: 'night_owl',        tier: 'easy',   icon: '🦉', name: 'Night Owl',          desc: 'Start a session after 11 PM',               xp: 50  },
+    { id: 'topic_starter',    tier: 'easy',   icon: '📝', name: 'Topic Starter',      desc: 'Complete your first topic',                 xp: 50  },
+    { id: 'week_starter',     tier: 'easy',   icon: '📅', name: 'Week Starter',       desc: 'Study on 3 different days in a week',       xp: 50  },
+    { id: 'first_revision',   tier: 'easy',   icon: '🔄', name: 'First Revision',     desc: 'Complete your first spaced revision',       xp: 50  },
+    { id: 'plan_completer',   tier: 'easy',   icon: '✅', name: 'Plan Completer',     desc: 'Complete all tasks in a daily plan',        xp: 50  },
+    // ── Medium Tier (Silver) — +150 XP each ───────────────────────────────
+    { id: 'deep_diver',       tier: 'medium', icon: '🏊', name: 'Deep Diver',         desc: 'Complete a 90-minute continuous session',   xp: 150 },
+    { id: 'consistency_king', tier: 'medium', icon: '👑', name: 'Consistency King',   desc: 'Maintain a 7-day study streak',             xp: 150 },
+    { id: 'week_warrior',     tier: 'medium', icon: '⚔️', name: 'Week Warrior',       desc: '7 focus sessions in one week',              xp: 150 },
+    { id: 'topic_master',     tier: 'medium', icon: '📚', name: 'Topic Master',       desc: 'Complete 10 or more topics',                xp: 150 },
+    { id: 'speed_learner',    tier: 'medium', icon: '⚡', name: 'Speed Learner',      desc: 'Complete 5 topics in a single day',         xp: 150 },
+    { id: 'focus_10h',        tier: 'medium', icon: '⏱️', name: '10-Hour Club',        desc: 'Accumulate 10 total focus hours',           xp: 150 },
+    { id: 'streak_14',        tier: 'medium', icon: '🔥', name: 'Fortnight Fire',     desc: 'Maintain a 14-day study streak',            xp: 150 },
+    // ── Hard Tier (Gold) — +500 XP each ───────────────────────────────────
+    { id: 'century_club',     tier: 'hard',   icon: '💯', name: 'Century Club',       desc: 'Accumulate 100 total focus hours',          xp: 500 },
+    { id: 'marathon_study',   tier: 'hard',   icon: '🏃', name: 'Marathon Scholar',   desc: 'Complete a 3-hour continuous session',      xp: 500 },
+    { id: 'streak_30',        tier: 'hard',   icon: '🌟', name: '30-Day Legend',      desc: 'Maintain a 30-day study streak',            xp: 500 },
+    { id: 'topic_50',         tier: 'hard',   icon: '🎓', name: 'Subject Dominator',  desc: 'Complete 50 or more topics',                xp: 500 },
+    { id: 'focus_50h',        tier: 'hard',   icon: '🔱', name: 'Titan Scholar',      desc: 'Accumulate 50 total focus hours',           xp: 500 },
+    { id: 'duel_victor',      tier: 'hard',   icon: '🏆', name: 'Duel Victor',        desc: 'Won a 2-hour XP Duel against a friend',    xp: 500 },
   ];
+  const BADGES = ACHIEVEMENTS; // backward-compat alias
 
-  function achievementToast(badge) {
+  function achievementToast(ach) {
     const wrap = document.getElementById('toast-container'); if (!wrap) return;
     const el = document.createElement('div');
     el.className = 'toast achievement-toast';
-    el.innerHTML = `<div class="ach-toast-icon">${badge.icon}</div><div class="ach-toast-body"><div class="ach-toast-title">Achievement Unlocked!</div><div class="ach-toast-name">${badge.name}</div><div class="ach-toast-desc">${badge.desc}</div></div>`;
+    const tierColors  = { easy: '#22c55e', medium: '#38bdf8', hard: '#f59e0b' };
+    const tierLabels  = { easy: '🥉 Easy', medium: '🥈 Medium', hard: '🥇 Hard' };
+    const color = tierColors[ach.tier] || '#fbbf24';
+    el.style.setProperty('--ach-color', color);
+    el.innerHTML = `<div class="ach-toast-icon" style="filter:drop-shadow(0 0 8px ${color}88)">${ach.icon}</div><div class="ach-toast-body"><div class="ach-toast-title" style="color:${color}">Achievement Unlocked!</div><div class="ach-toast-name">${escapeHTML(ach.name)}</div><div class="ach-toast-desc">${escapeHTML(ach.desc)}</div>${ach.xp ? `<div class="ach-toast-xp" style="color:${color}">+${ach.xp} XP &nbsp;·&nbsp; ${tierLabels[ach.tier] || ''}</div>` : ''}</div>`;
     wrap.appendChild(el);
-    gamificationManager._flashGlow('rgba(250,204,21,0.18)');
-    setTimeout(() => el.remove(), 6000);
+    gamificationManager._flashGlow(color + '28');
+    setTimeout(() => el.remove(), 7000);
   }
 
   function checkBadges({ sessionMinutes = 0, sessionStartHour = null } = {}) {
@@ -1767,29 +1805,52 @@
     const newlyUnlocked = [];
     const totalFocusMin = Object.values(state.focusStats.minutesByDate || {}).reduce((a, b) => a + b, 0);
     const totalFocusSessions = Object.values(state.focusStats.sessions || {}).reduce((a, b) => a + b, 0);
+    const totalRevDone = state.revisions.reduce((a, r) => a + r.schedule.filter(s => s.done).length, 0);
     const doneTopics = state.subjects.reduce((a, sub) => a + sub.chapters.reduce((b, ch) => b + ch.topics.filter(t => t.done).length, 0), 0);
     const today = todayKey();
     let weekSessions = 0;
     for (let i = 0; i < 7; i++) weekSessions += (state.focusStats.sessions[addDaysISO(today, -i)] || 0);
+    // Days with activity this week
+    let weekActiveDays = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = addDaysISO(today, -i);
+      if ((state.focusStats.minutesByDate[d] || 0) > 0 || (state.activity[d] || 0) > 0) weekActiveDays++;
+    }
+    // All plan tasks done today?
+    const allTodayDone = (() => {
+      try { const tasks = getActivePlanTasks(); return tasks.length > 0 && tasks.every(t => t.done); } catch (_) { return false; }
+    })();
     const conditions = {
       first_session:    totalFocusSessions >= 1,
       early_bird:       sessionStartHour !== null && sessionStartHour < 7,
       night_owl:        sessionStartHour !== null && sessionStartHour >= 23,
-      deep_diver:       sessionMinutes >= 120,
+      topic_starter:    doneTopics >= 1,
+      week_starter:     weekActiveDays >= 3,
+      first_revision:   totalRevDone >= 1,
+      plan_completer:   allTodayDone,
+      deep_diver:       sessionMinutes >= 90,
       consistency_king: (state.streak.count || 0) >= 7,
-      century_club:     totalFocusMin / 60 >= 100,
       week_warrior:     weekSessions >= 7,
       topic_master:     doneTopics >= 10,
+      speed_learner:    false, // checked separately via topic completion flow
+      focus_10h:        totalFocusMin / 60 >= 10,
+      streak_14:        (state.streak.count || 0) >= 14,
+      century_club:     totalFocusMin / 60 >= 100,
+      marathon_study:   sessionMinutes >= 180,
+      streak_30:        (state.streak.count || 0) >= 30,
+      topic_50:         doneTopics >= 50,
+      focus_50h:        totalFocusMin / 60 >= 50,
     };
-    for (const badge of BADGES) {
-      if (!state.badges[badge.id] && conditions[badge.id]) {
-        state.badges[badge.id] = { unlockedAt: new Date().toISOString() };
-        newlyUnlocked.push(badge);
+    for (const ach of ACHIEVEMENTS) {
+      if (!state.badges[ach.id] && conditions[ach.id]) {
+        state.badges[ach.id] = { unlockedAt: new Date().toISOString() };
+        if (ach.xp) gamificationManager.addXP(ach.xp, `achievement_${ach.id}`);
+        newlyUnlocked.push(ach);
       }
     }
     if (newlyUnlocked.length) {
       saveState();
-      newlyUnlocked.forEach((b, i) => setTimeout(() => achievementToast(b), i * 800));
+      newlyUnlocked.forEach((b, i) => setTimeout(() => achievementToast(b), i * 900));
     }
   }
 
@@ -3959,8 +4020,11 @@
       _sContributeToGoals(elapsedMin).catch(() => {});
       bumpActivity(); saveState();
       checkBadges({ sessionMinutes: elapsedMin });
-      // Only re-render Stats if it is currently the active tab; otherwise it will render fresh on next visit
+      // Re-render the active tab, and patch live stats widgets on home/dashboard if visible
       if (document.body.classList.contains('tab-stats')) renderStats();
+      else if (document.body.classList.contains('tab-home')) renderHome();
+      else if (document.body.classList.contains('tab-dashboard')) renderDashboard();
+      _updateLiveStats();
 
       showWebNotification('🎉 Focus Session Complete!', `Session ${focusSessions} done! Keep going or take a break.`, { tag: 'focus-complete', requireInteraction: false });
 
@@ -5236,9 +5300,9 @@
 
       <div class="stats-row" style="margin-top:8px">
         <div class="stat-tile"><div class="v">${todaySessions}</div><div class="k">Today Sessions</div></div>
-        <div class="stat-tile"><div class="v">${todayFocusMin}m</div><div class="k">Today Focus</div></div>
+        <div class="stat-tile" data-live="today-focus"><div class="v">${minsToHrs(todayFocusMin)}</div><div class="k">Today Focus</div></div>
         <div class="stat-tile"><div class="v">${totalFocusSessions}</div><div class="k">All Sessions</div></div>
-        <div class="stat-tile"><div class="v">${avgFocusMin}m</div><div class="k">Avg / Day</div></div>
+        <div class="stat-tile" data-live="total-focus"><div class="v">${minsToHrs(avgFocusMin)}</div><div class="k">Avg / Day</div></div>
       </div>
 
       ${syllabusProgressHtml}
@@ -5287,18 +5351,37 @@
       ${subjectCards}
 
       <h2 style="margin:16px 0 10px">🏅 Achievements</h2>
-      <div class="badge-grid">
-        ${BADGES.map(b => {
-          const unlocked = !!(state.badges && state.badges[b.id]);
-          const dateStr = unlocked ? new Date(state.badges[b.id].unlockedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
-          return `<div class="badge-card ${unlocked ? 'badge-unlocked' : 'badge-locked'}">
-            <div class="badge-icon">${b.icon}</div>
-            <div class="badge-name">${escapeHTML(b.name)}</div>
-            <div class="badge-desc">${escapeHTML(b.desc)}</div>
-            ${unlocked ? `<div class="badge-date">${dateStr}</div>` : '<div class="badge-locked-label">🔒 Locked</div>'}
+      ${(() => {
+        const tierDefs = [
+          { key: 'easy',   label: 'Easy',   medal: '🥉', color: '#22c55e', xp: 50  },
+          { key: 'medium', label: 'Medium', medal: '🥈', color: '#38bdf8', xp: 150 },
+          { key: 'hard',   label: 'Hard',   medal: '🥇', color: '#f59e0b', xp: 500 },
+        ];
+        return tierDefs.map(tier => {
+          const tierAchs = ACHIEVEMENTS.filter(a => a.tier === tier.key);
+          const unlockedCount = tierAchs.filter(a => !!(state.badges && state.badges[a.id])).length;
+          return `<div class="ach-tier-section">
+            <div class="ach-tier-header" style="--tc:${tier.color}">
+              <span class="ach-tier-medal">${tier.medal}</span>
+              <span class="ach-tier-name">${tier.label}</span>
+              <span class="ach-tier-xp">+${tier.xp} XP each</span>
+              <span class="ach-tier-count" style="color:${tier.color}">${unlockedCount}/${tierAchs.length}</span>
+            </div>
+            <div class="badge-grid">
+              ${tierAchs.map(a => {
+                const unlocked = !!(state.badges && state.badges[a.id]);
+                const dateStr = unlocked ? new Date(state.badges[a.id].unlockedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+                return `<div class="badge-card ${unlocked ? 'badge-unlocked' : 'badge-locked'}" style="${unlocked ? `--bc:${tier.color};border-color:${tier.color}44;background:${tier.color}0d` : ''}">
+                  <div class="badge-icon" style="${unlocked ? `filter:drop-shadow(0 0 6px ${tier.color}88)` : ''}">${a.icon}</div>
+                  <div class="badge-name">${escapeHTML(a.name)}</div>
+                  <div class="badge-desc">${escapeHTML(a.desc)}</div>
+                  ${unlocked ? `<div class="badge-date" style="color:${tier.color}">${dateStr}</div>` : `<div class="badge-locked-label">🔒 +${a.xp} XP</div>`}
+                </div>`;
+              }).join('')}
+            </div>
           </div>`;
-        }).join('')}
-      </div>
+        }).join('');
+      })()}
 
       <div class="backup-glass-card">
         <div class="bgc-header">

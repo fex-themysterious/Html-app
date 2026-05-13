@@ -3806,6 +3806,13 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   color: var(--text-muted);
   line-height: 1.35;
 }
+.ach-toast-xp {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  margin-top: 4px;
+  opacity: 0.9;
+}
 
 /* ── Daily Efficiency Card ─────────────────────────────────── */
 .efficiency-card { padding: 14px 16px; }
@@ -3893,12 +3900,52 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   font-weight: 600;
 }
 
+/* ── Achievement Tier Sections ─────────────────────────────── */
+.ach-tier-section {
+  margin-bottom: 18px;
+}
+.ach-tier-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-left: 3px solid var(--tc, #fff);
+  border-radius: 12px;
+  margin-bottom: 10px;
+}
+.ach-tier-medal {
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.ach-tier-name {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text);
+  flex: 1;
+}
+.ach-tier-xp {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 600;
+  background: rgba(255,255,255,0.05);
+  border-radius: 99px;
+  padding: 2px 8px;
+}
+.ach-tier-count {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+}
+
 /* ── Badge Grid ────────────────────────────────────────────── */
 .badge-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 10px;
-  margin-bottom: 16px;
+  margin-bottom: 4px;
 }
 .badge-card {
   border-radius: 16px;
@@ -3914,7 +3961,6 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 }
 .badge-card.badge-unlocked:hover {
   transform: translateY(-2px);
-  border-color: rgba(250,204,21,0.5);
 }
 .badge-icon {
   font-size: 28px;
@@ -3944,14 +3990,18 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 }
 .badge-date {
   font-size: 9px;
-  color: #fbbf24;
   font-weight: 800;
   letter-spacing: 0.02em;
 }
 .badge-locked-label {
   font-size: 9px;
   color: var(--text-dim);
-  font-weight: 600;
+  font-weight: 700;
+  background: rgba(255,255,255,0.04);
+  border-radius: 99px;
+  padding: 2px 8px;
+  display: inline-block;
+  margin-top: 2px;
 }
 
 /* ── Cloud Sync Icon ──────────────────────────────────────────────────────── */
