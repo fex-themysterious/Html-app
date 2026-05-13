@@ -3076,6 +3076,11 @@
   // ========== Eye-Care Mode (Night Study Mode) ==========
   let _videoWatchStart  = null;
   let _eyeBreakInterval = null;
+  // ── 20-20-20 Eye Break tracker (Video Player) ─────────────────
+  let _eyeBreakElapsed    = 0;   // seconds of active play accumulated
+  let _eyeBreakActive     = false;
+  let _eyeBreakCountdownId = null;
+  const EYE_BREAK_SECS    = 20 * 60; // 20 minutes
 
   function applyEyCareMode() {
     if (state.eyeCareMode) {
@@ -3090,42 +3095,120 @@
     }
   }
 
-  function startVideoWatch() {
-    _videoWatchStart = Date.now();
-    if (state.eyeCareMode) _startEyeBreakTimer();
-  }
+  function startVideoWatch() { _videoWatchStart = Date.now(); }
 
   function _startEyeBreakTimer() {
     _stopEyeBreakTimer();
+    _eyeBreakElapsed = 0;
+    _eyeBreakActive  = false;
+    // Tick every second — only counts while video is actually playing
     _eyeBreakInterval = setInterval(() => {
-      if (!state.eyeCareMode || !_videoWatchStart) { _stopEyeBreakTimer(); return; }
-      if ((Date.now() - _videoWatchStart) / 60000 >= 40) {
-        _videoWatchStart = Date.now();
+      if (!document.getElementById('vp-overlay')) { _stopEyeBreakTimer(); return; }
+      if (_eyeBreakActive) return;
+      // Smart pause detection: if YT API is bound, respect player state;
+      // otherwise (external URLs, unbound API) always count while player is open
+      const isPlaying = _ytPlayerReady
+        ? (_ytPlayerState === 1 || _ytPlayerState === 3)
+        : true;
+      if (!isPlaying) return;
+      _eyeBreakElapsed++;
+      if (_eyeBreakElapsed >= EYE_BREAK_SECS) {
+        _eyeBreakElapsed = 0;
         _showEyeBreakModal();
       }
-    }, 60 * 1000);
+    }, 1000);
   }
 
   function _stopEyeBreakTimer() {
-    if (_eyeBreakInterval) { clearInterval(_eyeBreakInterval); _eyeBreakInterval = null; }
+    if (_eyeBreakInterval)    { clearInterval(_eyeBreakInterval);    _eyeBreakInterval    = null; }
+    if (_eyeBreakCountdownId) { clearInterval(_eyeBreakCountdownId); _eyeBreakCountdownId = null; }
+    _eyeBreakActive = false;
+    document.getElementById('eye-break-overlay')?.remove();
   }
 
   function _showEyeBreakModal() {
-    openModal(`<div style="text-align:center;padding:6px 0">
-      <div style="font-size:52px;margin-bottom:10px">👁️</div>
-      <h3 style="color:#fbbf24;margin:0 0 8px">Time for an Eye Break!</h3>
-      <p style="color:var(--text-muted);font-size:14px;line-height:1.6;margin:0 0 14px">You've been watching for <strong>40 minutes</strong>.<br>Look at something <strong>20 feet away</strong> for <strong>20 seconds</strong> to relax your eyes.</p>
-      <div class="eye-break-rule">
-        <div class="ebr-item"><span class="ebr-num">20</span><span class="ebr-sep">min</span></div>
-        <span class="ebr-arrow">›</span>
-        <div class="ebr-item"><span class="ebr-num">20</span><span class="ebr-sep">feet</span></div>
-        <span class="ebr-arrow">›</span>
-        <div class="ebr-item"><span class="ebr-num">20</span><span class="ebr-sep">secs</span></div>
-      </div>
-      <div class="actions" style="margin-top:16px">
-        <button class="btn" data-close style="background:linear-gradient(135deg,#d97706,#f59e0b);min-width:160px">✅ Break taken!</button>
-      </div>
-    </div>`);
+    if (_eyeBreakActive) return;
+    _eyeBreakActive = true;
+    // Pause video if YT API is available
+    try { if (_ytPlayerReady && _ytPlayer) _ytPlayer.pauseVideo(); } catch (e) {}
+    // Remove stale overlay if any
+    document.getElementById('eye-break-overlay')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'eye-break-overlay';
+    overlay.innerHTML = `
+      <div class="ebm-modal" role="dialog" aria-modal="true" aria-label="Eye Break Reminder">
+        <div class="ebm-eye-icon" aria-hidden="true">👁️</div>
+        <h2 class="ebm-title">Time for an Eye Break!</h2>
+        <p class="ebm-sub">Look at something 20 feet away for 20 seconds<br>to relax your eyes and reduce strain.</p>
+        <div class="ebm-rule">
+          <div class="ebm-rule-card">
+            <span class="ebm-rule-num">20</span>
+            <span class="ebm-rule-unit">MIN</span>
+          </div>
+          <span class="ebm-rule-arrow">›</span>
+          <div class="ebm-rule-card">
+            <span class="ebm-rule-num">20</span>
+            <span class="ebm-rule-unit">FEET</span>
+          </div>
+          <span class="ebm-rule-arrow">›</span>
+          <div class="ebm-rule-card">
+            <span class="ebm-rule-num">20</span>
+            <span class="ebm-rule-unit">SECS</span>
+          </div>
+        </div>
+        <div class="ebm-countdown-wrap">
+          <p class="ebm-countdown-label">Look away for</p>
+          <div class="ebm-ring-wrap">
+            <svg class="ebm-ring-svg" viewBox="0 0 88 88" aria-hidden="true">
+              <circle class="ebm-ring-bg" cx="44" cy="44" r="36"/>
+              <circle class="ebm-ring-fg" cx="44" cy="44" r="36" id="ebm-ring-fg"/>
+            </svg>
+            <span class="ebm-countdown-num" id="ebm-countdown">20</span>
+          </div>
+          <p class="ebm-countdown-unit">seconds</p>
+        </div>
+        <button class="ebm-btn" id="ebm-btn" data-act="eye-break-done">✅ Break taken!</button>
+        <p class="ebm-tip">💡 Blink slowly 10–15 times to re-lubricate your eyes.</p>
+      </div>`;
+    document.body.appendChild(overlay);
+    // Animate in after next frame
+    requestAnimationFrame(() => requestAnimationFrame(() => overlay.classList.add('ebm-show')));
+
+    // 20-second countdown + ring
+    const CIRC = 2 * Math.PI * 36; // ≈ 226.2
+    const ringEl = document.getElementById('ebm-ring-fg');
+    if (ringEl) { ringEl.style.strokeDasharray = CIRC; ringEl.style.strokeDashoffset = CIRC; }
+    let secs = 20;
+    const updateCountdown = () => {
+      const numEl = document.getElementById('ebm-countdown');
+      if (numEl) numEl.textContent = secs;
+      if (ringEl) ringEl.style.strokeDashoffset = CIRC * (secs / 20);
+    };
+    updateCountdown();
+    _eyeBreakCountdownId = setInterval(() => {
+      secs = Math.max(0, secs - 1);
+      updateCountdown();
+      if (secs === 0) {
+        clearInterval(_eyeBreakCountdownId); _eyeBreakCountdownId = null;
+        const btn = document.getElementById('ebm-btn');
+        if (btn) btn.classList.add('ebm-btn-pulse');
+      }
+    }, 1000);
+  }
+
+  function _dismissEyeBreak() {
+    if (_eyeBreakCountdownId) { clearInterval(_eyeBreakCountdownId); _eyeBreakCountdownId = null; }
+    _eyeBreakActive  = false;
+    _eyeBreakElapsed = 0;
+    // Resume video
+    try { if (_ytPlayerReady && _ytPlayer) _ytPlayer.playVideo(); } catch (e) {}
+    const overlay = document.getElementById('eye-break-overlay');
+    if (overlay) {
+      overlay.classList.remove('ebm-show');
+      overlay.classList.add('ebm-hide');
+      setTimeout(() => overlay.remove(), 380);
+    }
   }
 
   // ========== Alarm Manager Modal ==========
@@ -5496,6 +5579,7 @@
     document.body.appendChild(el);
     document.body.style.overflow = 'hidden';
     _vpInitPlayer(el);
+    _startEyeBreakTimer();
     if (item.videoId) { loadYTApi(); setTimeout(tryBindYTPlayer, 900); }
   }
 
@@ -5509,6 +5593,7 @@
 
   function closeVideoPlayer() {
     stopVfm();
+    _stopEyeBreakTimer();
     _ytPlayer = null; _ytPlayerReady = false; _ytPlayerState = -1;
     clearTimeout(_vpHudTimer); _vpHudTimer = null; _vpCinema = false;
     if (_vpKeyHandler) { document.removeEventListener('keydown', _vpKeyHandler); _vpKeyHandler = null; }
@@ -6868,7 +6953,8 @@
       closeVideoPlayer(); return;
     }
     if (act === 'vp-switch')   { switchVideoInPlayer(el.dataset.gid, el.dataset.iid); return; }
-    if (act === 'vp-cinema')   { _vpToggleCinema(); return; }
+    if (act === 'vp-cinema')     { _vpToggleCinema(); return; }
+    if (act === 'eye-break-done'){ _dismissEyeBreak(); return; }
     if (act === 'vfm-start')   { openVfmPicker(); return; }
     if (act === 'vfm-minimize'){ minimizeVfm(); return; }
     if (act === 'vfm-expand')  { expandVfm(); return; }
