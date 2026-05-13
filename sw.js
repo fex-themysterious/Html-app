@@ -1,15 +1,12 @@
-const CACHE_NAME = 'syllabus-tracker-v114';
+const CACHE_NAME = 'syllabus-tracker-v115';
 const STATIC = [
   '/',
   '/index.html',
-  '/style.css?v=80',
-  '/script.js?v=111',
+  '/style.css?v=90',
+  '/script.js?v=120',
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png',
-  '/sounds/rain.mp3',
-  '/sounds/soft.mp3',
-  '/sounds/concentration.mp3',
   '/sounds/peaky-blinder.mp3',
   '/sounds/alarm-wake.mp3',
   '/sounds/aal-izz-well.m4a',
@@ -67,7 +64,7 @@ self.addEventListener('fetch', e => {
               const end = match && match[2] !== '' ? parseInt(match[2], 10) : ab.byteLength - 1;
               const slice = ab.slice(start, end + 1);
               const ext = plainUrl.split('.').pop().toLowerCase();
-              const mime = ext === 'm4a' ? 'audio/mp4' : 'audio/mpeg';
+              const mime = ext === 'm4a' ? 'audio/mp4' : ext === 'wav' ? 'audio/wav' : 'audio/mpeg';
               return new Response(slice, {
                 status: 206,
                 statusText: 'Partial Content',

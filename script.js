@@ -69,10 +69,6 @@
     "You didn't come this far to only come this far. KEEP GOING."
   ];
 
-  function addDaysISO(base, days) {
-    const d = new Date(base + 'T00:00:00'); d.setDate(d.getDate() + days);
-    return localISO(d);
-  }
   function nextDateISO(d) { return addDaysISO(todayKey(), d); }
   function daysBetween(a, b) { return Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000); }
   function daysSince(k) { return k ? Math.max(0, daysBetween(k, todayKey())) : Infinity; }
