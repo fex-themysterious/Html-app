@@ -5277,14 +5277,24 @@
     if (focusLocked && !focusMultitaskMode && focusRunning && tab !== 'focus') {
       if (!confirm('Lock Mode is on and timer is running. Leave Focus tab?')) return;
     }
-    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v => {
+      v.classList.remove('active');
+      v.style.setProperty('display', 'none', 'important');
+      v.style.pointerEvents = 'none';
+      v.style.zIndex = '0';
+    });
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-    const view = document.getElementById('view-' + tab); if (view) view.classList.add('active');
+    const view = document.getElementById('view-' + tab);
+    if (view) {
+      view.classList.add('active');
+      view.style.removeProperty('display');
+      view.style.pointerEvents = 'auto';
+      view.style.zIndex = '10';
+    }
     const btn = document.querySelector(`.nav-btn[data-tab="${tab}"]`); if (btn) btn.classList.add('active');
     document.body.className = 'tab-' + tab;
     _currentTab = tab;
     closeDropdown();
-    // Show/hide mini timer bubble
     updateMiniTimer();
   }
   function closeDropdown() {

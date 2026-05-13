@@ -93,8 +93,8 @@ svg { display: inline-block; vertical-align: middle; flex: none; }
 
 /* ── Layout ──────────────────────────────────────────────────── */
 #app { min-height: 100dvh; padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); }
-.view { display: none; padding: 24px 18px 36px; max-width: 720px; margin: 0 auto; }
-.view.active { display: block; }
+.view { display: none !important; padding: 24px 18px 36px; max-width: 720px; margin: 0 auto; pointer-events: none; z-index: 0; }
+.view.active { display: block !important; pointer-events: auto; z-index: 10; }
 
 /* ── Typography ──────────────────────────────────────────────── */
 h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; line-height: 1.1; }
@@ -134,7 +134,7 @@ h4 { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: 
   border-top: 1px solid rgba(255,255,255,0.07);
   display: grid; grid-template-columns: repeat(6, 1fr);
   padding: 6px 0 calc(6px + env(safe-area-inset-bottom, 0px));
-  z-index: 50;
+  z-index: 100;
 }
 .nav-btn {
   background: transparent; border: none; color: var(--text-muted);
@@ -1595,7 +1595,7 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
     border-right: 1px solid rgba(255,255,255,0.08);
     padding: env(safe-area-inset-top, 6px) 0 env(safe-area-inset-bottom, 6px);
     grid-template-columns: unset;
-    z-index: 50;
+    z-index: 100;
   }
   .nav-btn {
     flex: 1;
@@ -3298,6 +3298,7 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   .bottom-nav {
     position: fixed;
     bottom: 0; left: 0; right: 0;
+    z-index: 100;
     /* Respect safe-area on bottom */
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
