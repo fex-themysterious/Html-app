@@ -2627,6 +2627,13 @@
 
       <div class="adm-group adm-danger-group">
         <div class="adm-group-label adm-danger-label">DANGER ZONE</div>
+        <button class="adm-delete-btn adm-clear-msgs-btn" data-act="admin-clear-messages">
+          <span class="adm-delete-ico">🧹</span>
+          <div class="adm-delete-body">
+            <div class="adm-delete-title">Clear All Messages</div>
+            <div class="adm-delete-sub">Delete every message in this chat for everyone</div>
+          </div>
+        </button>
         <button class="adm-delete-btn" data-act="admin-close-room">
           <span class="adm-delete-ico">🗑</span>
           <div class="adm-delete-body">
@@ -2715,6 +2722,28 @@
       toast(`Removed ${name} from the room`, 'info');
       closeModal();
     } catch(e) { toast('Failed to remove member', 'danger'); }
+  }
+
+  async function _adminClearAllMessages() {
+    if (!_db || !_socialRoomCode) return;
+    closeModal();
+    toast('Clearing messages…', 'info', 2000);
+    try {
+      const msgsRef = _db.collection('groups').doc(_socialRoomCode).collection('messages');
+      // Firestore doesn't support deleting collections directly — batch-delete in chunks of 400
+      let deleted = 0;
+      let snap = await msgsRef.limit(400).get();
+      while (!snap.empty) {
+        const batch = _db.batch();
+        snap.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+        deleted += snap.docs.length;
+        if (snap.docs.length < 400) break;
+        snap = await msgsRef.limit(400).get();
+      }
+      _chatMessages = [];
+      toast(`🧹 Chat cleared (${deleted} messages deleted)`, 'success', 3500);
+    } catch(e) { toast('Failed to clear messages', 'danger'); }
   }
 
   async function _adminCloseRoom() {
@@ -8683,6 +8712,7 @@
       return;
     }
     if (act === 'admin-kick')    { const uid_ = el.dataset.uid, name = el.dataset.name; confirmModal(`Kick ${name} from the room?`, () => _adminKickMember(uid_, name), { title: 'Kick Member?', yesLabel: 'Kick', yesClass: 'btn btn-danger', noLabel: 'Cancel' }); return; }
+    if (act === 'admin-clear-messages') { confirmModal('Delete all messages in this chat for everyone? This cannot be undone.', () => _adminClearAllMessages().catch(() => {}), { title: 'Clear All Messages?', yesLabel: 'Clear Chat', yesClass: 'btn btn-danger', noLabel: 'Cancel' }); return; }
     if (act === 'admin-close-room') { confirmModal('Close and delete this room? All members will be sent back to the lobby.', () => _adminCloseRoom(), { title: 'Close Room?', yesLabel: 'Close Room', yesClass: 'btn btn-danger', noLabel: 'Cancel' }); return; }
     if (act === 'voice-join')    { _voiceJoin(); return; }
     if (act === 'voice-leave')   { _voiceLeave(false); return; }
