@@ -1104,7 +1104,11 @@
       if (isDeleted) {
         bubbleContent = `<span class="chat-deleted-label">Message deleted</span>`;
       } else {
+        if (msg.imageData) {
+        bubbleContent = replyHTML + `<img src="${msg.imageData}" class="chat-img-msg" alt="image" style="max-width:220px;max-height:220px;border-radius:8px;display:block;cursor:pointer" onclick="window.open(this.src,'_blank')"/>` + (msg.text ? `<span style="display:block;margin-top:4px">${escapeHTML(msg.text)}</span>` : '') + (msg.editedAt ? `<span class="chat-edited-label"> · edited</span>` : '');
+      } else {
         bubbleContent = replyHTML + escapeHTML(msg.text) + (msg.editedAt ? `<span class="chat-edited-label"> · edited</span>` : '');
+      }
       }
       const menuAttrs = !isDeleted ? `data-act="chat-msg-menu" data-msgid="${escapeHTML(msg.id)}" data-ismine="${isMe}"` : '';
       const ticksHTML = (isMe && !isDeleted) ? `<span class="chat-ticks chat-ticks-sent" aria-label="Sent"><svg viewBox="0 0 16 11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1,5.5 5,9.5 15,1.5"/><polyline points="6,5.5 10,9.5 16,3" opacity="0.55"/></svg></span>` : '';
@@ -1190,6 +1194,39 @@
     } catch(e) { toast('Could not edit', 'danger'); }
   }
 
+  async function _sChatPinMessage(msgId) {
+    const msg = _chatMessages.find(m => m.id === msgId);
+    if (!msg || !_db || !_socialRoomCode) return;
+    const existing = _socialRoomData && _socialRoomData.pinnedMessage;
+    if (existing && existing.id === msgId) {
+      try {
+        await _db.collection('groups').doc(_socialRoomCode).update({ pinnedMessage: firebase.firestore.FieldValue.delete() });
+        toast('Message unpinned', 'success');
+      } catch(e) { toast('Could not unpin', 'danger'); }
+    } else {
+      try {
+        await _db.collection('groups').doc(_socialRoomCode).update({
+          pinnedMessage: { id: msg.id, text: (msg.text || '').slice(0, 120), name: msg.name || 'Unknown', pinnedAt: Date.now() }
+        });
+        toast('Message pinned 📌', 'success');
+      } catch(e) { toast('Could not pin', 'danger'); }
+    }
+  }
+
+  async function _sSendImageMessage(imageData, caption) {
+    if (!imageData || !_db || !_userId || !_socialRoomCode) return;
+    const msg = { id: uid(), uid: _userId, name: _sDisplayName(), text: caption || '', imageData, sentAt: Date.now() };
+    _chatMessages.push(msg);
+    _renderChatOnly();
+    try {
+      await _db.collection('groups').doc(_socialRoomCode).collection('messages').doc(msg.id).set(msg);
+    } catch(e) {
+      toast('Failed to send image', 'danger');
+      _chatMessages = _chatMessages.filter(m => m.id !== msg.id);
+      _renderChatOnly();
+    }
+  }
+
   function _showChatContextMenu(msgId, isMe, anchorRect) {
     const existing  = document.getElementById('chat-ctx-menu');
     const existingBd = document.getElementById('chat-ctx-backdrop');
@@ -1216,6 +1253,9 @@
       </button>
       <button class="chat-ctx-action" id="chat-ctx-copy-btn">
         <span>📋</span> Copy Text
+      </button>
+      <button class="chat-ctx-action" data-act="chat-menu-pin" data-msgid="${escapeHTML(msgId)}">
+        <span>📌</span> ${(_socialRoomData && _socialRoomData.pinnedMessage && _socialRoomData.pinnedMessage.id === msgId) ? 'Unpin Message' : 'Pin Message'}
       </button>
       ${isMe ? `
       <div class="chat-ctx-divider"></div>
@@ -1275,6 +1315,7 @@
       <div class="chat-menu-reacts">${MENU_EMOJIS.map(e => `<button class="chat-menu-react-btn" data-act="chat-menu-react" data-msgid="${msgId}" data-emoji="${e}">${e}</button>`).join('')}</div>
       <div class="chat-menu-actions">
         <button class="chat-menu-item" data-act="chat-menu-reply" data-msgid="${msgId}" data-mname="${escapeHTML(msg.name||'Unknown')}" data-mtext="${escapeHTML(preview)}"><span class="chat-menu-item-icon">↩️</span> Reply</button>
+        <button class="chat-menu-item" data-act="chat-menu-pin" data-msgid="${msgId}"><span class="chat-menu-item-icon">📌</span> ${(_socialRoomData && _socialRoomData.pinnedMessage && _socialRoomData.pinnedMessage.id === msgId) ? 'Unpin Message' : 'Pin Message'}</button>
         ${isMe ? `
         <button class="chat-menu-item" data-act="chat-menu-edit" data-msgid="${msgId}" data-mtext="${escapeHTML(msg.text||'')}"><span class="chat-menu-item-icon">✏️</span> Edit Message</button>
         <button class="chat-menu-item chat-menu-danger" data-act="chat-menu-delete-all" data-msgid="${msgId}"><span class="chat-menu-item-icon">🗑</span> Delete for Everyone</button>` : ''}
@@ -2029,73 +2070,47 @@
       }, { passive: true });
     }
 
-    // ── Attachment button: open file picker ──
+    // ── Attachment button: open file picker and send image ──
     const _attachBtn = document.querySelector('[data-act="chat-attach"]');
     const _attachInput = document.getElementById('grm-attach-input');
     if (_attachBtn && _attachInput) {
       _attachBtn.addEventListener('click', () => _attachInput.click());
       _attachInput.addEventListener('change', function() {
-        const files = Array.from(this.files || []);
-        if (!files.length) return;
-        const names = files.map(f => f.name).join(', ');
-        const inp = document.getElementById('chat-text-input');
-        const preview = `📎 ${names}`;
-        if (inp) {
-          inp.value = inp.value ? inp.value + '\n' + preview : preview;
-          inp.style.height = 'auto';
-          inp.style.height = Math.min(inp.scrollHeight, 120) + 'px';
-          inp.focus();
-        }
+        const file = (this.files || [])[0];
+        if (!file) return;
         this.value = '';
+        if (!file.type.startsWith('image/')) {
+          toast('Only image files are supported', 'warn'); return;
+        }
+        if (file.size > 5 * 1024 * 1024) {
+          toast('Image too large (max 5 MB)', 'warn'); return;
+        }
+        const reader = new FileReader();
+        reader.onload = function(ev) {
+          const origDataUrl = ev.target.result;
+          const img = new Image();
+          img.onload = function() {
+            const MAX = 800;
+            let w = img.width, h = img.height;
+            if (w > MAX || h > MAX) {
+              if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+              else       { w = Math.round(w * MAX / h); h = MAX; }
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = w; canvas.height = h;
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+            const compressed = canvas.toDataURL('image/jpeg', 0.7);
+            const caption = document.getElementById('chat-text-input');
+            const cap = caption ? caption.value.trim() : '';
+            if (caption) { caption.value = ''; caption.style.height = 'auto'; }
+            _sSendImageMessage(compressed, cap).catch(() => {});
+          };
+          img.src = origDataUrl;
+        };
+        reader.readAsDataURL(file);
       });
     }
 
-    // ── Mic button: toggle voice recording ──
-    let _mediaRecorder = null, _audioChunks = [];
-    const _micBtn = document.getElementById('grm-mic-btn');
-    if (_micBtn) {
-      _micBtn.addEventListener('click', async () => {
-        if (_mediaRecorder && _mediaRecorder.state === 'recording') {
-          _mediaRecorder.stop();
-          _micBtn.classList.remove('grm2-mic-recording');
-          return;
-        }
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          toast('Microphone not available on this device', 'warn'); return;
-        }
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          _audioChunks = [];
-          _mediaRecorder = new MediaRecorder(stream);
-          _mediaRecorder.ondataavailable = e => { if (e.data.size > 0) _audioChunks.push(e.data); };
-          _mediaRecorder.onstop = () => {
-            stream.getTracks().forEach(t => t.stop());
-            const blob = new Blob(_audioChunks, { type: 'audio/webm' });
-            const secs = Math.round(blob.size / 16000);
-            const inp = document.getElementById('chat-text-input');
-            if (inp) {
-              const note = `🎙 Voice message (${secs}s)`;
-              inp.value = inp.value ? inp.value + '\n' + note : note;
-              inp.style.height = 'auto';
-              inp.style.height = Math.min(inp.scrollHeight, 120) + 'px';
-              inp.focus();
-            }
-            _mediaRecorder = null;
-          };
-          _mediaRecorder.start();
-          _micBtn.classList.add('grm2-mic-recording');
-          // Auto-stop after 60 seconds
-          setTimeout(() => {
-            if (_mediaRecorder && _mediaRecorder.state === 'recording') {
-              _mediaRecorder.stop();
-              _micBtn.classList.remove('grm2-mic-recording');
-            }
-          }, 60000);
-        } catch(err) {
-          toast('Could not access microphone — please allow permission', 'warn');
-        }
-      });
-    }
   }
 
   function _renderSocialLobby() {
@@ -2318,8 +2333,19 @@
     const typingText = typingNow.length === 1
       ? `${escapeHTML(typingNow[0].displayName || 'Someone')} is typing…`
       : typingNow.length > 1 ? `${typingNow.length} people are typing…` : '';
+    const _pinned = (_socialRoomData && _socialRoomData.pinnedMessage) || null;
+    const pinnedBannerHTML = _pinned ? `
+    <div class="sroom-pinned-bar" id="chat-pinned-bar">
+      <span class="sroom-pinned-icon">📌</span>
+      <div class="sroom-pinned-content">
+        <span class="sroom-pinned-label">Pinned Message</span>
+        <span class="sroom-pinned-text">${escapeHTML((_pinned.text || '').slice(0, 80))}</span>
+      </div>
+      <button class="sroom-pinned-unpin" data-act="chat-unpin" title="Unpin">✕</button>
+    </div>` : '';
     const chatHTML = `
     <div class="sroom-chat-wrap">
+      ${pinnedBannerHTML}
       <div class="grm-typing-row" style="${typingText ? '' : 'display:none'}">
         <span class="grm-typing-dots"><span></span><span></span><span></span></span>
         <span class="grm-typing-txt">${typingText}</span>
@@ -2340,9 +2366,6 @@
           </button>
           <input type="file" id="grm-attach-input" style="display:none" accept="image/*,application/pdf"/>
           <textarea id="chat-text-input" class="sroom-chat-input" placeholder="Message…" rows="1" maxlength="2000"></textarea>
-          <button class="sroom-composer-btn" id="grm-mic-btn" data-act="chat-mic" title="Voice">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-          </button>
           <button class="sroom-send-btn" data-act="chat-send" title="Send">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
           </button>
@@ -8567,6 +8590,19 @@
       if (chatEl) { chatEl.scrollTop = chatEl.scrollHeight; _chatScrollAtBottom = true; }
       const pill = document.getElementById('chat-new-pill');
       if (pill) pill.style.display = 'none';
+      return;
+    }
+    if (act === 'chat-menu-pin') {
+      const msgId = el.dataset.msgid;
+      closeModal();
+      if (msgId) _sChatPinMessage(msgId).catch(() => {});
+      return;
+    }
+    if (act === 'chat-unpin') {
+      if (_db && _socialRoomCode) {
+        _db.collection('groups').doc(_socialRoomCode).update({ pinnedMessage: firebase.firestore.FieldValue.delete() })
+          .then(() => toast('Message unpinned', 'success')).catch(() => toast('Could not unpin', 'danger'));
+      }
       return;
     }
     if (act === 'social-lb-refresh') { _loadGlobalLeaderboard().catch(() => {}); return; }

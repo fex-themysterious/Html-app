@@ -4833,6 +4833,13 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 
 .sroom-pane-chat   { flex-direction: column; }
 .sroom-chat-wrap   { display: flex; flex-direction: column; height: 100%; min-height: 0; position: relative; overflow-x: hidden; width: 100%; }
+.sroom-pinned-bar { display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: rgba(99,102,241,0.15); border-bottom: 1px solid rgba(99,102,241,0.25); flex-shrink: 0; }
+.sroom-pinned-icon { font-size: 15px; flex-shrink: 0; }
+.sroom-pinned-content { flex: 1; min-width: 0; }
+.sroom-pinned-label { display: block; font-size: 10px; font-weight: 600; color: #a5b4fc; text-transform: uppercase; letter-spacing: 0.5px; line-height: 1.2; }
+.sroom-pinned-text { display: block; font-size: 12px; color: var(--text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sroom-pinned-unpin { background: transparent; border: none; color: var(--text-sub); cursor: pointer; font-size: 14px; padding: 2px 4px; flex-shrink: 0; opacity: 0.6; }
+.sroom-pinned-unpin:hover { opacity: 1; }
 .sroom-chat-msgs {
   flex: 1; overflow-y: auto; overflow-x: hidden;
   display: flex; flex-direction: column;
