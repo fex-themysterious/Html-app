@@ -2469,11 +2469,14 @@
 
     // ── MEMBERS PANE ─────────────────────────────────────────────────
     const memberCardsHTML = sorted.length ? sorted.map(m => {
-      const st         = _sStatusOf(m);
+      const isMe       = m.uid === _userId;
+      // For own card: derive status locally so it's instant (serverTimestamp round-trip causes false 'offline')
+      const st         = isMe
+        ? (typeof focusRunning !== 'undefined' && focusRunning && focusStartTime !== null ? 'focusing' : 'break')
+        : _sStatusOf(m);
       const isFocusing = st === 'focusing';
       const isOnline   = st !== 'offline';
       const isOwner    = m.uid === (_socialRoomData && _socialRoomData.createdBy);
-      const isMe       = m.uid === _userId;
       const ini        = _sInitials(m.displayName || 'S');
       const streak     = m.studyStreak || 0;
       const xpStr      = (m.xpTotal || 0) >= 1000 ? ((m.xpTotal/1000).toFixed(1)+'k') : (m.xpTotal||0);
@@ -8690,6 +8693,13 @@
         saveState();
         renderAll();
         toast('Profile saved ✓', 'success');
+        // Push new name to room presence immediately so others see it
+        if (_socialRoomCode) {
+          const curSt = (typeof focusRunning !== 'undefined' && focusRunning && focusStartTime !== null) ? 'focusing' : 'break';
+          _sUpdatePresence(curSt).catch(() => {});
+        }
+        // Also update global leaderboard entry
+        _updateGlobalLb();
       }
       return;
     }
