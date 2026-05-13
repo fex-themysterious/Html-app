@@ -727,6 +727,10 @@
   let _voicePresentUnsub = null;
   let _inVoice         = false;
   let _voiceMuted      = false;
+  let _chatMessages       = [];
+  let _socialUnsubChat    = null;
+  let _chatScrollAtBottom = true;
+  let _chatTypingTimeout  = null;
   let _voiceRemoteAudios = {};
 
   function _sDisplayName() {
@@ -881,6 +885,7 @@
     _socialHeartbeatId = setInterval(() => {
       _sUpdatePresence((focusRunning && focusMode === 'work') ? 'focusing' : 'break');
     }, 30000);
+    _sSubscribeChat();
   }
 
   function _sCheckDuelResults() {
@@ -946,7 +951,11 @@
     _stopSocialLiveTimers();
     if (_socialUnsubPresence) { _socialUnsubPresence(); _socialUnsubPresence = null; }
     if (_socialUnsubRoom)     { _socialUnsubRoom();     _socialUnsubRoom = null; }
+    if (_socialUnsubChat)     { _socialUnsubChat();     _socialUnsubChat = null; }
     if (_socialHeartbeatId)   { clearInterval(_socialHeartbeatId); _socialHeartbeatId = null; }
+    clearTimeout(_chatTypingTimeout);
+    _chatMessages = [];
+    _chatScrollAtBottom = true;
     if (_db && _userId && _socialRoomCode) {
       _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId)
         .update({ status: 'offline' }).catch(() => {});
@@ -954,9 +963,93 @@
     _socialRoomCode = null; _socialMembers = {}; _socialRoomData = null;
     _socialLobbyCode = null;
     try { localStorage.removeItem('social_room_code'); } catch (e) {}
-    // Also leave voice if active
     if (_inVoice) _voiceLeave(true);
     renderSocial(); toast('Left the room', 'info');
+  }
+
+  // ── Chat System ───────────────────────────────────────────────────────────
+  function _sSubscribeChat() {
+    if (_socialUnsubChat) { _socialUnsubChat(); _socialUnsubChat = null; }
+    if (!_db || !_socialRoomCode) return;
+    _chatMessages = [];
+    _socialUnsubChat = _db.collection('groups').doc(_socialRoomCode)
+      .collection('messages').orderBy('sentAt', 'asc').limit(200)
+      .onSnapshot(snap => {
+        _chatMessages = snap.docs.map(d => d.data());
+        _renderChatOnly();
+      }, e => console.warn('[Chat]', e.message));
+  }
+
+  function _renderChatOnly() {
+    const container = document.getElementById('chat-messages');
+    if (!container) return;
+    const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
+    _chatScrollAtBottom = atBottom;
+    container.innerHTML = _buildChatMessagesHTML();
+    if (atBottom) {
+      container.scrollTop = container.scrollHeight;
+    } else {
+      const pill = document.getElementById('chat-new-pill');
+      if (pill) pill.style.display = 'flex';
+    }
+  }
+
+  function _buildChatMessagesHTML() {
+    if (!_chatMessages.length) {
+      return `<div class="chat-empty"><div class="chat-empty-icon">💬</div><div class="chat-empty-title">No messages yet</div><div class="chat-empty-sub">Start the group conversation</div></div>`;
+    }
+    let html = '';
+    let prevUid = null, prevTime = 0;
+    _chatMessages.forEach(msg => {
+      const isMe = msg.uid === _userId;
+      const showHead = msg.uid !== prevUid || (msg.sentAt - prevTime) > 5 * 60 * 1000;
+      const ts = _formatChatTime(msg.sentAt);
+      if (isMe) {
+        html += `<div class="chat-msg-row chat-msg-me">${showHead ? `<div class="chat-ts-label">${ts}</div>` : ''}<div class="chat-bubble chat-bubble-me">${escapeHTML(msg.text)}</div></div>`;
+      } else {
+        const ini = _sInitials(msg.name || 'S');
+        const col = _sAvatarColor(msg.uid);
+        html += `<div class="chat-msg-row chat-msg-them${showHead ? ' chat-msg-head' : ''}">
+          ${showHead ? `<div class="chat-av" style="background:${col}">${ini}</div>` : `<div class="chat-av-spacer"></div>`}
+          <div class="chat-msg-body">
+            ${showHead ? `<div class="chat-sender">${escapeHTML(msg.name || 'Anonymous')} <span class="chat-ts">${ts}</span></div>` : ''}
+            <div class="chat-bubble chat-bubble-them">${escapeHTML(msg.text)}</div>
+          </div>
+        </div>`;
+      }
+      prevUid = msg.uid;
+      prevTime = msg.sentAt;
+    });
+    return html;
+  }
+
+  function _formatChatTime(ts) {
+    const d = new Date(ts), now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    if (isToday) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  async function _sSendMessage(text) {
+    text = (text || '').trim();
+    if (!text || !_db || !_userId || !_socialRoomCode) return;
+    const msg = { id: uid(), uid: _userId, name: _sDisplayName(), text, sentAt: Date.now() };
+    try {
+      await _db.collection('groups').doc(_socialRoomCode).collection('messages').doc(msg.id).set(msg);
+    } catch(e) { toast('Failed to send', 'danger'); }
+  }
+
+  function _sChatTyping() {
+    if (!_db || !_userId || !_socialRoomCode) return;
+    clearTimeout(_chatTypingTimeout);
+    _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId)
+      .update({ typing: Date.now() }).catch(() => {});
+    _chatTypingTimeout = setTimeout(() => {
+      if (_db && _userId && _socialRoomCode) {
+        _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId)
+          .update({ typing: firebase.firestore.FieldValue.delete() }).catch(() => {});
+      }
+    }, 3000);
   }
 
   async function _sNudge(memberUid, memberName) {
@@ -1555,6 +1648,23 @@
     if (_momPct < 90) _momentumConfettiFired = false;
     view.innerHTML = _renderSocialRoom();
     _startSocialLiveTimers();
+    const _chatEl = document.getElementById('chat-messages');
+    if (_chatEl) {
+      if (_chatScrollAtBottom) _chatEl.scrollTop = _chatEl.scrollHeight;
+      _chatEl.addEventListener('scroll', () => {
+        _chatScrollAtBottom = _chatEl.scrollHeight - _chatEl.scrollTop - _chatEl.clientHeight < 80;
+        const pill = document.getElementById('chat-new-pill');
+        if (pill) pill.style.display = _chatScrollAtBottom ? 'none' : 'flex';
+      }, { passive: true });
+    }
+    const _chatInp = document.getElementById('chat-text-input');
+    if (_chatInp) {
+      _chatInp.oninput = function() {
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        _sChatTyping();
+      };
+    }
   }
 
   function _renderSocialLobby() {
@@ -1786,30 +1896,10 @@
     }
     const lbFooter = `<div class="lb-reset-row">🔄 Resets in <strong>${countdownTxt}</strong></div>`;
 
-    // ── Voice Room Panel ──
-    const voiceActive = Object.values(_voiceMembers).filter(m => m.active);
-    const voiceMemberChips = voiceActive.map(m => {
-      const isMeVoice = m.uid === _userId;
-      const micClass = isMeVoice && _voiceMuted ? ' voice-chip-muted' : isMeVoice ? ' voice-chip-active' : '';
-      const micIcon = isMeVoice ? (_voiceMuted ? ' 🔇' : ' 🎙') : '';
-      return `<span class="voice-chip${micClass}" style="background:${_sAvatarColor(m.uid)}" title="${escapeHTML(m.name || 'S')}">${_sInitials(m.name || 'S')}${micIcon}</span>`;
-    }).join('');
-    const voicePanel = `<div class="voice-panel${_inVoice ? ' voice-panel-active' : ''}">
-      <div class="voice-panel-head">
-        <div class="voice-panel-title-row">
-          <span class="voice-panel-title">🎤 Voice Room</span>
-          ${_inVoice ? `<span class="voice-live-badge">${_voiceMuted ? '🔇 Muted' : '● Live'}</span>` : ''}
-        </div>
-        <span class="voice-panel-count">${voiceActive.length ? `${voiceActive.length} in voice` : 'No one in voice'}</span>
-      </div>
-      ${voiceActive.length ? `<div class="voice-chips">${voiceMemberChips}</div>` : ''}
-      ${_inVoice
-        ? `<div class="voice-controls">
-            <button class="btn btn-sm${_voiceMuted ? ' btn-danger' : ' btn-ghost'} voice-ctrl-btn" data-act="voice-mute">${_voiceMuted ? '🔇 Unmute' : '🎙️ Mute'}</button>
-            <button class="btn btn-sm btn-ghost voice-ctrl-btn" data-act="voice-leave">📵 Leave</button>
-           </div>`
-        : `<button class="btn btn-sm btn-block voice-join-btn" data-act="voice-join">🎤 Join Voice</button>`}
-    </div>`;
+    // ── Typing Indicators ──
+    const typingNow = members.filter(m => m.uid !== _userId && m.typing && (now - m.typing) < 5000);
+    const typingText = typingNow.length === 1 ? `${escapeHTML(typingNow[0].displayName || 'Someone')} is typing…`
+      : typingNow.length > 1 ? `${typingNow.length} people are typing…` : '';
 
     // ── Subject Mastery with 3D glowing badges ──
     const subMap = {};
@@ -1869,9 +1959,10 @@
       return `<div class="group-goal-card${pct >= 100 ? ' gg-complete' : ''}"><div class="gg-header"><span class="gg-title">${pct >= 100 ? '🏆 ' : '🎯 '}${escapeHTML(g.title)}</span>${canDel ? `<button class="gg-del" data-act="social-del-goal" data-gid="${g.id}">×</button>` : ''}</div><div class="gg-bar-row"><div class="gg-bar-track"><div class="gg-bar-fill" style="width:${pct}%"></div></div><span class="gg-pct">${pct}%</span></div><div class="gg-stats"><span>${minsToHrs(tot)} / ${minsToHrs(g.targetMinutes)} · Mine: ${minsToHrs(myC)}</span><div class="gg-contribs">${cs}</div></div></div>`;
     }).join('') || '<div class="empty" style="padding:0 16px">No group goals yet — create one below!</div>';
 
-    const isRoomCreator = _userId === (_socialRoomData && _socialRoomData.createdBy);
-    const isPrivate = !!(_socialRoomData && _socialRoomData.private);
+    const onlineCount = members.filter(m => _sStatusOf(m) !== 'offline').length;
     return `<div class="social-room">
+
+      <!-- ── Sticky Header ── -->
       <div class="social-room-header">
         <div class="srh-left">
           <button class="srh-back-btn" data-act="social-leave" title="Back to Lobby">←</button>
@@ -1880,25 +1971,86 @@
             <span class="srh-code">${_socialRoomCode}</span>
             <button class="srh-copy-btn" data-act="social-copy-code" title="Copy room code">⧉</button>
           </div>
-          <span class="srh-count">${members.length} member${members.length !== 1 ? 's' : ''}</span>
         </div>
         <div class="srh-right">
           <button class="srh-settings-btn" data-act="social-room-settings" title="Room Settings">⚙</button>
         </div>
       </div>
-      ${voicePanel}
-      ${roomStatsHTML}
-      ${momentumHTML}
-      <h2 class="social-section-head">Live Focus Map</h2>
+
+      <!-- ── Stats Row ── -->
+      <div class="room-stats-row">
+        <div class="rsr-card">
+          <span class="rsr-val" style="color:${activeFocusing > 0 ? '#4ade80' : 'var(--text-muted)'}">${activeFocusing}</span>
+          <span class="rsr-lbl">Focusing</span>
+        </div>
+        <div class="rsr-divider"></div>
+        <div class="rsr-card">
+          <span class="rsr-val">${minsToHrs(totalFocusToday)}</span>
+          <span class="rsr-lbl">Group Today</span>
+        </div>
+        <div class="rsr-divider"></div>
+        <div class="rsr-card">
+          <span class="rsr-val">${members.length}</span>
+          <span class="rsr-lbl">Members</span>
+        </div>
+      </div>
+
+      <!-- ── Momentum + Energy ── -->
+      <div class="room-bars-row">
+        <div class="room-bar-card">
+          <div class="rbc-head"><span class="rbc-label">⚡ Momentum</span><span class="rbc-pct">${momentumPct}%</span></div>
+          <div class="rbc-track"><div class="rbc-fill rbc-fill-momentum${momentumComplete ? ' rbc-fill-complete' : ''}" style="width:${momentumPct}%"></div></div>
+          <div class="rbc-sub">${totalWeeklyXP.toLocaleString()} / ${momentumTarget.toLocaleString()} XP this week</div>
+        </div>
+        <div class="room-bar-card">
+          <div class="rbc-head"><span class="rbc-label">🔥 Energy</span><span class="rbc-pct">${energyPct}%</span></div>
+          <div class="rbc-track"><div class="rbc-fill rbc-fill-energy" style="width:${energyPct}%"></div></div>
+          <div class="rbc-sub">${activeFocusing} of ${members.length} focusing now</div>
+        </div>
+      </div>
+
+      <!-- ── Group Chat ── -->
+      <div class="room-chat-section">
+        <div class="chat-header">
+          <div class="chat-header-left">
+            <span class="chat-header-title">💬 Group Chat</span>
+            <span class="chat-online-dot"></span>
+            <span class="chat-online-count">${onlineCount} online</span>
+          </div>
+          ${typingText ? `<div class="chat-typing-row"><span class="chat-typing-dots"><span></span><span></span><span></span></span><span class="chat-typing-text">${typingText}</span></div>` : ''}
+        </div>
+        <div class="chat-messages-wrap">
+          <div class="chat-messages" id="chat-messages">${_buildChatMessagesHTML()}</div>
+          <div class="chat-new-pill" id="chat-new-pill" style="display:none" data-act="chat-scroll-bottom">↓ New messages</div>
+        </div>
+        <div class="chat-composer">
+          <textarea class="chat-input" id="chat-text-input" placeholder="Message the group…" rows="1" maxlength="500"></textarea>
+          <button class="chat-send-btn" data-act="chat-send" title="Send">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Active Members ── -->
+      <h2 class="social-section-head">Active Members</h2>
       <div class="social-members">${memberCards}</div>
+
+      <!-- ── Active Duel ── -->
       ${duelsHTML ? `<h2 class="social-section-head">Active Duel</h2><div class="social-duels">${duelsHTML}</div>` : ''}
       ${pastHTML ? `<div class="past-duels">${pastHTML}</div>` : ''}
+
+      <!-- ── Leaderboard ── -->
       <h2 class="social-section-head">Leaderboard</h2>
       ${lbToggleHTML}
       <div class="social-lb">${lbRows}${_lbView === 'group' ? lbFooter : ''}</div>
+
+      <!-- ── Subject Mastery ── -->
       <h2 class="social-section-head">Subject Mastery</h2>
       <div class="social-mastery">${masteryHTML}</div>
+
       ${vaultSection}
+
+      <!-- ── Group Challenges ── -->
       <h2 class="social-section-head">Group Challenges</h2>
       <div class="social-goals">${goalsHTML}</div>
       <div class="social-add-goal"><div class="sag-title">Create Group Goal</div><input id="gg-title-input" class="auth-input" placeholder="e.g. 50 hours of study this week" maxlength="60" style="margin:8px 0"/><div class="gg-add-row"><input id="gg-hours-input" class="auth-input gg-hours-input" type="number" min="1" max="1000" placeholder="Hours" value="50"/><button class="btn" data-act="social-add-goal">Set Goal</button></div></div>
@@ -7547,6 +7699,18 @@
     if (act === 'social-join')   { const inp = document.getElementById('social-join-input'); _sJoinRoom(inp ? inp.value.trim().toUpperCase() : '').catch(() => {}); return; }
     if (act === 'social-leave')  { _sLeaveRoom(); return; }
     if (act === 'social-rejoin') { _sJoinRoom(el.dataset.code).catch(() => {}); return; }
+    if (act === 'chat-send') {
+      const inp = document.getElementById('chat-text-input');
+      if (inp && inp.value.trim()) { _sSendMessage(inp.value).catch(() => {}); inp.value = ''; inp.style.height = 'auto'; }
+      return;
+    }
+    if (act === 'chat-scroll-bottom') {
+      const chatEl = document.getElementById('chat-messages');
+      if (chatEl) { chatEl.scrollTop = chatEl.scrollHeight; _chatScrollAtBottom = true; }
+      const pill = document.getElementById('chat-new-pill');
+      if (pill) pill.style.display = 'none';
+      return;
+    }
     if (act === 'social-lb-refresh') { _loadGlobalLeaderboard().catch(() => {}); return; }
     if (act === 'social-copy-lobby-code') {
       const c_ = el.dataset.code || '';
@@ -8042,6 +8206,14 @@
       if (document.getElementById('vp-overlay')) { closeVideoPlayer(); return; }
       if (fsSessionActive) { exitFullSession(); stopAmbient(); ambientMode = 'none'; }
       else closeModal();
+    }
+    if (e.target && e.target.id === 'chat-text-input') {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        const inp = e.target;
+        if (inp.value.trim()) { _sSendMessage(inp.value).catch(() => {}); inp.value = ''; inp.style.height = 'auto'; }
+      }
+      return;
     }
     if (e.key === 'Enter' && e.target && e.target.id === 'social-join-input') {
       e.preventDefault();
