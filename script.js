@@ -702,7 +702,7 @@
   // ======================================================================
   // ========== Social Study System =======================================
   // ======================================================================
-  const SOCIAL_OFFLINE_MS = 3 * 60 * 1000;
+  const SOCIAL_OFFLINE_MS = 90 * 1000;
   const SOCIAL_BOUNTY_XP  = 50;
   let _socialRoomCode       = null;
   let _socialMembers        = {};
@@ -927,8 +927,10 @@
           _socialPrevStatuses[data.uid] = data.status;
           if (data.uid !== _userId) return;
           // Nudge (poke)
-          if (data.nudge && data.nudge.ts && Date.now() - data.nudge.ts < 12000) {
-            toast(`👋 ${escapeHTML(data.nudge.fromName)} is poking you — get back to studying!`, 'warn', 6000);
+          if (data.nudge && data.nudge.ts && Date.now() - data.nudge.ts < 30000) {
+            const pokeMsg = `👋 ${escapeHTML(data.nudge.fromName)} is poking you — get back to studying!`;
+            toast(pokeMsg, 'warn', 6000);
+            if (document.hidden) showWebNotification('👋 Study Poke!', `${data.nudge.fromName} is poking you — get back to studying!`, { tag: 'social-poke', requireInteraction: true });
             _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId)
               .update({ nudge: firebase.firestore.FieldValue.delete() }).catch(() => {});
           }
@@ -942,10 +944,11 @@
               .update({ pendingBounty: firebase.firestore.FieldValue.delete() }).catch(() => {});
           }
           // Duel Challenge
-          if (data.pendingDuelChallenge && Date.now() - data.pendingDuelChallenge.ts < 20000) {
+          if (data.pendingDuelChallenge && Date.now() - data.pendingDuelChallenge.ts < 30000) {
             const ch = { ...data.pendingDuelChallenge };
             _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId)
               .update({ pendingDuelChallenge: firebase.firestore.FieldValue.delete() }).catch(() => {});
+            if (document.hidden) showWebNotification('⚔️ XP Duel Challenge!', `${ch.fromName} challenges you to a 2-hour XP Duel! Open the app to accept.`, { tag: 'social-duel', requireInteraction: true });
             openModal(`<h3>⚔️ XP Duel Challenge!</h3>
               <p style="color:var(--text-muted);font-size:14px;margin:8px 0 16px">
                 <strong>${escapeHTML(ch.fromName)}</strong> challenges you to a <strong>2-hour XP Duel</strong>!<br>
@@ -990,7 +993,7 @@
     if (_socialHeartbeatId) clearInterval(_socialHeartbeatId);
     _socialHeartbeatId = setInterval(() => {
       _sUpdatePresence((focusRunning && focusMode === 'work') ? 'focusing' : 'break');
-    }, 30000);
+    }, 15000);
     _sSubscribeChat();
   }
 
@@ -2513,10 +2516,10 @@
         ${activityHTML}
         <div class="sroom-mc-xp">⚡ ${xpStr}</div>
         ${streak >= 2 ? `<div class="sroom-mc-streak">🔥 ${streak}d</div>` : ''}
-        <div class="sroom-mc-acts">
+        ${!isMe ? `<div class="sroom-mc-acts">
           <button class="sroom-act-btn" data-act="social-nudge" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName||'')}" title="Poke">👋</button>
           ${isOnline ? `<button class="sroom-act-btn sroom-duel-btn" data-act="social-duel" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName||'')}" title="Duel">⚔️</button>` : ''}
-        </div>
+        </div>` : ''}
       </div>`;
     }).join('') : `<div class="sroom-empty"><div class="sroom-empty-icon">👥</div><div>No one here yet<br>Share the room code!</div></div>`;
 
@@ -9707,6 +9710,10 @@
       // Re-acquire alarm wake lock if alarm is still active
       if (_activeAlarmId && !_alarmWakeLock && 'wakeLock' in navigator) {
         navigator.wakeLock.request('screen').then(wl => { _alarmWakeLock = wl; }).catch(() => {});
+      }
+      // Immediately refresh social presence so we don't appear offline after backgrounding
+      if (_db && _userId && _socialRoomCode) {
+        _sUpdatePresence((focusRunning && focusMode === 'work') ? 'focusing' : 'break');
       }
     }
   });
