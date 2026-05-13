@@ -7751,3 +7751,115 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
   transition: opacity 0.18s, transform 0.15s;
 }
 .poll-modal-send:hover { opacity: 0.88; transform: translateY(-1px); }
+
+/* ══════════════════════════════════════════════════════════════
+   MARKETPLACE COSMETICS — Border, Aura & Title effects
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── Keyframes ──────────────────────────────────────────────── */
+@keyframes cmk-flame-flicker {
+  0%,100% { box-shadow: 0 0 6px 2px rgba(255,90,0,0.75), 0 0 14px 4px rgba(255,165,0,0.38); }
+  25%      { box-shadow: 0 0 10px 4px rgba(255,50,0,0.88), 0 0 22px 7px rgba(255,110,0,0.44); }
+  50%      { box-shadow: 0 0 5px 2px rgba(255,130,0,0.65), 0 0 12px 3px rgba(255,175,0,0.30); }
+  75%      { box-shadow: 0 0 13px 5px rgba(255,40,0,0.90), 0 0 26px 9px rgba(255,80,0,0.48); }
+}
+@keyframes cmk-galaxy-orbit {
+  0%   { box-shadow: 0 0 0 2.5px rgba(139,93,255,0.85), 0 0 18px rgba(139,93,255,0.30); }
+  33%  { box-shadow: 0 0 0 2.5px rgba(91,168,255,0.85),  0 0 18px rgba(91,168,255,0.30);  }
+  66%  { box-shadow: 0 0 0 2.5px rgba(192,132,255,0.85), 0 0 18px rgba(192,132,255,0.30); }
+  100% { box-shadow: 0 0 0 2.5px rgba(139,93,255,0.85),  0 0 18px rgba(139,93,255,0.30); }
+}
+@keyframes cmk-crystal-shimmer {
+  0%,100% { box-shadow: 0 0 7px 2px rgba(0,200,255,0.55), 0 0 15px 4px rgba(100,200,255,0.22); }
+  50%      { box-shadow: 0 0 13px 5px rgba(0,220,255,0.80), 0 0 26px 8px rgba(150,220,255,0.38); }
+}
+@keyframes cmk-aura-fire {
+  0%,100% { filter: drop-shadow(0 0 5px rgba(255,90,0,0.65)) drop-shadow(0 0 12px rgba(255,165,0,0.30)); }
+  50%      { filter: drop-shadow(0 0 10px rgba(255,55,0,0.85)) drop-shadow(0 0 22px rgba(255,110,0,0.48)); }
+}
+@keyframes cmk-aura-lightning {
+  0%,100% { filter: drop-shadow(0 0 4px rgba(192,132,255,0.55)) drop-shadow(0 0 10px rgba(139,93,255,0.28)); }
+  40%      { filter: drop-shadow(0 0 10px rgba(220,180,255,0.95)) drop-shadow(0 0 24px rgba(160,110,255,0.55)); }
+  42%      { filter: drop-shadow(0 0 2px rgba(192,132,255,0.30)); }
+  44%      { filter: drop-shadow(0 0 10px rgba(220,180,255,0.90)) drop-shadow(0 0 24px rgba(160,110,255,0.50)); }
+}
+@keyframes cmk-aura-galaxy {
+  0%   { filter: drop-shadow(0 0 6px rgba(139,93,255,0.60)) drop-shadow(0 0 14px rgba(91,168,255,0.28)); }
+  50%  { filter: drop-shadow(0 0 10px rgba(91,168,255,0.70)) drop-shadow(0 0 20px rgba(192,132,255,0.35)); }
+  100% { filter: drop-shadow(0 0 6px rgba(139,93,255,0.60)) drop-shadow(0 0 14px rgba(91,168,255,0.28)); }
+}
+@keyframes cmk-aura-leaf {
+  0%,100% { transform: translateY(0px) rotate(0deg);  filter: drop-shadow(0 2px 6px rgba(71,183,107,0.30)); }
+  33%      { transform: translateY(-4px) rotate(5deg);  filter: drop-shadow(0 4px 10px rgba(71,183,107,0.45)); }
+  66%      { transform: translateY(-2px) rotate(-4deg); filter: drop-shadow(0 3px 8px rgba(71,183,107,0.38)); }
+}
+
+/* ── Border: Flame ── */
+.cmk-border.cmk-border-flame {
+  animation: cmk-flame-flicker 1.3s ease-in-out infinite;
+  border: 2px solid rgba(255,100,0,0.6) !important;
+}
+/* ── Border: Galaxy ── */
+.cmk-border.cmk-border-galaxy {
+  animation: cmk-galaxy-orbit 2.8s linear infinite;
+  border: 2.5px solid rgba(139,93,255,0.4) !important;
+}
+/* ── Border: Crystal ── */
+.cmk-border.cmk-border-crystal {
+  animation: cmk-crystal-shimmer 2s ease-in-out infinite;
+  border: 2px solid rgba(0,210,255,0.45) !important;
+}
+
+/* ── Aura classes (applied to card/row wrapper) ── */
+.cmk-aura.cmk-aura-fire .sroom-mc-av,
+.cmk-aura.cmk-aura-fire .chat-av,
+.cmk-aura.cmk-aura-fire .slob-lb-av,
+.cmk-aura.cmk-aura-fire .sroom-lb-av,
+.cmk-aura.cmk-aura-fire .slob-lb-featured-av {
+  animation: cmk-aura-fire 1.3s ease-in-out infinite;
+}
+.cmk-aura.cmk-aura-lightning .sroom-mc-av,
+.cmk-aura.cmk-aura-lightning .chat-av,
+.cmk-aura.cmk-aura-lightning .slob-lb-av,
+.cmk-aura.cmk-aura-lightning .sroom-lb-av,
+.cmk-aura.cmk-aura-lightning .slob-lb-featured-av {
+  animation: cmk-aura-lightning 1.8s ease-in-out infinite;
+}
+.cmk-aura.cmk-aura-galaxy .sroom-mc-av,
+.cmk-aura.cmk-aura-galaxy .chat-av,
+.cmk-aura.cmk-aura-galaxy .slob-lb-av,
+.cmk-aura.cmk-aura-galaxy .sroom-lb-av,
+.cmk-aura.cmk-aura-galaxy .slob-lb-featured-av {
+  animation: cmk-aura-galaxy 3s ease-in-out infinite;
+}
+.cmk-aura.cmk-aura-leaf .sroom-mc-av,
+.cmk-aura.cmk-aura-leaf .chat-av,
+.cmk-aura.cmk-aura-leaf .slob-lb-featured-av {
+  animation: cmk-aura-leaf 2.8s ease-in-out infinite;
+}
+
+/* ── Title badge ── */
+.cmk-title {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.3px;
+  padding: 2px 7px; border-radius: 6px;
+  vertical-align: middle; margin-left: 5px;
+  flex-shrink: 0; white-space: nowrap; line-height: 1.5;
+}
+.cmk-title-botany  { background: rgba(71,183,107,0.16);  color: #47B76B; border: 1px solid rgba(71,183,107,0.28); }
+.cmk-title-night   { background: rgba(139,93,255,0.16);   color: #C084FF; border: 1px solid rgba(139,93,255,0.28); }
+.cmk-title-focus   { background: rgba(255,213,74,0.16);   color: #FFD54A; border: 1px solid rgba(255,213,74,0.28); }
+.cmk-title-grind   { background: rgba(248,113,113,0.14);  color: #FF8585; border: 1px solid rgba(248,113,113,0.26); }
+
+/* ── Member card title row ── */
+.sroom-mc-title-row {
+  display: flex; justify-content: center; margin-top: -4px; margin-bottom: 2px;
+}
+
+/* ── Featured leaderboard card title ── */
+.slob-lb-featured-title {
+  display: flex; justify-content: center; margin: -2px 0 2px;
+}
+
+/* ── Chat sender title spacing ── */
+.chat-sender .cmk-title { font-size: 9px; padding: 1px 5px; margin-left: 4px; }

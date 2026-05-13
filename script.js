@@ -815,6 +815,7 @@
         studyStreak: (state.streak && state.streak.count) || 0,
         avatarUrl: state.profile.avatarDataUrl || '',
         totalFocusMinutes: Object.values((state.focusStats && state.focusStats.minutesByDate) || {}).reduce((a, b) => a + b, 0),
+        equippedItems: state.equippedItems || {},
         ...(extra || {})
       }, { merge: true });
     } catch (e) { console.warn('[Social] Presence failed:', e.message); }
@@ -1181,13 +1182,16 @@
       } else {
         const ini = _sInitials(msg.name || 'S');
         const col = _sAvatarColor(msg.uid);
+        const msgEq = msg.uid === _userId ? _myEquipped() : ((_socialMembers[msg.uid] || {}).equippedItems || {});
+        const chatBorderCls = _cmkBorderClass(msgEq);
+        const chatTitleHTML = _cmkTitleHTML(msgEq);
         html += `<div class="chat-msg-row chat-msg-them${isGrouped ? ' chat-grouped' : ''}" data-msgid="${escapeHTML(msg.id||'')}">
           ${swipeHint}
           <div class="chat-msg-av-col">
-            ${showHead ? `<div class="chat-av" style="background:${col}">${ini}</div>` : `<div class="chat-av-spacer"></div>`}
+            ${showHead ? `<div class="chat-av${chatBorderCls ? ' '+chatBorderCls : ''}" style="background:${col}">${ini}</div>` : `<div class="chat-av-spacer"></div>`}
           </div>
           <div class="chat-msg-body">
-            ${showHead ? `<div class="chat-sender">${escapeHTML(msg.name || 'Anonymous')}<span class="chat-ts">${ts}</span></div>` : ''}
+            ${showHead ? `<div class="chat-sender">${escapeHTML(msg.name || 'Anonymous')}${chatTitleHTML}<span class="chat-ts">${ts}</span></div>` : ''}
             <div class="chat-bubble chat-bubble-them${isDeleted ? ' chat-bubble-deleted' : ''}" ${menuAttrs}>${bubbleContent}</div>
             ${reactRow}
           </div>
@@ -2235,20 +2239,25 @@
     const restRows = _globalLbData.slice(1, 20).map((m, i) => {
       const isMe = m.uid === _userId;
       const streak = (m.studyStreak || 0) >= 3 ? `<span class="slob-lb-streak">🔥${m.studyStreak}</span>` : '';
+      const mEq = isMe ? _myEquipped() : (m.equippedItems || {});
+      const borderCls = _cmkBorderClass(mEq);
+      const titleHTML = _cmkTitleHTML(mEq);
       return `<div class="slob-lb-row${isMe ? ' slob-lb-me' : ''}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name || 'Anonymous')}">
         <span class="slob-lb-rank">${i + 2}</span>
-        <span class="slob-lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.name || 'S')}</span>
-        <span class="slob-lb-name">${escapeHTML(m.name || 'Anonymous')}${streak}</span>
+        <span class="slob-lb-av${borderCls ? ' '+borderCls : ''}" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.name || 'S')}</span>
+        <span class="slob-lb-name">${escapeHTML(m.name || 'Anonymous')}${streak}${titleHTML}</span>
         <span class="slob-lb-xp">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span>
         <span class="slob-lb-time">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span>
       </div>`;
     }).join('');
 
+    const top1Eq = top1 ? (top1.uid === _userId ? _myEquipped() : (top1.equippedItems || {})) : {};
     const featuredCard = top1 ? `
-      <div class="slob-lb-featured" data-act="view-profile-global" data-uid="${top1.uid}" data-name="${escapeHTML(top1.name || 'Anonymous')}">
+      <div class="slob-lb-featured${_cmkAuraClass(top1Eq) ? ' '+_cmkAuraClass(top1Eq) : ''}" data-act="view-profile-global" data-uid="${top1.uid}" data-name="${escapeHTML(top1.name || 'Anonymous')}">
         <div class="slob-lb-featured-crown">👑</div>
-        <div class="slob-lb-featured-av" style="background:${_sAvatarColor(top1.uid)}">${_sInitials(top1.name || 'S')}</div>
+        <div class="slob-lb-featured-av${_cmkBorderClass(top1Eq) ? ' '+_cmkBorderClass(top1Eq) : ''}" style="background:${_sAvatarColor(top1.uid)}">${_sInitials(top1.name || 'S')}</div>
         <div class="slob-lb-featured-name">${escapeHTML((top1.name || 'Anonymous').split(' ')[0])}</div>
+        ${_cmkTitleHTML(top1Eq) ? `<div class="slob-lb-featured-title">${_cmkTitleHTML(top1Eq)}</div>` : ''}
         <div class="slob-lb-featured-xp">⚡ ${(top1.weeklyXP || 0).toLocaleString()}</div>
         <div class="slob-lb-featured-time">📚 ${minsToHrs(top1.weeklyMinutes || 0)}</div>
       </div>` : `<div class="slob-lb-empty">Complete a focus session to appear here!</div>`;
@@ -2420,6 +2429,11 @@
       const profAct    = !isMe ? `data-act="view-profile" data-uid="${m.uid}"` : '';
       // Status label
       const stLabel = isFocusing ? 'Focusing' : isOnline ? 'Online' : 'Offline';
+      // Cosmetics
+      const mEq        = (isMe ? _myEquipped() : (m.equippedItems || {}));
+      const borderCls  = _cmkBorderClass(mEq);
+      const auraCls    = _cmkAuraClass(mEq);
+      const titleHTML  = _cmkTitleHTML(mEq);
       // Activity chip — shown below status
       let activityHTML;
       if (isFocusing && m.focusSubjectName) {
@@ -2431,14 +2445,15 @@
       } else {
         activityHTML = `<div class="sroom-mc-lastseen">${_sLastSeenText(m)}</div>`;
       }
-      return `<div class="sroom-mc sroom-mc-${st}${isMe ? ' sroom-mc-me' : ''}">
+      return `<div class="sroom-mc sroom-mc-${st}${isMe ? ' sroom-mc-me' : ''}${auraCls ? ' '+auraCls : ''}">
         <div class="sroom-mc-av-wrap" ${profAct}>
-          <div class="sroom-mc-av" style="background:${_sAvatarColor(m.uid)}">${avContent}</div>
+          <div class="sroom-mc-av${borderCls ? ' '+borderCls : ''}" style="background:${_sAvatarColor(m.uid)}">${avContent}</div>
           <div class="sroom-mc-dot sroom-dot-${st}"></div>
           ${isFocusing ? '<div class="sroom-mc-pulse"></div>' : ''}
           ${isOwner ? '<div class="sroom-mc-crown">👑</div>' : ''}
         </div>
         <div class="sroom-mc-name">${escapeHTML((m.displayName || 'Anonymous').split(' ')[0])}</div>
+        ${titleHTML ? `<div class="sroom-mc-title-row">${titleHTML}</div>` : ''}
         <div class="sroom-mc-status-row">
           ${isFocusing && m.focusStartedAt
             ? `<span class="sroom-mc-timer grm-elapsed" data-focusat="${m.focusStartedAt}">0s</span>`
@@ -2501,10 +2516,13 @@
       const isMe = m.uid === _userId;
       const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : String(i+1);
       const xpLabel = (m.weeklyXP||0) >= 1000 ? ((m.weeklyXP/1000).toFixed(1)+'k') : String(m.weeklyXP||0);
+      const mEq = isMe ? _myEquipped() : (m.equippedItems || {});
+      const borderCls = _cmkBorderClass(mEq);
+      const titleHTML = _cmkTitleHTML(mEq);
       return `<div class="sroom-lb-row${isMe ? ' sroom-lb-me' : ''}">
         <span class="sroom-lb-rank">${medal}</span>
-        <span class="sroom-lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName||'S')}</span>
-        <span class="sroom-lb-name">${escapeHTML((m.displayName||'Anon').split(' ')[0])}</span>
+        <span class="sroom-lb-av${borderCls ? ' '+borderCls : ''}" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName||'S')}</span>
+        <span class="sroom-lb-name">${escapeHTML((m.displayName||'Anon').split(' ')[0])}${titleHTML}</span>
         <span class="sroom-lb-xp">⚡ ${xpLabel}</span>
         <span class="sroom-lb-time">📚 ${minsToHrs(m.weeklyMinutes||0)}</span>
       </div>`;
@@ -2513,10 +2531,13 @@
     const glbRowsHTML = _globalLbData.slice(0, 15).map((m, i) => {
       const isMe = m.uid === _userId;
       const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : String(i+1);
+      const mEq = isMe ? _myEquipped() : (m.equippedItems || {});
+      const borderCls = _cmkBorderClass(mEq);
+      const titleHTML = _cmkTitleHTML(mEq);
       return `<div class="sroom-lb-row${isMe ? ' sroom-lb-me' : ''}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name||'Anonymous')}">
         <span class="sroom-lb-rank">${medal}</span>
-        <span class="sroom-lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.name||'S')}</span>
-        <span class="sroom-lb-name">${escapeHTML((m.name||'Anon').split(' ')[0])}</span>
+        <span class="sroom-lb-av${borderCls ? ' '+borderCls : ''}" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.name||'S')}</span>
+        <span class="sroom-lb-name">${escapeHTML((m.name||'Anon').split(' ')[0])}${titleHTML}</span>
         <span class="sroom-lb-xp">⚡ ${(m.weeklyXP||0).toLocaleString()}</span>
         <span class="sroom-lb-time">📚 ${minsToHrs(m.weeklyMinutes||0)}</span>
       </div>`;
@@ -2934,11 +2955,12 @@
     if (!_db || !_userId) return;
     try {
       _db.collection('global_lb').doc(_userId).set({
-        uid:          _userId,
-        name:         _sDisplayName(),
-        weeklyXP:     _sWeeklyXP(),
+        uid:           _userId,
+        name:          _sDisplayName(),
+        weeklyXP:      _sWeeklyXP(),
         weeklyMinutes: _sWeeklyMinutes(),
-        updatedAt:    firebase.firestore.FieldValue.serverTimestamp()
+        equippedItems: state.equippedItems || {},
+        updatedAt:     firebase.firestore.FieldValue.serverTimestamp()
       }, { merge: true }).catch(() => {});
     } catch(_) {}
   }
@@ -3597,6 +3619,39 @@
     { id:'revision',  title:'Complete a revision session', icon:'📖', xp:35, type:'revision',  target:1  },
   ];
 
+  // ═══════════════════════════════════════════════════════════════
+  // COSMETIC HELPERS — apply equipped items everywhere
+  // ═══════════════════════════════════════════════════════════════
+
+  // Returns border CSS class(es) string for an equipped border item
+  function _cmkBorderClass(equippedItems) {
+    const b = (equippedItems || {}).border;
+    if (!b) return '';
+    const key = b.replace('border_', '');
+    return `cmk-border cmk-border-${key}`;
+  }
+
+  // Returns title HTML badge for an equipped title item
+  function _cmkTitleHTML(equippedItems) {
+    const tid = (equippedItems || {}).title;
+    if (!tid) return '';
+    const item = SHOP_ITEMS.find(i => i.id === tid);
+    if (!item) return '';
+    const key = tid.replace('title_', '');
+    return `<span class="cmk-title cmk-title-${key}">${item.icon} ${item.name}</span>`;
+  }
+
+  // Returns aura CSS class for the card wrapper
+  function _cmkAuraClass(equippedItems) {
+    const a = (equippedItems || {}).aura;
+    if (!a) return '';
+    const key = a.replace('aura_', '');
+    return `cmk-aura cmk-aura-${key}`;
+  }
+
+  // Convenience: get current user's equipped items object
+  function _myEquipped() { return state.equippedItems || {}; }
+
   var _shopCategory = 'profile';
 
   function _xpBalance() {
@@ -3837,10 +3892,11 @@
         if (!state.equippedItems) state.equippedItems = {};
         state.equippedItems[it.equip] = it.id;
       }
-      toast(`${it.icon} ${it.name} purchased!`, 'success', 3500);
+      toast(`${it.icon} ${it.name} purchased & equipped!`, 'success', 3500);
     }
 
     saveState();
+    if (it.equip && !it.stackable) _cmkSyncAfterEquip();
     gamificationManager._updateXPBar();
     const balEl = document.querySelector('.mkt-bal-num');
     if (balEl) { showXPFloat(-it.cost, balEl); balEl.textContent = _xpBalance().toLocaleString(); }
@@ -3853,6 +3909,7 @@
     if (!state.equippedItems) state.equippedItems = {};
     state.equippedItems[it.equip] = it.id;
     saveState();
+    _cmkSyncAfterEquip();
     toast(`${it.icon} ${it.name} equipped!`, 'success', 2500);
     renderShop();
   }
@@ -3863,8 +3920,20 @@
     if (!state.equippedItems) state.equippedItems = {};
     delete state.equippedItems[it.equip];
     saveState();
+    _cmkSyncAfterEquip();
     toast('Unequipped', 'info', 2000);
     renderShop();
+  }
+
+  // Push cosmetic changes to Firebase presence + global LB instantly
+  function _cmkSyncAfterEquip() {
+    _updateGlobalLb();
+    if (_socialRoomCode && _userId) {
+      const curStatus = (_socialMembers[_userId] && _socialMembers[_userId].status) || 'break';
+      _sUpdatePresence(curStatus).catch(() => {});
+    }
+    // Re-render social view if visible so effects show immediately
+    if (_currentTab === 'social') renderSocial();
   }
 
   // ── Badge & theme selectors ──────────────────────────────────────────────
