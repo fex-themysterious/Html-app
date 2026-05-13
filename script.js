@@ -187,6 +187,12 @@
     if (!s.xp || typeof s.xp !== 'object') s.xp = { total: 0 };
     if (typeof s.xp.total !== 'number' || isNaN(s.xp.total)) s.xp.total = 0;
     if (!('streakBonusDate' in s.xp)) s.xp.streakBonusDate = null;
+    if (typeof s.xp.spent !== 'number')       s.xp.spent       = 0;
+    if (typeof s.xp.weeklyEarned !== 'number') s.xp.weeklyEarned = 0;
+    if (!s.xp.weeklyReset) s.xp.weeklyReset = todayKey();
+    if (!s.inventory  || typeof s.inventory  !== 'object') s.inventory  = {};
+    if (!s.equippedItems || typeof s.equippedItems !== 'object') s.equippedItems = {};
+    if (!s.dailyQuests || typeof s.dailyQuests !== 'object') s.dailyQuests = { date: '', quests: [] };
     if (!s.focusStreak || typeof s.focusStreak !== 'object') s.focusStreak = { count: 0, lastDate: null, best: 0 };
     if (!s.focusStreak.best) s.focusStreak.best = s.focusStreak.count || 0;
     if (!s.focusStats.videoMinutes || typeof s.focusStats.videoMinutes !== 'object') s.focusStats.videoMinutes = {};
@@ -649,15 +655,17 @@
   // ======================================================================
   const SOCIAL_OFFLINE_MS = 3 * 60 * 1000;
   const SOCIAL_BOUNTY_XP  = 50;
-  let _socialRoomCode      = null;
-  let _socialMembers       = {};
-  let _socialRoomData      = null;
-  let _socialUnsubPresence = null;
-  let _socialUnsubRoom     = null;
-  let _socialHeartbeatId   = null;
+  let _socialRoomCode       = null;
+  let _socialMembers        = {};
+  let _socialRoomData       = null;
+  let _socialUnsubPresence  = null;
+  let _socialUnsubRoom      = null;
+  let _socialHeartbeatId    = null;
   let _socialLobbyCode      = null;
   let _socialPrevStatuses   = {};
+  let _socialPrevRanks      = {};
   let _momentumConfettiFired = false;
+  let _vaultCelebFired      = false;
 
   function _sDisplayName() {
     if (state.profile && state.profile.name) return state.profile.name;
@@ -965,6 +973,34 @@
     toast('🎉 Collective Momentum maxed! Your group is on fire!', 'success', 5000);
   }
 
+  function _triggerVaultCelebration() {
+    // Cinematic full-screen vault celebration overlay
+    const overlay = document.createElement('div');
+    overlay.className = 'vault-celeb-overlay';
+    overlay.innerHTML = `
+      <div class="vault-celeb-inner">
+        <div class="vault-celeb-icon">🏦</div>
+        <div class="vault-celeb-sparks">✨ ⚡ ✨</div>
+        <h1 class="vault-celeb-title">VAULT UNLOCKED!</h1>
+        <p class="vault-celeb-sub">Your group pooled enough XP to unlock the reward. Amazing teamwork! 🏆</p>
+        <div class="vault-celeb-xp">Group Achievement Unlocked</div>
+        <button class="btn vault-celeb-close" onclick="this.closest('.vault-celeb-overlay').remove()">Awesome! 🎉</button>
+      </div>`;
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add('vault-celeb-show'));
+    // Burst of confetti
+    const colors = ['#fbbf24','#f59e0b','#5badff','#a78bfa','#f472b6','#34d399','#fb7185'];
+    for (let i = 0; i < 120; i++) {
+      const p = document.createElement('div');
+      p.className = 'confetti-piece';
+      const size = 5 + Math.random() * 10;
+      p.style.cssText = `left:${Math.random()*100}vw;background:${colors[i%colors.length]};animation-duration:${0.8+Math.random()*1.6}s;animation-delay:${Math.random()*0.8}s;width:${size}px;height:${size}px;border-radius:${Math.random()>0.4?'50%':'3px'};z-index:200001`;
+      document.body.appendChild(p);
+      setTimeout(() => p.remove(), 3200);
+    }
+    setTimeout(() => { overlay.classList.remove('vault-celeb-show'); setTimeout(() => overlay.remove(), 500); }, 7000);
+  }
+
   async function _sDonateToVault(xpAmount) {
     if (!_db || !_userId || !_socialRoomCode || !_socialRoomData) return;
     const myXP = (state.xp && state.xp.total) || 0;
@@ -1090,14 +1126,32 @@
       return `<div class="${cardClass}"><div class="sm-ring-wrap">${ring}<div class="sm-avatar" style="background:${_sAvatarColor(m.uid)}">${ini}</div></div><div class="sm-info"><div class="sm-name-row"><span class="sm-name">${escapeHTML(m.displayName || 'Anonymous')}</span>${youB}${streakBadge}</div><div class="sm-status">${dot} ${stTxt}${ft}</div>${subPill}<div class="sm-xp">⚡ ${(m.xpTotal || 0).toLocaleString()} XP · 📚 ${minsToHrs(m.weeklyMinutes || 0)} this week</div></div>${acts}</div>`;
     }).join('') || '<div class="empty" style="padding:16px">No one here yet — share the code!</div>';
 
-    // ── Leaderboard with streak flames ──
+    // ── Leaderboard with rank movement, crown glow & reset countdown ──
     const lb = [...members].sort((a, b) => (b.weeklyXP || 0) - (a.weeklyXP || 0));
+    // Compute next Monday midnight for countdown
+    const lbNow = new Date();
+    const daysToMon = (8 - lbNow.getDay()) % 7 || 7;
+    const nextMon = new Date(lbNow); nextMon.setDate(lbNow.getDate() + daysToMon); nextMon.setHours(0, 0, 0, 0);
+    const secsLeft = Math.max(0, Math.floor((nextMon - lbNow) / 1000));
+    const hLeft = Math.floor(secsLeft / 3600), mLeft = Math.floor((secsLeft % 3600) / 60);
+    const countdownTxt = secsLeft > 86400 ? `${daysToMon}d ${hLeft % 24}h left` : `${hLeft}h ${mLeft}m left`;
     const lbRows = lb.map((m, i) => {
-      const med = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
       const isMe = m.uid === _userId;
+      const prevRank = _socialPrevRanks[m.uid];
+      let mvIcon = '';
+      if (prevRank !== undefined && prevRank !== i) {
+        if (i < prevRank)       mvIcon = `<span class="lb-mv lb-mv-up">↑</span>`;
+        else if (i > prevRank)  mvIcon = `<span class="lb-mv lb-mv-dn">↓</span>`;
+      } else if (prevRank !== undefined) {
+        mvIcon = `<span class="lb-mv lb-mv-eq">—</span>`;
+      }
+      _socialPrevRanks[m.uid] = i;
       const streak = (m.studyStreak || 0) >= 2 ? `<span class="lb-streak">🔥${m.studyStreak}</span>` : '';
-      return `<div class="lb-row${isMe ? ' lb-me' : ''}"><span class="lb-rank">${med}</span><span class="lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName || 'S')}</span><span class="lb-name">${escapeHTML(m.displayName || 'Anonymous')}${streak}</span><span class="lb-val">⚡ ${(m.weeklyXP || 0).toLocaleString()} XP</span><span class="lb-val2">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span></div>`;
+      const topGlow = i === 0 ? ' lb-row-gold' : i === 1 ? ' lb-row-silver' : i === 2 ? ' lb-row-bronze' : '';
+      const med = i === 0 ? '<span class="lb-crown">👑</span>' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="color:var(--text-muted)">${i + 1}.</span>`;
+      return `<div class="lb-row${isMe ? ' lb-me' : ''}${topGlow}">${mvIcon}<span class="lb-rank">${med}</span><span class="lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName || 'S')}</span><span class="lb-name">${escapeHTML(m.displayName || 'Anonymous')}${streak}</span><span class="lb-val">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span><span class="lb-val2">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span></div>`;
     }).join('') || '<div class="empty" style="padding:8px 0">No data yet</div>';
+    const lbFooter = `<div class="lb-reset-row">🔄 Resets in <strong>${countdownTxt}</strong></div>`;
 
     // ── Subject Mastery with 3D glowing badges ──
     const subMap = {};
@@ -1151,7 +1205,14 @@
       const vaultPct = Math.min(100, Math.round(vaultTotal / vault.goal * 100));
       const myContrib = (vault.contributions || {})[_userId] || 0;
       const isUnlocked = vaultPct >= 100;
-      vaultSection = `<h2 class="social-section-head">Group XP Vault</h2><div class="social-vault-wrap"><div class="group-vault"><div class="vault-header"><div class="vault-title">🏦 Group XP Vault</div><div class="vault-goal">${vaultTotal.toLocaleString()} / ${vault.goal.toLocaleString()} XP</div></div><div class="vault-bar-track"><div class="vault-bar-fill" style="width:${vaultPct}%"></div></div><div class="vault-stats"><span>My donation: ⚡ ${myContrib.toLocaleString()} XP</span><span class="vault-pct">${vaultPct}%</span></div>${isUnlocked ? '<div class="vault-unlock-msg">🎉 Vault Unlocked! Special theme unlocked for the whole group!</div>' : `<div class="vault-donate-row"><input id="vault-xp-input" class="auth-input vault-input" type="number" min="1" max="${myXPTotal}" placeholder="XP to donate"/><button class="btn btn-sm" data-act="social-vault-donate">Donate ⚡</button></div>`}</div></div>`;
+      if (isUnlocked && !_vaultCelebFired) {
+        _vaultCelebFired = true;
+        setTimeout(() => _triggerVaultCelebration(), 600);
+      }
+      const vaultUnlockedHTML = isUnlocked
+        ? `<div class="vault-unlock-msg vault-unlock-animated">🎉 Vault Unlocked! <button class="btn btn-sm" data-act="vault-celebrate" style="margin-left:8px;font-size:11px">Celebrate 🎊</button></div>`
+        : `<div class="vault-donate-row"><input id="vault-xp-input" class="auth-input vault-input" type="number" min="1" max="${myXPTotal}" placeholder="XP to donate"/><button class="btn btn-sm" data-act="social-vault-donate">Donate ⚡</button></div>`;
+      vaultSection = `<h2 class="social-section-head">Group XP Vault</h2><div class="social-vault-wrap"><div class="group-vault${isUnlocked ? ' vault-unlocked' : ''}"><div class="vault-header"><div class="vault-title">🏦 Group XP Vault</div><div class="vault-goal">${vaultTotal.toLocaleString()} / ${vault.goal.toLocaleString()} XP</div></div><div class="vault-bar-track"><div class="vault-bar-fill${isUnlocked ? ' vault-bar-complete' : ''}" style="width:${vaultPct}%"></div></div><div class="vault-stats"><span>My donation: ⚡ ${myContrib.toLocaleString()} XP</span><span class="vault-pct">${vaultPct}%</span></div>${vaultUnlockedHTML}</div></div>`;
     } else {
       const isCreator = _userId === (_socialRoomData && _socialRoomData.createdBy);
       if (isCreator) {
@@ -1179,7 +1240,7 @@
       ${duelsHTML ? `<h2 class="social-section-head">Active Duel</h2><div class="social-duels">${duelsHTML}</div>` : ''}
       ${pastHTML ? `<div class="past-duels">${pastHTML}</div>` : ''}
       <h2 class="social-section-head">Weekly Leaderboard</h2>
-      <div class="social-lb">${lbRows}</div>
+      <div class="social-lb">${lbRows}${lbFooter}</div>
       <h2 class="social-section-head">Subject Mastery</h2>
       <div class="social-mastery">${masteryHTML}</div>
       ${vaultSection}
@@ -1397,6 +1458,285 @@
   // Legacy wrapper — existing call sites (focus timer, video, classroom) delegate here
   function awardXP(minutes, dateStr) {
     gamificationManager.addFocusXP(minutes, dateStr);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // XP SHOP SYSTEM
+  // ═══════════════════════════════════════════════════════════════
+  var SHOP_ITEMS = [
+    // Profile
+    { id:'border_flame',   name:'Flame Border',    cat:'profile', rarity:'epic',      cost:500,  icon:'🔥', desc:'Animated fire ring pulses around your avatar',       equip:'border' },
+    { id:'border_galaxy',  name:'Galaxy Frame',    cat:'profile', rarity:'legendary', cost:1500, icon:'🌌', desc:'Swirling galaxy frame — the rarest border',          equip:'border' },
+    { id:'border_crystal', name:'Crystal Aura',    cat:'profile', rarity:'rare',      cost:350,  icon:'💎', desc:'Shimmering crystal ring — elegant & rare',           equip:'border' },
+    { id:'title_botany',   name:'Botany Expert',   cat:'profile', rarity:'rare',      cost:300,  icon:'🌿', desc:'Custom title shown in Social rooms',                 equip:'title'  },
+    { id:'title_night',    name:'Night Scholar',   cat:'profile', rarity:'rare',      cost:300,  icon:'🌙', desc:'For those who study after midnight',                 equip:'title'  },
+    { id:'title_focus',    name:'Focus Master',    cat:'profile', rarity:'epic',      cost:600,  icon:'⚡', desc:'Elite title — only for the truly dedicated',         equip:'title'  },
+    { id:'title_grind',    name:'The Grinder',     cat:'profile', rarity:'legendary', cost:1200, icon:'💀', desc:'Legendary status — earned through relentless grind', equip:'title'  },
+    // Visual
+    { id:'aura_fire',      name:'Fire Aura',       cat:'visual',  rarity:'epic',      cost:700,  icon:'🔥', desc:'Blazing aura pulses when you\'re online',           equip:'aura'   },
+    { id:'aura_lightning', name:'Lightning Pulse', cat:'visual',  rarity:'epic',      cost:800,  icon:'⚡', desc:'Electric pulse rings during focus sessions',        equip:'aura'   },
+    { id:'aura_galaxy',    name:'Galaxy Orb',      cat:'visual',  rarity:'legendary', cost:1800, icon:'🌌', desc:'Orbital galaxy effect — rarest visual in the shop', equip:'aura'   },
+    { id:'aura_leaf',      name:'Leaf Animation',  cat:'visual',  rarity:'common',    cost:200,  icon:'🍃', desc:'Peaceful floating leaves during study sessions',    equip:'aura'   },
+    // Utility (stackable)
+    { id:'streak_freeze',  name:'Streak Freeze',   cat:'utility', rarity:'rare',      cost:150,  icon:'🧊', desc:'Protects your streak for 1 missed day. Stackable.',    equip:null, stackable:true },
+    { id:'xp_boost_2x',    name:'XP Booster 2×',  cat:'utility', rarity:'rare',      cost:400,  icon:'⚡', desc:'Double XP for your next focus session. Stackable.',    equip:null, stackable:true },
+    { id:'session_shield', name:'Session Shield',  cat:'utility', rarity:'common',    cost:200,  icon:'🛡️', desc:'Protect your longest session record. Stackable.',     equip:null, stackable:true },
+    { id:'focus_energy',   name:'Focus Energy',    cat:'utility', rarity:'common',    cost:100,  icon:'🔋', desc:'Instantly refill your focus energy. Stackable.',      equip:null, stackable:true },
+  ];
+
+  var QUEST_TEMPLATES = [
+    { id:'login',     title:'Open the app today',          icon:'⚡', xp:5,  type:'auto_done', target:1  },
+    { id:'focus_30',  title:'Focus for 30 minutes',        icon:'⏱',  xp:25, type:'focus_min', target:30 },
+    { id:'focus_60',  title:'Power Hour: 60 min focus',    icon:'🔥', xp:55, type:'focus_min', target:60 },
+    { id:'focus_90',  title:'Deep Work: 90 min focus',     icon:'💪', xp:90, type:'focus_min', target:90 },
+    { id:'tasks_3',   title:'Complete 3 study tasks',      icon:'✅', xp:30, type:'tasks',     target:3  },
+    { id:'tasks_5',   title:'Crush 5 study tasks',         icon:'🎯', xp:55, type:'tasks',     target:5  },
+    { id:'join_room', title:'Join a study room',           icon:'👥', xp:20, type:'social',    target:1  },
+    { id:'streak',    title:'Keep your study streak alive',icon:'🔥', xp:40, type:'streak',    target:1  },
+    { id:'revision',  title:'Complete a revision session', icon:'📖', xp:35, type:'revision',  target:1  },
+  ];
+
+  var _shopCategory = 'profile';
+
+  function _xpBalance() {
+    if (!state.xp) return 0;
+    return Math.max(0, (state.xp.total || 0) - (state.xp.spent || 0));
+  }
+  function _itemOwned(id) { return (_itemQty(id)) > 0; }
+  function _itemQty(id)   { return (state.inventory || {})[id] || 0; }
+  function _itemEquipped(id) {
+    const item = SHOP_ITEMS.find(i => i.id === id);
+    if (!item || !item.equip) return false;
+    return (state.equippedItems || {})[item.equip] === id;
+  }
+
+  function renderShop() {
+    const view = document.getElementById('view-shop');
+    if (!view) return;
+    if (!_userId && !_authSkipped) {
+      view.innerHTML = `<div class="social-gate"><div class="social-gate-icon">🛍️</div><h2 class="social-gate-title">XP Shop</h2><p class="social-gate-sub">Sign in to spend your earned XP on exclusive items, effects &amp; titles.</p><button class="btn" data-act="auth-show-modal">Sign In to Continue</button></div>`;
+      return;
+    }
+    const bal      = _xpBalance();
+    const lifetime = (state.xp && state.xp.total) || 0;
+    const spent    = (state.xp && state.xp.spent)  || 0;
+    const cats = [
+      { id:'profile', label:'Profile', icon:'👤' },
+      { id:'visual',  label:'Visual',  icon:'✨' },
+      { id:'utility', label:'Utility', icon:'🛠️' },
+    ];
+    const catTabs = cats.map(c =>
+      `<button class="shop-cat-btn${c.id === _shopCategory ? ' active' : ''}" data-act="shop-cat" data-cat="${c.id}">${c.icon} ${c.label}</button>`
+    ).join('');
+
+    const items = SHOP_ITEMS.filter(it => it.cat === _shopCategory);
+    const itemsHTML = items.map(it => {
+      const owned    = _itemOwned(it.id);
+      const equipped = _itemEquipped(it.id);
+      const qty      = it.stackable ? _itemQty(it.id) : 0;
+      const canAfford = bal >= it.cost;
+      const qtyBadge = qty > 0 ? `<span class="shop-qty-badge">×${qty}</span>` : '';
+      let stateClass = '', stateLabel = '';
+      if (equipped)            { stateClass = 'shop-item--equipped'; stateLabel = '✓ Equipped'; }
+      else if (owned && !it.stackable) { stateClass = 'shop-item--owned';    stateLabel = 'Owned'; }
+      else if (!canAfford)     { stateClass = 'shop-item--locked'; }
+      let btnHTML;
+      if (equipped && it.equip) {
+        btnHTML = `<button class="shop-btn shop-btn-ghost" data-act="shop-unequip" data-iid="${it.id}">Unequip</button>`;
+      } else if (owned && it.equip && !it.stackable) {
+        btnHTML = `<button class="shop-btn shop-btn-equip" data-act="shop-equip" data-iid="${it.id}">Equip</button>`;
+      } else if (canAfford) {
+        btnHTML = `<button class="shop-btn shop-btn-buy" data-act="shop-buy" data-iid="${it.id}">⚡ ${it.cost.toLocaleString()}</button>`;
+      } else {
+        btnHTML = `<button class="shop-btn shop-btn-locked" disabled>⚡ ${it.cost.toLocaleString()}</button>`;
+      }
+      return `<div class="shop-item-card rarity-${it.rarity} ${stateClass}">
+        <div class="shop-rarity-bar rarity-${it.rarity}"></div>
+        <div class="shop-item-top">
+          <div class="shop-item-icon rarity-${it.rarity}">${it.icon}</div>
+          <div class="shop-item-meta">
+            <div class="shop-item-name">${escapeHTML(it.name)}${qtyBadge}</div>
+            <div class="shop-rarity-pill rarity-${it.rarity}">${it.rarity.charAt(0).toUpperCase()+it.rarity.slice(1)}</div>
+          </div>
+          ${stateLabel ? `<span class="shop-state-badge">${stateLabel}</span>` : ''}
+        </div>
+        <div class="shop-item-desc">${escapeHTML(it.desc)}</div>
+        ${btnHTML}
+      </div>`;
+    }).join('') || '<div class="empty">No items in this category yet.</div>';
+
+    const ownedItems  = SHOP_ITEMS.filter(it => _itemOwned(it.id));
+    const invPreview  = ownedItems.slice(0, 8).map(it => `<span class="inv-icon" title="${escapeHTML(it.name)}">${it.icon}</span>`).join('')
+                        || '<span style="color:var(--text-muted);font-size:12px">Nothing yet — buy something below!</span>';
+
+    // Daily quests section
+    const questsHTML = renderDailyQuestsHTML();
+
+    view.innerHTML = `<div class="view-pad shop-page">
+      <div class="shop-header-card">
+        <div class="shop-header-row">
+          <div><h1 class="shop-title">⚡ XP Shop</h1><p class="shop-sub">Spend your XP on premium rewards</p></div>
+          <div class="shop-bal-pill">⚡ ${bal.toLocaleString()}</div>
+        </div>
+        <div class="shop-xp-stats">
+          <div class="shop-stat"><span class="shop-stat-val">${lifetime.toLocaleString()}</span><span class="shop-stat-lbl">Lifetime</span></div>
+          <div class="shop-stat-div"></div>
+          <div class="shop-stat"><span class="shop-stat-val">${spent.toLocaleString()}</span><span class="shop-stat-lbl">Spent</span></div>
+          <div class="shop-stat-div"></div>
+          <div class="shop-stat"><span class="shop-stat-val">${bal.toLocaleString()}</span><span class="shop-stat-lbl">Balance</span></div>
+        </div>
+      </div>
+      <div class="shop-inv-row"><span class="shop-inv-label">🎒 Inventory</span><div class="shop-inv-icons">${invPreview}</div></div>
+      ${questsHTML}
+      <div class="shop-cats">${catTabs}</div>
+      <div class="shop-items">${itemsHTML}</div>
+    </div>`;
+  }
+
+  function _shopBuy(itemId) {
+    const it = SHOP_ITEMS.find(i => i.id === itemId);
+    if (!it) return;
+    const bal = _xpBalance();
+    if (bal < it.cost) { toast('Not enough XP to buy this!', 'warn', 3000); return; }
+    openModal(`<div class="modal-body">
+      <h3 style="text-align:center;margin-bottom:16px">Confirm Purchase</h3>
+      <div style="text-align:center;padding:4px 0 12px">
+        <div style="font-size:48px;margin-bottom:8px">${it.icon}</div>
+        <div style="font-size:17px;font-weight:800;margin-bottom:4px">${escapeHTML(it.name)}</div>
+        <div class="shop-rarity-pill rarity-${it.rarity}" style="display:inline-block;margin-bottom:12px">${it.rarity.charAt(0).toUpperCase()+it.rarity.slice(1)}</div>
+        <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px;line-height:1.5">${escapeHTML(it.desc)}</div>
+        <div style="font-size:17px;font-weight:900;color:#fbbf24">⚡ ${it.cost.toLocaleString()} XP</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:3px">Balance after: ⚡ ${(bal - it.cost).toLocaleString()}</div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:8px">
+        <button class="btn btn-ghost btn-block" data-act="close-modal">Cancel</button>
+        <button class="btn btn-block" data-act="shop-confirm-buy" data-iid="${itemId}" style="background:linear-gradient(135deg,#f59e0b,#fbbf24);color:#1a1122;font-weight:800">Buy Now ⚡</button>
+      </div>
+    </div>`);
+  }
+
+  function _shopConfirmBuy(itemId) {
+    closeModal();
+    const it = SHOP_ITEMS.find(i => i.id === itemId);
+    if (!it) return;
+    if (_xpBalance() < it.cost) { toast('Not enough XP!', 'warn', 3000); return; }
+    if (!state.xp) state.xp = { total: 0 };
+    if (typeof state.xp.spent !== 'number') state.xp.spent = 0;
+    state.xp.spent += it.cost;
+    if (!state.inventory) state.inventory = {};
+    state.inventory[it.id] = (state.inventory[it.id] || 0) + 1;
+    if (it.equip && !it.stackable) {
+      if (!state.equippedItems) state.equippedItems = {};
+      state.equippedItems[it.equip] = it.id;
+    }
+    saveState();
+    gamificationManager._updateXPBar();
+    toast(`${it.icon} ${it.name} purchased!`, 'success', 3500);
+    const balEl = document.querySelector('.shop-bal-pill');
+    if (balEl) showXPFloat(-it.cost, balEl);
+    renderShop();
+  }
+
+  function _shopEquip(itemId) {
+    const it = SHOP_ITEMS.find(i => i.id === itemId);
+    if (!it || !it.equip || !_itemOwned(it.id)) return;
+    if (!state.equippedItems) state.equippedItems = {};
+    state.equippedItems[it.equip] = it.id;
+    saveState();
+    toast(`${it.icon} ${it.name} equipped!`, 'success', 2500);
+    renderShop();
+  }
+
+  function _shopUnequip(itemId) {
+    const it = SHOP_ITEMS.find(i => i.id === itemId);
+    if (!it || !it.equip) return;
+    if (!state.equippedItems) state.equippedItems = {};
+    delete state.equippedItems[it.equip];
+    saveState();
+    toast(`Unequipped`, 'info', 2000);
+    renderShop();
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // DAILY QUEST SYSTEM
+  // ═══════════════════════════════════════════════════════════════
+  function _ensureDailyQuests() {
+    const today = todayKey();
+    if (!state.dailyQuests || typeof state.dailyQuests !== 'object')
+      state.dailyQuests = { date: '', quests: [] };
+    if (state.dailyQuests.date !== today) {
+      const always = QUEST_TEMPLATES.find(t => t.id === 'login');
+      const pool   = QUEST_TEMPLATES.filter(t => t.id !== 'login');
+      const shuffled = pool.slice().sort(() => Math.random() - 0.5).slice(0, 4);
+      const templates = [always, ...shuffled].filter(Boolean);
+      state.dailyQuests = {
+        date: today,
+        quests: templates.map(t => ({
+          id: t.id, title: t.title, icon: t.icon, xp: t.xp,
+          type: t.type, target: t.target, progress: 0, completed: false, claimed: false
+        }))
+      };
+    }
+    const today2 = todayKey();
+    state.dailyQuests.quests.forEach(q => {
+      if (q.claimed) return;
+      if (q.type === 'auto_done')                                                    { q.progress = 1; q.completed = true; }
+      if (q.type === 'streak'   && (state.streak && state.streak.count) > 0)        { q.progress = 1; q.completed = true; }
+      if (q.type === 'social'   && _socialRoomCode)                                 { q.progress = 1; q.completed = true; }
+      if (q.type === 'focus_min') {
+        const m = (state.focusStats && state.focusStats.minutesByDate && state.focusStats.minutesByDate[today2]) || 0;
+        q.progress = Math.min(m, q.target); q.completed = m >= q.target;
+      }
+    });
+  }
+
+  function _claimQuestXP(questId) {
+    _ensureDailyQuests();
+    const q = (state.dailyQuests.quests || []).find(x => x.id === questId);
+    if (!q || !q.completed || q.claimed) return;
+    q.claimed = true;
+    gamificationManager.addXP(q.xp, 'quest');
+    saveState();
+    toast(`${q.icon} Quest complete! +${q.xp} XP`, 'success', 3000);
+    const btn = document.querySelector(`[data-qid="${questId}"]`);
+    if (btn) showXPFloat(q.xp, btn);
+    if (_currentTab === 'shop') renderShop();
+  }
+
+  function renderDailyQuestsHTML() {
+    _ensureDailyQuests();
+    const quests   = state.dailyQuests.quests || [];
+    const claimed  = quests.filter(q => q.claimed).length;
+    const allDone  = claimed === quests.length && quests.length > 0;
+    const rows = quests.map(q => {
+      const pct = Math.min(100, Math.round((q.progress / (q.target || 1)) * 100));
+      let actionEl = '';
+      if (q.claimed) {
+        actionEl = `<span class="quest-claimed">✓</span>`;
+      } else if (q.completed) {
+        actionEl = `<button class="btn btn-sm quest-claim-btn" data-act="quest-claim" data-qid="${q.id}">+${q.xp}</button>`;
+      } else {
+        actionEl = `<span class="quest-xp-pill">+${q.xp}</span>`;
+      }
+      return `<div class="quest-row${q.claimed ? ' quest-row--done' : ''}">
+        <span class="quest-row-icon">${q.icon}</span>
+        <div class="quest-row-body">
+          <div class="quest-row-title">${escapeHTML(q.title)}</div>
+          <div class="quest-bar-row">
+            <div class="quest-bar-track"><div class="quest-bar-fill${q.completed ? ' quest-bar--complete' : ''}" style="width:${pct}%"></div></div>
+            <span class="quest-prog">${q.progress}/${q.target}</span>
+          </div>
+        </div>
+        ${actionEl}
+      </div>`;
+    }).join('');
+    return `<div class="daily-quests-card">
+      <div class="dq-header">
+        <span class="dq-title">📋 Daily Quests</span>
+        <span class="dq-count${allDone ? ' dq-count--done' : ''}">${claimed}/${quests.length} done${allDone ? ' 🎉' : ''}</span>
+      </div>
+      <div class="dq-list">${rows}</div>
+    </div>`;
   }
 
   // ========== Badge System ==========
@@ -2780,11 +3120,12 @@
   // ========== Render All ==========
   // Only renders the currently visible tab to prevent CPU waste.
   function _renderOneTab(tab) {
-    if (tab === 'home')       renderHome();
+    if (tab === 'home')           renderHome();
     else if (tab === 'dashboard') renderDashboard();
     else if (tab === 'syllabus')  renderSyllabus();
     else if (tab === 'stats')     renderStats();
     else if (tab === 'social')    renderSocial();
+    else if (tab === 'shop')      renderShop();
     // 'focus' is handled separately by renderFocus()
   }
   function renderAll() {
@@ -5557,6 +5898,19 @@
       _sCreateVault(goal).catch(() => {});
       return;
     }
+    if (act === 'vault-celebrate') { _triggerVaultCelebration(); return; }
+    // ── XP Shop ──────────────────────────────────────────────────────────
+    if (act === 'shop-cat') {
+      _shopCategory = el.dataset.cat || 'profile';
+      renderShop();
+      return;
+    }
+    if (act === 'shop-buy')         { _shopBuy(el.dataset.iid);        return; }
+    if (act === 'shop-confirm-buy') { _shopConfirmBuy(el.dataset.iid); return; }
+    if (act === 'shop-equip')       { _shopEquip(el.dataset.iid);      return; }
+    if (act === 'shop-unequip')     { _shopUnequip(el.dataset.iid);    return; }
+    // ── Daily Quests ─────────────────────────────────────────────────────
+    if (act === 'quest-claim')      { _claimQuestXP(el.dataset.qid);   return; }
     if (act === 'focus-toggle') {
       if (focusRunning) {
         // Partial-credit: save elapsed minutes for work sessions stopped early
