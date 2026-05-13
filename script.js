@@ -702,21 +702,34 @@
   // ======================================================================
   // ========== Social Study System =======================================
   // ======================================================================
-  const SOCIAL_OFFLINE_MS = 90 * 1000;
-  const SOCIAL_BOUNTY_XP  = 50;
-  let _socialRoomCode       = null;
-  let _socialMembers        = {};
-  let _socialRoomData       = null;
-  let _socialUnsubPresence  = null;
-  let _socialUnsubRoom      = null;
-  let _socialHeartbeatId    = null;
-  let _socialLobbyCode      = null;
-  let _socialPrevStatuses   = {};
-  let _socialPrevRanks      = {};
-  let _momentumConfettiFired = false;
-  let _vaultCelebFired      = false;
-  let _socialLiveTimerId    = null;
-  let _vaultThemeNotified   = false;
+  const SOCIAL_OFFLINE_MS        = 30 * 1000;   // 30 s — ghost turns grey within 30 s
+  const SOCIAL_IDLE_INPUT_MS     = 5 * 60 * 1000; // 5 min no input → idle
+  const SOCIAL_HEARTBEAT_FAST_MS = 7000;          // active heartbeat interval
+  const SOCIAL_HEARTBEAT_SLOW_MS = 30000;         // background/idle heartbeat
+  const SOCIAL_RECONNECT_MAX     = 8;             // max reconnect attempts
+  const SOCIAL_BOUNTY_XP         = 50;
+  let _socialRoomCode        = null;
+  let _socialMembers         = {};
+  let _socialRoomData        = null;
+  let _socialUnsubPresence   = null;
+  let _socialUnsubRoom       = null;
+  let _socialHeartbeatId     = null;
+  let _socialHeartbeatMs     = SOCIAL_HEARTBEAT_FAST_MS;
+  let _socialLobbyCode       = null;
+  let _socialPrevStatuses    = {};
+  let _socialPrevRanks       = {};
+  let _momentumConfettiFired  = false;
+  let _vaultCelebFired        = false;
+  let _socialLiveTimerId      = null;
+  let _vaultThemeNotified     = false;
+  // Reconnect state
+  let _socialReconnectAttempts = 0;
+  let _socialReconnectTimer    = null;
+  let _socialReconnectToast    = false;
+  // Idle / background tracking
+  let _socialLastInputAt       = Date.now();
+  let _socialIdleCheckId       = null;
+  let _socialIsBg              = false;
 
   // ── Multi-group / Global LB / Voice ──────────────────────────────────────
   let _myGroupCodes    = [];
@@ -752,7 +765,12 @@
   function _sStatusOf(m) {
     if (!m || !m.lastSeen) return 'offline';
     const ms = typeof m.lastSeen === 'number' ? m.lastSeen : (m.lastSeen.toMillis ? m.lastSeen.toMillis() : 0);
-    return (!ms || Date.now() - ms > SOCIAL_OFFLINE_MS) ? 'offline' : (m.status || 'break');
+    if (!ms || Date.now() - ms > SOCIAL_OFFLINE_MS) return 'offline';
+    const base = m.status || 'break';
+    if (base === 'focusing') return 'focusing';
+    // idle: was online but no input for 5 min (lastInput field written by heartbeat)
+    if (m.lastInput && Date.now() - m.lastInput > SOCIAL_IDLE_INPUT_MS) return 'idle';
+    return base;
   }
   function _sLastSeenText(m) {
     if (!m || !m.lastSeen) return 'Offline';
@@ -905,12 +923,62 @@
     }, 800);
   }
 
+  // ── Reconnect with exponential backoff ───────────────────────────────────
+  function _sScheduleReconnect() {
+    if (!_socialRoomCode) return;                        // room was left, abort
+    if (_socialReconnectTimer) return;                   // already scheduled
+    _socialReconnectAttempts++;
+    const delay = Math.min(30000, 1000 * Math.pow(2, _socialReconnectAttempts - 1));
+    if (_socialReconnectAttempts === 3 && !_socialReconnectToast) {
+      _socialReconnectToast = true;
+      toast('🔄 Reconnecting to study room…', 'warn', 8000);
+    }
+    console.warn(`[Social] Reconnect attempt ${_socialReconnectAttempts} in ${delay}ms`);
+    _socialReconnectTimer = setTimeout(() => {
+      _socialReconnectTimer = null;
+      if (!_socialRoomCode) return;
+      _sSubscribe();
+    }, delay);
+  }
+
+  // ── Heartbeat rate controller ─────────────────────────────────────────────
+  function _sSetHeartbeatRate(ms) {
+    if (_socialHeartbeatMs === ms && _socialHeartbeatId) return;
+    _socialHeartbeatMs = ms;
+    if (_socialHeartbeatId) { clearInterval(_socialHeartbeatId); _socialHeartbeatId = null; }
+    if (!_db || !_socialRoomCode) return;
+    _socialHeartbeatId = setInterval(() => {
+      const isIdle = Date.now() - _socialLastInputAt > SOCIAL_IDLE_INPUT_MS;
+      const status = (focusRunning && focusMode === 'work') ? 'focusing' : (isIdle ? 'idle' : 'break');
+      _sUpdatePresence(status, { lastInput: _socialLastInputAt });
+    }, _socialHeartbeatMs);
+  }
+
+  // ── Idle input tracker ────────────────────────────────────────────────────
+  function _sInitIdleTracker() {
+    if (_socialIdleCheckId) return;
+    const bump = () => { _socialLastInputAt = Date.now(); };
+    ['mousedown','keydown','touchstart','scroll','pointermove'].forEach(ev =>
+      document.addEventListener(ev, bump, { passive: true }));
+    // Every 30 s re-evaluate rate: fast when active, slow when idle or bg
+    _socialIdleCheckId = setInterval(() => {
+      if (!_socialRoomCode) return;
+      const isIdle = _socialIsBg || Date.now() - _socialLastInputAt > SOCIAL_IDLE_INPUT_MS;
+      _sSetHeartbeatRate(isIdle ? SOCIAL_HEARTBEAT_SLOW_MS : SOCIAL_HEARTBEAT_FAST_MS);
+    }, 30000);
+  }
+
   function _sSubscribe() {
     if (!_db || !_socialRoomCode) return;
     if (_socialUnsubPresence) { _socialUnsubPresence(); _socialUnsubPresence = null; }
     if (_socialUnsubRoom)     { _socialUnsubRoom();     _socialUnsubRoom = null; }
-    _socialUnsubPresence = _db.collection('groups').doc(_socialRoomCode).collection('presence')
+
+    const roomCode = _socialRoomCode; // capture for async closures
+
+    _socialUnsubPresence = _db.collection('groups').doc(roomCode).collection('presence')
       .onSnapshot(snap => {
+        _socialReconnectAttempts = 0;
+        _socialReconnectToast    = false;
         snap.docChanges().forEach(change => {
           if (change.type === 'removed') { delete _socialMembers[change.doc.id]; return; }
           const data = { ...change.doc.data() };
@@ -930,8 +998,8 @@
           if (data.nudge && data.nudge.ts && Date.now() - data.nudge.ts < 30000) {
             const pokeMsg = `👋 ${escapeHTML(data.nudge.fromName)} is poking you — get back to studying!`;
             toast(pokeMsg, 'warn', 6000);
-            if (document.hidden) showWebNotification('👋 Study Poke!', `${data.nudge.fromName} is poking you — get back to studying!`, { tag: 'social-poke', requireInteraction: true });
-            _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId)
+            if (document.hidden) showWebNotification('👋 Study Poke!', `${data.nudge.fromName} is poking you — get back to studying!`, { tag: 'social-poke', requireInteraction: true, data: { room_id: roomCode } });
+            _db.collection('groups').doc(roomCode).collection('presence').doc(_userId)
               .update({ nudge: firebase.firestore.FieldValue.delete() }).catch(() => {});
           }
           // Focus Bounty
@@ -940,15 +1008,15 @@
             gamificationManager.addXP(bounty, 'focus_bounty');
             saveState();
             toast(`🎁 +${bounty} XP Focus Bounty — a teammate quit early!`, 'success', 5000);
-            _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId)
+            _db.collection('groups').doc(roomCode).collection('presence').doc(_userId)
               .update({ pendingBounty: firebase.firestore.FieldValue.delete() }).catch(() => {});
           }
-          // Duel Challenge
+          // Duel Challenge — show modal immediately, clear field first (idempotent)
           if (data.pendingDuelChallenge && Date.now() - data.pendingDuelChallenge.ts < 30000) {
             const ch = { ...data.pendingDuelChallenge };
-            _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId)
+            _db.collection('groups').doc(roomCode).collection('presence').doc(_userId)
               .update({ pendingDuelChallenge: firebase.firestore.FieldValue.delete() }).catch(() => {});
-            if (document.hidden) showWebNotification('⚔️ XP Duel Challenge!', `${ch.fromName} challenges you to a 2-hour XP Duel! Open the app to accept.`, { tag: 'social-duel', requireInteraction: true });
+            if (document.hidden) showWebNotification('⚔️ XP Duel Challenge!', `${ch.fromName} challenges you to a 2-hour XP Duel! Open the app to accept.`, { tag: 'social-duel', requireInteraction: true, data: { room_id: roomCode } });
             openModal(`<h3>⚔️ XP Duel Challenge!</h3>
               <p style="color:var(--text-muted);font-size:14px;margin:8px 0 16px">
                 <strong>${escapeHTML(ch.fromName)}</strong> challenges you to a <strong>2-hour XP Duel</strong>!<br>
@@ -959,23 +1027,44 @@
                 root.querySelector('#duel-decline').onclick = () => { closeModal(); toast('Duel declined', 'info'); };
                 root.querySelector('#duel-accept').onclick = async () => {
                   closeModal();
-                  const duel = {
-                    id: uid(), challenger: ch.fromUid, challengerName: ch.fromName, challengerXPStart: ch.challengerXPStart,
-                    opponent: _userId, opponentName: _sDisplayName(), opponentXPStart: (state.xp && state.xp.total) || 0,
-                    startedAt: Date.now(), endsAt: Date.now() + 2 * 60 * 60 * 1000, winner: null
-                  };
+                  // Use a Firestore transaction to prevent simultaneous-accept race conditions
                   try {
-                    await _db.collection('groups').doc(_socialRoomCode).update({ duels: firebase.firestore.FieldValue.arrayUnion(duel) });
+                    const roomRef = _db.collection('groups').doc(roomCode);
+                    await _db.runTransaction(async tx => {
+                      const snap2 = await tx.get(roomRef);
+                      if (!snap2.exists) throw new Error('Room gone');
+                      const existing = (snap2.data().duels || []).find(d =>
+                        !d.winner && d.duelState !== 'COMPLETED' &&
+                        ((d.challenger === ch.fromUid && d.opponent === _userId) ||
+                         (d.opponent === ch.fromUid && d.challenger === _userId)));
+                      if (existing) throw new Error('ALREADY_DUELING');
+                      const duel = {
+                        id: uid(), duelState: 'IN_PROGRESS',
+                        challenger: ch.fromUid, challengerName: ch.fromName, challengerXPStart: ch.challengerXPStart,
+                        opponent: _userId, opponentName: _sDisplayName(), opponentXPStart: (state.xp && state.xp.total) || 0,
+                        startedAt: Date.now(), endsAt: Date.now() + 2 * 60 * 60 * 1000, winner: null
+                      };
+                      tx.update(roomRef, { duels: firebase.firestore.FieldValue.arrayUnion(duel) });
+                    });
                     toast('⚔️ Duel started! 2 hours — fight!', 'success', 5000);
-                  } catch (e2) { toast('Failed to start duel', 'danger'); }
+                  } catch (e2) {
+                    if (e2.message === 'ALREADY_DUELING') toast('A duel is already active between you two!', 'warn');
+                    else toast('Failed to start duel', 'danger');
+                  }
                 };
               });
           }
         });
         if (_currentTab === 'social') _renderSocialSafe();
-      }, e => { console.warn('[Social] Presence error:', e.message); });
-    _socialUnsubRoom = _db.collection('groups').doc(_socialRoomCode)
+      }, e => {
+        console.warn('[Social] Presence error:', e.message);
+        _sScheduleReconnect();
+      });
+
+    _socialUnsubRoom = _db.collection('groups').doc(roomCode)
       .onSnapshot(snap => {
+        _socialReconnectAttempts = 0;
+        _socialReconnectToast    = false;
         _socialRoomData = snap.exists ? snap.data() : null;
         _sCheckDuelResults();
         // Theme unlock detection
@@ -989,11 +1078,14 @@
           }
         }
         if (_currentTab === 'social') _renderSocialSafe();
-      }, e => { console.warn('[Social] Room error:', e.message); });
-    if (_socialHeartbeatId) clearInterval(_socialHeartbeatId);
-    _socialHeartbeatId = setInterval(() => {
-      _sUpdatePresence((focusRunning && focusMode === 'work') ? 'focusing' : 'break');
-    }, 15000);
+      }, e => {
+        console.warn('[Social] Room error:', e.message);
+        _sScheduleReconnect();
+      });
+
+    // Adaptive heartbeat — starts fast, idles down automatically
+    _sSetHeartbeatRate(SOCIAL_HEARTBEAT_FAST_MS);
+    _sInitIdleTracker();
     _sSubscribeChat();
   }
 
@@ -1001,7 +1093,8 @@
     if (!_socialRoomData || !Array.isArray(_socialRoomData.duels)) return;
     const now = Date.now();
     _socialRoomData.duels.forEach(duel => {
-      if (duel.winner || duel.endsAt > now) return;
+      // Skip already completed or still running duels
+      if (duel.winner || duel.duelState === 'COMPLETED' || duel.endsAt > now) return;
       if (duel.challenger !== _userId && duel.opponent !== _userId) return;
       const iAm = duel.challenger === _userId;
       const myXPS = iAm ? duel.challengerXPStart : duel.opponentXPStart;
@@ -1011,7 +1104,9 @@
       const oppXPS = iAm ? duel.opponentXPStart : duel.challengerXPStart;
       const oppG = opp ? Math.max(0, (opp.xpTotal || 0) - oppXPS) : 0;
       const winnerId = myG >= oppG ? _userId : oppUid;
-      const updated = (_socialRoomData.duels || []).map(d => d.id === duel.id ? { ...d, winner: winnerId } : d);
+      // Use atomic array-replace so concurrent writers converge to the same final state
+      const updated = (_socialRoomData.duels || []).map(d =>
+        d.id === duel.id ? { ...d, winner: winnerId, duelState: 'COMPLETED' } : d);
       _db.collection('groups').doc(_socialRoomCode).update({ duels: updated }).catch(() => {});
       if (winnerId === _userId) {
         toast(`🏆 Duel Victor! +${myG} XP vs ${oppG} XP — you won!`, 'success', 7000);
@@ -1062,12 +1157,14 @@
     if (_socialUnsubRoom)     { _socialUnsubRoom();     _socialUnsubRoom = null; }
     if (_socialUnsubChat)     { _socialUnsubChat();     _socialUnsubChat = null; }
     if (_socialHeartbeatId)   { clearInterval(_socialHeartbeatId); _socialHeartbeatId = null; }
+    if (_socialReconnectTimer){ clearTimeout(_socialReconnectTimer); _socialReconnectTimer = null; }
+    _socialReconnectAttempts = 0; _socialReconnectToast = false; _socialHeartbeatMs = SOCIAL_HEARTBEAT_FAST_MS;
     clearTimeout(_chatTypingTimeout);
     _chatMessages = [];
     _chatScrollAtBottom = true;
     if (_db && _userId && _socialRoomCode) {
       _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId)
-        .update({ status: 'offline' }).catch(() => {});
+        .set({ status: 'offline', lastSeen: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }).catch(() => {});
     }
     _socialRoomCode = null; _socialMembers = {}; _socialRoomData = null;
     _socialLobbyCode = null;
@@ -1543,22 +1640,34 @@
 
   async function _sNudge(memberUid, memberName) {
     if (!_db || !_userId || !_socialRoomCode) return;
+    // Optimistic immediate visual feedback (<200ms)
+    toast(`👋 Poking ${escapeHTML(memberName)}…`, 'info', 1500);
     try {
       await _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(memberUid)
         .update({ nudge: { from: _userId, fromName: _sDisplayName(), ts: Date.now() } });
       toast(`👋 Poked ${escapeHTML(memberName)}!`, 'success');
-    } catch (e) { toast('Poke failed', 'danger'); }
+    } catch (e) { toast('Poke failed — are they still online?', 'danger'); }
   }
 
   async function _sChallengeDuel(memberUid, memberName) {
     if (!_db || !_userId || !_socialRoomCode) return;
-    const existing = (_socialRoomData && _socialRoomData.duels || []).find(d =>
-      !d.winner && d.endsAt > Date.now() &&
-      ((d.challenger === _userId && d.opponent === memberUid) || (d.opponent === _userId && d.challenger === memberUid)));
-    if (existing) { toast('A duel with this person is already active!', 'warn'); return; }
+    // Reject if target is already dueling anyone (global visibility)
+    const activeDuels = (_socialRoomData && _socialRoomData.duels || []).filter(d =>
+      !d.winner && d.duelState !== 'COMPLETED' && d.endsAt > Date.now());
+    const targetBusy = activeDuels.find(d => d.challenger === memberUid || d.opponent === memberUid);
+    if (targetBusy) { toast(`${escapeHTML(memberName)} is already in a duel!`, 'warn'); return; }
+    const selfBusy = activeDuels.find(d => d.challenger === _userId || d.opponent === _userId);
+    if (selfBusy) { toast("You're already in an active duel!", 'warn'); return; }
+    // Optimistic feedback
+    toast(`⚔️ Sending challenge to ${escapeHTML(memberName)}…`, 'info', 1500);
     try {
+      // Write with REQUESTED state so target's listener can act atomically
       await _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(memberUid)
-        .update({ pendingDuelChallenge: { fromUid: _userId, fromName: _sDisplayName(), challengerXPStart: (state.xp && state.xp.total) || 0, ts: Date.now() } });
+        .update({ pendingDuelChallenge: {
+          fromUid: _userId, fromName: _sDisplayName(),
+          challengerXPStart: (state.xp && state.xp.total) || 0,
+          duelState: 'REQUESTED', ts: Date.now()
+        }});
       toast(`⚔️ Duel challenge sent to ${escapeHTML(memberName)}!`, 'success');
     } catch (e) { toast('Failed to send challenge', 'danger'); }
   }
@@ -2404,8 +2513,8 @@
     const members = Object.values(_socialMembers);
     const sorted = members.slice().sort((a, b) => {
       if (a.uid === _userId) return -1; if (b.uid === _userId) return 1;
-      const r = { focusing: 0, break: 1, offline: 2 };
-      return (r[_sStatusOf(a)] || 2) - (r[_sStatusOf(b)] || 2);
+      const r = { focusing: 0, break: 1, idle: 2, offline: 3 };
+      return (r[_sStatusOf(a)] ?? 3) - (r[_sStatusOf(b)] ?? 3);
     });
     const activeFocusing   = members.filter(m => _sStatusOf(m) === 'focusing').length;
     const onlineCount      = members.filter(m => _sStatusOf(m) !== 'offline').length;
@@ -2484,7 +2593,8 @@
       const streak     = m.studyStreak || 0;
       const xpStr      = (m.xpTotal || 0) >= 1000 ? ((m.xpTotal/1000).toFixed(1)+'k') : (m.xpTotal||0);
       const avContent  = m.avatarUrl ? `<img src="${escapeHTML(m.avatarUrl)}" class="sroom-mc-img" alt=""/>` : ini;
-      const stLabel    = isFocusing ? 'Focusing' : isOnline ? 'Online' : 'Offline';
+      const isIdle     = st === 'idle';
+      const stLabel    = isFocusing ? 'Focusing' : isIdle ? 'Idle' : isOnline ? 'Online' : 'Offline';
       const mEq        = (m.equippedItems || {});
       const borderCls  = _cmkBorderClass(mEq);
       const auraCls    = _cmkAuraClass(mEq);
@@ -2494,11 +2604,20 @@
         activityHTML = `<div class="sroom-mc-chip sroom-chip-focus">📚 ${escapeHTML(m.focusSubjectName)}</div>`;
       } else if (isFocusing) {
         activityHTML = `<div class="sroom-mc-chip sroom-chip-focus">📚 Studying</div>`;
+      } else if (isIdle) {
+        activityHTML = `<div class="sroom-mc-chip sroom-chip-break">💤 Idle</div>`;
       } else if (isOnline) {
         activityHTML = `<div class="sroom-mc-chip sroom-chip-break">☕ On Break</div>`;
       } else {
         activityHTML = `<div class="sroom-mc-lastseen">${_sLastSeenText(m)}</div>`;
       }
+      // Duel button: disabled if target or self is already in an active duel
+      const _activeDuelsNow = ((_socialRoomData && _socialRoomData.duels) || []).filter(d =>
+        !d.winner && d.duelState !== 'COMPLETED' && d.endsAt > now);
+      const _targetInDuel = _activeDuelsNow.some(d => d.challenger === m.uid || d.opponent === m.uid);
+      const _selfInDuel   = _activeDuelsNow.some(d => d.challenger === _userId || d.opponent === _userId);
+      const duelDisabled  = _targetInDuel || _selfInDuel;
+      const duelTitle     = _targetInDuel ? 'Already dueling' : _selfInDuel ? 'You are already dueling' : 'Duel';
       return `<div class="sroom-mc sroom-mc-${st}${isMe?' sroom-mc-me':''}${auraCls?' '+auraCls:''}" data-act="view-profile" data-uid="${m.uid}">
         <div class="sroom-mc-av-wrap">
           <div class="sroom-mc-av${borderCls?' '+borderCls:''}" style="background:${_sAvatarColor(m.uid)}">${avContent}</div>
@@ -2518,7 +2637,7 @@
         ${streak >= 2 ? `<div class="sroom-mc-streak">🔥 ${streak}d</div>` : ''}
         ${!isMe ? `<div class="sroom-mc-acts">
           <button class="sroom-act-btn" data-act="social-nudge" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName||'')}" title="Poke">👋</button>
-          ${isOnline ? `<button class="sroom-act-btn sroom-duel-btn" data-act="social-duel" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName||'')}" title="Duel">⚔️</button>` : ''}
+          ${isOnline ? `<button class="sroom-act-btn sroom-duel-btn${duelDisabled?' sroom-duel-disabled':''}" data-act="${duelDisabled?'':'social-duel'}" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName||'')}" title="${duelTitle}" ${duelDisabled?'disabled aria-disabled="true"':''}>⚔️</button>` : ''}
         </div>` : ''}
       </div>`;
     }).join('') : `<div class="sroom-empty"><div class="sroom-empty-icon">👥</div><div>No one here yet<br>Share the room code!</div></div>`;
@@ -9693,9 +9812,10 @@
     });
   }
 
-  // Page visibility — sync focus timer when tab becomes visible
+  // Page visibility — sync focus timer and social presence on tab hide/show
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
+      _socialIsBg = false;
       // Sync timer to wall-clock elapsed time (fixes background throttling)
       if (focusRunning && focusStartTime !== null) {
         const elapsed = Math.floor((Date.now() - focusStartTime) / 1000);
@@ -9711,11 +9831,39 @@
       if (_activeAlarmId && !_alarmWakeLock && 'wakeLock' in navigator) {
         navigator.wakeLock.request('screen').then(wl => { _alarmWakeLock = wl; }).catch(() => {});
       }
-      // Immediately refresh social presence so we don't appear offline after backgrounding
+      // Foreground: force immediate resync to catch any missed events + restore fast heartbeat
       if (_db && _userId && _socialRoomCode) {
-        _sUpdatePresence((focusRunning && focusMode === 'work') ? 'focusing' : 'break');
+        _socialLastInputAt = Date.now(); // reset idle clock on return
+        _sUpdatePresence((focusRunning && focusMode === 'work') ? 'focusing' : 'break', { lastInput: Date.now() });
+        _sSetHeartbeatRate(SOCIAL_HEARTBEAT_FAST_MS);
+        // Re-subscribe listeners in case they were killed by the browser while backgrounded
+        if (!_socialUnsubPresence || !_socialUnsubRoom) _sSubscribe();
+      }
+    } else {
+      _socialIsBg = true;
+      // Background: write a final "last seen" timestamp and throttle heartbeat to 30 s
+      if (_db && _userId && _socialRoomCode) {
+        _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId)
+          .set({ lastSeen: firebase.firestore.FieldValue.serverTimestamp(), status: 'break' }, { merge: true })
+          .catch(() => {});
+        _sSetHeartbeatRate(SOCIAL_HEARTBEAT_SLOW_MS);
       }
     }
+  });
+
+  // Network online/offline — force immediate resync on reconnect
+  window.addEventListener('online', () => {
+    if (_db && _userId && _socialRoomCode) {
+      console.log('[Social] Network back online — resyncing');
+      // Cancel any pending reconnect timer; resubscribe fresh
+      if (_socialReconnectTimer) { clearTimeout(_socialReconnectTimer); _socialReconnectTimer = null; }
+      _socialReconnectAttempts = 0;
+      _sSubscribe();
+      _sUpdatePresence((focusRunning && focusMode === 'work') ? 'focusing' : 'break');
+    }
+  });
+  window.addEventListener('offline', () => {
+    console.warn('[Social] Network lost — presence will stale-out in 30 s');
   });
 
   // ========== Init ==========

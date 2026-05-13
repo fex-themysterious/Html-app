@@ -5223,6 +5223,7 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 }
 .sroom-dot-focusing { background: #f97316; box-shadow: 0 0 6px rgba(249,115,22,0.9); }
 .sroom-dot-break    { background: #4ade80; box-shadow: 0 0 5px rgba(74,222,128,0.6); }
+.sroom-dot-idle     { background: #facc15; box-shadow: 0 0 5px rgba(250,204,21,0.5); }
 .sroom-dot-offline  { background: #475569; }
 .sroom-mc-pulse {
   position: absolute; inset: -4px; border-radius: 50%;
@@ -5247,6 +5248,7 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .sroom-mc-sl     { color: var(--text-muted); font-weight: 500; }
 .sroom-sl-focusing { color: #f97316; font-weight: 700; }
 .sroom-sl-break    { color: #4ade80; }
+.sroom-sl-idle     { color: #facc15; }
 .sroom-sl-offline  { color: #475569; }
 
 /* Activity chip */
@@ -5296,6 +5298,12 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .sroom-duel-btn:hover {
   background: rgba(251,191,36,0.2);
   box-shadow: 0 0 12px rgba(251,191,36,0.25);
+}
+.sroom-duel-disabled {
+  opacity: 0.35; cursor: not-allowed;
+  background: rgba(100,116,139,0.1) !important;
+  border-color: rgba(100,116,139,0.15) !important;
+  box-shadow: none !important;
 }
 .sroom-empty {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
