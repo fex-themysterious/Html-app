@@ -1016,32 +1016,39 @@
     toast('🎉 Collective Momentum maxed! Your group is on fire!', 'success', 5000);
   }
 
-  function _triggerVaultCelebration() {
-    // Cinematic full-screen vault celebration overlay
+  function _triggerVaultCelebration(tierNum, rewardLabel, rewardIcon) {
+    const tier = tierNum || 1;
+    const icon = rewardIcon || '🏦';
+    const label = rewardLabel || 'Group Achievement';
+    const rarityMap = { 1: 'common', 2: 'rare', 3: 'epic', 4: 'legendary', 5: 'legendary' };
+    const rarity = rarityMap[Math.min(tier, 5)] || 'legendary';
+    document.querySelectorAll('.vault-celeb-overlay').forEach(el => el.remove());
     const overlay = document.createElement('div');
     overlay.className = 'vault-celeb-overlay';
     overlay.innerHTML = `
       <div class="vault-celeb-inner">
-        <div class="vault-celeb-icon">🏦</div>
-        <div class="vault-celeb-sparks">✨ ⚡ ✨</div>
+        <div class="vault-celeb-tier-badge vault-rarity-${rarity}">TIER ${tier} COMPLETE</div>
+        <div class="vault-celeb-icon">${icon}</div>
+        <div class="vault-celeb-sparks">✨ ⚡ 🔥 ⚡ ✨</div>
         <h1 class="vault-celeb-title">VAULT UNLOCKED!</h1>
-        <p class="vault-celeb-sub">Your group pooled enough XP to unlock the reward. Amazing teamwork! 🏆</p>
-        <div class="vault-celeb-xp">Group Achievement Unlocked</div>
-        <button class="btn vault-celeb-close" onclick="this.closest('.vault-celeb-overlay').remove()">Awesome! 🎉</button>
+        <p class="vault-celeb-sub">Tier ${tier} conquered! Claim your <strong>${escapeHTML(label)}</strong> reward below. 🏆</p>
+        <div class="vault-celeb-reward-row vault-celeb-rarity-${rarity}">
+          <span style="font-size:22px">${icon}</span><span>${escapeHTML(label)}</span>
+        </div>
+        <button class="btn vault-celeb-close" onclick="this.closest('.vault-celeb-overlay').remove()">🎉 Awesome!</button>
       </div>`;
     document.body.appendChild(overlay);
     requestAnimationFrame(() => overlay.classList.add('vault-celeb-show'));
-    // Burst of confetti
-    const colors = ['#fbbf24','#f59e0b','#5badff','#a78bfa','#f472b6','#34d399','#fb7185'];
-    for (let i = 0; i < 120; i++) {
+    const colors = ['#fbbf24','#f59e0b','#5badff','#a78bfa','#f472b6','#34d399','#fb7185','#fff'];
+    for (let i = 0; i < 160; i++) {
       const p = document.createElement('div');
       p.className = 'confetti-piece';
-      const size = 5 + Math.random() * 10;
-      p.style.cssText = `left:${Math.random()*100}vw;background:${colors[i%colors.length]};animation-duration:${0.8+Math.random()*1.6}s;animation-delay:${Math.random()*0.8}s;width:${size}px;height:${size}px;border-radius:${Math.random()>0.4?'50%':'3px'};z-index:200001`;
+      const size = 5 + Math.random() * 11;
+      p.style.cssText = `left:${Math.random()*100}vw;background:${colors[i%colors.length]};animation-duration:${0.8+Math.random()*1.8}s;animation-delay:${Math.random()*1.2}s;width:${size}px;height:${size}px;border-radius:${Math.random()>0.4?'50%':'3px'};z-index:200001`;
       document.body.appendChild(p);
-      setTimeout(() => p.remove(), 3200);
+      setTimeout(() => p.remove(), 3600);
     }
-    setTimeout(() => { overlay.classList.remove('vault-celeb-show'); setTimeout(() => overlay.remove(), 500); }, 7000);
+    setTimeout(() => { overlay.classList.remove('vault-celeb-show'); setTimeout(() => overlay.remove(), 500); }, 9000);
   }
 
   async function _sDonateToVault(xpAmount) {
@@ -1050,35 +1057,310 @@
     if (xpAmount <= 0 || xpAmount > myXP) { toast('Invalid XP amount', 'warn'); return; }
     const vault = _socialRoomData.groupVault;
     if (!vault || !vault.goal) { toast('No vault active', 'warn'); return; }
+    if (vault.pendingReward && vault.pendingReward.expiresAt > Date.now()) {
+      toast('Vault just completed! Claim your reward first.', 'info'); return;
+    }
     const vaultTotal = Object.values(vault.contributions || {}).reduce((a, b) => a + b, 0);
-    if (vaultTotal >= vault.goal) { toast('Vault already unlocked!', 'info'); return; }
+    if (vaultTotal >= vault.goal) { toast('Vault complete! Claim your reward.', 'info'); return; }
     state.xp.total = Math.max(0, myXP - xpAmount);
     gamificationManager._updateXPBar(); saveState();
     const newContribs = { ...(vault.contributions || {}), [_userId]: ((vault.contributions || {})[_userId] || 0) + xpAmount };
+    const newTotal = Object.values(newContribs).reduce((a, b) => a + b, 0);
+    const feedEntry = { uid: _userId, name: _sDisplayName(), amount: xpAmount, ts: Date.now() };
+    const existingFeed = Array.isArray(vault.feed) ? vault.feed : [];
+    const newFeed = [feedEntry, ...existingFeed].slice(0, 15);
     try {
-      await _db.collection('groups').doc(_socialRoomCode).update({ 'groupVault.contributions': newContribs });
-      toast(`⚡ Donated ${xpAmount} XP to the vault!`, 'success');
-      const newTotal = Object.values(newContribs).reduce((a, b) => a + b, 0);
       if (newTotal >= vault.goal) {
-        setTimeout(_sFireConfetti, 400);
-        toast('🏦 Vault Unlocked! A group theme has been unlocked for everyone!', 'success', 6000);
-        // Determine next unlockable theme and write to room doc for all members
-        const unlocked = _getUnlockedThemes();
-        const nextTheme = _THEMES.find(t => t.unlockable && !unlocked.includes(t.id));
-        if (nextTheme) {
-          _db.collection('groups').doc(_socialRoomCode)
-            .update({ vaultThemeUnlocked: nextTheme.id, vaultUnlockedAt: Date.now() }).catch(() => {});
-        }
+        await _sAdvanceVaultTier(vault, newContribs, newFeed, newTotal);
+      } else {
+        await _db.collection('groups').doc(_socialRoomCode).update({
+          'groupVault.contributions': newContribs,
+          'groupVault.feed': newFeed,
+        });
+        toast(`⚡ Donated ${xpAmount.toLocaleString()} XP to the vault!`, 'success');
       }
-    } catch (e) { toast('Donation failed', 'danger'); }
+    } catch (e) {
+      state.xp.total = myXP;
+      gamificationManager._updateXPBar(); saveState();
+      toast('Donation failed — XP refunded', 'danger');
+    }
   }
 
-  async function _sCreateVault(goal) {
-    if (!_db || !_socialRoomCode || !goal || goal < 100) { toast('Enter a valid XP goal (min 100)', 'warn'); return; }
+  async function _sCreateVault() {
+    if (!_db || !_socialRoomCode) { toast('Not in a room', 'warn'); return; }
     try {
-      await _db.collection('groups').doc(_socialRoomCode).update({ groupVault: { goal, contributions: {}, createdAt: Date.now() } });
-      toast('🏦 Group Vault created!', 'success');
+      await _db.collection('groups').doc(_socialRoomCode).update({
+        groupVault: { tier: 1, goal: 100, contributions: {}, createdAt: Date.now(),
+          feed: [], history: [], pendingReward: null, booster: null }
+      });
+      toast('🏦 Group Vault launched! Pool XP together to unlock epic rewards.', 'success', 5000);
     } catch (e) { toast('Failed to create vault', 'danger'); }
+  }
+
+  function _vaultTierGoal(tier) {
+    const goals = [0, 100, 500, 1000, 2500, 5000];
+    if (tier <= 5) return goals[tier] || 100;
+    return Math.round(5000 * Math.pow(2.5, tier - 5));
+  }
+
+  function _vaultTierReward(tier) {
+    const rewards = [
+      null,
+      { type: 'dividend', icon: '⚡', label: 'XP Dividend',    desc: '5% of vault XP returned to contributors',                   pct: 0.05, boosterMult: 1.0,  boosterHours: 0,  rarity: 'common'    },
+      { type: 'booster',  icon: '🚀', label: 'Group Booster',   desc: '1.25× XP Booster for 24h + 10% dividend',                   pct: 0.10, boosterMult: 1.25, boosterHours: 24, rarity: 'rare'      },
+      { type: 'theme',    icon: '🎨', label: 'Room Theme',       desc: 'Exclusive group theme unlocked + 1.5× booster + 15% div',   pct: 0.15, boosterMult: 1.5,  boosterHours: 24, rarity: 'epic'      },
+      { type: 'aura',     icon: '✨', label: 'Study Aura',       desc: '1.75× XP Booster for 48h + 18% dividend',                   pct: 0.18, boosterMult: 1.75, boosterHours: 48, rarity: 'epic'      },
+      { type: 'prestige', icon: '👑', label: 'Prestige Reward',  desc: '2× XP Booster for 72h + 20% dividend + Avatar Border',      pct: 0.20, boosterMult: 2.0,  boosterHours: 72, rarity: 'legendary' },
+    ];
+    if (tier <= 5) return rewards[tier] || rewards[5];
+    return { ...rewards[5], label: `Prestige ${tier - 4}`, pct: Math.min(0.25, 0.20 + (tier - 5) * 0.01),
+      boosterMult: Math.min(3.0, 2.0 + (tier - 5) * 0.2), rarity: 'legendary' };
+  }
+
+  function _vaultRarityClass(tier) {
+    if (tier <= 1) return 'vault-rarity-common';
+    if (tier <= 2) return 'vault-rarity-rare';
+    if (tier <= 3) return 'vault-rarity-epic';
+    return 'vault-rarity-legendary';
+  }
+
+  async function _sAdvanceVaultTier(vault, finalContribs, finalFeed, finalTotal) {
+    const currentTier = vault.tier || 1;
+    const completedAt = Date.now();
+    const completionSpeedMs = completedAt - (vault.createdAt || completedAt);
+    const reward = _vaultTierReward(currentTier);
+    const topContributors = Object.entries(finalContribs).sort(([, a], [, b]) => b - a).slice(0, 3)
+      .map(([uid, amount]) => {
+        const m = _socialMembers[uid];
+        return { uid, name: m ? (m.displayName || 'User') : (uid === _userId ? _sDisplayName() : 'User'), amount };
+      });
+    const historyEntry = {
+      tier: currentTier, goal: vault.goal, total: finalTotal, completedAt,
+      completionSpeedMs, topContributors, reward: { icon: reward.icon, label: reward.label }
+    };
+    const existingHistory = Array.isArray(vault.history) ? vault.history : [];
+    const newHistory = [...existingHistory, historyEntry].slice(-10);
+    const dividendPool = Math.floor(finalTotal * reward.pct);
+    const pendingReward = {
+      type: reward.type, icon: reward.icon, label: reward.label, desc: reward.desc,
+      dividendPool, boosterMult: reward.boosterMult, boosterHours: reward.boosterHours,
+      expiresAt: completedAt + 24 * 3600000, claimedBy: {}, contributions: finalContribs
+    };
+    const nextTier = currentTier + 1;
+    const nextGoal = _vaultTierGoal(nextTier);
+    let booster = null;
+    if (reward.boosterMult > 1) {
+      booster = { multiplier: reward.boosterMult, label: reward.label, expiresAt: completedAt + reward.boosterHours * 3600000 };
+    }
+    if (currentTier >= 3) {
+      const unlocked = _getUnlockedThemes();
+      const nextTheme = _THEMES.find(t => t.unlockable && !unlocked.includes(t.id));
+      if (nextTheme) {
+        _db.collection('groups').doc(_socialRoomCode)
+          .update({ vaultThemeUnlocked: nextTheme.id, vaultUnlockedAt: completedAt }).catch(() => {});
+      }
+    }
+    await _db.collection('groups').doc(_socialRoomCode).update({
+      groupVault: {
+        tier: nextTier, goal: nextGoal, contributions: {}, createdAt: completedAt,
+        feed: finalFeed, history: newHistory, pendingReward, booster
+      }
+    });
+    toast(`🏦 Vault Tier ${currentTier} Complete! Claim your ${reward.icon} ${reward.label}!`, 'success', 6000);
+    setTimeout(() => _triggerVaultCelebration(currentTier, reward.label, reward.icon), 800);
+  }
+
+  async function _sClaimVaultReward() {
+    if (!_db || !_userId || !_socialRoomCode || !_socialRoomData) return;
+    const vault = _socialRoomData.groupVault;
+    if (!vault || !vault.pendingReward) { toast('No reward to claim', 'warn'); return; }
+    const reward = vault.pendingReward;
+    if (reward.claimedBy && reward.claimedBy[_userId]) { toast('Already claimed!', 'info'); return; }
+    if (reward.expiresAt && Date.now() > reward.expiresAt) { toast('Reward expired', 'warn'); return; }
+    const myContrib = (reward.contributions || {})[_userId] || 0;
+    if (myContrib === 0) { toast('You didn\'t contribute to this vault tier', 'warn'); return; }
+    const totalContrib = Object.values(reward.contributions || {}).reduce((a, b) => a + b, 0);
+    const myShare = totalContrib > 0 ? Math.round(reward.dividendPool * (myContrib / totalContrib)) : 0;
+    if (myShare > 0) {
+      state.xp.total = (state.xp.total || 0) + myShare;
+      gamificationManager._updateXPBar(); saveState();
+      toast(`💰 Claimed ${myShare.toLocaleString()} XP dividend! 🎉`, 'success', 5000);
+    } else {
+      toast('✅ Reward claimed!', 'success');
+    }
+    try {
+      await _db.collection('groups').doc(_socialRoomCode).update({
+        [`groupVault.pendingReward.claimedBy.${_userId}`]: true
+      });
+    } catch (e) { console.warn('[Vault] Claim update failed', e); }
+  }
+
+  function _renderVaultSection() {
+    const vault = (_socialRoomData && _socialRoomData.groupVault) || null;
+    const myXPTotal = (state.xp && state.xp.total) || 0;
+    const isCreator = _userId === (_socialRoomData && _socialRoomData.createdBy);
+    if (!vault || !vault.goal) {
+      if (!isCreator) return '';
+      return `<h2 class="social-section-head">Group XP Vault</h2>
+      <div class="social-vault-wrap">
+        <div class="group-vault vault-empty-state">
+          <div class="vault-empty-icon">🏦</div>
+          <div class="vault-empty-title">Start the Group Vault</div>
+          <p class="vault-empty-desc">Pool XP together across tiers to unlock exclusive rewards for every member of your room.</p>
+          <button class="btn vault-start-btn" data-act="social-vault-create">⚡ Launch Group Vault</button>
+        </div>
+      </div>`;
+    }
+    const tier = vault.tier || 1;
+    const goal = vault.goal;
+    const contributions = vault.contributions || {};
+    const vaultTotal = Object.values(contributions).reduce((a, b) => a + b, 0);
+    const vaultPct = Math.min(100, Math.round(vaultTotal / goal * 100));
+    const myContrib = contributions[_userId] || 0;
+    const isComplete = vaultTotal >= goal;
+    const reward = _vaultTierReward(tier);
+    const rarityClass = _vaultRarityClass(tier);
+    const pendingReward = vault.pendingReward || null;
+    const hasPending = !!(pendingReward && pendingReward.expiresAt > Date.now());
+    const alreadyClaimed = !!(hasPending && pendingReward.claimedBy && pendingReward.claimedBy[_userId]);
+    const booster = vault.booster;
+    const boosterActive = !!(booster && booster.expiresAt > Date.now());
+
+    const boosterHTML = boosterActive ? (() => {
+      const rem = Math.max(0, booster.expiresAt - Date.now());
+      const h = Math.floor(rem / 3600000), m = Math.floor((rem % 3600000) / 60000);
+      return `<div class="vault-booster-pill ${rarityClass}">
+        <span>🚀</span><span class="vbp-label">${booster.multiplier}× XP Booster Active</span>
+        <span class="vbp-timer" data-booster-expires="${booster.expiresAt}">${h}h ${m}m left</span>
+      </div>`;
+    })() : '';
+
+    const barWidth = isComplete ? 100 : vaultPct;
+    const contribCount = Object.keys(contributions).filter(u => contributions[u] > 0).length;
+    const topContribs = Object.entries(contributions).filter(([, v]) => v > 0).sort(([, a], [, b]) => b - a).slice(0, 3);
+    const topContribsHTML = topContribs.length ? `<div class="vault-top-contribs">
+      <div class="vtc-label">🏆 Top Contributors</div>
+      ${topContribs.map(([uid, amount], i) => {
+        const mb = _socialMembers[uid];
+        const name = mb ? (mb.displayName || 'User') : (uid === _userId ? _sDisplayName() : 'User');
+        const medals = ['🥇', '🥈', '🥉'];
+        const isMe = uid === _userId;
+        const myPct = vaultTotal > 0 ? Math.round(amount / vaultTotal * 100) : 0;
+        return `<div class="vtc-item${isMe ? ' vtc-me' : ''}">
+          <span class="vtc-av" style="background:${_sAvatarColor(uid)}">${_sInitials(name)}</span>
+          <span class="vtc-name">${escapeHTML(name)}${isMe ? ' <span class="vtc-you">you</span>' : ''}</span>
+          <div class="vtc-bar-wrap"><div class="vtc-bar" style="width:${myPct}%;background:${isMe ? '#fbbf24' : '#5badff'}"></div></div>
+          <span class="vtc-xp">${medals[i]} ${amount.toLocaleString()}</span>
+        </div>`;
+      }).join('')}
+    </div>` : '';
+
+    let actionHTML = '';
+    if (hasPending && !alreadyClaimed) {
+      const rem = Math.max(0, pendingReward.expiresAt - Date.now());
+      const h = Math.floor(rem / 3600000), m = Math.floor((rem % 3600000) / 60000);
+      const prevTier = Math.max(1, tier - 1);
+      const prevRarityClass = _vaultRarityClass(prevTier);
+      const myContribForReward = (pendingReward.contributions || {})[_userId] || 0;
+      const totalForReward = Object.values(pendingReward.contributions || {}).reduce((a, b) => a + b, 0);
+      const myDiv = (totalForReward > 0 && myContribForReward > 0) ? Math.round(pendingReward.dividendPool * (myContribForReward / totalForReward)) : 0;
+      actionHTML = `<div class="vault-reward-card ${prevRarityClass}-bg">
+        <div class="vrc-header">
+          <span class="vrc-icon">${pendingReward.icon}</span>
+          <div class="vrc-info">
+            <div class="vrc-title ${prevRarityClass}">${escapeHTML(pendingReward.label)} Unlocked!</div>
+            <div class="vrc-desc">${escapeHTML(pendingReward.desc)}</div>
+          </div>
+        </div>
+        ${myDiv > 0 ? `<div class="vrc-dividend">💰 Your XP Dividend: <strong class="vrc-div-amt">+${myDiv.toLocaleString()} XP</strong></div>` : myContribForReward === 0 ? `<div class="vrc-dividend" style="color:var(--text-muted);font-size:11px">Contribute next tier to earn dividends</div>` : ''}
+        <div class="vrc-footer">
+          <span class="vrc-timer" data-reward-expires="${pendingReward.expiresAt}">⏳ ${h}h ${m}m to claim</span>
+          ${myContribForReward > 0 ? `<button class="btn vault-claim-btn" data-act="vault-claim-reward">Claim 🎁</button>` : `<span style="font-size:11px;color:var(--text-muted)">No contribution</span>`}
+        </div>
+      </div>`;
+    } else if (hasPending && alreadyClaimed) {
+      actionHTML = `<div class="vault-claimed-badge">✅ Reward claimed! Vault Tier ${tier} is now active — keep contributing!</div>`;
+    } else if (!isComplete) {
+      actionHTML = `<div class="vault-donate-row">
+        <input id="vault-xp-input" class="auth-input vault-input" type="number" min="1" max="${myXPTotal}" placeholder="XP to donate (have ${myXPTotal.toLocaleString()})"/>
+        <button class="btn btn-sm" data-act="social-vault-donate"${myXPTotal < 1 ? ' disabled' : ''}>Donate ⚡</button>
+      </div>
+      ${myXPTotal < 1 ? '<div class="vault-no-xp">Earn XP by studying to donate to the vault!</div>' : ''}`;
+    }
+
+    const feed = Array.isArray(vault.feed) ? vault.feed.slice(0, 8) : [];
+    const feedHTML = feed.length ? `<div class="vault-feed-wrap">
+      <div class="vault-feed-title">⚡ Live Donations</div>
+      <div class="vault-feed">
+        ${feed.map((f, i) => {
+          const age = Date.now() - (f.ts || 0);
+          const timeStr = age < 60000 ? 'just now' : age < 3600000 ? `${Math.floor(age / 60000)}m ago` : `${Math.floor(age / 3600000)}h ago`;
+          return `<div class="vault-feed-item" style="animation-delay:${i * 0.05}s">
+            <span class="vfi-av" style="background:${_sAvatarColor(f.uid)}">${_sInitials(f.name || 'S')}</span>
+            <span class="vfi-body"><strong>${escapeHTML(f.name || 'Someone')}</strong> donated <span class="vfi-xp">+${(f.amount || 0).toLocaleString()} XP</span> ⚡</span>
+            <span class="vfi-time">${timeStr}</span>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>` : '';
+
+    const history = Array.isArray(vault.history) ? vault.history.slice().reverse().slice(0, 5) : [];
+    const histHTML = history.length ? `<div class="vault-history-wrap">
+      <button class="vault-history-toggle" data-act="vault-history-toggle">
+        <span>📜 Vault History (${history.length} tier${history.length !== 1 ? 's' : ''})</span>
+        <span class="vht-chevron" id="vht-arrow">▼</span>
+      </button>
+      <div class="vault-history-list" id="vault-history-list">
+        ${history.map(h => {
+          const date = new Date(h.completedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+          const speedMs = h.completionSpeedMs || 0;
+          const speed = speedMs < 3600000 ? 'under 1h' : speedMs < 86400000 ? `${Math.floor(speedMs / 3600000)}h` : `${Math.floor(speedMs / 86400000)}d`;
+          const hRarity = _vaultRarityClass(h.tier || 1);
+          return `<div class="vault-history-item">
+            <span class="vhi-tier ${hRarity}">T${h.tier || 1}</span>
+            <div class="vhi-body">
+              <span class="vhi-reward">${h.reward ? h.reward.icon + ' ' + h.reward.label : 'Completed'}</span>
+              <span class="vhi-meta">${(h.goal || 0).toLocaleString()} XP · ${date} · ${speed}</span>
+            </div>
+            ${h.topContributors && h.topContributors[0] ? `<span class="vhi-top">👑 ${escapeHTML(h.topContributors[0].name)}</span>` : ''}
+          </div>`;
+        }).join('')}
+      </div>
+    </div>` : '';
+
+    const nextGoal = _vaultTierGoal(tier + 1);
+    const nextReward = _vaultTierReward(tier + 1);
+    const hintHTML = `<div class="vault-next-hint">
+      <span class="vnh-tier ${_vaultRarityClass(tier + 1)}">TIER ${tier + 1}</span>
+      <span>Next: <strong>${nextGoal.toLocaleString()} XP</strong> → ${nextReward.icon} ${nextReward.label}</span>
+    </div>`;
+
+    return `<h2 class="social-section-head">Group XP Vault</h2>
+    <div class="social-vault-wrap">
+      ${boosterHTML}
+      <div class="group-vault${isComplete ? ' vault-unlocked' : ''}">
+        <div class="vault-header">
+          <div class="vault-title">
+            <span class="vault-tier-badge ${rarityClass}">TIER ${tier}</span>
+            🏦 Group Vault
+          </div>
+          <div class="vault-goal">${vaultTotal.toLocaleString()} / ${goal.toLocaleString()} XP</div>
+        </div>
+        <div class="vault-bar-track">
+          <div class="vault-bar-fill${isComplete ? ' vault-bar-complete' : ''}" style="width:${barWidth}%"></div>
+        </div>
+        <div class="vault-stats">
+          <span>My donation: ⚡ <strong>${myContrib.toLocaleString()}</strong> XP</span>
+          <span>👥 ${contribCount} contributor${contribCount !== 1 ? 's' : ''}</span>
+          <span class="vault-pct">${vaultPct}%</span>
+        </div>
+        ${topContribsHTML}
+        ${actionHTML}
+      </div>
+      ${feedHTML}
+      ${hintHTML}
+      ${histHTML}
+    </div>`;
   }
 
   // ========== Theme System ==========
@@ -1168,6 +1450,22 @@
         const s = Math.floor((now - start) / 1000);
         const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
         el.textContent = h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${String(sec).padStart(2,'0')}s` : `${sec}s`;
+      });
+      document.querySelectorAll('.vbp-timer[data-booster-expires]').forEach(el => {
+        const exp = parseInt(el.dataset.boosterExpires, 10);
+        if (!exp || isNaN(exp)) return;
+        const rem = Math.max(0, exp - now);
+        if (rem === 0) { el.textContent = 'Expired'; return; }
+        const h = Math.floor(rem / 3600000), m = Math.floor((rem % 3600000) / 60000);
+        el.textContent = `${h}h ${m}m left`;
+      });
+      document.querySelectorAll('.vrc-timer[data-reward-expires]').forEach(el => {
+        const exp = parseInt(el.dataset.rewardExpires, 10);
+        if (!exp || isNaN(exp)) return;
+        const rem = Math.max(0, exp - now);
+        if (rem === 0) { el.textContent = 'Expired'; return; }
+        const h = Math.floor(rem / 3600000), m = Math.floor((rem % 3600000) / 60000);
+        el.textContent = `⏳ ${h}h ${m}m to claim`;
       });
     }, 1000);
   }
@@ -1388,28 +1686,7 @@
     }).join('');
 
     // ── Group XP Vault ──
-    const vault = (_socialRoomData && _socialRoomData.groupVault) || null;
-    const myXPTotal = (state.xp && state.xp.total) || 0;
-    let vaultSection = '';
-    if (vault && vault.goal) {
-      const vaultTotal = Object.values(vault.contributions || {}).reduce((a, b) => a + b, 0);
-      const vaultPct = Math.min(100, Math.round(vaultTotal / vault.goal * 100));
-      const myContrib = (vault.contributions || {})[_userId] || 0;
-      const isUnlocked = vaultPct >= 100;
-      if (isUnlocked && !_vaultCelebFired) {
-        _vaultCelebFired = true;
-        setTimeout(() => _triggerVaultCelebration(), 600);
-      }
-      const vaultUnlockedHTML = isUnlocked
-        ? `<div class="vault-unlock-msg vault-unlock-animated">🎉 Vault Unlocked! <button class="btn btn-sm" data-act="vault-celebrate" style="margin-left:8px;font-size:11px">Celebrate 🎊</button></div>`
-        : `<div class="vault-donate-row"><input id="vault-xp-input" class="auth-input vault-input" type="number" min="1" max="${myXPTotal}" placeholder="XP to donate"/><button class="btn btn-sm" data-act="social-vault-donate">Donate ⚡</button></div>`;
-      vaultSection = `<h2 class="social-section-head">Group XP Vault</h2><div class="social-vault-wrap"><div class="group-vault${isUnlocked ? ' vault-unlocked' : ''}"><div class="vault-header"><div class="vault-title">🏦 Group XP Vault</div><div class="vault-goal">${vaultTotal.toLocaleString()} / ${vault.goal.toLocaleString()} XP</div></div><div class="vault-bar-track"><div class="vault-bar-fill${isUnlocked ? ' vault-bar-complete' : ''}" style="width:${vaultPct}%"></div></div><div class="vault-stats"><span>My donation: ⚡ ${myContrib.toLocaleString()} XP</span><span class="vault-pct">${vaultPct}%</span></div>${vaultUnlockedHTML}</div></div>`;
-    } else {
-      const isCreator = _userId === (_socialRoomData && _socialRoomData.createdBy);
-      if (isCreator) {
-        vaultSection = `<h2 class="social-section-head">Group XP Vault</h2><div class="social-vault-wrap"><div class="group-vault"><div class="vault-header"><div class="vault-title">🏦 Group XP Vault</div></div><p style="font-size:13px;color:var(--text-muted);margin:0 0 12px">Pool XP to unlock a special group theme for everyone. Set a goal to begin.</p><div class="vault-donate-row"><input id="vault-goal-input" class="auth-input vault-input" type="number" min="100" placeholder="XP Goal (e.g. 1000)"/><button class="btn btn-sm" data-act="social-vault-create">Create 🏦</button></div></div></div>`;
-      }
-    }
+    const vaultSection = _renderVaultSection();
 
     // ── Group Goals ──
     const goals = (_socialRoomData && _socialRoomData.groupGoals) || [];
@@ -6310,13 +6587,18 @@
       _sDonateToVault(amt).catch(() => {});
       return;
     }
-    if (act === 'social-vault-create') {
-      const inp = document.getElementById('vault-goal-input');
-      const goal = inp ? parseInt(inp.value, 10) : 0;
-      _sCreateVault(goal).catch(() => {});
+    if (act === 'social-vault-create') { _sCreateVault().catch(() => {}); return; }
+    if (act === 'vault-celebrate') { _triggerVaultCelebration(); return; }
+    if (act === 'vault-claim-reward') { _sClaimVaultReward().catch(() => {}); return; }
+    if (act === 'vault-history-toggle') {
+      const list = document.getElementById('vault-history-list');
+      const arrow = document.getElementById('vht-arrow');
+      if (list) {
+        const isOpen = list.classList.toggle('vault-history-open');
+        if (arrow) arrow.textContent = isOpen ? '▲' : '▼';
+      }
       return;
     }
-    if (act === 'vault-celebrate') { _triggerVaultCelebration(); return; }
     // ── XP Shop ──────────────────────────────────────────────────────────
     if (act === 'shop-cat') {
       _shopCategory = el.dataset.cat || 'profile';

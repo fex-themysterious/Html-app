@@ -4538,6 +4538,148 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .vault-input  { flex: 1; }
 .vault-unlock-msg { text-align: center; font-size: 12px; color: #fbbf24; font-weight: 700; margin-top: 8px; background: rgba(251,191,36,0.09); border: 1px solid rgba(251,191,36,0.2); border-radius: 10px; padding: 8px; }
 
+/* ── Vault Tier Badge ───────────────────────────────────────── */
+.vault-tier-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 900; letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 3px 8px; border-radius: 99px; border: 1px solid currentColor;
+  margin-right: 6px; vertical-align: middle;
+}
+.vault-rarity-common   { color: #94a3b8; border-color: rgba(148,163,184,0.4); text-shadow: 0 0 8px rgba(148,163,184,0.5); }
+.vault-rarity-rare     { color: #38bdf8; border-color: rgba(56,189,248,0.4);  text-shadow: 0 0 8px rgba(56,189,248,0.6); }
+.vault-rarity-epic     { color: #a78bfa; border-color: rgba(167,139,250,0.4); text-shadow: 0 0 8px rgba(167,139,250,0.6); }
+.vault-rarity-legendary{ color: #fbbf24; border-color: rgba(251,191,36,0.4);  text-shadow: 0 0 10px rgba(251,191,36,0.7); animation: vaultTierGlow 2.5s ease-in-out infinite; }
+@keyframes vaultTierGlow {
+  0%,100% { box-shadow: 0 0 6px rgba(251,191,36,0.25); }
+  50%      { box-shadow: 0 0 16px rgba(251,191,36,0.55), 0 0 32px rgba(251,191,36,0.2); }
+}
+
+/* ── Vault Rarity BG helpers ────────────────────────────────── */
+.vault-rarity-common-bg  { background: rgba(148,163,184,0.07); border-color: rgba(148,163,184,0.22) !important; }
+.vault-rarity-rare-bg    { background: rgba(56,189,248,0.07);  border-color: rgba(56,189,248,0.25)  !important; }
+.vault-rarity-epic-bg    { background: rgba(167,139,250,0.08); border-color: rgba(167,139,250,0.28) !important; }
+.vault-rarity-legendary-bg { background: rgba(251,191,36,0.08); border-color: rgba(251,191,36,0.3) !important; }
+
+/* ── Vault Empty State ──────────────────────────────────────── */
+.vault-empty-state { text-align: center; padding: 28px 20px; }
+.vault-empty-icon  { font-size: 52px; display: block; margin-bottom: 10px; opacity: 0.7; }
+.vault-empty-title { font-size: 15px; font-weight: 800; margin-bottom: 6px; }
+.vault-empty-desc  { font-size: 12px; color: var(--text-muted); line-height: 1.55; margin-bottom: 16px; }
+.vault-start-btn   { font-size: 13px !important; padding: 10px 24px !important; border-radius: 99px !important; background: linear-gradient(135deg,#f59e0b,#fbbf24) !important; color: #1a1122 !important; font-weight: 900 !important; }
+
+/* ── Vault Booster Pill ─────────────────────────────────────── */
+.vault-booster-pill {
+  display: flex; align-items: center; gap: 7px;
+  padding: 8px 14px; border-radius: 12px; margin-bottom: 8px;
+  font-size: 12px; font-weight: 700;
+  background: rgba(167,139,250,0.1); border: 1px solid rgba(167,139,250,0.3);
+  animation: vaultBoosterPulse 2s ease-in-out infinite;
+}
+.vault-booster-pill.vault-rarity-legendary {
+  background: rgba(251,191,36,0.1); border-color: rgba(251,191,36,0.35);
+}
+.vbp-label { flex: 1; }
+.vbp-timer { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+@keyframes vaultBoosterPulse {
+  0%,100% { box-shadow: 0 0 0 rgba(167,139,250,0); }
+  50%      { box-shadow: 0 0 12px rgba(167,139,250,0.35); }
+}
+
+/* ── Vault Stats ────────────────────────────────────────────── */
+.vault-stats { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-muted); margin-bottom: 12px; flex-wrap: wrap; gap: 4px; }
+.vault-stats strong { color: #e2e8f0; }
+
+/* ── Top Contributors ───────────────────────────────────────── */
+.vault-top-contribs { margin-bottom: 12px; }
+.vtc-label  { font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 7px; }
+.vtc-item   { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.vtc-item:last-child { border-bottom: none; }
+.vtc-item.vtc-me { background: rgba(251,191,36,0.04); border-radius: 8px; padding: 5px 8px; margin: 0 -8px; }
+.vtc-av    { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 900; color: #fff; flex-shrink: 0; }
+.vtc-name  { flex: 1; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vtc-you   { font-size: 9px; font-weight: 800; color: #fbbf24; background: rgba(251,191,36,0.15); border-radius: 4px; padding: 1px 4px; margin-left: 4px; }
+.vtc-bar-wrap { width: 60px; height: 4px; background: rgba(255,255,255,0.08); border-radius: 99px; overflow: hidden; flex-shrink: 0; }
+.vtc-bar   { height: 100%; border-radius: 99px; transition: width 0.6s var(--ease); }
+.vtc-xp    { font-size: 11px; font-weight: 700; color: #fbbf24; white-space: nowrap; }
+
+/* ── Vault Reward Card ──────────────────────────────────────── */
+.vault-reward-card {
+  border: 1px solid rgba(251,191,36,0.25);
+  border-radius: 14px; padding: 14px; margin-top: 10px;
+  background: rgba(251,191,36,0.06);
+  animation: vaultRewardReveal 0.5s cubic-bezier(0.34,1.56,0.64,1);
+}
+@keyframes vaultRewardReveal {
+  0%   { transform: scale(0.92) translateY(8px); opacity: 0; }
+  100% { transform: scale(1) translateY(0);      opacity: 1; }
+}
+.vrc-header { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
+.vrc-icon   { font-size: 28px; flex-shrink: 0; line-height: 1; }
+.vrc-info   { flex: 1; }
+.vrc-title  { font-size: 13px; font-weight: 800; margin-bottom: 3px; }
+.vrc-desc   { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
+.vrc-dividend { font-size: 12px; color: #c8d8f0; margin-bottom: 10px; padding: 6px 10px; background: rgba(91,173,255,0.08); border-radius: 8px; }
+.vrc-div-amt  { color: #4ade80; font-weight: 900; }
+.vrc-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.vrc-timer  { font-size: 11px; color: var(--text-muted); }
+.vault-claim-btn { font-size: 12px !important; padding: 8px 18px !important; border-radius: 99px !important; background: linear-gradient(135deg,#f59e0b,#fbbf24) !important; color: #1a1122 !important; font-weight: 900 !important; white-space: nowrap; }
+.vault-claimed-badge { text-align: center; font-size: 12px; color: #4ade80; font-weight: 700; padding: 10px; background: rgba(74,222,128,0.08); border: 1px solid rgba(74,222,128,0.2); border-radius: 10px; margin-top: 10px; }
+.vault-no-xp { font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 6px; }
+
+/* ── Live Donation Feed ─────────────────────────────────────── */
+.vault-feed-wrap  { margin-top: 10px; }
+.vault-feed-title { font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.09em; margin-bottom: 7px; padding: 0 16px; }
+.vault-feed       { display: flex; flex-direction: column; gap: 4px; padding: 0 16px; }
+.vault-feed-item  {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; border-radius: 10px;
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+  font-size: 12px; animation: feedSlideIn 0.35s cubic-bezier(0.34,1.2,0.64,1) both;
+}
+@keyframes feedSlideIn {
+  0%   { transform: translateX(-12px); opacity: 0; }
+  100% { transform: translateX(0);     opacity: 1; }
+}
+.vfi-av   { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 7px; font-weight: 900; color: #fff; flex-shrink: 0; }
+.vfi-body { flex: 1; line-height: 1.3; color: #c8d8f0; }
+.vfi-xp   { color: #fbbf24; font-weight: 800; }
+.vfi-time { font-size: 10px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
+
+/* ── Vault Next Tier Hint ───────────────────────────────────── */
+.vault-next-hint {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 11px; color: var(--text-muted);
+  padding: 7px 16px; margin-top: 6px;
+}
+.vnh-tier { font-size: 9px; }
+
+/* ── Vault History ──────────────────────────────────────────── */
+.vault-history-wrap { margin-top: 8px; }
+.vault-history-toggle {
+  width: 100%; display: flex; align-items: center; justify-content: space-between;
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 10px; padding: 9px 16px; font-size: 12px; font-weight: 700;
+  color: var(--text-muted); cursor: pointer; transition: background 0.2s;
+}
+.vault-history-toggle:hover { background: rgba(255,255,255,0.06); }
+.vht-chevron { font-size: 10px; transition: transform 0.25s; }
+.vault-history-list {
+  display: none; flex-direction: column; gap: 6px;
+  padding: 8px 16px 4px;
+}
+.vault-history-list.vault-history-open { display: flex; }
+.vault-history-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 10px;
+  background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.06);
+  font-size: 11px;
+}
+.vhi-tier { font-size: 9px; font-weight: 900; white-space: nowrap; flex-shrink: 0; }
+.vhi-body { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.vhi-reward { font-size: 12px; font-weight: 700; color: #e2e8f0; }
+.vhi-meta   { font-size: 10px; color: var(--text-muted); }
+.vhi-top    { font-size: 10px; color: #fbbf24; white-space: nowrap; flex-shrink: 0; }
+
 /* ── Group Goals ───────────────────────────────────────────── */
 .social-goals { display: flex; flex-direction: column; gap: 10px; padding: 0 16px; }
 .group-goal-card {
@@ -4860,41 +5002,51 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
    ═══════════════════════════════════════════════════════════════ */
 .vault-celeb-overlay {
   position: fixed; inset: 0; z-index: 200000;
-  background: rgba(8,6,20,0.92);
-  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  background: rgba(8,6,20,0.93);
+  backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
   display: flex; align-items: center; justify-content: center;
   padding: 24px; opacity: 0; transition: opacity 0.45s ease;
   pointer-events: none;
 }
 .vault-celeb-overlay.vault-celeb-show { opacity: 1; pointer-events: all; }
 .vault-celeb-inner {
-  text-align: center; max-width: 340px; width: 100%;
+  text-align: center; max-width: 360px; width: 100%;
   background: linear-gradient(135deg,rgba(251,191,36,0.1),rgba(167,139,250,0.08));
-  border: 1px solid rgba(251,191,36,0.35);
+  border: 1px solid rgba(251,191,36,0.38);
   border-radius: 28px; padding: 36px 28px;
-  transform: scale(0.88); transition: transform 0.45s cubic-bezier(0.34,1.56,0.64,1);
-  box-shadow: 0 0 80px rgba(251,191,36,0.2), 0 0 180px rgba(167,139,250,0.12);
+  transform: scale(0.86); transition: transform 0.48s cubic-bezier(0.34,1.56,0.64,1);
+  box-shadow: 0 0 80px rgba(251,191,36,0.22), 0 0 200px rgba(167,139,250,0.14);
 }
 .vault-celeb-overlay.vault-celeb-show .vault-celeb-inner { transform: scale(1); }
+.vault-celeb-tier-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 900; letter-spacing: 0.12em; text-transform: uppercase;
+  padding: 4px 14px; border-radius: 99px; border: 1px solid currentColor;
+  margin-bottom: 16px;
+}
+.vault-celeb-rarity-common    { background: rgba(148,163,184,0.12); border-color: rgba(148,163,184,0.4); }
+.vault-celeb-rarity-rare      { background: rgba(56,189,248,0.12);  border-color: rgba(56,189,248,0.4);  }
+.vault-celeb-rarity-epic      { background: rgba(167,139,250,0.12); border-color: rgba(167,139,250,0.4); }
+.vault-celeb-rarity-legendary { background: rgba(251,191,36,0.14);  border-color: rgba(251,191,36,0.45); }
 @keyframes vaultIconBounce {
   0%,100% { transform: scale(1) rotate(0deg); }
-  25%      { transform: scale(1.25) rotate(-8deg); }
-  75%      { transform: scale(1.1) rotate(6deg); }
+  25%      { transform: scale(1.28) rotate(-9deg); }
+  75%      { transform: scale(1.12) rotate(7deg); }
 }
-.vault-celeb-icon { font-size: 72px; display: block; margin-bottom: 8px; animation: vaultIconBounce 2s ease-in-out infinite; }
-.vault-celeb-sparks { font-size: 24px; margin-bottom: 16px; letter-spacing: 6px; }
-.vault-celeb-title {
-  font-size: 32px; font-weight: 900; letter-spacing: -0.02em;
+.vault-celeb-icon   { font-size: 72px; display: block; margin-bottom: 8px; animation: vaultIconBounce 2s ease-in-out infinite; }
+.vault-celeb-sparks { font-size: 22px; margin-bottom: 14px; letter-spacing: 8px; }
+.vault-celeb-title  {
+  font-size: 30px; font-weight: 900; letter-spacing: -0.02em;
   background: linear-gradient(135deg,#fbbf24,#f472b6,#a78bfa);
   -webkit-background-clip: text; -webkit-text-fill-color: transparent;
   background-clip: text; margin: 0 0 12px;
 }
-.vault-celeb-sub { font-size: 14px; color: #c8d8f0; line-height: 1.55; margin: 0 0 14px; }
-.vault-celeb-xp {
-  display: inline-block; font-size: 12px; font-weight: 800;
-  color: #fbbf24; letter-spacing: 0.08em; text-transform: uppercase;
-  background: rgba(251,191,36,0.12); border: 1px solid rgba(251,191,36,0.25);
-  border-radius: 99px; padding: 6px 16px; margin-bottom: 20px;
+.vault-celeb-sub { font-size: 13px; color: #c8d8f0; line-height: 1.55; margin: 0 0 16px; }
+.vault-celeb-reward-row {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  font-size: 13px; font-weight: 800; color: #fbbf24;
+  padding: 10px 20px; border-radius: 12px; margin-bottom: 20px;
+  background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.28);
 }
 .vault-celeb-close {
   background: linear-gradient(135deg,#f59e0b,#fbbf24) !important;
