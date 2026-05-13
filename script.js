@@ -5269,9 +5269,6 @@
   // ========== Sound Track Catalogue ==========
   const SOUNDS = [
     { id: 'none',          label: '🔇 Off',              src: null,                               cat: null },
-    { id: 'rain',          label: '🌧 Rain',              src: './sounds/rain.mp3',                cat: 'Ambient' },
-    { id: 'soft',          label: '🎵 Soft',              src: './sounds/soft.mp3',                cat: 'Ambient' },
-    { id: 'concentration', label: '🧠 Concentration',    src: './sounds/concentration.mp3',       cat: 'Focus' },
     { id: 'peaky',         label: '🎩 Peaky Blinder',     src: './sounds/peaky-blinder.mp3',       cat: 'Workout' },
     { id: 'believer',      label: '💥 Believer',          src: './sounds/believer.m4a',            cat: 'Workout' },
     { id: 'rasputin',      label: '⚡ Rasputin',           src: './sounds/rasputin.m4a',            cat: 'Workout' },
