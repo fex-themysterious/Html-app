@@ -6024,6 +6024,68 @@ body[data-theme="golden"] .social-member-card.sm-focusing  { background: rgba(25
 .chat-send-btn:hover  { opacity: 0.88; transform: scale(1.06); }
 .chat-send-btn:active { transform: scale(0.95); }
 
+/* ── Emoji Reactions ──────────────────────────────────────────────── */
+
+/* Bubble outer wrapper — positions picker relative to bubble */
+.cbo {
+  position: relative; display: inline-flex;
+  align-items: flex-end; gap: 5px; max-width: 100%;
+}
+.cbo-me { flex-direction: row; justify-content: flex-end; }
+
+/* Reaction trigger "+" button */
+.crt {
+  width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+  background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12);
+  color: var(--text-muted); font-size: 13px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.15s, background 0.15s;
+  align-self: flex-end; margin-bottom: 2px;
+}
+.cbo:hover .crt, .cbo:focus-within .crt { opacity: 1; }
+.crt:hover { background: rgba(255,255,255,0.15); color: var(--text); }
+
+/* Reaction picker popup */
+.crp {
+  display: none; position: absolute; bottom: calc(100% + 5px); left: 0;
+  flex-direction: row; gap: 2px; padding: 6px 8px;
+  background: rgba(16,20,35,0.96); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255,255,255,0.12); border-radius: 14px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+  z-index: 200; white-space: nowrap;
+  animation: crpIn 0.14s ease;
+}
+.crp.crp-open { display: flex; }
+.cbo-me .crp { left: auto; right: 0; }
+@keyframes crpIn {
+  from { opacity: 0; transform: scale(0.88) translateY(4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.crp-btn {
+  font-size: 19px; padding: 4px 5px; border-radius: 8px;
+  background: transparent; border: none; cursor: pointer;
+  transition: transform 0.15s, background 0.15s; line-height: 1;
+}
+.crp-btn:hover { background: rgba(255,255,255,0.1); transform: scale(1.28); }
+
+/* Reaction chips row */
+.crh-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.crh-row-me { justify-content: flex-end; }
+
+/* Individual chip */
+.crh {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 99px; padding: 2px 9px;
+  font-size: 13px; cursor: pointer; line-height: 1.5;
+  transition: background 0.15s, transform 0.12s, border-color 0.15s;
+  color: var(--text);
+}
+.crh:hover { background: rgba(255,255,255,0.13); transform: scale(1.05); }
+.crh-mine  { background: rgba(59,130,246,0.18); border-color: rgba(91,173,255,0.4); }
+.crh-count { font-size: 11px; font-weight: 700; color: var(--text-muted); }
+.crh-mine .crh-count { color: #93c5fd; }
+
 /* Hide old room-energy-wrap & social-momentum (replaced by new side-by-side bars) */
 .room-energy-wrap, .social-momentum { display: none !important; }
 

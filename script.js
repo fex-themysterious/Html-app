@@ -994,6 +994,8 @@
     }
   }
 
+  const _REACT_EMOJIS = ['👍','🔥','💯','😂','❤️','🎯'];
+
   function _buildChatMessagesHTML() {
     if (!_chatMessages.length) {
       return `<div class="chat-empty"><div class="chat-empty-icon">💬</div><div class="chat-empty-title">No messages yet</div><div class="chat-empty-sub">Start the group conversation</div></div>`;
@@ -1004,8 +1006,20 @@
       const isMe = msg.uid === _userId;
       const showHead = msg.uid !== prevUid || (msg.sentAt - prevTime) > 5 * 60 * 1000;
       const ts = _formatChatTime(msg.sentAt);
+      const reactions = msg.reactions || {};
+      const chipsHTML = Object.entries(reactions).filter(([, uids]) => uids.length > 0)
+        .map(([e_, uids]) => {
+          const mine = uids.includes(_userId);
+          return `<button class="crh${mine ? ' crh-mine' : ''}" data-act="chat-react" data-msgid="${msg.id}" data-emoji="${e_}">${e_} <span class="crh-count">${uids.length}</span></button>`;
+        }).join('');
+      const picker = `<div class="crp" id="crp-${msg.id}">${_REACT_EMOJIS.map(e_ => `<button class="crp-btn" data-act="chat-react" data-msgid="${msg.id}" data-emoji="${e_}">${e_}</button>`).join('')}</div>`;
+      const trigger = `<button class="crt" data-act="chat-picker-toggle" data-msgid="${msg.id}" title="React">+</button>`;
       if (isMe) {
-        html += `<div class="chat-msg-row chat-msg-me">${showHead ? `<div class="chat-ts-label">${ts}</div>` : ''}<div class="chat-bubble chat-bubble-me">${escapeHTML(msg.text)}</div></div>`;
+        html += `<div class="chat-msg-row chat-msg-me">
+          ${showHead ? `<div class="chat-ts-label">${ts}</div>` : ''}
+          <div class="cbo cbo-me">${picker}<div class="chat-bubble chat-bubble-me">${escapeHTML(msg.text)}</div>${trigger}</div>
+          ${chipsHTML ? `<div class="crh-row crh-row-me">${chipsHTML}</div>` : ''}
+        </div>`;
       } else {
         const ini = _sInitials(msg.name || 'S');
         const col = _sAvatarColor(msg.uid);
@@ -1013,7 +1027,8 @@
           ${showHead ? `<div class="chat-av" style="background:${col}">${ini}</div>` : `<div class="chat-av-spacer"></div>`}
           <div class="chat-msg-body">
             ${showHead ? `<div class="chat-sender">${escapeHTML(msg.name || 'Anonymous')} <span class="chat-ts">${ts}</span></div>` : ''}
-            <div class="chat-bubble chat-bubble-them">${escapeHTML(msg.text)}</div>
+            <div class="cbo">${trigger}${picker}<div class="chat-bubble chat-bubble-them">${escapeHTML(msg.text)}</div></div>
+            ${chipsHTML ? `<div class="crh-row">${chipsHTML}</div>` : ''}
           </div>
         </div>`;
       }
@@ -1037,6 +1052,20 @@
     try {
       await _db.collection('groups').doc(_socialRoomCode).collection('messages').doc(msg.id).set(msg);
     } catch(e) { toast('Failed to send', 'danger'); }
+  }
+
+  async function _sChatReact(msgId, emoji) {
+    if (!_db || !_userId || !_socialRoomCode || !msgId || !emoji) return;
+    const msgRef = _db.collection('groups').doc(_socialRoomCode).collection('messages').doc(msgId);
+    const localMsg = _chatMessages.find(m => m.id === msgId);
+    const alreadyReacted = localMsg && localMsg.reactions && (localMsg.reactions[emoji] || []).includes(_userId);
+    try {
+      if (alreadyReacted) {
+        await msgRef.update({ [`reactions.${emoji}`]: firebase.firestore.FieldValue.arrayRemove(_userId) });
+      } else {
+        await msgRef.update({ [`reactions.${emoji}`]: firebase.firestore.FieldValue.arrayUnion(_userId) });
+      }
+    } catch(e) { toast('Could not save reaction', 'warn'); }
   }
 
   function _sChatTyping() {
@@ -7699,6 +7728,21 @@
     if (act === 'social-join')   { const inp = document.getElementById('social-join-input'); _sJoinRoom(inp ? inp.value.trim().toUpperCase() : '').catch(() => {}); return; }
     if (act === 'social-leave')  { _sLeaveRoom(); return; }
     if (act === 'social-rejoin') { _sJoinRoom(el.dataset.code).catch(() => {}); return; }
+    if (act === 'chat-picker-toggle') {
+      const msgId = el.dataset.msgid;
+      document.querySelectorAll('.crp.crp-open').forEach(p => { if (p.id !== `crp-${msgId}`) p.classList.remove('crp-open'); });
+      const picker = document.getElementById(`crp-${msgId}`);
+      if (picker) picker.classList.toggle('crp-open');
+      return;
+    }
+    if (act === 'chat-react') {
+      const msgId = el.dataset.msgid;
+      const emoji = el.dataset.emoji;
+      if (msgId && emoji) _sChatReact(msgId, emoji).catch(() => {});
+      const picker = document.getElementById(`crp-${msgId}`);
+      if (picker) picker.classList.remove('crp-open');
+      return;
+    }
     if (act === 'chat-send') {
       const inp = document.getElementById('chat-text-input');
       if (inp && inp.value.trim()) { _sSendMessage(inp.value).catch(() => {}); inp.value = ''; inp.style.height = 'auto'; }
