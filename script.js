@@ -1107,16 +1107,20 @@
         bubbleContent = replyHTML + escapeHTML(msg.text) + (msg.editedAt ? `<span class="chat-edited-label"> · edited</span>` : '');
       }
       const menuAttrs = !isDeleted ? `data-act="chat-msg-menu" data-msgid="${escapeHTML(msg.id)}" data-ismine="${isMe}"` : '';
+      const ticksHTML = (isMe && !isDeleted) ? `<span class="chat-ticks chat-ticks-sent" aria-label="Sent"><svg viewBox="0 0 16 11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1,5.5 5,9.5 15,1.5"/><polyline points="6,5.5 10,9.5 16,3" opacity="0.55"/></svg></span>` : '';
+      const swipeHint = `<div class="chat-swipe-reply-hint" aria-hidden="true">↩️</div>`;
       if (isMe) {
-        html += `<div class="chat-msg-row chat-msg-me${isGrouped ? ' chat-grouped' : ''}">
+        html += `<div class="chat-msg-row chat-msg-me${isGrouped ? ' chat-grouped' : ''}" data-msgid="${escapeHTML(msg.id||'')}">
+          ${swipeHint}
           ${showHead ? `<div class="chat-ts-row"><span class="chat-ts">${ts}</span></div>` : ''}
-          <div class="chat-bubble chat-bubble-me${isDeleted ? ' chat-bubble-deleted' : ''}" ${menuAttrs}>${bubbleContent}</div>
+          <div class="chat-bubble chat-bubble-me${isDeleted ? ' chat-bubble-deleted' : ''}" ${menuAttrs}>${bubbleContent}${ticksHTML}</div>
           ${reactRow}
         </div>`;
       } else {
         const ini = _sInitials(msg.name || 'S');
         const col = _sAvatarColor(msg.uid);
-        html += `<div class="chat-msg-row chat-msg-them${isGrouped ? ' chat-grouped' : ''}">
+        html += `<div class="chat-msg-row chat-msg-them${isGrouped ? ' chat-grouped' : ''}" data-msgid="${escapeHTML(msg.id||'')}">
+          ${swipeHint}
           <div class="chat-msg-av-col">
             ${showHead ? `<div class="chat-av" style="background:${col}">${ini}</div>` : `<div class="chat-av-spacer"></div>`}
           </div>
@@ -1884,6 +1888,156 @@
         if (e.key === 'Escape') { document.querySelector('[data-act="grm-name-inline-cancel"]')?.click(); }
       });
     }
+
+    // ── Long-press on message bubbles (500ms) → show reaction/action menu ──
+    if (_chatEl) {
+      let _lpTimer = null;
+      let _lpTarget = null;
+      const _cancelLp = () => { clearTimeout(_lpTimer); _lpTimer = null; _lpTarget = null; };
+      _chatEl.addEventListener('touchstart', e => {
+        const bubble = e.target.closest('.chat-bubble');
+        if (!bubble || bubble.classList.contains('chat-bubble-deleted')) return;
+        _lpTarget = bubble;
+        _lpTimer = setTimeout(() => {
+          if (!_lpTarget) return;
+          bubble.classList.add('chat-bubble-longpress');
+          setTimeout(() => bubble.classList.remove('chat-bubble-longpress'), 400);
+          const msgId = bubble.dataset.msgid;
+          const isMe  = bubble.dataset.ismine === 'true';
+          if (msgId) _showChatMsgMenu(msgId, isMe);
+          _cancelLp();
+        }, 500);
+      }, { passive: true });
+      _chatEl.addEventListener('touchend',   _cancelLp, { passive: true });
+      _chatEl.addEventListener('touchmove',  _cancelLp, { passive: true });
+      _chatEl.addEventListener('touchcancel',_cancelLp, { passive: true });
+      // Desktop: right-click → context menu
+      _chatEl.addEventListener('contextmenu', e => {
+        const bubble = e.target.closest('.chat-bubble');
+        if (!bubble || bubble.classList.contains('chat-bubble-deleted')) return;
+        e.preventDefault();
+        const msgId = bubble.dataset.msgid;
+        const isMe  = bubble.dataset.ismine === 'true';
+        if (msgId) _showChatMsgMenu(msgId, isMe);
+      });
+    }
+
+    // ── Swipe-to-reply gesture on message rows ──
+    if (_chatEl) {
+      let _swipeStartX = 0, _swipeStartY = 0, _swipeRow = null, _swipeFired = false;
+      _chatEl.addEventListener('touchstart', e => {
+        if (e.touches.length !== 1) return;
+        _swipeStartX = e.touches[0].clientX;
+        _swipeStartY = e.touches[0].clientY;
+        _swipeRow = e.target.closest('.chat-msg-row');
+        _swipeFired = false;
+      }, { passive: true });
+      _chatEl.addEventListener('touchmove', e => {
+        if (!_swipeRow || _swipeFired || e.touches.length !== 1) return;
+        const dx = e.touches[0].clientX - _swipeStartX;
+        const dy = Math.abs(e.touches[0].clientY - _swipeStartY);
+        if (dy > 20) { _swipeRow = null; return; }
+        if (dx > 52) {
+          _swipeRow.classList.add('chat-swiping');
+        } else {
+          _swipeRow.classList.remove('chat-swiping');
+        }
+      }, { passive: true });
+      _chatEl.addEventListener('touchend', e => {
+        if (!_swipeRow) return;
+        const dx = e.changedTouches[0].clientX - _swipeStartX;
+        _swipeRow.classList.remove('chat-swiping');
+        if (dx > 52 && !_swipeFired) {
+          _swipeFired = true;
+          const msgId = _swipeRow.dataset.msgid;
+          if (msgId) {
+            const msg = _chatMessages.find(m => m.id === msgId);
+            if (msg && !msg.deletedAt) {
+              _chatReplyTarget = { id: msg.id, name: msg.name || 'Unknown', text: msg.text || '' };
+              const bar = document.getElementById('chat-reply-bar');
+              if (bar) {
+                bar.style.display = 'flex';
+                const bn = document.getElementById('chat-reply-bar-name');
+                const bt = document.getElementById('chat-reply-bar-text');
+                if (bn) bn.textContent = 'Replying to ' + (_chatReplyTarget.name);
+                if (bt) bt.textContent = (_chatReplyTarget.text || '').slice(0, 80);
+              }
+              const inp = document.getElementById('chat-text-input');
+              if (inp) inp.focus();
+            }
+          }
+        }
+        _swipeRow = null;
+      }, { passive: true });
+    }
+
+    // ── Attachment button: open file picker ──
+    const _attachBtn = document.querySelector('[data-act="chat-attach"]');
+    const _attachInput = document.getElementById('grm-attach-input');
+    if (_attachBtn && _attachInput) {
+      _attachBtn.addEventListener('click', () => _attachInput.click());
+      _attachInput.addEventListener('change', function() {
+        const files = Array.from(this.files || []);
+        if (!files.length) return;
+        const names = files.map(f => f.name).join(', ');
+        const inp = document.getElementById('chat-text-input');
+        const preview = `📎 ${names}`;
+        if (inp) {
+          inp.value = inp.value ? inp.value + '\n' + preview : preview;
+          inp.style.height = 'auto';
+          inp.style.height = Math.min(inp.scrollHeight, 120) + 'px';
+          inp.focus();
+        }
+        this.value = '';
+      });
+    }
+
+    // ── Mic button: toggle voice recording ──
+    let _mediaRecorder = null, _audioChunks = [];
+    const _micBtn = document.getElementById('grm-mic-btn');
+    if (_micBtn) {
+      _micBtn.addEventListener('click', async () => {
+        if (_mediaRecorder && _mediaRecorder.state === 'recording') {
+          _mediaRecorder.stop();
+          _micBtn.classList.remove('grm2-mic-recording');
+          return;
+        }
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          toast('Microphone not available on this device', 'warn'); return;
+        }
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          _audioChunks = [];
+          _mediaRecorder = new MediaRecorder(stream);
+          _mediaRecorder.ondataavailable = e => { if (e.data.size > 0) _audioChunks.push(e.data); };
+          _mediaRecorder.onstop = () => {
+            stream.getTracks().forEach(t => t.stop());
+            const blob = new Blob(_audioChunks, { type: 'audio/webm' });
+            const secs = Math.round(blob.size / 16000);
+            const inp = document.getElementById('chat-text-input');
+            if (inp) {
+              const note = `🎙 Voice message (${secs}s)`;
+              inp.value = inp.value ? inp.value + '\n' + note : note;
+              inp.style.height = 'auto';
+              inp.style.height = Math.min(inp.scrollHeight, 120) + 'px';
+              inp.focus();
+            }
+            _mediaRecorder = null;
+          };
+          _mediaRecorder.start();
+          _micBtn.classList.add('grm2-mic-recording');
+          // Auto-stop after 60 seconds
+          setTimeout(() => {
+            if (_mediaRecorder && _mediaRecorder.state === 'recording') {
+              _mediaRecorder.stop();
+              _micBtn.classList.remove('grm2-mic-recording');
+            }
+          }, 60000);
+        } catch(err) {
+          toast('Could not access microphone — please allow permission', 'warn');
+        }
+      });
+    }
   }
 
   function _renderSocialLobby() {
@@ -2180,6 +2334,9 @@
         ${'😊 😂 ❤️ 🔥 👍 👎 😮 😢 🎉 🤔 💯 🙏 ✨ 🚀 💪 🎯 🏆 ⚡ 🌟 😎 🤣 💀 🤦 🙌 👏 🫡 😍 🤩 😏 🥹'.split(' ').map(e => `<button class="grm2-emoji-key" data-act="chat-emoji-insert" data-emoji="${e}">${e}</button>`).join('')}
       </div>
       <div class="grm2-chat-composer" id="grm-chat-composer">
+        <button class="grm2-attach-btn" data-act="chat-attach" aria-label="Attach file">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+        </button>
         <button class="grm2-emoji-btn" data-act="chat-emoji-toggle" aria-label="Emoji">😊</button>
         <textarea
           class="grm2-chat-input"
@@ -2194,9 +2351,13 @@
           inputmode="text"
           enterkeyhint="send"
         ></textarea>
+        <button class="grm2-mic-btn" data-act="chat-mic" aria-label="Voice message" id="grm-mic-btn">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+        </button>
         <button class="grm2-send-btn" data-act="chat-send" aria-label="Send">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
         </button>
+        <input type="file" id="grm-attach-input" accept="image/*,application/pdf,.doc,.docx,.txt" style="display:none" multiple/>
       </div>
     </div>`;
 

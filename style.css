@@ -8523,14 +8523,14 @@ body[data-theme="golden"] .social-member-card.sm-focusing  { background: rgba(25
   z-index: 110;
   display: flex;
   flex-direction: column;
-  background: #050810;
+  background: #0b1020;
   overflow: hidden;
 }
 
 /* ── Header ───────────────────────────────────────────────────────── */
 .grm2-header {
   flex-shrink: 0;
-  background: rgba(5,8,16,0.97);
+  background: rgba(11,16,32,0.97);
   border-bottom: 1px solid rgba(255,255,255,0.06);
   padding: 10px 14px;
   backdrop-filter: blur(20px);
@@ -8655,22 +8655,21 @@ body[data-theme="golden"] .social-member-card.sm-focusing  { background: rgba(25
   inset: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.22s ease;
+  display: none;
   padding: 14px 14px 14px;
 }
 .grm2-pane.grm2-pane-active {
-  opacity: 1;
-  pointer-events: auto;
+  display: block;
 }
 
 /* Chat pane uses flex column instead of scroll */
 .grm2-pane-chat {
-  display: flex;
   flex-direction: column;
   overflow: hidden;
   padding: 0;
+}
+.grm2-pane-chat.grm2-pane-active {
+  display: flex;
 }
 
 /* ── Pane Section wrapper (for Rankings/Goals/Stats) ──────────────── */
@@ -8860,6 +8859,7 @@ body[data-theme="golden"] .social-member-card.sm-focusing  { background: rgba(25
   flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
   padding: 10px 12px 6px;
   display: flex; flex-direction: column;
+  background: #0b1020;
 }
 .grm2-chat-messages::-webkit-scrollbar { width: 3px; }
 .grm2-chat-messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
@@ -8930,14 +8930,14 @@ body[data-theme="golden"] .social-member-card.sm-focusing  { background: rgba(25
 }
 .grm2-chat-messages .chat-bubble:active { opacity: 0.75; }
 .grm2-chat-messages .chat-bubble-me {
-  background: linear-gradient(140deg, #4f8cff 0%, #2b6fef 100%);
+  background: #4f8cff;
   color: #fff; border-radius: 18px 18px 4px 18px;
-  box-shadow: 0 2px 10px rgba(79,140,255,0.25);
+  box-shadow: 0 2px 12px rgba(79,140,255,0.35);
 }
 .grm2-chat-messages .chat-bubble-them {
-  background: #1a2340; color: var(--text);
+  background: #121a2b; color: var(--text);
   border-radius: 4px 18px 18px 18px;
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid #1e293b;
 }
 .grm2-chat-messages .chat-bubble-deleted {
   opacity: 0.45; font-style: italic; cursor: default;
@@ -9016,20 +9016,47 @@ body[data-theme="golden"] .social-member-card.sm-focusing  { background: rgba(25
 
 /* ── Composer ────────────────────────────────────────────────────────────── */
 .grm2-chat-composer {
-  flex-shrink: 0; display: flex; align-items: flex-end; gap: 8px;
+  flex-shrink: 0; display: flex; align-items: flex-end; gap: 6px;
   padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
-  background: rgba(5,8,18,0.98); border-top: 1px solid rgba(255,255,255,0.07);
+  background: #121a2b; border-top: 1px solid #1e293b;
 }
 .grm2-emoji-btn {
-  flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%;
-  background: rgba(255,255,255,0.06); border: none; font-size: 20px; line-height: 1;
+  flex-shrink: 0; width: 34px; height: 34px; border-radius: 50%;
+  background: rgba(255,255,255,0.06); border: none; font-size: 19px; line-height: 1;
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   -webkit-tap-highlight-color: transparent; transition: background 0.15s;
 }
 .grm2-emoji-btn:active { background: rgba(255,255,255,0.13); }
+
+/* Attachment button */
+.grm2-attach-btn {
+  flex-shrink: 0; width: 34px; height: 34px; border-radius: 50%;
+  background: rgba(255,255,255,0.06); border: none; color: var(--text-muted);
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  -webkit-tap-highlight-color: transparent; transition: background 0.15s, color 0.15s;
+}
+.grm2-attach-btn:active { background: rgba(79,140,255,0.18); color: #4f8cff; }
+
+/* Mic / voice button */
+.grm2-mic-btn {
+  flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%;
+  background: rgba(255,255,255,0.06); border: none; color: var(--text-muted);
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  -webkit-tap-highlight-color: transparent; transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.grm2-mic-btn.grm2-mic-recording {
+  background: rgba(248,113,113,0.2); color: #f87171;
+  box-shadow: 0 0 0 3px rgba(248,113,113,0.3);
+  animation: grm2-mic-pulse 1s ease-in-out infinite;
+}
+@keyframes grm2-mic-pulse {
+  0%,100% { box-shadow: 0 0 0 3px rgba(248,113,113,0.3); }
+  50%      { box-shadow: 0 0 0 6px rgba(248,113,113,0.1); }
+}
+.grm2-mic-btn:active { background: rgba(248,113,113,0.15); }
 .grm2-chat-input {
-  flex: 1; background: rgba(255,255,255,0.07);
-  border: 1.5px solid rgba(255,255,255,0.1); border-radius: 20px;
+  flex: 1; background: rgba(255,255,255,0.06);
+  border: 1.5px solid #1e293b; border-radius: 20px;
   color: var(--text); font-size: 14px; font-weight: 500;
   padding: 9px 14px; outline: none; resize: none;
   max-height: 110px; overflow-y: auto; font-family: inherit; line-height: 1.4;
@@ -9040,12 +9067,43 @@ body[data-theme="golden"] .social-member-card.sm-focusing  { background: rgba(25
 .grm2-send-btn {
   flex-shrink: 0; width: 36px; height: 36px;
   display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, #4f8cff, #2b6fef);
+  background: #4f8cff;
   border: none; border-radius: 50%; color: #fff; cursor: pointer;
-  box-shadow: 0 2px 10px rgba(79,140,255,0.32);
+  box-shadow: 0 2px 12px rgba(79,140,255,0.4);
   transition: transform 0.12s, box-shadow 0.12s; -webkit-tap-highlight-color: transparent;
 }
 .grm2-send-btn:active { transform: scale(0.86); box-shadow: none; }
+
+/* ── Double tick read receipt ─────────────────────────────────────────────── */
+.chat-ticks {
+  display: inline-flex; align-items: center; gap: 1px;
+  margin-left: 5px; vertical-align: middle; flex-shrink: 0;
+}
+.chat-ticks svg { width: 13px; height: 13px; color: rgba(255,255,255,0.55); }
+.chat-ticks.chat-ticks-sent svg { color: rgba(255,255,255,0.55); }
+.chat-ticks.chat-ticks-read svg { color: #93c5fd; }
+
+/* ── Swipe-to-reply indicator ─────────────────────────────────────────────── */
+.chat-swipe-reply-hint {
+  position: absolute; left: -36px; top: 50%; transform: translateY(-50%);
+  width: 28px; height: 28px; border-radius: 50%;
+  background: rgba(79,140,255,0.18); border: 1.5px solid rgba(79,140,255,0.4);
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.15s, transform 0.15s;
+  font-size: 14px; pointer-events: none;
+}
+.chat-msg-row { position: relative; }
+.chat-msg-row.chat-swiping .chat-swipe-reply-hint { opacity: 1; transform: translateY(-50%) scale(1.1); }
+
+/* ── Pending message state ────────────────────────────────────────────────── */
+.chat-bubble-pending { opacity: 0.6; }
+
+/* ── Long-press highlight ─────────────────────────────────────────────────── */
+@keyframes chat-long-press-ring {
+  from { box-shadow: 0 0 0 0px rgba(79,140,255,0.5); }
+  to   { box-shadow: 0 0 0 6px rgba(79,140,255,0); }
+}
+.chat-bubble-longpress { animation: chat-long-press-ring 0.4s ease-out; }
 
 /* ── Chat action sheet ───────────────────────────────────────────────────── */
 .chat-menu-sheet { padding: 0; }
