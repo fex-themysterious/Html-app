@@ -666,6 +666,8 @@
   let _socialPrevRanks      = {};
   let _momentumConfettiFired = false;
   let _vaultCelebFired      = false;
+  let _socialLiveTimerId    = null;
+  let _vaultThemeNotified   = false;
 
   function _sDisplayName() {
     if (state.profile && state.profile.name) return state.profile.name;
@@ -801,6 +803,16 @@
       .onSnapshot(snap => {
         _socialRoomData = snap.exists ? snap.data() : null;
         _sCheckDuelResults();
+        // Theme unlock detection
+        if (_socialRoomData && _socialRoomData.vaultThemeUnlocked) {
+          const tid = _socialRoomData.vaultThemeUnlocked;
+          _unlockTheme(tid);
+          if (!_vaultThemeNotified) {
+            _vaultThemeNotified = true;
+            const tObj = _THEMES.find(t => t.id === tid);
+            toast(`🎨 Group theme unlocked: ${tObj ? tObj.icon + ' ' + tObj.name : tid}! Open Theme Gallery to equip it.`, 'success', 8000);
+          }
+        }
         if (_currentTab === 'social') renderSocial();
       }, e => { console.warn('[Social] Room error:', e.message); });
     if (_socialHeartbeatId) clearInterval(_socialHeartbeatId);
@@ -862,6 +874,7 @@
   }
 
   function _sLeaveRoom() {
+    _stopSocialLiveTimers();
     if (_socialUnsubPresence) { _socialUnsubPresence(); _socialUnsubPresence = null; }
     if (_socialUnsubRoom)     { _socialUnsubRoom();     _socialUnsubRoom = null; }
     if (_socialHeartbeatId)   { clearInterval(_socialHeartbeatId); _socialHeartbeatId = null; }
@@ -1020,7 +1033,14 @@
       const newTotal = Object.values(newContribs).reduce((a, b) => a + b, 0);
       if (newTotal >= vault.goal) {
         setTimeout(_sFireConfetti, 400);
-        toast('🏦 Vault Unlocked! Special theme unlocked for the whole group!', 'success', 6000);
+        toast('🏦 Vault Unlocked! A group theme has been unlocked for everyone!', 'success', 6000);
+        // Determine next unlockable theme and write to room doc for all members
+        const unlocked = _getUnlockedThemes();
+        const nextTheme = _THEMES.find(t => t.unlockable && !unlocked.includes(t.id));
+        if (nextTheme) {
+          _db.collection('groups').doc(_socialRoomCode)
+            .update({ vaultThemeUnlocked: nextTheme.id, vaultUnlockedAt: Date.now() }).catch(() => {});
+        }
       }
     } catch (e) { toast('Donation failed', 'danger'); }
   }
@@ -1031,6 +1051,101 @@
       await _db.collection('groups').doc(_socialRoomCode).update({ groupVault: { goal, contributions: {}, createdAt: Date.now() } });
       toast('🏦 Group Vault created!', 'success');
     } catch (e) { toast('Failed to create vault', 'danger'); }
+  }
+
+  // ========== Theme System ==========
+  const _THEMES = [
+    { id: 'default',   name: 'Dark Neon',       icon: '🌃', rarity: 'default',   desc: 'The original premium dark aesthetic',             unlockable: false },
+    { id: 'galaxy',    name: 'Galaxy',           icon: '🌌', rarity: 'rare',      desc: 'Purple cosmic gradients with star fields',        unlockable: true  },
+    { id: 'forest',    name: 'Forest Focus',     icon: '🌿', rarity: 'rare',      desc: 'Green ambient glow inspired by nature',           unlockable: true  },
+    { id: 'cyberpunk', name: 'Cyberpunk',        icon: '⚡', rarity: 'epic',      desc: 'Blue/pink neon with digital scanline overlay',    unlockable: true  },
+    { id: 'golden',    name: 'Golden Prestige',  icon: '👑', rarity: 'legendary', desc: 'Gold gradients and luxury elite styling',         unlockable: true  },
+  ];
+  const _RARITY_COLORS = { default: '#566e8a', rare: '#38bdf8', epic: '#a78bfa', legendary: '#fbbf24' };
+
+  function getActiveTheme() {
+    try { return localStorage.getItem('active_theme') || 'default'; } catch (_) { return 'default'; }
+  }
+
+  function applyTheme(id) {
+    const valid = _THEMES.find(t => t.id === id);
+    if (!valid) id = 'default';
+    try { localStorage.setItem('active_theme', id); } catch (_) {}
+    if (id === 'default') document.body.removeAttribute('data-theme');
+    else document.body.setAttribute('data-theme', id);
+  }
+
+  function _getUnlockedThemes() {
+    try {
+      const raw = localStorage.getItem('unlocked_themes');
+      const arr = raw ? JSON.parse(raw) : ['default'];
+      if (!arr.includes('default')) arr.unshift('default');
+      return arr;
+    } catch (_) { return ['default']; }
+  }
+
+  function _unlockTheme(id) {
+    const arr = _getUnlockedThemes();
+    if (!arr.includes(id)) {
+      arr.push(id);
+      try { localStorage.setItem('unlocked_themes', JSON.stringify(arr)); } catch (_) {}
+    }
+  }
+
+  function _themeGalleryModal() {
+    const unlocked = _getUnlockedThemes();
+    const active = getActiveTheme();
+    const rows = _THEMES.map(t => {
+      const isUnlocked = unlocked.includes(t.id);
+      const isActive = t.id === active;
+      const rc = _RARITY_COLORS[t.rarity] || '#566e8a';
+      return `<div class="theme-gallery-card${isActive ? ' tgc-active' : ''}${!isUnlocked ? ' tgc-locked' : ''}">
+        <div class="tgc-icon">${t.icon}</div>
+        <div class="tgc-body">
+          <div class="tgc-name">${escapeHTML(t.name)}</div>
+          <div class="tgc-rarity" style="color:${rc}">${t.rarity.toUpperCase()}</div>
+          <div class="tgc-desc">${escapeHTML(t.desc)}</div>
+        </div>
+        ${isActive ? '<span class="tgc-badge">● Active</span>' : ''}
+        ${isUnlocked && !isActive ? `<button class="btn btn-sm tgc-equip" data-act="theme-equip" data-tid="${t.id}">Equip</button>` : ''}
+        ${!isUnlocked ? `<span class="tgc-locked-badge">🔒 Vault Reward</span>` : ''}
+      </div>`;
+    }).join('');
+    openModal(`<div class="theme-gallery-header">
+      <h3>🎨 Theme Gallery</h3>
+      <p style="color:var(--text-muted);font-size:13px;margin-top:4px">Fill the Group XP Vault to unlock premium themes for your whole study room.</p>
+    </div>
+    <div class="theme-gallery-list">${rows}</div>`,
+      root => {
+        root.querySelectorAll('[data-act="theme-equip"]').forEach(btn => {
+          btn.onclick = () => {
+            const tid = btn.dataset.tid;
+            applyTheme(tid);
+            closeModal();
+            const theme = _THEMES.find(t => t.id === tid);
+            toast(`✨ ${theme ? theme.name : 'Theme'} activated!`, 'success');
+            if (_currentTab === 'social') renderSocial();
+          };
+        });
+      });
+  }
+
+  function _startSocialLiveTimers() {
+    _stopSocialLiveTimers();
+    _socialLiveTimerId = setInterval(() => {
+      const now = Date.now();
+      document.querySelectorAll('.sm-elapsed[data-focusat]').forEach(el => {
+        const start = parseInt(el.dataset.focusat, 10);
+        if (!start || isNaN(start)) return;
+        const s = Math.floor((now - start) / 1000);
+        const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+        el.textContent = h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${String(sec).padStart(2,'0')}s` : `${sec}s`;
+      });
+    }, 1000);
+  }
+
+  function _stopSocialLiveTimers() {
+    if (_socialLiveTimerId) { clearInterval(_socialLiveTimerId); _socialLiveTimerId = null; }
   }
 
   async function _sSocialInit() {
@@ -1061,6 +1176,7 @@
     }
     if (_momPct < 90) _momentumConfettiFired = false;
     view.innerHTML = _renderSocialRoom();
+    _startSocialLiveTimers();
   }
 
   function _renderSocialLobby() {
@@ -1099,7 +1215,28 @@
       <div class="momentum-sub">${totalWeeklyXP.toLocaleString()} / ${momentumTarget.toLocaleString()} XP this week${momentumComplete ? ' 🎉 Goal smashed!' : ` · ${members.length} member${members.length !== 1 ? 's' : ''}`}</div>
     </div>`;
 
-    // ── Member Cards (glassmorphism + subject pill + streak flame) ──
+    // ── Room Stats Strip ──
+    const activeFocusing = members.filter(m => _sStatusOf(m) === 'focusing').length;
+    const todayKey_ = todayKey();
+    const totalFocusToday = members.reduce((s, m) => {
+      const byDate = (m.focusStatsByDate) || {};
+      return s + (byDate[todayKey_] || 0);
+    }, 0);
+    const energyPct = members.length ? Math.min(100, Math.round((activeFocusing / members.length) * 100)) : 0;
+    const roomStatsHTML = `<div class="room-stats-strip">
+      <div class="rss-item"><span class="rss-val" style="color:${activeFocusing > 0 ? '#4ade80' : 'var(--text-muted)'}">${activeFocusing}</span><span class="rss-lbl">Focusing</span></div>
+      <div class="rss-sep"></div>
+      <div class="rss-item"><span class="rss-val">${minsToHrs(totalFocusToday)}</span><span class="rss-lbl">Group Today</span></div>
+      <div class="rss-sep"></div>
+      <div class="rss-item"><span class="rss-val">${members.length}</span><span class="rss-lbl">Members</span></div>
+    </div>
+    <div class="room-energy-wrap">
+      <span class="room-energy-label">⚡ Room Energy</span>
+      <div class="room-energy-track"><div class="room-energy-fill" style="width:${energyPct}%"></div></div>
+      <span class="room-energy-pct">${energyPct}%</span>
+    </div>`;
+
+    // ── Member Cards (animated presence + live elapsed timer + particles) ──
     const memberCards = sorted.map(m => {
       const st = _sStatusOf(m);
       const isMe = m.uid === _userId;
@@ -1110,14 +1247,30 @@
       if (isFocusing) cardClass += ' sm-focusing';
       else if (isOnline) cardClass += ' sm-online';
       else cardClass += ' sm-offline';
-      let ft = '';
-      if (isFocusing && m.focusStartedAt) { const e = Math.floor((now - m.focusStartedAt) / 60000); ft = ` · ${e}m`; }
+
+      // Live elapsed timer chip (data-focusat drives the 1s interval patcher)
+      let elapsedChip = '';
+      if (isFocusing && m.focusStartedAt) {
+        const s = Math.floor((now - m.focusStartedAt) / 1000);
+        const h = Math.floor(s / 3600), mn = Math.floor((s % 3600) / 60), sc = s % 60;
+        const initTxt = h > 0 ? `${h}h ${mn}m` : mn > 0 ? `${mn}m ${String(sc).padStart(2,'0')}s` : `${sc}s`;
+        elapsedChip = `<span class="sm-elapsed" data-focusat="${m.focusStartedAt}">${initTxt}</span>`;
+      }
+
       const dot = isFocusing ? '🔵' : isOnline ? '🟢' : '⚪';
-      const stTxt = isFocusing ? 'In Focus Session' : isOnline ? 'Online' : 'Offline';
-      const subPill = isFocusing && m.focusSubjectName ? `<div class="sm-subject-pill">${_sSubjectEmoji(m.focusSubjectName)} Studying: ${escapeHTML(m.focusSubjectName)}</div>` : '';
+      const stTxt = isFocusing ? 'In Focus' : isOnline ? 'Online' : 'Offline';
+      const subPill = isFocusing && m.focusSubjectName
+        ? `<div class="sm-subject-pill">${_sSubjectEmoji(m.focusSubjectName)} ${escapeHTML(m.focusSubjectName)}</div>` : '';
       const streakN = m.studyStreak || 0;
       const streakBadge = streakN >= 2 ? `<span class="sm-streak">🔥 ${streakN}d</span>` : '';
-      const ring = isOnline ? `<div class="sm-focus-ring${isFocusing ? ' ring-blue' : ''}"></div>` : '';
+
+      // Double animated ring: outer slow glow + inner pulse (only when online/focusing)
+      const outerRing = isOnline ? `<div class="sm-outer-ring${isFocusing ? '' : ' sm-outer-ring-green'}"></div>` : '';
+      const innerRing = isOnline ? `<div class="sm-focus-ring${isFocusing ? ' ring-blue' : ''}"></div>` : '';
+
+      // Floating particles for focusing members
+      const particles = isFocusing ? `<div class="sm-focus-particles"><div class="sm-particle"></div><div class="sm-particle"></div><div class="sm-particle"></div><div class="sm-particle"></div><div class="sm-particle"></div></div>` : '';
+
       let acts = '';
       if (!isMe) {
         const nudgeBtn = `<button class="btn btn-sm btn-ghost" data-act="social-nudge" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName || '')}">👋 Poke</button>`;
@@ -1125,7 +1278,15 @@
         acts = `<div class="sm-actions">${nudgeBtn}${duelBtn}</div>`;
       }
       const youB = isMe ? '<span class="sm-you-badge">You</span>' : '';
-      return `<div class="${cardClass}"><div class="sm-ring-wrap">${ring}<div class="sm-avatar" style="background:${_sAvatarColor(m.uid)}">${ini}</div></div><div class="sm-info"><div class="sm-name-row"><span class="sm-name">${escapeHTML(m.displayName || 'Anonymous')}</span>${youB}${streakBadge}</div><div class="sm-status">${dot} ${stTxt}${ft}</div>${subPill}<div class="sm-xp">⚡ ${(m.xpTotal || 0).toLocaleString()} XP · 📚 ${minsToHrs(m.weeklyMinutes || 0)} this week</div></div>${acts}</div>`;
+      return `<div class="${cardClass}">${particles}
+        <div class="sm-ring-wrap">${outerRing}${innerRing}<div class="sm-avatar" style="background:${_sAvatarColor(m.uid)}">${ini}</div></div>
+        <div class="sm-info">
+          <div class="sm-name-row"><span class="sm-name">${escapeHTML(m.displayName || 'Anonymous')}</span>${youB}${streakBadge}</div>
+          <div class="sm-status">${dot} ${stTxt}${elapsedChip}</div>
+          ${subPill}
+          <div class="sm-xp">⚡ ${(m.xpTotal || 0).toLocaleString()} XP · 📚 ${minsToHrs(m.weeklyMinutes || 0)} this week</div>
+        </div>${acts}
+      </div>`;
     }).join('') || '<div class="empty" style="padding:16px">No one here yet — share the code!</div>';
 
     // ── Leaderboard with rank movement, crown glow & reset countdown ──
@@ -1235,7 +1396,8 @@
     }).join('') || '<div class="empty" style="padding:0 16px">No group goals yet — create one below!</div>';
 
     return `<div class="social-room">
-      <div class="social-room-header"><div class="srh-left"><div class="srh-code-wrap"><span class="srh-label">ROOM</span><span class="srh-code">${_socialRoomCode}</span></div><span class="srh-count">${members.length} member${members.length !== 1 ? 's' : ''}</span></div><button class="btn btn-ghost srh-leave" data-act="social-leave">Leave</button></div>
+      <div class="social-room-header"><div class="srh-left"><div class="srh-code-wrap"><span class="srh-label">ROOM</span><span class="srh-code">${_socialRoomCode}</span></div><span class="srh-count">${members.length} member${members.length !== 1 ? 's' : ''}</span></div><div class="srh-right"><button class="btn btn-ghost srh-theme" data-act="theme-gallery" title="Theme Gallery">🎨</button><button class="btn btn-ghost srh-leave" data-act="social-leave">Leave</button></div></div>
+      ${roomStatsHTML}
       ${momentumHTML}
       <h2 class="social-section-head">Live Focus Map</h2>
       <div class="social-members">${memberCards}</div>
@@ -5997,6 +6159,8 @@
     if (act === 'social-create') { _sJoinRoom(el.dataset.code).catch(() => {}); return; }
     if (act === 'social-join')   { const inp = document.getElementById('social-join-input'); _sJoinRoom(inp ? inp.value.trim().toUpperCase() : '').catch(() => {}); return; }
     if (act === 'social-leave')  { _sLeaveRoom(); return; }
+    if (act === 'theme-gallery') { _themeGalleryModal(); return; }
+    if (act === 'theme-equip')   { applyTheme(el.dataset.tid); closeModal(); toast(`✨ Theme activated!`, 'success'); return; }
     if (act === 'social-nudge')  { _sNudge(el.dataset.uid, el.dataset.name).catch(() => {}); return; }
     if (act === 'social-duel')   { _sChallengeDuel(el.dataset.uid, el.dataset.name).catch(() => {}); return; }
     if (act === 'social-add-goal') {
@@ -6490,6 +6654,7 @@
   // ========== Init ==========
   function init() {
     _migrateLegacyBadges();
+    applyTheme(getActiveTheme());
     pruneRevisions();
     initMiniTimer();
     switchTab('home');
