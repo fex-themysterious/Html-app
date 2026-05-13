@@ -4666,101 +4666,151 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   overflow: hidden; overflow-x: hidden;
 }
 
+/* ═══════════════════════════════════════════════════
+   SOCIAL ROOM — PREMIUM UI
+   ═══════════════════════════════════════════════════ */
 .sroom-header {
   display: flex; align-items: center; gap: 10px;
-  padding: 10px 12px 8px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--glass-border);
+  padding: 12px 14px 10px;
+  background: rgba(9,14,21,0.85);
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255,255,255,0.07);
   flex-shrink: 0; z-index: 10;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.04), 0 4px 24px rgba(0,0,0,0.25);
 }
 .sroom-back {
   width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
-  background: rgba(255,255,255,0.06); border: none; border-radius: 10px;
-  cursor: pointer; color: var(--text); flex-shrink: 0; transition: background var(--t-fast);
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 50%;
+  cursor: pointer; color: var(--text); flex-shrink: 0;
+  transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
 }
-.sroom-back:hover { background: rgba(255,255,255,0.1); }
+.sroom-back:hover { background: rgba(255,255,255,0.14); transform: translateX(-2px); }
 .sroom-header-center { flex: 1; min-width: 0; }
 .sroom-name-row { display: flex; align-items: center; gap: 6px; }
-.sroom-name { font-size: 15px; font-weight: 800; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sroom-name {
+  font-size: 16px; font-weight: 800; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  letter-spacing: -0.02em;
+}
 .sroom-edit-btn {
   width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
   background: transparent; border: none; cursor: pointer;
-  color: var(--text-muted); border-radius: 6px; flex-shrink: 0; transition: color var(--t-fast);
+  color: var(--text-muted); border-radius: 6px; flex-shrink: 0; transition: color 0.2s;
 }
 .sroom-edit-btn:hover { color: var(--primary); }
 .sroom-name-edit { display: flex; align-items: center; gap: 4px; }
 .sroom-name-input {
-  flex: 1; padding: 4px 8px; background: rgba(255,255,255,0.07);
-  border: 1px solid var(--primary); border-radius: 8px; color: var(--text);
+  flex: 1; padding: 5px 10px;
+  background: rgba(91,173,255,0.08);
+  border: 1.5px solid rgba(91,173,255,0.4);
+  border-radius: 10px; color: var(--text);
   font-size: 14px; font-weight: 700; outline: none; font-family: inherit;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
+.sroom-name-input:focus { box-shadow: 0 0 0 3px rgba(91,173,255,0.15); }
 .sroom-name-save, .sroom-name-cancel {
-  width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
-  border: none; border-radius: 6px; cursor: pointer; font-size: 13px; flex-shrink: 0;
+  width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: 8px; cursor: pointer; font-size: 13px; flex-shrink: 0;
+  transition: transform 0.15s;
 }
-.sroom-name-save   { background: rgba(34,197,94,0.2); color: #22c55e; }
-.sroom-name-cancel { background: rgba(248,113,113,0.15); color: #f87171; }
+.sroom-name-save:hover, .sroom-name-cancel:hover { transform: scale(1.1); }
+.sroom-name-save   { background: rgba(34,197,94,0.2); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
+.sroom-name-cancel { background: rgba(248,113,113,0.15); color: #f87171; border: 1px solid rgba(248,113,113,0.25); }
 .sroom-meta { display: flex; align-items: center; gap: 6px; margin-top: 3px; flex-wrap: wrap; }
 .sroom-online {
   display: flex; align-items: center; gap: 4px;
-  font-size: 11px; color: var(--text-muted);
+  font-size: 11px; color: var(--text-muted); font-weight: 500;
 }
 .sroom-live-dot {
-  width: 6px; height: 6px; border-radius: 50%; background: #22c55e;
+  width: 7px; height: 7px; border-radius: 50%; background: #4ade80;
+  box-shadow: 0 0 6px rgba(74,222,128,0.7);
   animation: sroom-pulse 2s infinite; flex-shrink: 0;
 }
-@keyframes sroom-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes sroom-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.85); } }
 .sroom-code-pill {
-  font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
-  color: var(--primary); background: rgba(91,173,255,0.1);
-  border: 1px solid rgba(91,173,255,0.2); border-radius: 6px;
-  padding: 2px 6px; cursor: pointer; font-family: 'Courier New', monospace;
-  transition: background var(--t-fast);
+  font-size: 10px; font-weight: 800; letter-spacing: 2px;
+  color: #5badff;
+  background: rgba(91,173,255,0.1);
+  border: 1px solid rgba(91,173,255,0.25);
+  border-radius: 7px;
+  padding: 2px 8px; cursor: pointer; font-family: 'Courier New', monospace;
+  transition: background 0.2s, box-shadow 0.2s;
 }
-.sroom-code-pill:hover { background: rgba(91,173,255,0.2); }
+.sroom-code-pill:hover { background: rgba(91,173,255,0.2); box-shadow: 0 0 10px rgba(91,173,255,0.2); }
 .sroom-privacy { font-size: 12px; }
 .sroom-settings-btn {
   width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
-  background: rgba(255,255,255,0.06); border: none; border-radius: 10px;
-  cursor: pointer; color: var(--text-muted); flex-shrink: 0; transition: all var(--t-fast);
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 50%;
+  cursor: pointer; color: var(--text-muted); flex-shrink: 0;
+  transition: color 0.2s, background 0.2s, transform 0.2s, box-shadow 0.2s;
 }
-.sroom-settings-btn:hover { color: var(--text); background: rgba(255,255,255,0.1); }
+.sroom-settings-btn:hover {
+  color: var(--text); background: rgba(255,255,255,0.13);
+  transform: rotate(45deg); box-shadow: 0 0 12px rgba(255,255,255,0.08);
+}
 
+/* ── Momentum Bar ──────────────────────────────────────────────── */
 .sroom-momentum {
-  padding: 10px 16px; flex-shrink: 0;
-  border-bottom: 1px solid var(--glass-border);
-  background: rgba(255,255,255,0.012);
+  padding: 12px 16px 10px; flex-shrink: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  background: linear-gradient(180deg, rgba(91,173,255,0.04) 0%, transparent 100%);
 }
-.sroom-mom-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-.sroom-mom-label { font-size: 11px; font-weight: 700; color: var(--text-muted); }
-.sroom-mom-pct   { font-size: 13px; font-weight: 900; color: var(--primary); }
-.sroom-mom-track { height: 5px; background: rgba(255,255,255,0.07); border-radius: 99px; overflow: hidden; }
-.sroom-mom-fill  {
+.sroom-mom-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.sroom-mom-label {
+  font-size: 11px; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.07em;
+}
+.sroom-mom-pct {
+  font-size: 14px; font-weight: 900; color: #5badff;
+  text-shadow: 0 0 12px rgba(91,173,255,0.4);
+}
+.sroom-mom-track {
+  height: 7px; background: rgba(255,255,255,0.06);
+  border-radius: 99px; overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.3);
+}
+.sroom-mom-fill {
   height: 100%; border-radius: 99px;
-  background: linear-gradient(90deg, #5badff, #a78bfa);
-  transition: width 1s ease;
+  background: linear-gradient(90deg, #5badff, #a78bfa, #f472b6);
+  box-shadow: 0 0 10px rgba(91,173,255,0.4);
+  transition: width 1.2s cubic-bezier(0.4,0,0.2,1);
 }
-.sroom-mom-fill.sroom-mom-complete { background: linear-gradient(90deg, #22c55e, #4ade80); }
-.sroom-mom-sub { font-size: 11px; color: var(--text-dim); margin-top: 5px; }
+.sroom-mom-fill.sroom-mom-complete {
+  background: linear-gradient(90deg, #22c55e, #4ade80);
+  box-shadow: 0 0 14px rgba(34,197,94,0.5);
+}
+.sroom-mom-sub { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
 
+/* ── Bottom Tab Nav ────────────────────────────────────────────── */
 .sroom-nav {
   display: flex; flex-shrink: 0; order: 10;
-  border-top: 1px solid var(--glass-border);
-  background: var(--bg);
+  border-top: 1px solid rgba(255,255,255,0.06);
+  background: rgba(9,14,21,0.9);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  padding: 2px 4px;
 }
 .sroom-nav-btn {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 2px; padding: 8px 4px; border: none; background: transparent;
+  gap: 3px; padding: 8px 4px 6px; border: none; background: transparent;
   color: var(--text-muted); cursor: pointer; position: relative;
-  transition: color var(--t-fast);
+  border-radius: 12px; margin: 2px;
+  transition: color 0.2s, background 0.2s;
 }
-.sroom-nav-btn svg  { width: 18px; height: 18px; }
-.sroom-nav-btn span { font-size: 10px; font-weight: 600; }
-.sroom-nav-active   { color: var(--primary); }
-.sroom-nav-active::before {
-  content: ''; position: absolute; top: 0; left: 50%; transform: translateX(-50%);
-  width: 24px; height: 2px; background: var(--primary); border-radius: 0 0 3px 3px;
+.sroom-nav-btn svg  { width: 18px; height: 18px; transition: transform 0.2s; }
+.sroom-nav-btn span { font-size: 10px; font-weight: 600; letter-spacing: 0.01em; }
+.sroom-nav-btn:hover { color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.05); }
+.sroom-nav-btn:hover svg { transform: translateY(-1px); }
+.sroom-nav-active {
+  color: #fff !important;
+  background: linear-gradient(135deg, rgba(91,173,255,0.2), rgba(167,139,250,0.15)) !important;
+  border: 1px solid rgba(91,173,255,0.2);
 }
+.sroom-nav-active span { color: #5badff; }
+.sroom-nav-active::before { display: none; }
 
 .sroom-content { flex: 1; min-height: 0; position: relative; overflow: hidden; overflow-x: hidden; }
 .sroom-pane {
@@ -4862,12 +4912,27 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .sroom-mc-streak { font-size: 10px; color: #f97316; font-weight: 600; }
 .sroom-mc-acts   { display: flex; gap: 5px; margin-top: 5px; }
 .sroom-act-btn {
-  width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
-  background: rgba(255,255,255,0.07); border: none; border-radius: 9px;
-  cursor: pointer; font-size: 14px; transition: background var(--t-fast), transform var(--t-fast);
+  width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 50%;
+  cursor: pointer; font-size: 15px;
+  transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
 }
-.sroom-act-btn:hover { background: rgba(255,255,255,0.13); transform: scale(1.1); }
-.sroom-duel-btn  { background: rgba(251,191,36,0.1); }
+.sroom-act-btn:hover {
+  background: rgba(255,255,255,0.14);
+  transform: scale(1.15);
+  box-shadow: 0 0 10px rgba(255,255,255,0.1);
+}
+.sroom-act-btn:active { transform: scale(0.95); }
+.sroom-duel-btn {
+  background: rgba(251,191,36,0.1);
+  border-color: rgba(251,191,36,0.2);
+}
+.sroom-duel-btn:hover {
+  background: rgba(251,191,36,0.2);
+  box-shadow: 0 0 12px rgba(251,191,36,0.25);
+}
 .sroom-empty {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   height: 100%; gap: 10px; color: var(--text-muted); text-align: center; padding: 40px 20px;
@@ -4878,13 +4943,30 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 
 .sroom-pane-chat   { flex-direction: column; }
 .sroom-chat-wrap   { display: flex; flex-direction: column; height: 100%; min-height: 0; position: relative; overflow-x: hidden; width: 100%; }
-.sroom-pinned-bar { display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: rgba(99,102,241,0.15); border-bottom: 1px solid rgba(99,102,241,0.25); flex-shrink: 0; }
-.sroom-pinned-icon { font-size: 15px; flex-shrink: 0; }
+.sroom-pinned-bar {
+  display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+  background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(167,139,250,0.08));
+  border-bottom: 1px solid rgba(99,102,241,0.2);
+  backdrop-filter: blur(8px); flex-shrink: 0;
+}
+.sroom-pinned-icon { font-size: 14px; flex-shrink: 0; }
 .sroom-pinned-content { flex: 1; min-width: 0; }
-.sroom-pinned-label { display: block; font-size: 10px; font-weight: 600; color: #a5b4fc; text-transform: uppercase; letter-spacing: 0.5px; line-height: 1.2; }
-.sroom-pinned-text { display: block; font-size: 12px; color: var(--text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sroom-pinned-unpin { background: transparent; border: none; color: var(--text-sub); cursor: pointer; font-size: 14px; padding: 2px 4px; flex-shrink: 0; opacity: 0.6; }
-.sroom-pinned-unpin:hover { opacity: 1; }
+.sroom-pinned-label {
+  display: block; font-size: 9px; font-weight: 800; color: #a5b4fc;
+  text-transform: uppercase; letter-spacing: 0.08em; line-height: 1.2;
+}
+.sroom-pinned-text {
+  display: block; font-size: 12px; color: var(--text-sub);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-weight: 500;
+}
+.sroom-pinned-unpin {
+  width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 50%; cursor: pointer; font-size: 12px; color: var(--text-muted);
+  flex-shrink: 0; transition: background 0.2s, transform 0.15s;
+}
+.sroom-pinned-unpin:hover { background: rgba(248,113,113,0.2); color: #f87171; transform: scale(1.1); }
 .sroom-chat-msgs {
   flex: 1; overflow-y: auto; overflow-x: hidden;
   display: flex; flex-direction: column;
@@ -4920,38 +5002,49 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 }
 
 .sroom-chat-composer {
-  flex-shrink: 0; padding: 8px 10px;
-  padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
-  border-top: 1px solid var(--glass-border);
-  background: var(--bg);
+  flex-shrink: 0; padding: 10px 12px;
+  padding-bottom: max(10px, env(safe-area-inset-bottom, 10px));
+  border-top: 1px solid rgba(255,255,255,0.06);
+  background: rgba(9,14,21,0.9);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
 }
 .sroom-composer-inner {
-  display: flex; align-items: flex-end; gap: 4px;
-  background: rgba(255,255,255,0.06); border: 1px solid var(--glass-border);
-  border-radius: 24px; padding: 5px 5px 5px 12px;
+  display: flex; align-items: flex-end; gap: 6px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 26px; padding: 6px 6px 6px 14px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.sroom-composer-inner:focus-within {
+  border-color: rgba(91,173,255,0.35);
+  box-shadow: 0 0 0 3px rgba(91,173,255,0.08);
 }
 .sroom-composer-btn {
   width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
   background: transparent; border: none; cursor: pointer;
   color: var(--text-muted); border-radius: 50%; flex-shrink: 0;
-  transition: color var(--t-fast); -webkit-tap-highlight-color: transparent;
+  transition: color 0.2s, background 0.2s; -webkit-tap-highlight-color: transparent;
 }
+.sroom-composer-btn:hover { color: var(--text); background: rgba(255,255,255,0.07); }
 .sroom-composer-btn:active { color: var(--primary); }
 .grm2-mic-recording { color: #f87171 !important; }
 .sroom-chat-input {
   flex: 1; background: transparent; border: none; outline: none;
   color: var(--text); font-family: inherit; font-size: 14px; font-weight: 400;
-  resize: none; max-height: 120px; line-height: 1.45; padding: 5px 0;
+  resize: none; max-height: 120px; line-height: 1.5; padding: 5px 0;
   -webkit-overflow-scrolling: touch;
 }
 .sroom-chat-input::placeholder { color: var(--text-dim); }
 .sroom-send-btn {
-  width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
-  background: var(--primary); border: none; border-radius: 50%;
+  width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #5badff, #a78bfa);
+  border: none; border-radius: 50%;
   cursor: pointer; color: #fff; flex-shrink: 0;
-  transition: transform 0.12s; -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 2px 12px rgba(91,173,255,0.35);
+  transition: transform 0.15s, box-shadow 0.2s; -webkit-tap-highlight-color: transparent;
 }
-.sroom-send-btn:active { transform: scale(0.88); }
+.sroom-send-btn:hover { box-shadow: 0 4px 18px rgba(91,173,255,0.5); transform: scale(1.05); }
+.sroom-send-btn:active { transform: scale(0.88); box-shadow: none; }
 body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px)); }
 
 /* Chat bubbles & messages */
@@ -4959,9 +5052,15 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
 .chat-empty-icon  { font-size: 38px; }
 .chat-empty-title { font-size: 15px; font-weight: 700; }
 .chat-empty-sub   { font-size: 13px; color: var(--text-muted); }
-.chat-date-sep { display: flex; align-items: center; padding: 8px 0; }
-.chat-date-sep-txt { font-size: 11px; color: var(--text-dim); background: var(--bg); padding: 0 8px; margin: 0 auto; }
-.chat-date-sep::before, .chat-date-sep::after { content: ''; flex: 1; height: 1px; background: rgba(255,255,255,0.06); }
+.chat-date-sep { display: flex; align-items: center; padding: 10px 0; }
+.chat-date-sep-txt {
+  font-size: 10px; font-weight: 700; color: var(--text-dim);
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+  padding: 2px 10px; margin: 0 auto;
+  border-radius: 99px; letter-spacing: 0.04em;
+}
+.chat-date-sep::before, .chat-date-sep::after { content: ''; flex: 1; height: 1px; background: rgba(255,255,255,0.05); }
 /* ── Message rows ────────────────────────────────────── */
 .chat-msg-row {
   display: flex; align-items: flex-end; gap: 6px;
@@ -5073,44 +5172,125 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
 .grm-online-dot-sm { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; display: inline-block; margin-right: 2px; }
 
 /* Rankings pane */
-.sroom-lb-section { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 16px; overflow: hidden; }
-.sroom-lb-head { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.07em; padding: 12px 14px 8px; }
-.sroom-lb-head-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px 6px; }
+/* ── Rankings ──────────────────────────────────────────────────── */
+.sroom-lb-section {
+  background: rgba(255,255,255,0.025);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 20px; overflow: hidden;
+  backdrop-filter: blur(8px);
+}
+.sroom-lb-head {
+  font-size: 10px; font-weight: 800; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em; padding: 14px 16px 8px;
+}
+.sroom-lb-head-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px 6px; }
 .sroom-lb-head-row .sroom-lb-head { padding: 0; }
-.sroom-lb-refresh { width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 7px; cursor: pointer; color: var(--text-muted); transition: color var(--t-fast); }
-.sroom-lb-refresh:hover { color: var(--primary); }
-.sroom-lb-row { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-top: 1px solid rgba(255,255,255,0.04); cursor: pointer; transition: background var(--t-fast); }
-.sroom-lb-row:hover { background: rgba(255,255,255,0.03); }
-.sroom-lb-me  { background: rgba(91,173,255,0.07) !important; }
-.sroom-lb-rank { font-size: 14px; min-width: 22px; text-align: center; flex-shrink: 0; }
-.sroom-lb-av { width: 30px; height: 30px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #fff; flex-shrink: 0; }
-.sroom-lb-name { flex: 1; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sroom-lb-xp   { font-size: 12px; color: #fbbf24; font-weight: 600; flex-shrink: 0; }
-.sroom-lb-time { font-size: 11px; color: var(--text-muted); flex-shrink: 0; min-width: 50px; text-align: right; }
+.sroom-lb-refresh {
+  width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+  background: rgba(91,173,255,0.08); border: 1px solid rgba(91,173,255,0.15);
+  border-radius: 50%; cursor: pointer; color: #5badff;
+  transition: background 0.2s, transform 0.3s;
+}
+.sroom-lb-refresh:hover { background: rgba(91,173,255,0.18); transform: rotate(180deg); }
+.sroom-lb-row {
+  display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+  border-top: 1px solid rgba(255,255,255,0.04);
+  cursor: pointer; transition: background 0.15s;
+}
+.sroom-lb-row:hover { background: rgba(255,255,255,0.04); }
+.sroom-lb-me  { background: rgba(91,173,255,0.08) !important; border-left: 2px solid rgba(91,173,255,0.5); }
+.sroom-lb-rank {
+  font-size: 15px; min-width: 26px; text-align: center; flex-shrink: 0;
+  font-weight: 900;
+}
+/* Gold / Silver / Bronze for top 3 numeric ranks */
+.sroom-lb-row:nth-child(2) .sroom-lb-rank { color: #fbbf24; text-shadow: 0 0 8px rgba(251,191,36,0.6); }
+.sroom-lb-row:nth-child(3) .sroom-lb-rank { color: #9ca3af; text-shadow: 0 0 6px rgba(156,163,175,0.4); }
+.sroom-lb-row:nth-child(4) .sroom-lb-rank { color: #b45309; }
+.sroom-lb-av {
+  width: 34px; height: 34px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; color: #fff; flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.sroom-lb-name { flex: 1; font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sroom-lb-xp   { font-size: 12px; color: #fbbf24; font-weight: 800; flex-shrink: 0; }
+.sroom-lb-time { font-size: 11px; color: var(--text-muted); flex-shrink: 0; min-width: 50px; text-align: right; font-weight: 500; }
 
-/* Goals pane */
-.sroom-sec-head { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.07em; padding-bottom: 8px; }
-.sroom-goals-section { margin-bottom: 14px; }
-.sroom-goals-list    { display: flex; flex-direction: column; gap: 8px; }
-.sroom-goal-card { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 14px; padding: 12px 14px; }
-.sroom-goal-done  { opacity: 0.7; }
-.sroom-goal-top   { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.sroom-goal-icon  { font-size: 15px; flex-shrink: 0; }
-.sroom-goal-title { flex: 1; font-size: 13px; font-weight: 700; color: var(--text); }
-.sroom-goal-del   { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; background: rgba(248,113,113,0.1); border: none; border-radius: 6px; color: var(--danger); cursor: pointer; font-size: 16px; font-weight: 700; flex-shrink: 0; }
-.sroom-goal-track-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.sroom-goal-track { flex: 1; height: 5px; background: rgba(255,255,255,0.07); border-radius: 3px; overflow: hidden; }
-.sroom-goal-fill  { height: 100%; background: linear-gradient(90deg, #5badff, #a78bfa); border-radius: 3px; transition: width 0.5s; }
-.sroom-goal-done .sroom-goal-fill { background: linear-gradient(90deg, #34d399, #4ade80); }
-.sroom-goal-pct   { font-size: 11px; font-weight: 700; color: var(--primary); flex-shrink: 0; }
+/* ── Goals Pane ────────────────────────────────────────────────── */
+.sroom-sec-head {
+  font-size: 10px; font-weight: 800; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em; padding-bottom: 10px;
+}
+.sroom-goals-section { margin-bottom: 16px; }
+.sroom-goals-list    { display: flex; flex-direction: column; gap: 10px; }
+.sroom-goal-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 18px; padding: 14px 16px;
+  backdrop-filter: blur(8px);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.sroom-goal-card:hover { border-color: rgba(91,173,255,0.2); box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+.sroom-goal-done  { opacity: 0.65; }
+.sroom-goal-done .sroom-goal-card { border-color: rgba(74,222,128,0.2); }
+.sroom-goal-top   { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.sroom-goal-icon  { font-size: 18px; flex-shrink: 0; }
+.sroom-goal-title { flex: 1; font-size: 14px; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
+.sroom-goal-del {
+  width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+  background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.2);
+  border-radius: 8px; color: #f87171; cursor: pointer;
+  font-size: 14px; font-weight: 700; flex-shrink: 0;
+  transition: background 0.2s, transform 0.15s;
+}
+.sroom-goal-del:hover { background: rgba(248,113,113,0.2); transform: scale(1.1); }
+.sroom-goal-track-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.sroom-goal-track {
+  flex: 1; height: 7px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 99px; overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.3);
+}
+.sroom-goal-fill  {
+  height: 100%; border-radius: 99px;
+  background: linear-gradient(90deg, #5badff, #a78bfa);
+  box-shadow: 0 0 8px rgba(91,173,255,0.35);
+  transition: width 0.6s cubic-bezier(0.4,0,0.2,1);
+}
+.sroom-goal-done .sroom-goal-fill {
+  background: linear-gradient(90deg, #34d399, #4ade80);
+  box-shadow: 0 0 10px rgba(74,222,128,0.4);
+}
+.sroom-goal-pct   { font-size: 12px; font-weight: 800; color: #5badff; flex-shrink: 0; }
 .sroom-goal-meta  { display: flex; align-items: center; justify-content: space-between; }
-.sroom-goal-avs   { display: flex; gap: 2px; }
-.sroom-goal-av    { width: 20px; height: 20px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #fff; }
-.sroom-goal-stat  { font-size: 11px; color: var(--text-muted); }
-.sroom-add-goal-form { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
-.sroom-form-label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
-.sroom-form-input { width: 100%; box-sizing: border-box; padding: 8px 10px; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); border-radius: 10px; color: var(--text); font-size: 13px; outline: none; font-family: inherit; transition: border-color var(--t-fast); }
-.sroom-form-input:focus { border-color: var(--primary); }
+.sroom-goal-avs   { display: flex; gap: 3px; }
+.sroom-goal-av    { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
+.sroom-goal-stat  { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+.sroom-add-goal-form {
+  background: rgba(91,173,255,0.04);
+  border: 1px dashed rgba(91,173,255,0.2);
+  border-radius: 18px; padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 10px; margin-top: 10px;
+  transition: border-color 0.2s;
+}
+.sroom-add-goal-form:focus-within { border-color: rgba(91,173,255,0.4); border-style: solid; }
+.sroom-form-label {
+  font-size: 10px; font-weight: 800; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.sroom-form-input {
+  width: 100%; box-sizing: border-box; padding: 9px 12px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px; color: var(--text); font-size: 13px;
+  outline: none; font-family: inherit;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.sroom-form-input:focus {
+  border-color: rgba(91,173,255,0.5);
+  box-shadow: 0 0 0 3px rgba(91,173,255,0.12);
+}
 .sroom-form-row   { display: flex; gap: 8px; align-items: center; }
 .sroom-hours-input { width: 80px; flex-shrink: 0; }
 
@@ -5185,102 +5365,294 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
 .vault-rarity-epic      { background: rgba(167,139,250,0.2); color: #a78bfa; }
 .vault-rarity-legendary { background: rgba(251,191,36,0.2);  color: #fbbf24; }
 
-/* Stats pane */
-.sroom-stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
-.sroom-stat-card  { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 12px; padding: 10px 8px; text-align: center; }
-.sroom-stat-val   { font-size: 20px; font-weight: 900; color: var(--text); }
-.sroom-stat-lbl   { font-size: 10px; color: var(--text-muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.05em; }
-.sroom-bars       { display: flex; flex-direction: column; gap: 10px; }
-.sroom-bar-row    { display: flex; flex-direction: column; gap: 5px; }
-.sroom-bar-meta   { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); }
-.sroom-bar-track  { height: 6px; background: rgba(255,255,255,0.07); border-radius: 3px; overflow: hidden; }
-.sroom-bar-fill   { height: 100%; border-radius: 3px; transition: width 0.8s ease; }
-.sroom-bar-momentum { background: linear-gradient(90deg, #5badff, #a78bfa); }
-.sroom-bar-complete { background: linear-gradient(90deg, #22c55e, #4ade80); }
-.sroom-bar-energy   { background: linear-gradient(90deg, #f97316, #fbbf24); }
+/* ── Stats Pane ────────────────────────────────────────────────── */
+.sroom-stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+.sroom-stat-card  {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px; padding: 12px 8px 10px; text-align: center;
+  backdrop-filter: blur(8px);
+  transition: border-color 0.2s, transform 0.15s;
+}
+.sroom-stat-card:active { transform: scale(0.97); }
+.sroom-stat-val   {
+  font-size: 22px; font-weight: 900; color: var(--text);
+  letter-spacing: -0.03em; line-height: 1;
+}
+.sroom-stat-lbl   {
+  font-size: 9px; color: var(--text-muted); margin-top: 4px;
+  text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700;
+  line-height: 1.3;
+}
+/* Accent colors per stat card index */
+.sroom-stats-grid .sroom-stat-card:nth-child(1) { border-color: rgba(249,115,22,0.2); }
+.sroom-stats-grid .sroom-stat-card:nth-child(1) .sroom-stat-val { color: #f97316; text-shadow: 0 0 12px rgba(249,115,22,0.3); }
+.sroom-stats-grid .sroom-stat-card:nth-child(2) { border-color: rgba(91,173,255,0.2); }
+.sroom-stats-grid .sroom-stat-card:nth-child(2) .sroom-stat-val { color: #5badff; text-shadow: 0 0 12px rgba(91,173,255,0.3); }
+.sroom-stats-grid .sroom-stat-card:nth-child(3) { border-color: rgba(167,139,250,0.2); }
+.sroom-stats-grid .sroom-stat-card:nth-child(3) .sroom-stat-val { color: #a78bfa; text-shadow: 0 0 12px rgba(167,139,250,0.3); }
+.sroom-stats-grid .sroom-stat-card:nth-child(4) { border-color: rgba(251,191,36,0.2); }
+.sroom-stats-grid .sroom-stat-card:nth-child(4) .sroom-stat-val { color: #fbbf24; text-shadow: 0 0 12px rgba(251,191,36,0.3); }
+.sroom-stats-grid .sroom-stat-card:nth-child(5) { border-color: rgba(248,113,113,0.2); }
+.sroom-stats-grid .sroom-stat-card:nth-child(5) .sroom-stat-val { color: #f87171; text-shadow: 0 0 12px rgba(248,113,113,0.3); }
+.sroom-stats-grid .sroom-stat-card:nth-child(6) { border-color: rgba(74,222,128,0.2); }
+.sroom-stats-grid .sroom-stat-card:nth-child(6) .sroom-stat-val { color: #4ade80; text-shadow: 0 0 12px rgba(74,222,128,0.3); }
+
+.sroom-bars       { display: flex; flex-direction: column; gap: 12px; }
+.sroom-bar-row    { display: flex; flex-direction: column; gap: 6px; }
+.sroom-bar-meta   { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); font-weight: 600; }
+.sroom-bar-track  {
+  height: 7px; background: rgba(255,255,255,0.06);
+  border-radius: 99px; overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.3);
+}
+.sroom-bar-fill   { height: 100%; border-radius: 99px; transition: width 0.9s cubic-bezier(0.4,0,0.2,1); }
+.sroom-bar-momentum {
+  background: linear-gradient(90deg, #5badff, #a78bfa);
+  box-shadow: 0 0 8px rgba(91,173,255,0.4);
+}
+.sroom-bar-complete {
+  background: linear-gradient(90deg, #22c55e, #4ade80);
+  box-shadow: 0 0 8px rgba(34,197,94,0.4);
+}
+.sroom-bar-energy   {
+  background: linear-gradient(90deg, #f97316, #fbbf24);
+  box-shadow: 0 0 8px rgba(249,115,22,0.4);
+}
+
+/* Subject Mastery */
 .sroom-mastery-list  { display: flex; flex-direction: column; gap: 10px; }
-.sroom-mastery-card  { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 12px; padding: 12px; }
-.sroom-mastery-head  { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-.sroom-mastery-badge { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
-.sroom-mastery-name  { font-size: 13px; font-weight: 700; color: var(--text); }
-.sroom-mastery-king  { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
-.sroom-mastery-row   { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; }
-.sroom-mastery-av    { width: 20px; height: 20px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #fff; flex-shrink: 0; }
-.sroom-mastery-bar-wrap { flex: 1; height: 4px; background: rgba(255,255,255,0.07); border-radius: 2px; overflow: hidden; }
-.sroom-mastery-bar   { height: 100%; border-radius: 2px; transition: width 0.5s; }
-.sroom-mastery-time  { font-size: 10px; color: var(--text-muted); flex-shrink: 0; min-width: 30px; text-align: right; }
-.sroom-duel-card { background: var(--glass-bg); border: 1px solid rgba(251,191,36,0.2); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px; }
-.sroom-duel-head { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 13px; font-weight: 700; color: var(--text); }
-.sroom-duel-timer { font-size: 11px; color: var(--warn); font-weight: 700; }
-.sroom-duel-vs-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
-.sroom-duel-side { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1; padding: 8px; border-radius: 10px; transition: background var(--t-fast); }
-.sroom-duel-winning { background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.2); }
-.sroom-duel-av   { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: #fff; }
-.sroom-duel-name { font-size: 12px; font-weight: 600; color: var(--text); }
-.sroom-duel-xp   { font-size: 11px; color: #fbbf24; font-weight: 700; }
-.sroom-duel-vs   { font-size: 13px; font-weight: 900; color: var(--text-muted); flex-shrink: 0; }
-.sroom-duel-bar  { height: 5px; background: rgba(248,113,113,0.2); border-radius: 3px; overflow: hidden; }
-.sroom-duel-fill { height: 100%; border-radius: 3px; transition: width 0.4s; }
+.sroom-mastery-card  {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px; padding: 14px;
+  backdrop-filter: blur(8px);
+}
+.sroom-mastery-head  { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.sroom-mastery-badge {
+  width: 38px; height: 38px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; flex-shrink: 0;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+}
+.sroom-mastery-name  { font-size: 14px; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
+.sroom-mastery-king  { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.sroom-mastery-row   { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+.sroom-mastery-av    {
+  width: 22px; height: 22px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 8px; font-weight: 700; color: #fff; flex-shrink: 0;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+.sroom-mastery-bar-wrap {
+  flex: 1; height: 5px; background: rgba(255,255,255,0.06);
+  border-radius: 99px; overflow: hidden;
+}
+.sroom-mastery-bar   { height: 100%; border-radius: 99px; transition: width 0.6s; }
+.sroom-mastery-time  { font-size: 10px; color: var(--text-muted); flex-shrink: 0; min-width: 32px; text-align: right; font-weight: 600; }
+
+/* ── Duel Cards ────────────────────────────────────────────────── */
+.sroom-duel-card {
+  background: rgba(251,191,36,0.04);
+  border: 1px solid rgba(251,191,36,0.2);
+  border-radius: 18px; padding: 14px 16px; margin-bottom: 10px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 20px rgba(251,191,36,0.06);
+}
+.sroom-duel-head {
+  display: flex; justify-content: space-between; margin-bottom: 12px;
+  font-size: 13px; font-weight: 800; color: var(--text);
+  letter-spacing: -0.01em;
+}
+.sroom-duel-timer {
+  font-size: 11px; color: #fbbf24; font-weight: 700;
+  background: rgba(251,191,36,0.12); border: 1px solid rgba(251,191,36,0.2);
+  border-radius: 6px; padding: 2px 7px;
+}
+.sroom-duel-vs-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.sroom-duel-side {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  flex: 1; padding: 10px 8px; border-radius: 14px;
+  transition: background 0.2s, border-color 0.2s;
+  border: 1px solid transparent;
+}
+.sroom-duel-winning {
+  background: rgba(34,197,94,0.07);
+  border-color: rgba(34,197,94,0.2);
+  box-shadow: 0 0 16px rgba(34,197,94,0.06);
+}
+.sroom-duel-av   {
+  width: 42px; height: 42px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; font-weight: 800; color: #fff;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+}
+.sroom-duel-name { font-size: 12px; font-weight: 700; color: var(--text); }
+.sroom-duel-xp   { font-size: 12px; color: #fbbf24; font-weight: 800; }
+.sroom-duel-vs   {
+  font-size: 14px; font-weight: 900; color: #fbbf24; flex-shrink: 0;
+  text-shadow: 0 0 12px rgba(251,191,36,0.5);
+}
+.sroom-duel-bar  {
+  height: 6px; background: rgba(255,255,255,0.06);
+  border-radius: 99px; overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.3);
+}
+.sroom-duel-fill {
+  height: 100%; border-radius: 99px;
+  background: linear-gradient(90deg, #4ade80, #22c55e);
+  box-shadow: 0 0 8px rgba(34,197,94,0.4);
+  transition: width 0.5s cubic-bezier(0.4,0,0.2,1);
+}
 
 /* Admin / Settings Sheet */
-.adm-sheet { display: flex; flex-direction: column; max-height: 85vh; overflow-y: auto; }
-.adm-sheet-handle { width: 36px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.15); margin: 0 auto 16px; flex-shrink: 0; }
-.adm-sheet-hdr { display: flex; align-items: flex-start; justify-content: space-between; padding: 0 0 16px; border-bottom: 1px solid var(--glass-border); }
-.adm-sheet-title    { font-size: 16px; font-weight: 800; }
-.adm-sheet-subtitle { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
-.adm-sheet-code { font-size: 13px; font-weight: 900; letter-spacing: 2px; color: var(--primary); font-family: 'Courier New', monospace; background: rgba(91,173,255,0.1); padding: 4px 8px; border-radius: 7px; flex-shrink: 0; }
-.adm-group { padding: 14px 0; border-bottom: 1px solid var(--glass-border); display: flex; flex-direction: column; }
+/* ── Admin / Settings Sheet ──────────────────────────────────── */
+.adm-sheet {
+  display: flex; flex-direction: column; max-height: 85vh; overflow-y: auto;
+}
+.adm-sheet-handle {
+  width: 40px; height: 4px; border-radius: 99px;
+  background: rgba(255,255,255,0.12);
+  margin: 0 auto 18px; flex-shrink: 0;
+}
+.adm-sheet-hdr {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  padding: 0 0 18px; border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.adm-sheet-title    { font-size: 17px; font-weight: 800; letter-spacing: -0.02em; }
+.adm-sheet-subtitle { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+.adm-sheet-code {
+  font-size: 12px; font-weight: 900; letter-spacing: 2.5px; color: #5badff;
+  font-family: 'Courier New', monospace;
+  background: rgba(91,173,255,0.1); border: 1px solid rgba(91,173,255,0.2);
+  padding: 4px 10px; border-radius: 8px; flex-shrink: 0;
+}
+.adm-group {
+  padding: 16px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
+  display: flex; flex-direction: column;
+}
 .adm-group:last-child { border-bottom: none; }
-.adm-group-label { font-size: 10px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 10px; }
-.adm-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
-.adm-row-ico   { font-size: 18px; flex-shrink: 0; }
+.adm-group-label {
+  font-size: 9px; font-weight: 800; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 12px;
+}
+.adm-row {
+  display: flex; align-items: center; gap: 12px; padding: 8px 10px;
+  border-radius: 12px; transition: background 0.15s; cursor: default;
+}
+.adm-row:hover { background: rgba(255,255,255,0.04); }
+.adm-row-ico   { font-size: 18px; flex-shrink: 0; width: 32px; text-align: center; }
 .adm-row-body  { flex: 1; min-width: 0; }
 .adm-row-title { font-size: 13px; font-weight: 600; color: var(--text); }
-.adm-row-sub   { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
-.adm-row-btn   { padding: 5px 10px; background: rgba(255,255,255,0.07); border: 1px solid var(--glass-border); border-radius: 8px; color: var(--text); font-size: 12px; cursor: pointer; flex-shrink: 0; }
+.adm-row-sub   { font-size: 11px; color: var(--text-muted); margin-top: 2px; line-height: 1.3; }
+.adm-row-btn {
+  padding: 6px 12px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px; color: var(--text); font-size: 12px; font-weight: 600;
+  cursor: pointer; flex-shrink: 0;
+  transition: background 0.2s, border-color 0.2s;
+}
+.adm-row-btn:hover { background: rgba(255,255,255,0.13); border-color: rgba(255,255,255,0.2); }
 .adm-row-chev  { color: var(--text-muted); font-size: 16px; flex-shrink: 0; }
 .adm-mono      { font-family: 'Courier New', monospace; letter-spacing: 1px; }
-.adm-toggle { width: 42px; height: 24px; border-radius: 12px; background: rgba(255,255,255,0.1); border: none; cursor: pointer; position: relative; flex-shrink: 0; transition: background var(--t-fast); }
-.adm-toggle-on   { background: var(--primary); }
-.adm-toggle-knob { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 9px; background: #fff; transition: transform var(--t-fast); }
+.adm-toggle {
+  width: 44px; height: 26px; border-radius: 13px;
+  background: rgba(255,255,255,0.1); border: none; cursor: pointer;
+  position: relative; flex-shrink: 0;
+  transition: background 0.25s, box-shadow 0.25s;
+}
+.adm-toggle-on { background: #5badff; box-shadow: 0 0 10px rgba(91,173,255,0.35); }
+.adm-toggle-knob {
+  position: absolute; top: 4px; left: 4px;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
+}
 .adm-toggle-on .adm-toggle-knob { transform: translateX(18px); }
 .adm-members-list { display: flex; flex-direction: column; }
-.adm-member-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid rgba(255,255,255,0.04); }
-.adm-member-row:first-child { border-top: none; }
+.adm-member-row {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border-radius: 12px; transition: background 0.15s;
+}
+.adm-member-row:hover { background: rgba(255,255,255,0.03); }
 .adm-member-av-wrap { position: relative; }
-.adm-member-av { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #fff; }
-.adm-member-dot { position: absolute; bottom: -1px; right: -1px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--surface); }
+.adm-member-av {
+  width: 36px; height: 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; color: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.adm-member-dot {
+  position: absolute; bottom: 0; right: 0;
+  width: 10px; height: 10px; border-radius: 50%;
+  border: 2px solid var(--surface);
+}
 .adm-member-info  { flex: 1; min-width: 0; }
-.adm-member-name  { font-size: 13px; font-weight: 600; color: var(--text); }
-.adm-member-sub   { font-size: 11px; color: var(--text-muted); }
-.adm-kick-btn { padding: 4px 10px; background: rgba(248,113,113,0.1); border: 1px solid rgba(248,113,113,0.25); border-radius: 7px; color: var(--danger); font-size: 11px; cursor: pointer; flex-shrink: 0; }
+.adm-member-name  { font-size: 13px; font-weight: 700; color: var(--text); }
+.adm-member-sub   { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+.adm-kick-btn {
+  padding: 4px 11px;
+  background: rgba(248,113,113,0.1);
+  border: 1px solid rgba(248,113,113,0.25);
+  border-radius: 8px; color: #f87171; font-size: 11px; font-weight: 600;
+  cursor: pointer; flex-shrink: 0;
+  transition: background 0.2s, transform 0.15s;
+}
+.adm-kick-btn:hover { background: rgba(248,113,113,0.22); transform: scale(1.05); }
 .adm-crown-badge  { font-size: 16px; flex-shrink: 0; }
-.adm-empty { font-size: 13px; color: var(--text-muted); padding: 8px 0; }
-.adm-danger-group .adm-group-label { color: var(--danger); }
-.adm-danger-label { color: var(--danger) !important; }
-.adm-delete-btn { width: 100%; display: flex; align-items: center; gap: 10px; background: transparent; border: 1px solid rgba(248,113,113,0.2); border-radius: 12px; padding: 12px; cursor: pointer; transition: background var(--t-fast); }
-.adm-delete-btn:hover { background: rgba(248,113,113,0.07); }
-.adm-delete-ico   { font-size: 18px; }
+.adm-empty { font-size: 13px; color: var(--text-muted); padding: 8px 10px; }
+.adm-danger-group .adm-group-label { color: #f87171; }
+.adm-danger-label { color: #f87171 !important; }
+.adm-delete-btn {
+  width: 100%; display: flex; align-items: center; gap: 12px;
+  background: rgba(248,113,113,0.04);
+  border: 1px solid rgba(248,113,113,0.18);
+  border-radius: 14px; padding: 14px; cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+.adm-delete-btn:hover { background: rgba(248,113,113,0.1); border-color: rgba(248,113,113,0.3); }
+.adm-delete-ico   { font-size: 20px; }
 .adm-delete-body  { text-align: left; }
-.adm-delete-title { font-size: 13px; font-weight: 600; color: var(--danger); }
-.adm-delete-sub   { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
-.adm-leave-row:hover { background: rgba(255,255,255,0.03); border-radius: 8px; }
-.adm-leave-title  { color: var(--danger); }
-.adm-leave-chev   { color: var(--danger); }
+.adm-delete-title { font-size: 13px; font-weight: 700; color: #f87171; }
+.adm-delete-sub   { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.adm-leave-row:hover { background: rgba(255,255,255,0.03); border-radius: 10px; }
+.adm-leave-title  { color: #f87171; }
+.adm-leave-chev   { color: #f87171; }
 .adm-sheet-footer { padding-top: 16px; }
 .adm-close-btn    { width: 100%; justify-content: center; }
 
 /* Chat Context Menu */
-.chat-ctx-backdrop { position: fixed; inset: 0; z-index: 10001; background: rgba(0,0,0,0.3); }
-.chat-ctx-menu { position: fixed; z-index: 10002; min-width: 200px; background: var(--surface); border: 1px solid var(--glass-border); border-radius: 16px; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.4); animation: ctx-in 0.15s ease; }
-@keyframes ctx-in { from { opacity: 0; transform: scale(0.92); } }
-.chat-ctx-emojis   { display: flex; gap: 2px; padding: 10px 10px 8px; }
-.chat-ctx-emoji    { font-size: 22px; padding: 4px; border: none; background: transparent; cursor: pointer; border-radius: 8px; transition: background var(--t-fast); }
-.chat-ctx-emoji:hover { background: rgba(255,255,255,0.1); }
-.chat-ctx-divider  { height: 1px; background: var(--glass-border); }
-.chat-ctx-action   { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 14px; background: transparent; border: none; cursor: pointer; color: var(--text); font-size: 13px; transition: background var(--t-fast); text-align: left; }
-.chat-ctx-action:hover { background: rgba(255,255,255,0.06); }
-.chat-ctx-danger   { color: var(--danger); }
+.chat-ctx-backdrop { position: fixed; inset: 0; z-index: 10001; background: rgba(0,0,0,0.45); backdrop-filter: blur(4px); }
+.chat-ctx-menu {
+  position: fixed; z-index: 10002; min-width: 210px;
+  background: rgba(18,24,36,0.95);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 20px; overflow: hidden;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04) inset;
+  backdrop-filter: blur(24px);
+  animation: ctx-in 0.15s cubic-bezier(0.34,1.56,0.64,1);
+}
+@keyframes ctx-in { from { opacity: 0; transform: scale(0.88); } }
+.chat-ctx-emojis   { display: flex; gap: 4px; padding: 12px 12px 10px; }
+.chat-ctx-emoji    {
+  font-size: 22px; padding: 5px; border: none; background: transparent;
+  cursor: pointer; border-radius: 10px;
+  transition: background 0.15s, transform 0.12s;
+}
+.chat-ctx-emoji:hover { background: rgba(255,255,255,0.12); transform: scale(1.2); }
+.chat-ctx-divider  { height: 1px; background: rgba(255,255,255,0.07); }
+.chat-ctx-action {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; padding: 11px 16px;
+  background: transparent; border: none; cursor: pointer;
+  color: var(--text); font-size: 13px; font-weight: 500;
+  transition: background 0.15s; text-align: left;
+}
+.chat-ctx-action:hover { background: rgba(255,255,255,0.07); }
+.chat-ctx-danger   { color: #f87171; }
+.chat-ctx-danger:hover { background: rgba(248,113,113,0.1); }
 
 /* Chat message action sheet */
 .chat-menu-sheet   { display: flex; flex-direction: column; }
