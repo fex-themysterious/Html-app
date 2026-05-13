@@ -5443,15 +5443,6 @@
   // ========== Sound Track Catalogue ==========
   const SOUNDS = [
     { id: 'none',          label: '🔇 Off',              src: null,                               cat: null },
-    { id: 'peaky',         label: '🎩 Peaky Blinder',     src: './sounds/peaky-blinder.mp3',       cat: 'Workout' },
-    { id: 'believer',      label: '💥 Believer',          src: './sounds/believer.m4a',            cat: 'Workout' },
-    { id: 'rasputin',      label: '⚡ Rasputin',           src: './sounds/rasputin.m4a',            cat: 'Workout' },
-    { id: 'enemy',         label: '🎭 Enemy',             src: './sounds/enemy.m4a',               cat: 'Workout' },
-    { id: 'aal-izz-well',  label: '✌ Aal Izz Well',      src: './sounds/aal-izz-well.m4a',        cat: 'Vibes' },
-    { id: 'sunshine',      label: '🌞 Give Me Sunshine',  src: './sounds/give-me-sunshine.m4a',    cat: 'Vibes' },
-    { id: 'shape',         label: '💃 Shape of You',      src: './sounds/shape-of-you.m4a',        cat: 'Vibes' },
-    { id: 'hall-of-fame',  label: '🏆 Hall of Fame',      src: './sounds/hall-of-fame.m4a',        cat: 'Vibes' },
-    { id: 'summertime',    label: '🌊 Summertime Sadness', src: './sounds/summertime-sadness.m4a',  cat: 'Vibes' },
   ];
   function soundById(id) { return SOUNDS.find(s => s.id === id) || SOUNDS[0]; }
 
