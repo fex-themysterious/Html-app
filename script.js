@@ -2398,6 +2398,7 @@
     const roomName         = (_socialRoomData && _socialRoomData.roomName) || `Room ${_socialRoomCode}`;
     const isPrivate        = !!(_socialRoomData && _socialRoomData.private);
     const T                = _socialRoomTab;
+    const meData           = sorted.find(m => m.uid === _userId);
 
     // ── HEADER ──────────────────────────────────────────────────────
     const headerHTML = `
@@ -2427,8 +2428,16 @@
     </div>`;
 
     // ── MOMENTUM BAR ─────────────────────────────────────────────────
+    const _meXPRaw = meData ? (meData.xpTotal || 0) : 0;
+    const _meXPStr = _meXPRaw >= 1000 ? ((_meXPRaw/1000).toFixed(1)+'k') : _meXPRaw;
     const momentumHTML = `
     <div class="sroom-momentum">
+      ${meData ? `<div class="sroom-mom-xp-row">
+        <span class="sroom-mom-xp-fire">🔥</span>
+        <span class="sroom-mom-xp-val">${_meXPStr}<span class="sroom-mom-xp-label"> XP</span></span>
+        <span class="sroom-mom-xp-sep">·</span>
+        <span class="sroom-mom-xp-mine">Your XP</span>
+      </div>` : ''}
       <div class="sroom-mom-top">
         <span class="sroom-mom-label">⚡ Collective Momentum</span>
         <span class="sroom-mom-pct" id="smom-header-pct">${momentumPct}%</span>
@@ -2452,9 +2461,59 @@
     </nav>`;
 
     // ── MEMBERS PANE ─────────────────────────────────────────────────
-    const memberCardsHTML = sorted.length ? sorted.map(m => {
-      const st = _sStatusOf(m);
-      const isMe       = m.uid === _userId;
+    // Hero card for the current user
+    let heroCardHTML = '';
+    if (meData) {
+      const hSt        = _sStatusOf(meData);
+      const hFocusing  = hSt === 'focusing';
+      const hOwner     = meData.uid === (_socialRoomData && _socialRoomData.createdBy);
+      const hIni       = _sInitials(meData.displayName || 'S');
+      const hAvContent = meData.avatarUrl ? `<img src="${escapeHTML(meData.avatarUrl)}" class="sroom-mc-img" alt=""/>` : hIni;
+      const hEq        = _myEquipped();
+      const hBorderCls = _cmkBorderClass(hEq);
+      const hAuraCls   = _cmkAuraClass(hEq);
+      const hTitleHTML = _cmkTitleHTML(hEq);
+      const hStreak    = meData.studyStreak || 0;
+      let hActHTML = '';
+      if (hFocusing && meData.focusSubjectName) {
+        hActHTML = `<div class="sroom-mc-chip sroom-chip-focus">📚 ${escapeHTML(meData.focusSubjectName)}</div>`;
+      } else if (hFocusing) {
+        hActHTML = `<div class="sroom-mc-chip sroom-chip-focus">📚 Studying</div>`;
+      }
+      heroCardHTML = `
+      <div class="sroom-hero-wrap">
+        <div class="sroom-hero-outer${hAuraCls ? ' '+hAuraCls : ''}">
+          <div class="sroom-hero-card">
+            ${hOwner ? '<div class="sroom-hero-crown">👑</div>' : ''}
+            <div class="sroom-hero-av-wrap">
+              <div class="sroom-hero-av${hBorderCls ? ' '+hBorderCls : ''}" style="background:${_sAvatarColor(meData.uid)}">${hAvContent}</div>
+              <div class="sroom-mc-dot sroom-dot-${hSt} sroom-hero-dot"></div>
+              ${hFocusing ? '<div class="sroom-hero-pulse"></div>' : ''}
+            </div>
+            <div class="sroom-hero-name">${escapeHTML(meData.displayName || 'You')}</div>
+            ${hTitleHTML ? `<div class="sroom-hero-title">${hTitleHTML}</div>` : ''}
+            <div class="sroom-hero-xp">
+              <span class="sroom-hero-fire-ico">🔥</span>
+              <span class="sroom-hero-xp-num">${_meXPStr}</span>
+              <span class="sroom-hero-xp-tag">XP</span>
+              <span class="sroom-hero-fire-ico">🔥</span>
+            </div>
+            <div class="sroom-hero-location">
+              ${hFocusing && meData.focusStartedAt
+                ? `<span class="sroom-mc-timer grm-elapsed sroom-hero-timer" data-focusat="${meData.focusStartedAt}">0s</span>`
+                : `<span class="sroom-hero-lastseen">${_sLastSeenText(meData)}</span>`}
+            </div>
+            ${hActHTML}
+            ${hStreak >= 2 ? `<div class="sroom-hero-streak">🔥 ${hStreak} day streak</div>` : ''}
+          </div>
+        </div>
+      </div>`;
+    }
+
+    // Regular cards for other members
+    const othersArr = sorted.filter(m => m.uid !== _userId);
+    const otherCardsHTML = othersArr.map(m => {
+      const st       = _sStatusOf(m);
       const isFocusing = st === 'focusing';
       const isOnline   = st !== 'offline';
       const isOwner    = m.uid === (_socialRoomData && _socialRoomData.createdBy);
@@ -2462,15 +2521,11 @@
       const streak     = m.studyStreak || 0;
       const xpStr      = (m.xpTotal || 0) >= 1000 ? ((m.xpTotal/1000).toFixed(1)+'k') : (m.xpTotal||0);
       const avContent  = m.avatarUrl ? `<img src="${escapeHTML(m.avatarUrl)}" class="sroom-mc-img" alt=""/>` : ini;
-      const profAct    = !isMe ? `data-act="view-profile" data-uid="${m.uid}"` : '';
-      // Status label
-      const stLabel = isFocusing ? 'Focusing' : isOnline ? 'Online' : 'Offline';
-      // Cosmetics
-      const mEq        = (isMe ? _myEquipped() : (m.equippedItems || {}));
+      const stLabel    = isFocusing ? 'Focusing' : isOnline ? 'Online' : 'Offline';
+      const mEq        = (m.equippedItems || {});
       const borderCls  = _cmkBorderClass(mEq);
       const auraCls    = _cmkAuraClass(mEq);
       const titleHTML  = _cmkTitleHTML(mEq);
-      // Activity chip — shown below status
       let activityHTML;
       if (isFocusing && m.focusSubjectName) {
         activityHTML = `<div class="sroom-mc-chip sroom-chip-focus">📚 ${escapeHTML(m.focusSubjectName)}</div>`;
@@ -2481,8 +2536,8 @@
       } else {
         activityHTML = `<div class="sroom-mc-lastseen">${_sLastSeenText(m)}</div>`;
       }
-      return `<div class="sroom-mc sroom-mc-${st}${isMe ? ' sroom-mc-me' : ''}${auraCls ? ' '+auraCls : ''}">
-        <div class="sroom-mc-av-wrap" ${profAct}>
+      return `<div class="sroom-mc sroom-mc-${st}${auraCls ? ' '+auraCls : ''}" data-act="view-profile" data-uid="${m.uid}">
+        <div class="sroom-mc-av-wrap">
           <div class="sroom-mc-av${borderCls ? ' '+borderCls : ''}" style="background:${_sAvatarColor(m.uid)}">${avContent}</div>
           <div class="sroom-mc-dot sroom-dot-${st}"></div>
           ${isFocusing ? '<div class="sroom-mc-pulse"></div>' : ''}
@@ -2498,12 +2553,14 @@
         ${activityHTML}
         <div class="sroom-mc-xp">⚡ ${xpStr}</div>
         ${streak >= 2 ? `<div class="sroom-mc-streak">🔥 ${streak}d</div>` : ''}
-        ${!isMe ? `<div class="sroom-mc-acts">
+        <div class="sroom-mc-acts">
           <button class="sroom-act-btn" data-act="social-nudge" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName||'')}" title="Poke">👋</button>
           ${isOnline ? `<button class="sroom-act-btn sroom-duel-btn" data-act="social-duel" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName||'')}" title="Duel">⚔️</button>` : ''}
-        </div>` : ''}
+        </div>
       </div>`;
-    }).join('') : `<div class="sroom-empty"><div class="sroom-empty-icon">👥</div><div>No one here yet<br>Share the room code!</div></div>`;
+    }).join('');
+
+    const memberCardsHTML = `${heroCardHTML}${othersArr.length ? `<div class="sroom-members-grid">${otherCardsHTML}</div>` : ''}${!sorted.length ? `<div class="sroom-empty"><div class="sroom-empty-icon">👥</div><div>No one here yet<br>Share the room code!</div></div>` : ''}`;
 
     // ── CHAT PANE ────────────────────────────────────────────────────
     const typingNow  = members.filter(m => m.uid !== _userId && m.typing && (now - m.typing) < 5000);
@@ -2776,7 +2833,7 @@
       ${momentumHTML}
       <div class="sroom-content${T==='chat'?' sroom-chat-mode':''}">
         <div class="sroom-pane${T==='members'?' sroom-pane-active':''}">
-          <div class="sroom-members-grid">${memberCardsHTML}</div>
+          <div class="sroom-members-outer">${memberCardsHTML}</div>
         </div>
         <div class="sroom-pane sroom-pane-chat${T==='chat'?' sroom-pane-active':''}">
           ${chatHTML}
