@@ -5496,3 +5496,96 @@ body[data-theme="golden"] .social-member-card.sm-focusing  { background: rgba(25
 .tgc-badge  { font-size: 10px; font-weight: 800; color: var(--primary); white-space: nowrap; flex-shrink: 0; }
 .tgc-equip  { flex-shrink: 0; }
 .tgc-locked-badge { font-size: 10px; color: var(--text-muted); font-weight: 700; white-space: nowrap; flex-shrink: 0; }
+
+/* ── My Groups Section ─────────────────────────────────────────── */
+.my-groups-section {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 14px 16px;
+  margin: 0 16px 16px;
+}
+.my-groups-title {
+  font-size: 13px; font-weight: 800;
+  color: var(--text-muted); text-transform: uppercase;
+  letter-spacing: .08em; margin-bottom: 10px;
+}
+.my-group-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 0; border-bottom: 1px solid var(--border);
+}
+.my-group-item:last-child { border-bottom: none; padding-bottom: 0; }
+.my-group-code {
+  font-size: 16px; font-weight: 900; letter-spacing: 3px;
+  color: var(--primary); font-family: monospace;
+}
+.my-group-btns { display: flex; gap: 8px; align-items: center; }
+.my-group-remove { color: #ef4444 !important; border-color: rgba(239,68,68,.2) !important; min-width: 32px; padding: 4px 8px; }
+
+/* ── Leaderboard Toggle ─────────────────────────────────────────── */
+.lb-toggle-row {
+  display: flex; gap: 8px; padding: 0 16px 12px; margin-top: -4px;
+}
+.lb-toggle-btn {
+  flex: 1; padding: 8px 12px;
+  border-radius: 12px; border: 1px solid var(--border);
+  background: rgba(255,255,255,0.03);
+  color: var(--text-muted); font-size: 13px; font-weight: 700;
+  cursor: pointer; transition: all 0.2s;
+}
+.lb-toggle-btn.active {
+  background: var(--primary); color: #fff;
+  border-color: var(--primary); box-shadow: 0 0 14px var(--primary-glow);
+}
+
+/* ── Voice Panel ─────────────────────────────────────────────────── */
+.voice-panel {
+  margin: 8px 16px 0;
+  background: rgba(99,102,241,0.08);
+  border: 1px solid rgba(99,102,241,0.25);
+  border-radius: 16px;
+  padding: 12px 14px;
+}
+.voice-panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px;
+}
+.voice-panel-title { font-size: 13px; font-weight: 800; color: var(--text); }
+.voice-panel-count { font-size: 11px; color: var(--text-muted); font-weight: 600; }
+.voice-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.voice-chip {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 50%;
+  font-size: 12px; font-weight: 800; color: #fff;
+  box-shadow: 0 0 8px rgba(99,102,241,0.35);
+}
+.voice-controls { display: flex; gap: 8px; }
+
+/* ── Avatar Upload ──────────────────────────────────────────────── */
+.avatar-upload-row {
+  display: flex; align-items: center; gap: 14px; margin-bottom: 4px;
+}
+.avatar-preview-img {
+  width: 60px; height: 60px; border-radius: 50%;
+  object-fit: cover; border: 2px solid var(--border);
+}
+.avatar-preview-placeholder {
+  width: 60px; height: 60px; border-radius: 50%;
+  background: var(--primary); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px; font-weight: 900; flex-shrink: 0;
+}
+.avatar-upload-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* ── Home Profile Avatar (with image support) ──────────────────── */
+.home-profile-avatar--img {
+  width: 52px; height: 52px; border-radius: 50%;
+  object-fit: cover; border: 2px solid var(--primary);
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* ── Member Avatar Image ──────────────────────────────────────── */
+.sm-avatar-img {
+  width: 100%; height: 100%; border-radius: 50%; object-fit: cover;
+}
+

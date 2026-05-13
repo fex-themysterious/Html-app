@@ -100,7 +100,7 @@
 
   function defaultState() {
     return {
-      profile: { name: '', tagline: '' },
+      profile: { name: '', tagline: '', avatarDataUrl: null },
       subjects: [
         seedSubject('Mathematics', '#38bdf8', [
           { name: 'Differential Calculus', priority: 'high', topics: ['Limits', 'Derivatives', 'Applications'] },
@@ -162,6 +162,7 @@
     if (!s.profile || typeof s.profile !== 'object') s.profile = { name: '', tagline: '' };
     if (typeof s.profile.name !== 'string') s.profile.name = '';
     if (typeof s.profile.tagline !== 'string') s.profile.tagline = '';
+    if (!('avatarDataUrl' in s.profile)) s.profile.avatarDataUrl = null;
     const _legacyDefaults = new Set([
       "Small steps every day lead to big results.",
       "Discipline beats motivation.",
@@ -476,6 +477,12 @@
           if (parsed && Array.isArray(parsed.subjects)) {
             state = migrate(JSON.parse(JSON.stringify(parsed)));
             try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {}
+            // Restore joined rooms from Firestore profile
+            const savedRooms = snap.data().joinedRooms;
+            if (Array.isArray(savedRooms) && savedRooms.length) {
+              _myGroupCodes = savedRooms;
+              try { localStorage.setItem('my_group_codes', JSON.stringify(_myGroupCodes)); } catch(_) {}
+            }
             renderAll();
             if (_currentTab === 'social') renderSocial();
             _setCloudStatus('synced');
@@ -486,9 +493,10 @@
         }
         // No cloud data yet — upload current local state
         await _db.collection('users').doc(user.uid).set({
-          data:      JSON.stringify(state),
-          uid:       user.uid,
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          data:        JSON.stringify(state),
+          uid:         user.uid,
+          joinedRooms: _myGroupCodes,
+          updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
         });
         _setCloudStatus('synced');
         setTimeout(() => _setCloudStatus('idle'), 3000);
@@ -697,6 +705,20 @@
   let _socialLiveTimerId    = null;
   let _vaultThemeNotified   = false;
 
+  // ── Multi-group / Global LB / Voice ──────────────────────────────────────
+  let _myGroupCodes    = [];
+  let _lbView          = 'group';
+  let _globalLbData    = [];
+  let _globalLbUnsub   = null;
+  let _voicePeers      = {};
+  let _localStream     = null;
+  let _voiceMembers    = {};
+  let _voiceSignalUnsub  = null;
+  let _voicePresentUnsub = null;
+  let _inVoice         = false;
+  let _voiceMuted      = false;
+  let _voiceRemoteAudios = {};
+
   function _sDisplayName() {
     if (state.profile && state.profile.name) return state.profile.name;
     const u = _auth && _auth.currentUser;
@@ -891,8 +913,15 @@
       _socialRoomCode = code;
       _socialLobbyCode = null;
       try { localStorage.setItem('social_room_code', code); } catch (e) {}
+      // Track in My Groups
+      if (!_myGroupCodes.includes(code)) {
+        _myGroupCodes.push(code);
+        try { localStorage.setItem('my_group_codes', JSON.stringify(_myGroupCodes)); } catch(_) {}
+        if (_db && _userId) _db.collection('users').doc(_userId).update({ joinedRooms: _myGroupCodes }).catch(() => {});
+      }
       await _sUpdatePresence('break');
       _sSubscribe();
+      _updateGlobalLb();
       toast(`✅ Joined room ${code}!`, 'success');
       // Award Group Member achievement on first room join
       checkBadges({ joinedRoom: true });
@@ -913,6 +942,8 @@
     _socialRoomCode = null; _socialMembers = {}; _socialRoomData = null;
     _socialLobbyCode = null;
     try { localStorage.removeItem('social_room_code'); } catch (e) {}
+    // Also leave voice if active
+    if (_inVoice) _voiceLeave(true);
     renderSocial(); toast('Left the room', 'info');
   }
 
@@ -1475,6 +1506,11 @@
   }
 
   async function _sSocialInit() {
+    // Load saved my-groups list
+    try {
+      const raw = localStorage.getItem('my_group_codes');
+      if (raw) { const arr = JSON.parse(raw); if (Array.isArray(arr)) _myGroupCodes = arr; }
+    } catch(_) {}
     const saved = (() => { try { return localStorage.getItem('social_room_code'); } catch (e) { return null; } })();
     if (saved && _db && _userId && !_socialRoomCode) {
       _socialRoomCode = saved;
@@ -1508,8 +1544,21 @@
   function _renderSocialLobby() {
     if (!_socialLobbyCode) _socialLobbyCode = _sGenerateCode();
     const code = _socialLobbyCode;
+    const myGroupsHTML = _myGroupCodes.length > 0
+      ? `<div class="my-groups-section">
+          <h3 class="my-groups-title">📚 My Rooms</h3>
+          ${_myGroupCodes.map(c => `<div class="my-group-item">
+            <span class="my-group-code">${c}</span>
+            <div class="my-group-btns">
+              <button class="btn btn-sm" data-act="social-rejoin" data-code="${c}">Rejoin</button>
+              <button class="btn btn-sm btn-ghost my-group-remove" data-act="social-remove-group" data-code="${c}" title="Remove from list">✕</button>
+            </div>
+          </div>`).join('')}
+        </div>`
+      : '';
     return `<div class="social-lobby">
       <div class="social-lobby-hero"><div class="social-lobby-icon">👥</div><h1 class="social-lobby-title">Study Together</h1><p class="social-lobby-sub">Join a room to see friends' live focus, duel for XP, and hit group goals together.</p></div>
+      ${myGroupsHTML}
       <div class="social-lobby-cards">
         <div class="social-lobby-card"><div class="slc-icon">🔗</div><div class="slc-title">Create a Room</div><div class="slc-code">${code}</div><div class="slc-hint">Share this code with friends</div><button class="btn btn-block" data-act="social-create" data-code="${code}">Create &amp; Join</button></div>
         <div class="social-lobby-card"><div class="slc-icon">🚪</div><div class="slc-title">Join a Room</div><input id="social-join-input" class="auth-input" style="margin:12px 0 8px;text-align:center;text-transform:uppercase;letter-spacing:4px;font-weight:700;font-size:18px" maxlength="6" placeholder="XXXXXX" autocomplete="off" spellcheck="false"/><button class="btn btn-block" data-act="social-join">Join Room</button></div>
@@ -1604,8 +1653,12 @@
         acts = `<div class="sm-actions">${nudgeBtn}${duelBtn}</div>`;
       }
       const youB = isMe ? '<span class="sm-you-badge">You</span>' : '';
+      const avatarContent = (isMe && state.profile.avatarDataUrl)
+        ? `<img src="${escapeHTML(state.profile.avatarDataUrl)}" class="sm-avatar-img" alt=""/>`
+        : ini;
+      const profileAct = !isMe ? ` data-act="view-profile" data-uid="${m.uid}" title="View profile" style="cursor:pointer"` : '';
       return `<div class="${cardClass}">${particles}
-        <div class="sm-ring-wrap">${outerRing}${innerRing}<div class="sm-avatar" style="background:${_sAvatarColor(m.uid)}">${ini}</div></div>
+        <div class="sm-ring-wrap">${outerRing}${innerRing}<div class="sm-avatar" style="background:${_sAvatarColor(m.uid)}"${profileAct}>${avatarContent}</div></div>
         <div class="sm-info">
           <div class="sm-name-row"><span class="sm-name">${escapeHTML(m.displayName || 'Anonymous')}</span>${youB}${streakBadge}</div>
           <div class="sm-status">${dot} ${stTxt}${elapsedChip}</div>
@@ -1617,30 +1670,57 @@
 
     // ── Leaderboard with rank movement, crown glow & reset countdown ──
     const lb = [...members].sort((a, b) => (b.weeklyXP || 0) - (a.weeklyXP || 0));
-    // Compute next Monday midnight for countdown
     const lbNow = new Date();
     const daysToMon = (8 - lbNow.getDay()) % 7 || 7;
     const nextMon = new Date(lbNow); nextMon.setDate(lbNow.getDate() + daysToMon); nextMon.setHours(0, 0, 0, 0);
     const secsLeft = Math.max(0, Math.floor((nextMon - lbNow) / 1000));
     const hLeft = Math.floor(secsLeft / 3600), mLeft = Math.floor((secsLeft % 3600) / 60);
     const countdownTxt = secsLeft > 86400 ? `${daysToMon}d ${hLeft % 24}h left` : `${hLeft}h ${mLeft}m left`;
-    const lbRows = lb.map((m, i) => {
-      const isMe = m.uid === _userId;
-      const prevRank = _socialPrevRanks[m.uid];
-      let mvIcon = '';
-      if (prevRank !== undefined && prevRank !== i) {
-        if (i < prevRank)       mvIcon = `<span class="lb-mv lb-mv-up">↑</span>`;
-        else if (i > prevRank)  mvIcon = `<span class="lb-mv lb-mv-dn">↓</span>`;
-      } else if (prevRank !== undefined) {
-        mvIcon = `<span class="lb-mv lb-mv-eq">—</span>`;
-      }
-      _socialPrevRanks[m.uid] = i;
-      const streak = (m.studyStreak || 0) >= 2 ? `<span class="lb-streak">🔥${m.studyStreak}</span>` : '';
-      const topGlow = i === 0 ? ' lb-row-gold' : i === 1 ? ' lb-row-silver' : i === 2 ? ' lb-row-bronze' : '';
-      const med = i === 0 ? '<span class="lb-crown">👑</span>' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="color:var(--text-muted)">${i + 1}.</span>`;
-      return `<div class="lb-row${isMe ? ' lb-me' : ''}${topGlow}">${mvIcon}<span class="lb-rank">${med}</span><span class="lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName || 'S')}</span><span class="lb-name">${escapeHTML(m.displayName || 'Anonymous')}${streak}</span><span class="lb-val">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span><span class="lb-val2">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span></div>`;
-    }).join('') || '<div class="empty" style="padding:8px 0">No data yet</div>';
+    const lbToggleHTML = `<div class="lb-toggle-row">
+      <button class="lb-toggle-btn${_lbView === 'group' ? ' active' : ''}" data-act="lb-view" data-v="group">👥 Group</button>
+      <button class="lb-toggle-btn${_lbView === 'global' ? ' active' : ''}" data-act="lb-view" data-v="global">🌍 Global</button>
+    </div>`;
+    let lbRows;
+    if (_lbView === 'global') {
+      lbRows = _globalLbData.slice(0, 30).map((m, i) => {
+        const isMe = m.uid === _userId;
+        const topGlow = i === 0 ? ' lb-row-gold' : i === 1 ? ' lb-row-silver' : i === 2 ? ' lb-row-bronze' : '';
+        const med = i === 0 ? '<span class="lb-crown">👑</span>' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="color:var(--text-muted)">${i + 1}.</span>`;
+        return `<div class="lb-row${isMe ? ' lb-me' : ''}${topGlow}"><span class="lb-rank">${med}</span><span class="lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.name || 'S')}</span><span class="lb-name">${escapeHTML(m.name || 'Anonymous')}</span><span class="lb-val">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span><span class="lb-val2">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span></div>`;
+      }).join('') || '<div class="empty" style="padding:8px 0">Loading global rankings…</div>';
+    } else {
+      lbRows = lb.map((m, i) => {
+        const isMe = m.uid === _userId;
+        const prevRank = _socialPrevRanks[m.uid];
+        let mvIcon = '';
+        if (prevRank !== undefined && prevRank !== i) {
+          if (i < prevRank)       mvIcon = `<span class="lb-mv lb-mv-up">↑</span>`;
+          else if (i > prevRank)  mvIcon = `<span class="lb-mv lb-mv-dn">↓</span>`;
+        } else if (prevRank !== undefined) {
+          mvIcon = `<span class="lb-mv lb-mv-eq">—</span>`;
+        }
+        _socialPrevRanks[m.uid] = i;
+        const streak = (m.studyStreak || 0) >= 2 ? `<span class="lb-streak">🔥${m.studyStreak}</span>` : '';
+        const topGlow = i === 0 ? ' lb-row-gold' : i === 1 ? ' lb-row-silver' : i === 2 ? ' lb-row-bronze' : '';
+        const med = i === 0 ? '<span class="lb-crown">👑</span>' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="color:var(--text-muted)">${i + 1}.</span>`;
+        return `<div class="lb-row${isMe ? ' lb-me' : ''}${topGlow}">${mvIcon}<span class="lb-rank">${med}</span><span class="lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName || 'S')}</span><span class="lb-name">${escapeHTML(m.displayName || 'Anonymous')}${streak}</span><span class="lb-val">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span><span class="lb-val2">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span></div>`;
+      }).join('') || '<div class="empty" style="padding:8px 0">No data yet</div>';
+    }
     const lbFooter = `<div class="lb-reset-row">🔄 Resets in <strong>${countdownTxt}</strong></div>`;
+
+    // ── Voice Room Panel ──
+    const voiceActive = Object.values(_voiceMembers).filter(m => m.active);
+    const voiceMemberChips = voiceActive.map(m => `<span class="voice-chip" style="background:${_sAvatarColor(m.uid)}" title="${escapeHTML(m.name || 'S')}">${_sInitials(m.name || 'S')}</span>`).join('');
+    const voicePanel = `<div class="voice-panel">
+      <div class="voice-panel-head">
+        <span class="voice-panel-title">🎤 Voice Room</span>
+        <span class="voice-panel-count">${voiceActive.length ? `${voiceActive.length} in voice` : 'No one in voice'}</span>
+      </div>
+      ${voiceActive.length ? `<div class="voice-chips">${voiceMemberChips}</div>` : ''}
+      ${_inVoice
+        ? `<div class="voice-controls"><button class="btn btn-sm${_voiceMuted ? ' btn-danger' : ' btn-ghost'}" data-act="voice-mute">${_voiceMuted ? '🔇 Unmute' : '🎙️ Mute'}</button><button class="btn btn-sm btn-ghost" data-act="voice-leave">📵 Leave Voice</button></div>`
+        : `<button class="btn btn-sm btn-block" data-act="voice-join">🎤 Join Voice</button>`}
+    </div>`;
 
     // ── Subject Mastery with 3D glowing badges ──
     const subMap = {};
@@ -1702,14 +1782,16 @@
 
     return `<div class="social-room">
       <div class="social-room-header"><div class="srh-left"><div class="srh-code-wrap"><span class="srh-label">ROOM</span><span class="srh-code">${_socialRoomCode}</span></div><span class="srh-count">${members.length} member${members.length !== 1 ? 's' : ''}</span></div><div class="srh-right"><button class="btn btn-ghost srh-theme" data-act="theme-gallery" title="Theme Gallery">🎨</button><button class="btn btn-ghost srh-leave" data-act="social-leave">Leave</button></div></div>
+      ${voicePanel}
       ${roomStatsHTML}
       ${momentumHTML}
       <h2 class="social-section-head">Live Focus Map</h2>
       <div class="social-members">${memberCards}</div>
       ${duelsHTML ? `<h2 class="social-section-head">Active Duel</h2><div class="social-duels">${duelsHTML}</div>` : ''}
       ${pastHTML ? `<div class="past-duels">${pastHTML}</div>` : ''}
-      <h2 class="social-section-head">Weekly Leaderboard</h2>
-      <div class="social-lb">${lbRows}${lbFooter}</div>
+      <h2 class="social-section-head">Leaderboard</h2>
+      ${lbToggleHTML}
+      <div class="social-lb">${lbRows}${_lbView === 'group' ? lbFooter : ''}</div>
       <h2 class="social-section-head">Subject Mastery</h2>
       <div class="social-mastery">${masteryHTML}</div>
       ${vaultSection}
@@ -1717,6 +1799,266 @@
       <div class="social-goals">${goalsHTML}</div>
       <div class="social-add-goal"><div class="sag-title">Create Group Goal</div><input id="gg-title-input" class="auth-input" placeholder="e.g. 50 hours of study this week" maxlength="60" style="margin:8px 0"/><div class="gg-add-row"><input id="gg-hours-input" class="auth-input gg-hours-input" type="number" min="1" max="1000" placeholder="Hours" value="50"/><button class="btn" data-act="social-add-goal">Set Goal</button></div></div>
     </div>`;
+  }
+
+  // ── Global Leaderboard ────────────────────────────────────────────────────
+  function _updateGlobalLb() {
+    if (!_db || !_userId) return;
+    try {
+      _db.collection('global_lb').doc(_userId).set({
+        uid:          _userId,
+        name:         _sDisplayName(),
+        weeklyXP:     _sWeeklyXP(),
+        weeklyMinutes: _sWeeklyMinutes(),
+        updatedAt:    firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true }).catch(() => {});
+    } catch(_) {}
+  }
+  async function _loadGlobalLeaderboard() {
+    if (!_db) return;
+    try {
+      const snap = await _db.collection('global_lb').orderBy('weeklyXP', 'desc').limit(50).get();
+      _globalLbData = snap.docs.map(d => d.data());
+      if (_currentTab === 'social' && _socialRoomCode) renderSocial();
+    } catch(e) { console.warn('[Global LB]', e.message); }
+  }
+
+  // ── Social Profile Modal ──────────────────────────────────────────────────
+  function _viewMemberProfile(uid_) {
+    const m = _socialMembers[uid_];
+    if (!m) { toast('Profile not available', 'warn'); return; }
+    const name = m.displayName || 'Anonymous';
+    const ini  = _sInitials(name);
+    const lvInfo = gamificationManager.calculateLevel(m.xpTotal || 0);
+    const focusHrs = minsToHrs((m.totalFocusMinutes || 0) + (m.weeklyMinutes || 0));
+    const streak = m.studyStreak || 0;
+    openModal(`<h3 style="text-align:center">Member Profile</h3>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:8px 0 16px">
+        <div class="sm-avatar" style="width:72px;height:72px;border-radius:50%;background:${_sAvatarColor(uid_)};display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;color:#fff">${ini}</div>
+        <div style="text-align:center">
+          <div style="font-size:18px;font-weight:800;color:var(--text)">${escapeHTML(name)}</div>
+          ${m.email ? `<div style="font-size:12px;color:var(--text-muted);margin-top:2px">${escapeHTML(m.email)}</div>` : ''}
+        </div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center">
+          <div style="text-align:center;background:rgba(255,255,255,0.04);padding:10px 16px;border-radius:12px;min-width:70px">
+            <div style="font-size:20px;font-weight:900;color:var(--accent)">${lvInfo.level}</div>
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Level</div>
+          </div>
+          <div style="text-align:center;background:rgba(255,255,255,0.04);padding:10px 16px;border-radius:12px;min-width:70px">
+            <div style="font-size:20px;font-weight:900;color:#fbbf24">${streak}</div>
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">🔥 Streak</div>
+          </div>
+          <div style="text-align:center;background:rgba(255,255,255,0.04);padding:10px 16px;border-radius:12px;min-width:70px">
+            <div style="font-size:20px;font-weight:900;color:#34d399">${focusHrs}</div>
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Focus</div>
+          </div>
+          <div style="text-align:center;background:rgba(255,255,255,0.04);padding:10px 16px;border-radius:12px;min-width:70px">
+            <div style="font-size:20px;font-weight:900;color:#a78bfa">⚡ ${(m.weeklyXP || 0).toLocaleString()}</div>
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">This Week</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <button class="btn btn-sm btn-ghost" data-act="social-nudge" data-uid="${uid_}" data-name="${escapeHTML(name)}">👋 Poke</button>
+          ${_sStatusOf(m) !== 'offline' ? `<button class="btn btn-sm" data-act="social-duel" data-uid="${uid_}" data-name="${escapeHTML(name)}">⚔️ Duel</button>` : ''}
+        </div>
+      </div>
+      <div class="actions"><button class="btn btn-ghost" data-close>Close</button></div>`);
+  }
+
+  // ── Change Password ───────────────────────────────────────────────────────
+  function _handleChangePassword() {
+    const user = _auth && _auth.currentUser;
+    if (!user) { toast('Sign in first', 'warn'); return; }
+    openModal(`<h3>Change Password</h3>
+      <div class="field"><label>Current Password</label><input id="cp-current" type="password" class="auth-input" placeholder="Current password" autocomplete="current-password"/></div>
+      <div class="field"><label>New Password</label><input id="cp-new" type="password" class="auth-input" placeholder="New password (min 6 chars)" autocomplete="new-password"/></div>
+      <div id="cp-error" class="auth-error hidden"></div>
+      <div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn" id="cp-save">Change Password</button></div>`,
+      root => {
+        root.querySelector('#cp-save').onclick = async () => {
+          const cur = root.querySelector('#cp-current').value;
+          const nw  = root.querySelector('#cp-new').value;
+          const errEl = root.querySelector('#cp-error');
+          errEl.classList.add('hidden');
+          if (!cur || !nw) { errEl.textContent = 'Both fields are required.'; errEl.classList.remove('hidden'); return; }
+          if (nw.length < 6) { errEl.textContent = 'New password must be at least 6 characters.'; errEl.classList.remove('hidden'); return; }
+          try {
+            const cred = firebase.auth.EmailAuthProvider.credential(user.email, cur);
+            await user.reauthenticateWithCredential(cred);
+            await user.updatePassword(nw);
+            closeModal();
+            toast('✅ Password changed successfully!', 'success');
+          } catch(e) {
+            errEl.textContent = e.message || 'Failed to change password.';
+            errEl.classList.remove('hidden');
+          }
+        };
+      });
+  }
+
+  // ── Avatar Upload ─────────────────────────────────────────────────────────
+  function _handleAvatarUpload(file) {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { toast('Please select an image file', 'warn'); return; }
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        const SIZE = 120;
+        const canvas = document.createElement('canvas');
+        canvas.width = SIZE; canvas.height = SIZE;
+        const ctx = canvas.getContext('2d');
+        const ratio = Math.min(SIZE / img.width, SIZE / img.height);
+        const w = img.width * ratio, h = img.height * ratio;
+        ctx.drawImage(img, (SIZE - w) / 2, (SIZE - h) / 2, w, h);
+        state.profile.avatarDataUrl = canvas.toDataURL('image/jpeg', 0.75);
+        saveState();
+        _scheduledCloudSync();
+        renderAll();
+        toast('✅ Profile picture updated!', 'success');
+        modalSettings();
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // ── WebRTC Voice ──────────────────────────────────────────────────────────
+  const _vcPath = () => `groups/${_socialRoomCode}/vc`;
+  function _vcPairId(offerer, answerer) { return offerer + '__' + answerer; }
+
+  function _vcAttachRemoteAudio(uid_, stream) {
+    if (_voiceRemoteAudios[uid_]) { _voiceRemoteAudios[uid_].srcObject = stream; return; }
+    const audio = document.createElement('audio');
+    audio.autoplay = true; audio.srcObject = stream;
+    audio.style.display = 'none';
+    document.body.appendChild(audio);
+    _voiceRemoteAudios[uid_] = audio;
+  }
+
+  async function _vcInitiateCall(targetUid) {
+    if (_voicePeers[targetUid]) return;
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    _voicePeers[targetUid] = pc;
+    if (_localStream) _localStream.getTracks().forEach(t => pc.addTrack(t, _localStream));
+    pc.ontrack = e => { if (e.streams[0]) _vcAttachRemoteAudio(targetUid, e.streams[0]); };
+    const pairId = _vcPairId(_userId, targetUid);
+    pc.onicecandidate = e => {
+      if (e.candidate && _db && _socialRoomCode)
+        _db.collection(_vcPath()).doc(pairId).update({ candidates_offerer: firebase.firestore.FieldValue.arrayUnion(e.candidate.toJSON()) }).catch(() => {});
+    };
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    if (_db && _socialRoomCode)
+      await _db.collection(_vcPath()).doc(pairId).set({ offerer: _userId, answerer: targetUid, offer: { type: offer.type, sdp: offer.sdp }, candidates_offerer: [], candidates_answerer: [] });
+  }
+
+  async function _vcHandleOffer(pairId, data) {
+    const offererUid = data.offerer;
+    if (_voicePeers[offererUid]) return;
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    _voicePeers[offererUid] = pc;
+    if (_localStream) _localStream.getTracks().forEach(t => pc.addTrack(t, _localStream));
+    pc.ontrack = e => { if (e.streams[0]) _vcAttachRemoteAudio(offererUid, e.streams[0]); };
+    pc.onicecandidate = e => {
+      if (e.candidate && _db && _socialRoomCode)
+        _db.collection(_vcPath()).doc(pairId).update({ candidates_answerer: firebase.firestore.FieldValue.arrayUnion(e.candidate.toJSON()) }).catch(() => {});
+    };
+    await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    if (_db && _socialRoomCode)
+      await _db.collection(_vcPath()).doc(pairId).update({ answer: { type: answer.type, sdp: answer.sdp } });
+    (data.candidates_offerer || []).forEach(c => pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {}));
+  }
+
+  function _voiceSubscribeSignals() {
+    if (!_db || !_socialRoomCode || _voiceSignalUnsub) return;
+    _voiceSignalUnsub = _db.collection(_vcPath()).onSnapshot(snap => {
+      snap.docChanges().forEach(async change => {
+        const data = change.doc.data(); if (!data) return;
+        const pairId = change.doc.id;
+        if (data.offerer === _userId && data.answer) {
+          const pc = _voicePeers[data.answerer];
+          if (pc && !pc._answerSet && pc.signalingState === 'have-local-offer') {
+            pc._answerSet = true;
+            await pc.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(() => {});
+            const prev = pc._prevAnsCandCount || 0;
+            (data.candidates_answerer || []).slice(prev).forEach(c => pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {}));
+            pc._prevAnsCandCount = (data.candidates_answerer || []).length;
+          } else if (pc && pc._answerSet) {
+            const prev = pc._prevAnsCandCount || 0;
+            const newC = (data.candidates_answerer || []).slice(prev);
+            pc._prevAnsCandCount = (data.candidates_answerer || []).length;
+            newC.forEach(c => pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {}));
+          }
+        }
+        if (data.answerer === _userId && data.offer && !data.answer && !_voicePeers[data.offerer]) {
+          await _vcHandleOffer(pairId, data).catch(e => console.warn('[Voice] handleOffer', e.message));
+        }
+        if (data.answerer === _userId && data.answer) {
+          const pc = _voicePeers[data.offerer];
+          if (pc) {
+            const prev = pc._prevOffCandCount || 0;
+            const newC = (data.candidates_offerer || []).slice(prev);
+            pc._prevOffCandCount = (data.candidates_offerer || []).length;
+            newC.forEach(c => pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {}));
+          }
+        }
+      });
+    });
+  }
+
+  async function _voiceJoin() {
+    if (!_db || !_userId || !_socialRoomCode) { toast('Join a study room first', 'warn'); return; }
+    if (_inVoice) return;
+    try {
+      _localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    } catch(e) { toast(`Microphone: ${e.message}`, 'danger'); return; }
+    _inVoice = true; _voiceMuted = false; _voicePeers = {}; _voiceMembers = {};
+    try {
+      await _db.collection('groups').doc(_socialRoomCode).collection('voice_presence').doc(_userId).set({ uid: _userId, name: _sDisplayName(), active: true, ts: Date.now() });
+    } catch(e) { console.warn('[Voice] presence write', e.message); }
+    if (_voicePresentUnsub) _voicePresentUnsub();
+    _voicePresentUnsub = _db.collection('groups').doc(_socialRoomCode).collection('voice_presence').onSnapshot(async snap => {
+      const prev = { ..._voiceMembers };
+      _voiceMembers = {};
+      snap.docs.forEach(doc => { const d = doc.data(); if (d.active) _voiceMembers[d.uid] = d; });
+      for (const uid_ of Object.keys(_voiceMembers)) {
+        if (uid_ !== _userId && !prev[uid_] && !_voicePeers[uid_])
+          _vcInitiateCall(uid_).catch(e => console.warn('[Voice] initiate', e.message));
+      }
+      for (const uid_ of Object.keys(prev)) { if (!_voiceMembers[uid_]) _vcHangUpPeer(uid_); }
+      if (_currentTab === 'social') renderSocial();
+    });
+    _voiceSubscribeSignals();
+    renderSocial();
+    toast('🎤 Joined voice room!', 'success');
+  }
+
+  function _vcHangUpPeer(uid_) {
+    const pc = _voicePeers[uid_]; if (pc) { try { pc.close(); } catch(_) {} delete _voicePeers[uid_]; }
+    const au = _voiceRemoteAudios[uid_]; if (au) { try { au.srcObject = null; au.remove(); } catch(_) {} delete _voiceRemoteAudios[uid_]; }
+  }
+
+  function _voiceLeave(silent) {
+    if (!_inVoice) return;
+    _inVoice = false;
+    if (_localStream) { _localStream.getTracks().forEach(t => t.stop()); _localStream = null; }
+    Object.keys(_voicePeers).forEach(uid_ => _vcHangUpPeer(uid_));
+    if (_voicePresentUnsub) { _voicePresentUnsub(); _voicePresentUnsub = null; }
+    if (_voiceSignalUnsub)  { _voiceSignalUnsub();  _voiceSignalUnsub = null; }
+    _voiceMembers = {}; _voicePeers = {}; _voiceRemoteAudios = {};
+    if (_db && _userId && _socialRoomCode)
+      _db.collection('groups').doc(_socialRoomCode).collection('voice_presence').doc(_userId).update({ active: false }).catch(() => {});
+    if (!silent) { renderSocial(); toast('Left voice room', 'info'); }
+  }
+
+  function _voiceMuteToggle() {
+    if (!_localStream) return;
+    _voiceMuted = !_voiceMuted;
+    _localStream.getAudioTracks().forEach(t => { t.enabled = !_voiceMuted; });
+    renderSocial();
   }
 
   // Safe render helper — calls fn(), returns fallback string on any throw
@@ -3899,6 +4241,9 @@
     const profName    = state.profile.name    || '';
     const profTagline = state.profile.tagline || '';
     const profInitial = profName ? profName.trim().charAt(0).toUpperCase() : '?';
+    const profAvatarHTML = state.profile.avatarDataUrl
+      ? `<img src="${escapeHTML(state.profile.avatarDataUrl)}" class="home-profile-avatar home-profile-avatar--img" alt="Avatar"/>`
+      : `<div class="home-profile-avatar">${profInitial}</div>`;
     const nameHtml    = profName
       ? `<div class="home-profile-name">${escapeHTML(profName)}</div>`
       : `<div class="home-profile-name home-profile-name--empty" style="opacity:.55;font-style:italic;font-size:14px">Tap to set name</div>`;
@@ -3912,7 +4257,7 @@
     const _totalFocusMin = Object.values((state.focusStats && state.focusStats.minutesByDate) || {}).reduce((a, b) => a + b, 0);
     const _rankInfo = calculateRank(_totalFocusMin / 60 + (state.rankTestHours || 0)) || {};
     const _streakCount = state.streak.count || 0;
-    view.innerHTML = `<div class="home-profile" data-act="open-settings" role="button" tabindex="0" style="cursor:pointer" title="Edit profile"><div class="home-profile-avatar">${profInitial}</div><div class="home-profile-info">${nameHtml}${taglineHtml}</div><span class="home-profile-greeting">${greeting()} 👋</span></div><div class="home-moti-card"><span class="home-moti-icon">💡</span><p class="home-moti-text" id="home-moti-text">${escapeHTML(motivationMsg)}</p></div><div class="home-xp-board"><div class="xp-board-header"><span class="xp-board-eyebrow">⚡ STATS BOARD</span><span class="xp-board-rank-pill">${escapeHTML(_rankInfo.label || 'Seeker')}</span></div><div class="xp-board-body"><div class="xp-board-level-wrap"><span class="xp-board-lv-label">LEVEL</span><span class="xp-board-lv-num">${_lvInfo.level}</span></div><div class="xp-board-bar-col"><div class="xp-board-bar-track"><div class="xp-board-bar-fill" style="width:${_lvInfo.percent}%;${_lvInfo.percent>0?'min-width:4px':''}"></div></div><div class="xp-board-bar-label"><span>${_lvInfo.currentLevelXP} XP earned</span><span>${_lvInfo.nextLevelXP} XP next</span></div></div><div class="xp-board-streak-wrap"><span class="xp-board-streak-num">${_streakCount}</span><span class="xp-board-streak-label">🔥 streak</span></div></div></div>${renderBentoGrid()}${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${tasksHtml}`;
+    view.innerHTML = `<div class="home-profile" data-act="open-settings" role="button" tabindex="0" style="cursor:pointer" title="Edit profile">${profAvatarHTML}<div class="home-profile-info">${nameHtml}${taglineHtml}</div><span class="home-profile-greeting">${greeting()} 👋</span></div><div class="home-moti-card"><span class="home-moti-icon">💡</span><p class="home-moti-text" id="home-moti-text">${escapeHTML(motivationMsg)}</p></div><div class="home-xp-board"><div class="xp-board-header"><span class="xp-board-eyebrow">⚡ STATS BOARD</span><span class="xp-board-rank-pill">${escapeHTML(_rankInfo.label || 'Seeker')}</span></div><div class="xp-board-body"><div class="xp-board-level-wrap"><span class="xp-board-lv-label">LEVEL</span><span class="xp-board-lv-num">${_lvInfo.level}</span></div><div class="xp-board-bar-col"><div class="xp-board-bar-track"><div class="xp-board-bar-fill" style="width:${_lvInfo.percent}%;${_lvInfo.percent>0?'min-width:4px':''}"></div></div><div class="xp-board-bar-label"><span>${_lvInfo.currentLevelXP} XP earned</span><span>${_lvInfo.nextLevelXP} XP next</span></div></div><div class="xp-board-streak-wrap"><span class="xp-board-streak-num">${_streakCount}</span><span class="xp-board-streak-label">🔥 streak</span></div></div></div>${renderBentoGrid()}${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${tasksHtml}`;
     if (_justPoppedKey) requestAnimationFrame(() => { _justPoppedKey = null; });
     if (_justCompletedDay) setTimeout(() => { _justCompletedDay = null; }, 1800);
   }
@@ -6487,20 +6832,27 @@
     else if (perm === 'denied')   { permCls = 'err';  permText = 'Notifications are blocked. Enable in browser settings.'; }
     const chips = (which, list) => list.map((t, i) => `<span class="time-chip"><button type="button" class="time-chip-edit" data-act="open-time-picker" data-which="${which}" data-i="${i}">${escapeHTML(formatTime12(t))}</button><button type="button" class="time-chip-del" data-act="del-time-slot" data-which="${which}" data-i="${i}">×</button></span>`).join('');
     const _authUser = _auth ? _auth.currentUser : null;
+    const avatarPreview = state.profile.avatarDataUrl
+      ? `<img src="${escapeHTML(state.profile.avatarDataUrl)}" class="auth-avatar-img" alt=""/>`
+      : (_authUser && _authUser.photoURL
+          ? `<img src="${escapeHTML(_authUser.photoURL)}" class="auth-avatar-img" alt=""/>`
+          : `<div class="auth-avatar-initial">${(_authUser ? (_authUser.email || '?')[0] : '?').toUpperCase()}</div>`);
+    const isEmailUser = _authUser && _authUser.providerData && _authUser.providerData.some(p => p.providerId === 'password');
     const accountSection = _authUser
       ? `<div class="settings-section settings-auth-section">
           <h4>☁️ Account</h4>
           <div class="auth-profile-row">
-            ${_authUser.photoURL
-              ? `<img src="${escapeHTML(_authUser.photoURL)}" class="auth-avatar-img" alt=""/>`
-              : `<div class="auth-avatar-initial">${(_authUser.email || '?')[0].toUpperCase()}</div>`}
+            ${avatarPreview}
             <div class="auth-profile-info">
               ${_authUser.displayName ? `<div class="auth-profile-name">${escapeHTML(_authUser.displayName)}</div>` : ''}
               <div class="auth-profile-email">${escapeHTML(_authUser.email || 'Anonymous')}</div>
               <div class="auth-sync-badge">☁️ Cloud sync active</div>
             </div>
           </div>
-          <button class="btn btn-ghost" style="margin-top:10px;width:100%;color:#ef4444;border-color:rgba(239,68,68,.25)" data-act="auth-logout">Sign Out</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+            ${isEmailUser ? `<button class="btn btn-ghost" style="flex:1" data-act="change-password">🔑 Change Password</button>` : ''}
+            <button class="btn btn-ghost" style="flex:1;color:#ef4444;border-color:rgba(239,68,68,.25)" data-act="auth-logout">Sign Out</button>
+          </div>
         </div>`
       : `<div class="settings-section settings-auth-section">
           <h4>☁️ Account</h4>
@@ -6511,10 +6863,20 @@
       ${accountSection}
       <div class="settings-section" id="profile-settings-section">
         <h4>👤 Profile</h4>
-        <div class="field"><label>Your Name</label><input id="set-profile-name" placeholder="Enter your name…" maxlength="40" value="${escapeHTML(state.profile.name)}"/></div>
+        <div class="avatar-upload-row">
+          ${state.profile.avatarDataUrl
+            ? `<img src="${escapeHTML(state.profile.avatarDataUrl)}" class="avatar-preview-img" alt=""/>`
+            : `<div class="avatar-preview-placeholder">${(state.profile.name || '?')[0].toUpperCase()}</div>`}
+          <div class="avatar-upload-btns">
+            <label class="btn btn-sm btn-ghost" style="cursor:pointer">📷 Upload Photo<input type="file" accept="image/*" id="avatar-file-input" style="display:none"/></label>
+            ${state.profile.avatarDataUrl ? `<button class="btn btn-sm btn-ghost" data-act="remove-avatar" style="color:#ef4444">✕ Remove</button>` : ''}
+          </div>
+        </div>
+        <div class="field" style="margin-top:12px"><label>Your Name</label><input id="set-profile-name" placeholder="Enter your name…" maxlength="40" value="${escapeHTML(state.profile.name)}"/></div>
         <div class="field"><label>Tagline</label><input id="set-profile-tagline" placeholder="e.g. CSE'26, BUET" maxlength="60" value="${escapeHTML(state.profile.tagline)}"/></div>
         <div style="margin-top:10px"><button class="btn btn-block" data-act="save-profile">Save Profile</button></div>
       </div>
+      <div class="settings-section"><h4>🛍️ XP Shop</h4><p style="font-size:13px;color:var(--text-muted);margin:0 0 10px">Spend earned XP on themes, titles &amp; visual effects.</p><button class="btn btn-block" data-act="open-shop">Open XP Shop</button></div>
       <div class="settings-section"><h4>Daily Study Reminder</h4><div class="settings-row"><div class="label">Notify when tasks aren't done<div class="sub">Multiple reminder times supported.</div></div><label class="switch"><input type="checkbox" id="set-sr-toggle" ${sr.enabled ? 'checked' : ''} data-act="toggle-smart-reminder"/><span class="slider"></span></label></div><div class="time-chip-row" style="${sr.enabled ? '' : 'opacity:.55;pointer-events:none'}">${sr.times.length ? chips('reminder', sr.times) : '<span class="muted">No times set.</span>'}<button type="button" class="time-chip add" data-act="open-time-picker" data-which="reminder" data-i="-1">+ Add</button></div></div>
       <div class="settings-section"><h4>Motivation Notifications</h4><div class="settings-row"><div class="label">Motivational push messages<div class="sub">Random quote at each scheduled time.</div></div><label class="switch"><input type="checkbox" id="set-mr-toggle" ${mr.enabled ? 'checked' : ''} data-act="toggle-motivation"/><span class="slider"></span></label></div><div class="time-chip-row" style="${mr.enabled ? '' : 'opacity:.55;pointer-events:none'}">${mr.times.length ? chips('motivation', mr.times) : '<span class="muted">No times set.</span>'}<button type="button" class="time-chip add" data-act="open-time-picker" data-which="motivation" data-i="-1">+ Add</button></div></div>
       <div class="settings-section"><h4>🔔 Interval Reminders</h4><div class="settings-row"><div class="label">Motivational boost every few hours<div class="sub">Smart quotes — urgent tone when you are behind on studying.</div></div><label class="switch"><input type="checkbox" id="set-mi-toggle" ${mi.enabled ? 'checked' : ''} data-act="toggle-motivation-interval"/><span class="slider"></span></label></div><div class="moti-interval-row" style="${mi.enabled ? '' : 'opacity:.55;pointer-events:none'}"><span class="moti-interval-label">Every</span><div class="moti-interval-btns">${[1, 2, 3, 4, 6].map(h => `<button type="button" class="tp-chip${mi.intervalHours === h ? ' on' : ''}" data-act="set-motivation-interval" data-h="${h}">${h}h</button>`).join('')}</div></div></div>
@@ -6524,7 +6886,11 @@
       <div class="settings-section"><h4>⏰ Alarm Clock</h4><p style="font-size:12px;color:var(--text-muted);margin:0 0 10px">Wake up to your saved motivations with an escalating alarm. Dismiss by catching the moving button!</p><button class="btn btn-block" data-act="open-alarm-manager">⏰ Manage Alarms${(state.alarms||[]).filter(a=>a.enabled).length ? ` <span style="background:rgba(239,68,68,.2);color:#f87171;padding:2px 8px;border-radius:999px;font-size:11px;margin-left:6px">${(state.alarms||[]).filter(a=>a.enabled).length} active</span>` : ''}</button></div>
       <div class="settings-section"><h4>Data</h4><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost" data-act="export-data">${ic('download')} Export Backup</button><label class="btn btn-ghost" style="cursor:pointer">${ic('upload')} Import Backup<input type="file" accept=".json" style="display:none" id="import-file-input"/></label></div></div>
       <div class="actions" style="margin-top:16px"><button class="btn btn-ghost" data-close>Close</button></div>`,
-      root => { root.querySelector('#import-file-input').onchange = e => { importData(e.target.files[0]); closeModal(); }; });
+      root => {
+        root.querySelector('#import-file-input').onchange = e => { importData(e.target.files[0]); closeModal(); };
+        const avatarInput = root.querySelector('#avatar-file-input');
+        if (avatarInput) avatarInput.onchange = e => { closeModal(); _handleAvatarUpload(e.target.files[0]); };
+      });
   }
   function refreshSettingsIfOpen() { const h = document.querySelector('#modal-root .modal h3'); if (h && h.textContent.trim() === 'Settings') modalSettings(); }
 
@@ -6775,10 +7141,33 @@
     if (act === 'social-create') { _sJoinRoom(el.dataset.code).catch(() => {}); return; }
     if (act === 'social-join')   { const inp = document.getElementById('social-join-input'); _sJoinRoom(inp ? inp.value.trim().toUpperCase() : '').catch(() => {}); return; }
     if (act === 'social-leave')  { _sLeaveRoom(); return; }
+    if (act === 'social-rejoin') { _sJoinRoom(el.dataset.code).catch(() => {}); return; }
+    if (act === 'social-remove-group') {
+      const code_ = el.dataset.code;
+      _myGroupCodes = _myGroupCodes.filter(c => c !== code_);
+      try { localStorage.setItem('my_group_codes', JSON.stringify(_myGroupCodes)); } catch(_) {}
+      if (_db && _userId) _db.collection('users').doc(_userId).update({ joinedRooms: _myGroupCodes }).catch(() => {});
+      renderSocial(); return;
+    }
+    if (act === 'view-profile')  { _viewMemberProfile(el.dataset.uid); return; }
+    if (act === 'voice-join')    { _voiceJoin(); return; }
+    if (act === 'voice-leave')   { _voiceLeave(false); return; }
+    if (act === 'voice-mute')    { _voiceMuteToggle(); return; }
+    if (act === 'lb-view') {
+      _lbView = el.dataset.v || 'group';
+      if (_lbView === 'global') { _loadGlobalLeaderboard().catch(() => {}); }
+      renderSocial(); return;
+    }
     if (act === 'theme-gallery') { _themeGalleryModal(); return; }
     if (act === 'theme-equip')   { applyTheme(el.dataset.tid); closeModal(); toast(`✨ Theme activated!`, 'success'); return; }
     if (act === 'social-nudge')  { _sNudge(el.dataset.uid, el.dataset.name).catch(() => {}); return; }
     if (act === 'social-duel')   { _sChallengeDuel(el.dataset.uid, el.dataset.name).catch(() => {}); return; }
+    if (act === 'change-password') { closeModal(); _handleChangePassword(); return; }
+    if (act === 'open-shop') { closeModal(); renderShop(); return; }
+    if (act === 'remove-avatar') {
+      state.profile.avatarDataUrl = null;
+      saveState(); _scheduledCloudSync(); renderAll(); toast('Avatar removed', 'info'); modalSettings(); return;
+    }
     if (act === 'social-add-goal') {
       const t = (document.getElementById('gg-title-input')?.value || '').trim();
       const h = parseFloat(document.getElementById('gg-hours-input')?.value || '0');
