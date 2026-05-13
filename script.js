@@ -1675,6 +1675,10 @@
       // Floating particles for focusing members
       const particles = isFocusing ? `<div class="sm-focus-particles"><div class="sm-particle"></div><div class="sm-particle"></div><div class="sm-particle"></div><div class="sm-particle"></div><div class="sm-particle"></div></div>` : '';
 
+      // Mic indicator: show when user is in voice room
+      const inVoiceNow = !!(isMe ? _inVoice : _voiceMembers[m.uid]);
+      const micBadge = inVoiceNow ? `<span class="sm-mic-badge${isMe && _voiceMuted ? ' sm-mic-muted' : ''}">${isMe && _voiceMuted ? '🔇' : '🎙'}</span>` : '';
+
       let acts = '';
       if (!isMe) {
         const nudgeBtn = `<button class="btn btn-sm btn-ghost" data-act="social-nudge" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName || '')}">👋 Poke</button>`;
@@ -1687,7 +1691,7 @@
         : ini;
       const profileAct = !isMe ? ` data-act="view-profile" data-uid="${m.uid}" title="View profile" style="cursor:pointer"` : '';
       return `<div class="${cardClass}">${particles}
-        <div class="sm-ring-wrap">${outerRing}${innerRing}<div class="sm-avatar" style="background:${_sAvatarColor(m.uid)}"${profileAct}>${avatarContent}</div></div>
+        <div class="sm-ring-wrap">${outerRing}${innerRing}<div class="sm-avatar" style="background:${_sAvatarColor(m.uid)}"${profileAct}>${avatarContent}${micBadge}</div></div>
         <div class="sm-info">
           <div class="sm-name-row"><span class="sm-name">${escapeHTML(m.displayName || 'Anonymous')}</span>${youB}${streakBadge}</div>
           <div class="sm-status">${dot} ${stTxt}${elapsedChip}</div>
@@ -1739,16 +1743,27 @@
 
     // ── Voice Room Panel ──
     const voiceActive = Object.values(_voiceMembers).filter(m => m.active);
-    const voiceMemberChips = voiceActive.map(m => `<span class="voice-chip" style="background:${_sAvatarColor(m.uid)}" title="${escapeHTML(m.name || 'S')}">${_sInitials(m.name || 'S')}</span>`).join('');
-    const voicePanel = `<div class="voice-panel">
+    const voiceMemberChips = voiceActive.map(m => {
+      const isMeVoice = m.uid === _userId;
+      const micClass = isMeVoice && _voiceMuted ? ' voice-chip-muted' : isMeVoice ? ' voice-chip-active' : '';
+      const micIcon = isMeVoice ? (_voiceMuted ? ' 🔇' : ' 🎙') : '';
+      return `<span class="voice-chip${micClass}" style="background:${_sAvatarColor(m.uid)}" title="${escapeHTML(m.name || 'S')}">${_sInitials(m.name || 'S')}${micIcon}</span>`;
+    }).join('');
+    const voicePanel = `<div class="voice-panel${_inVoice ? ' voice-panel-active' : ''}">
       <div class="voice-panel-head">
-        <span class="voice-panel-title">🎤 Voice Room</span>
+        <div class="voice-panel-title-row">
+          <span class="voice-panel-title">🎤 Voice Room</span>
+          ${_inVoice ? `<span class="voice-live-badge">${_voiceMuted ? '🔇 Muted' : '● Live'}</span>` : ''}
+        </div>
         <span class="voice-panel-count">${voiceActive.length ? `${voiceActive.length} in voice` : 'No one in voice'}</span>
       </div>
       ${voiceActive.length ? `<div class="voice-chips">${voiceMemberChips}</div>` : ''}
       ${_inVoice
-        ? `<div class="voice-controls"><button class="btn btn-sm${_voiceMuted ? ' btn-danger' : ' btn-ghost'}" data-act="voice-mute">${_voiceMuted ? '🔇 Unmute' : '🎙️ Mute'}</button><button class="btn btn-sm btn-ghost" data-act="voice-leave">📵 Leave Voice</button></div>`
-        : `<button class="btn btn-sm btn-block" data-act="voice-join">🎤 Join Voice</button>`}
+        ? `<div class="voice-controls">
+            <button class="btn btn-sm${_voiceMuted ? ' btn-danger' : ' btn-ghost'} voice-ctrl-btn" data-act="voice-mute">${_voiceMuted ? '🔇 Unmute' : '🎙️ Mute'}</button>
+            <button class="btn btn-sm btn-ghost voice-ctrl-btn" data-act="voice-leave">📵 Leave</button>
+           </div>`
+        : `<button class="btn btn-sm btn-block voice-join-btn" data-act="voice-join">🎤 Join Voice</button>`}
     </div>`;
 
     // ── Subject Mastery with 3D glowing badges ──
@@ -1810,8 +1825,22 @@
     }).join('') || '<div class="empty" style="padding:0 16px">No group goals yet — create one below!</div>';
 
     const isRoomCreator = _userId === (_socialRoomData && _socialRoomData.createdBy);
+    const isPrivate = !!(_socialRoomData && _socialRoomData.private);
     return `<div class="social-room">
-      <div class="social-room-header"><div class="srh-left"><div class="srh-code-wrap"><span class="srh-label">ROOM</span><span class="srh-code">${_socialRoomCode}</span></div><span class="srh-count">${members.length} member${members.length !== 1 ? 's' : ''}</span></div><div class="srh-right">${isRoomCreator ? `<button class="btn btn-ghost srh-admin" data-act="social-admin" title="Admin Settings">⚙️ Admin</button>` : ''}<button class="btn btn-ghost srh-theme" data-act="theme-gallery" title="Theme Gallery">🎨</button><button class="btn btn-ghost srh-leave" data-act="social-leave">Leave</button></div></div>
+      <div class="social-room-header">
+        <div class="srh-left">
+          <button class="srh-back-btn" data-act="social-leave" title="Back to Lobby">←</button>
+          <div class="srh-code-wrap">
+            <span class="srh-label">ROOM</span>
+            <span class="srh-code">${_socialRoomCode}</span>
+            <button class="srh-copy-btn" data-act="social-copy-code" title="Copy room code">⧉</button>
+          </div>
+          <span class="srh-count">${members.length} member${members.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="srh-right">
+          <button class="srh-settings-btn" data-act="social-room-settings" title="Room Settings">⚙</button>
+        </div>
+      </div>
       ${voicePanel}
       ${roomStatsHTML}
       ${momentumHTML}
@@ -1831,33 +1860,99 @@
     </div>`;
   }
 
+  // ── Room Settings dispatcher ──────────────────────────────────────────────
+  function _openRoomSettings() {
+    const isCreator = _userId === (_socialRoomData && _socialRoomData.createdBy);
+    if (isCreator) _openAdminSettings();
+    else _openMemberSettings();
+  }
+
   // ── Admin Settings Modal ──────────────────────────────────────────────────
   function _openAdminSettings() {
     if (!_db || !_userId || !_socialRoomCode || !_socialRoomData) { toast('Not available', 'warn'); return; }
     if (_userId !== _socialRoomData.createdBy) { toast('Only the room creator can access Admin Settings', 'warn'); return; }
     const members = Object.values(_socialMembers);
+    const isPrivate = !!(_socialRoomData && _socialRoomData.private);
     const memberRows = members.map(m => {
       const isMe = m.uid === _userId;
       return `<div class="admin-member-row">
         <span class="lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName || 'S')}</span>
         <span class="admin-member-name">${escapeHTML(m.displayName || 'Anonymous')}${isMe ? ' <span class="sm-you-badge">You (Creator)</span>' : ''}</span>
-        ${!isMe ? `<button class="btn btn-sm btn-danger" data-act="admin-kick" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName || 'Member')}">Remove</button>` : ''}
+        ${!isMe ? `<div class="admin-member-btns"><button class="btn btn-sm btn-danger" data-act="admin-kick" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName || 'Member')}">Kick</button></div>` : ''}
       </div>`;
     }).join('') || '<div class="empty" style="font-size:13px">No members yet.</div>';
-    openModal(`<h3>⚙️ Admin Settings</h3>
-      <div class="settings-section">
-        <h4>Room Code</h4>
-        <div style="font-size:22px;font-weight:900;letter-spacing:4px;color:var(--primary);margin:4px 0 2px">${_socialRoomCode}</div>
-        <div style="font-size:12px;color:var(--text-muted)">Share this code for others to join</div>
+
+    openModal(`<div class="admin-modal-head"><span>⚙️ Admin Settings</span><span class="admin-room-code-badge">${_socialRoomCode}</span></div>
+      <div class="admin-modal-body">
+        <div class="admin-section">
+          <div class="admin-section-title">Room Code</div>
+          <div class="admin-code-row">
+            <span class="admin-code-display">${_socialRoomCode}</span>
+            <button class="btn btn-sm btn-ghost" data-act="social-copy-code">⧉ Copy</button>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Share this code for others to join</div>
+        </div>
+        <div class="admin-section">
+          <div class="admin-section-title">Privacy</div>
+          <div class="admin-privacy-row">
+            <span class="admin-privacy-label">${isPrivate ? '🔒 Private' : '🌐 Public'}</span>
+            <button class="btn btn-sm btn-ghost" data-act="admin-toggle-privacy">${isPrivate ? 'Make Public' : 'Make Private'}</button>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${isPrivate ? 'Only people with the code can join.' : 'Anyone can discover and join this room.'}</div>
+        </div>
+        <div class="admin-section">
+          <div class="admin-section-title">Members (${members.length})</div>
+          <div class="admin-members-list">${memberRows}</div>
+        </div>
+        <div class="admin-section admin-section-theme">
+          <div class="admin-section-title">Appearance</div>
+          <button class="btn btn-ghost admin-wide-btn" data-act="theme-gallery">🎨 Open Theme Gallery</button>
+        </div>
+        <div class="admin-section admin-danger-zone">
+          <div class="admin-section-title">Danger Zone</div>
+          <button class="btn btn-danger btn-block" data-act="admin-close-room">🗑 Close &amp; Delete Room</button>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:6px">This permanently removes the room. All members will be returned to the lobby.</div>
+        </div>
       </div>
-      <div class="settings-section">
-        <h4>Members (${members.length})</h4>
-        <div class="admin-members-list">${memberRows}</div>
-      </div>
-      <div class="settings-section">
-        <h4>Danger Zone</h4>
-        <button class="btn btn-danger btn-block" data-act="admin-close-room">🗑 Close &amp; Delete Room</button>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">This removes the room from Firestore. Members will be returned to the lobby.</div>
+      <div class="actions"><button class="btn btn-ghost" data-close>Close</button></div>`);
+  }
+
+  // ── Member Settings Modal (for non-admins) ────────────────────────────────
+  function _openMemberSettings() {
+    if (!_socialRoomData) { toast('Not in a room', 'warn'); return; }
+    const creatorUid = _socialRoomData.createdBy;
+    const creatorMember = _socialMembers[creatorUid];
+    const creatorName = creatorMember ? (creatorMember.displayName || 'Room Creator') : 'Room Creator';
+    const notifOn = !!(state.socialNotif !== false);
+    openModal(`<h3>Room Settings</h3>
+      <div class="member-settings-list">
+        <div class="member-setting-item">
+          <div class="msi-info">
+            <div class="msi-label">🔔 Focus Notifications</div>
+            <div class="msi-sub">Get notified when members start focusing</div>
+          </div>
+          <button class="btn btn-sm ${notifOn ? '' : 'btn-ghost'}" data-act="member-notif-toggle">${notifOn ? 'On' : 'Off'}</button>
+        </div>
+        <div class="member-setting-item">
+          <div class="msi-info">
+            <div class="msi-label">🎨 Theme Gallery</div>
+            <div class="msi-sub">Customise the app's look</div>
+          </div>
+          <button class="btn btn-sm btn-ghost" data-act="theme-gallery" data-close>Open</button>
+        </div>
+        <div class="member-setting-item">
+          <div class="msi-info">
+            <div class="msi-label">👑 Room Creator</div>
+            <div class="msi-sub">${escapeHTML(creatorName)}</div>
+          </div>
+        </div>
+        <div class="member-setting-item member-setting-danger">
+          <div class="msi-info">
+            <div class="msi-label">🚪 Leave Room</div>
+            <div class="msi-sub">You can rejoin later with the same code</div>
+          </div>
+          <button class="btn btn-sm btn-danger" data-act="social-leave" data-close>Leave</button>
+        </div>
       </div>
       <div class="actions"><button class="btn btn-ghost" data-close>Close</button></div>`);
   }
@@ -2562,6 +2657,9 @@
     const questsHTML = renderDailyQuestsHTML();
 
     view.innerHTML = `<div class="view-pad shop-page">
+      <div class="shop-topbar">
+        <button class="shop-back-btn" data-act="shop-back" aria-label="Back">← Back</button>
+      </div>
       <div class="shop-header-card">
         <div class="shop-header-row">
           <div><h1 class="shop-title">⚡ XP Shop</h1><p class="shop-sub">Spend your XP on premium rewards</p></div>
@@ -7260,7 +7358,36 @@
     if (act === 'view-profile')  { _viewMemberProfile(el.dataset.uid); return; }
     if (act === 'view-profile-global') { _viewGlobalProfile(el.dataset.uid, el.dataset.name); return; }
     if (act === 'social-admin')  { _openAdminSettings(); return; }
-    if (act === 'admin-kick')    { const uid_ = el.dataset.uid, name = el.dataset.name; confirmModal(`Remove ${name} from the room?`, () => _adminKickMember(uid_, name), { title: 'Remove Member?', yesLabel: 'Remove', yesClass: 'btn btn-danger', noLabel: 'Cancel' }); return; }
+    if (act === 'social-room-settings') { _openRoomSettings(); return; }
+    if (act === 'social-copy-code') {
+      const code = _socialRoomCode || _socialLobbyCode || '';
+      if (code) {
+        navigator.clipboard.writeText(code).then(() => toast(`Copied ${code}!`, 'success')).catch(() => {
+          // fallback
+          const ta = document.createElement('textarea');
+          ta.value = code; document.body.appendChild(ta); ta.select();
+          document.execCommand('copy'); document.body.removeChild(ta);
+          toast(`Copied ${code}!`, 'success');
+        });
+      }
+      return;
+    }
+    if (act === 'admin-toggle-privacy') {
+      if (!_db || !_socialRoomCode) return;
+      const newPriv = !(_socialRoomData && _socialRoomData.private);
+      _db.collection('groups').doc(_socialRoomCode).update({ private: newPriv })
+        .then(() => { toast(newPriv ? '🔒 Room is now private' : '🌐 Room is now public', 'success'); closeModal(); })
+        .catch(() => toast('Failed to update privacy', 'danger'));
+      return;
+    }
+    if (act === 'member-notif-toggle') {
+      state.socialNotif = !(state.socialNotif !== false);
+      saveState();
+      closeModal();
+      toast(state.socialNotif ? '🔔 Notifications on' : '🔕 Notifications off', 'info');
+      return;
+    }
+    if (act === 'admin-kick')    { const uid_ = el.dataset.uid, name = el.dataset.name; confirmModal(`Kick ${name} from the room?`, () => _adminKickMember(uid_, name), { title: 'Kick Member?', yesLabel: 'Kick', yesClass: 'btn btn-danger', noLabel: 'Cancel' }); return; }
     if (act === 'admin-close-room') { confirmModal('Close and delete this room? All members will be sent back to the lobby.', () => _adminCloseRoom(), { title: 'Close Room?', yesLabel: 'Close Room', yesClass: 'btn btn-danger', noLabel: 'Cancel' }); return; }
     if (act === 'voice-join')    { _voiceJoin(); return; }
     if (act === 'voice-leave')   { _voiceLeave(false); return; }
@@ -7276,6 +7403,7 @@
     if (act === 'social-duel')   { _sChallengeDuel(el.dataset.uid, el.dataset.name).catch(() => {}); return; }
     if (act === 'change-password') { closeModal(); _handleChangePassword(); return; }
     if (act === 'open-shop') { closeModal(); switchTab('shop'); renderShop(); return; }
+    if (act === 'shop-back') { switchTab('home'); renderHome(); return; }
     if (act === 'remove-avatar') {
       state.profile.avatarDataUrl = null;
       saveState(); _scheduledCloudSync(); renderAll(); toast('Avatar removed', 'info'); modalSettings(); return;
