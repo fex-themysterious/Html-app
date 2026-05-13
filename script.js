@@ -699,7 +699,7 @@
       }
       try { localStorage.removeItem('stk_logged_in'); } catch(_) {}
       await _auth.signOut();
-      toast('Signed out successfully', 'info', 3000);
+      // sign-out toast removed (user can see they're signed out)
     } catch (e) { console.warn('[Auth] Sign out error:', e.message); }
   }
 
@@ -847,14 +847,20 @@
   }
 
   // Smart re-render gate — skips full re-render while chat is focused, queues it for blur.
+  // Also debounces rapid Firestore updates to max one re-render per 800ms.
+  let _renderSocialDebounceTimer = null;
   function _renderSocialSafe() {
     if (_isChatFocused()) {
       _updateSocialInPlace();
       _pendingRenderSocial = true;
-    } else {
-      _pendingRenderSocial = false;
-      renderSocial();
+      return;
     }
+    if (_renderSocialDebounceTimer) return; // already queued
+    _renderSocialDebounceTimer = setTimeout(() => {
+      _renderSocialDebounceTimer = null;
+      _pendingRenderSocial = false;
+      if (_currentTab === 'social') renderSocial();
+    }, 800);
   }
 
   function _sSubscribe() {
@@ -997,7 +1003,7 @@
       await _sUpdatePresence('break');
       _sSubscribe();
       _updateGlobalLb();
-      toast(`✅ Joined room ${code}!`, 'success');
+      // join toast removed (room opens visually)
       // Award Group Member achievement on first room join
       checkBadges({ joinedRoom: true });
       renderSocial();
@@ -1022,7 +1028,7 @@
     _socialLobbyCode = null;
     try { localStorage.removeItem('social_room_code'); } catch (e) {}
     if (_inVoice) _voiceLeave(true);
-    renderSocial(); toast('Left the room', 'info');
+    renderSocial();
   }
 
   // ── Chat System ───────────────────────────────────────────────────────────
@@ -2332,6 +2338,7 @@
 
   // ── Room Settings dispatcher ──────────────────────────────────────────────
   function _openRoomSettings() {
+    if (!_socialRoomCode) { toast('Not in a room', 'warn'); return; }
     const isCreator = _userId === (_socialRoomData && _socialRoomData.createdBy);
     if (isCreator) _openAdminSettings();
     else _openMemberSettings();
@@ -4638,10 +4645,20 @@
   }
 
   // ========== Toast ==========
-  function toast(msg, kind = 'info', ms = 3800) {
+  function toast(msg, kind = 'info', ms = 1500) {
     const wrap = document.getElementById('toast-container'); if (!wrap) return;
-    const t = document.createElement('div'); t.className = 'toast ' + kind;
-    t.textContent = msg; wrap.appendChild(t);
+    // Deduplicate — skip if same text already visible
+    const existing = wrap.querySelectorAll('.toast');
+    for (const el of existing) { if (el.dataset.msg === msg) return; }
+    // Cap at 3 simultaneous toasts (remove oldest)
+    if (existing.length >= 3) existing[0].remove();
+    const t = document.createElement('div');
+    t.className = 'toast ' + kind;
+    t.dataset.msg = msg;
+    t.textContent = msg;
+    wrap.appendChild(t);
+    const fadeOut = ms - 300;
+    if (fadeOut > 0) setTimeout(() => t.classList.add('toast-fade'), fadeOut);
     setTimeout(() => t.remove(), ms);
   }
 
@@ -5759,10 +5776,7 @@
           </div>
           <div class="ambient-track-list">
             <button class="ambient-btn ${ambientMode === 'none' ? 'active' : ''}" data-act="ambient-select" data-amode="none">🔇 Off</button>
-            ${['Ambient','Focus','Workout','Vibes'].map(cat => {
-              const tracks = SOUNDS.filter(s => s.cat === cat);
-              return '<span class="ambient-cat-label">' + cat + '</span>' + tracks.map(s => '<button class="ambient-btn ' + (ambientMode === s.id ? 'active' : '') + '" data-act="ambient-select" data-amode="' + s.id + '">' + s.label + '</button>').join('');
-            }).join('')}
+            ${SOUNDS.filter(s => s.cat).map(s => '<button class="ambient-btn ' + (ambientMode === s.id ? 'active' : '') + '" data-act="ambient-select" data-amode="' + s.id + '">' + s.label + '</button>').join('')}
           </div>
         </div>
         <div class="focus-intensity-panel">
@@ -6196,7 +6210,7 @@
             const { thumbnailUrl } = await fetchYouTubeTitle(url);
             item.thumbnailUrl = thumbnailUrl || item.thumbnailUrl || (videoId ? ytThumb(videoId) : '');
           }
-          saveState(); closeModal(); renderFocus(); toast('Updated', 'success');
+          saveState(); closeModal(); renderFocus();
         };
       });
   }
@@ -7976,7 +7990,22 @@
         <div class="field"><label>Tagline</label><input id="set-profile-tagline" placeholder="e.g. CSE'26, BUET" maxlength="60" value="${escapeHTML(state.profile.tagline)}"/></div>
         <div style="margin-top:10px"><button class="btn btn-block" data-act="save-profile">Save Profile</button></div>
       </div>
-      <div class="settings-section"><h4>🛍️ XP Shop</h4><p style="font-size:13px;color:var(--text-muted);margin:0 0 10px">Spend earned XP on themes, titles &amp; visual effects.</p><button class="btn btn-block" data-act="open-shop">Open XP Shop</button></div>
+      <div class="settings-section settings-shop-card" data-act="open-shop" style="cursor:pointer;padding:0;overflow:hidden;border:1px solid rgba(251,191,36,0.2)">
+        <div class="ssc-inner">
+          <div class="ssc-glow"></div>
+          <div class="ssc-left">
+            <div class="ssc-icon">🛍️</div>
+            <div>
+              <div class="ssc-title">XP Shop</div>
+              <div class="ssc-sub">Themes, titles &amp; effects</div>
+            </div>
+          </div>
+          <div class="ssc-right">
+            <div class="ssc-bal">⚡ ${((state.xp && state.xp.total) || 0).toLocaleString()}</div>
+            <div class="ssc-btn">Shop Now →</div>
+          </div>
+        </div>
+      </div>
       <div class="settings-section"><h4>Daily Study Reminder</h4><div class="settings-row"><div class="label">Notify when tasks aren't done<div class="sub">Multiple reminder times supported.</div></div><label class="switch"><input type="checkbox" id="set-sr-toggle" ${sr.enabled ? 'checked' : ''} data-act="toggle-smart-reminder"/><span class="slider"></span></label></div><div class="time-chip-row" style="${sr.enabled ? '' : 'opacity:.55;pointer-events:none'}">${sr.times.length ? chips('reminder', sr.times) : '<span class="muted">No times set.</span>'}<button type="button" class="time-chip add" data-act="open-time-picker" data-which="reminder" data-i="-1">+ Add</button></div></div>
       <div class="settings-section"><h4>Motivation Notifications</h4><div class="settings-row"><div class="label">Motivational push messages<div class="sub">Random quote at each scheduled time.</div></div><label class="switch"><input type="checkbox" id="set-mr-toggle" ${mr.enabled ? 'checked' : ''} data-act="toggle-motivation"/><span class="slider"></span></label></div><div class="time-chip-row" style="${mr.enabled ? '' : 'opacity:.55;pointer-events:none'}">${mr.times.length ? chips('motivation', mr.times) : '<span class="muted">No times set.</span>'}<button type="button" class="time-chip add" data-act="open-time-picker" data-which="motivation" data-i="-1">+ Add</button></div></div>
       <div class="settings-section"><h4>🔔 Interval Reminders</h4><div class="settings-row"><div class="label">Motivational boost every few hours<div class="sub">Smart quotes — urgent tone when you are behind on studying.</div></div><label class="switch"><input type="checkbox" id="set-mi-toggle" ${mi.enabled ? 'checked' : ''} data-act="toggle-motivation-interval"/><span class="slider"></span></label></div><div class="moti-interval-row" style="${mi.enabled ? '' : 'opacity:.55;pointer-events:none'}"><span class="moti-interval-label">Every</span><div class="moti-interval-btns">${[1, 2, 3, 4, 6].map(h => `<button type="button" class="tp-chip${mi.intervalHours === h ? ' on' : ''}" data-act="set-motivation-interval" data-h="${h}">${h}h</button>`).join('')}</div></div></div>
@@ -8492,8 +8521,8 @@
       renderFocus(); return;
     }
     if (act === 'focus-reset') { stopOvertimeMode(); clearInterval(focusTimer); focusTimer = null; focusRunning = false; focusStartTime = null; focusStartSeconds = null; focusSeconds = customDurations[focusMode] * 60; focusMultitaskMode = false; renderFocus(); document.title = 'Syllabus Tracker'; updateMiniTimer(); return; }
-    if (act === 'focus-lock') { focusMultitaskMode = false; focusLocked = !focusLocked; renderFocus(); toast(focusLocked ? '🔒 Lock Mode on — other tabs are restricted' : '🔓 Lock Mode off', focusLocked ? 'warn' : 'info'); return; }
-    if (act === 'focus-multitask') { focusMultitaskMode = !focusMultitaskMode; if (focusMultitaskMode) { focusLocked = false; } renderFocus(); toast(focusMultitaskMode ? '🗒️ Multitask Mode on — navigate freely, timer keeps running' : '🔓 Multitask Mode off', 'info'); return; }
+    if (act === 'focus-lock') { focusMultitaskMode = false; focusLocked = !focusLocked; renderFocus(); return; }
+    if (act === 'focus-multitask') { focusMultitaskMode = !focusMultitaskMode; if (focusMultitaskMode) { focusLocked = false; } renderFocus(); return; }
     if (act === 'focus-task-clear') { focusCurrentTaskKey = null; renderFocus(); return; }
 
     // Ambient sound
