@@ -4936,6 +4936,10 @@
           },
           onStateChange: function (e) {
             _ytPlayerState = e.data;
+            // YT.PlayerState.ENDED = 0 → auto-complete focus session
+            if (e.data === 0 && _vfmActive && !_vfmComplete) {
+              setTimeout(onVfmComplete, 800);
+            }
           }
         }
       });
@@ -5058,13 +5062,19 @@
         <button class="vp-back-btn" data-act="vp-close" aria-label="Back">${SVG_BACK}</button>
         <div class="vp-header-title">${escapeHTML(item.title)}</div>
         <button class="vp-yt-btn vfm-start-vp-btn" data-act="vfm-start" title="Start Focus Mode" aria-label="Focus Mode">⏱</button>
-        <button class="vp-yt-btn vp-orient-btn" data-act="vp-toggle-landscape" title="Toggle landscape mode" aria-label="Toggle landscape">${SVG_ORIENT_LANDSCAPE}</button>
+        <button class="vp-yt-btn" id="vp-cinema-btn" data-act="vp-cinema" title="Cinema Mode (F)" aria-label="Cinema Mode">${SVG_CINEMA_ENTER}</button>
+        <button class="vp-yt-btn vp-orient-btn" data-act="vp-toggle-landscape" title="Toggle landscape" aria-label="Toggle landscape">${SVG_ORIENT_LANDSCAPE}</button>
         <a href="${escapeHTML(item.url)}" target="_blank" rel="noopener" class="vp-yt-btn" title="Open externally">${SVG_EXTLINK}</a>
       </div>
       <div class="vp-split">
         <div class="vp-main">
           <div class="vp-embed-wrap">
             <iframe id="vp-iframe" src="${embedUrl}" allow="autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write" allowfullscreen sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation" title="${escapeHTML(item.title)}"></iframe>
+            <div id="vp-seek-zones" class="vp-seek-zones">
+              <div class="vp-seek-zone vp-seek-l" id="vp-seek-flash-l"><div class="vp-seek-indicator"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="28" height="28"><polyline points="19 20 9 12 19 4"/><line x1="5" y1="19" x2="5" y2="5"/></svg><span>−10s</span></div></div>
+              <div class="vp-seek-zone vp-seek-r" id="vp-seek-flash-r"><div class="vp-seek-indicator"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="28" height="28"><polyline points="5 4 15 12 5 20"/><line x1="19" y1="4" x2="19" y2="20"/></svg><span>+10s</span></div></div>
+            </div>
+            <div class="vp-ambient-glow"></div>
           </div>
           ${extHint}
           <div class="vp-info">
@@ -5076,7 +5086,8 @@
           <div class="vp-notes-mobile">${notesSection}</div>
         </div>
         <div class="vp-notes-col" id="vp-notes-col">${notesSection}</div>
-      </div>`;
+      </div>
+      <div class="vp-cinema-hint" id="vp-cinema-hint">Press <kbd>F</kbd> or tap ⛶ for cinema · <kbd>Space</kbd> play/pause · <kbd>←→</kbd> seek · <kbd>M</kbd> minimize timer</div>`;
   }
 
   // ========== Video Focus Mode ==========
@@ -5281,7 +5292,14 @@
       if (playing && !_vfmRunning && !_vfmComplete) { _vfmRunning = true; }
     }
     if (!_vfmRunning || _vfmComplete) return;
-    _vfmRemaining = Math.max(0, _vfmRemaining - 1);
+    // Sync timer with video playback speed
+    let rate = 1;
+    try {
+      if (_ytPlayerReady && _ytPlayer && typeof _ytPlayer.getPlaybackRate === 'function') {
+        rate = _ytPlayer.getPlaybackRate() || 1;
+      }
+    } catch (e) {}
+    _vfmRemaining = Math.max(0, _vfmRemaining - rate);
     updateVfmDisplay();
     if (_vfmRemaining <= 0) onVfmComplete();
   }
@@ -5360,6 +5378,107 @@
     updateVfmDisplay();
   }
 
+  // ── Video Player Enhancement ─────────────────────────────────
+  const SVG_CINEMA_ENTER = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>`;
+  const SVG_CINEMA_EXIT  = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>`;
+  let _vpHudTimer = null;
+  let _vpCinema = false;
+  let _vpKeyHandler = null;
+
+  function _vpToggleCinema() {
+    const overlay = document.getElementById('vp-overlay');
+    if (!overlay) return;
+    _vpCinema = !_vpCinema;
+    overlay.classList.toggle('vp-cinema', _vpCinema);
+    const btn = document.getElementById('vp-cinema-btn');
+    if (btn) {
+      btn.innerHTML = _vpCinema ? SVG_CINEMA_EXIT : SVG_CINEMA_ENTER;
+      btn.title = _vpCinema ? 'Exit Cinema (F)' : 'Cinema Mode (F)';
+    }
+    if (_vpCinema) _vpResetAutoHide();
+    else { clearTimeout(_vpHudTimer); overlay.classList.remove('vp-hud-hidden'); }
+  }
+
+  function _vpResetAutoHide() {
+    const overlay = document.getElementById('vp-overlay');
+    if (!overlay) return;
+    overlay.classList.remove('vp-hud-hidden');
+    clearTimeout(_vpHudTimer);
+    if (_vpCinema) {
+      _vpHudTimer = setTimeout(() => {
+        const el = document.getElementById('vp-overlay');
+        if (el && _vpCinema) el.classList.add('vp-hud-hidden');
+      }, 3200);
+    }
+  }
+
+  function _vpInitPlayer(overlay) {
+    _vpCinema = false;
+    _vpHudTimer = null;
+    const onActivity = () => _vpResetAutoHide();
+    overlay.addEventListener('mousemove', onActivity, { passive: true });
+    overlay.addEventListener('touchstart', onActivity, { passive: true });
+    overlay.addEventListener('click', onActivity, { passive: true });
+    if (_vpKeyHandler) document.removeEventListener('keydown', _vpKeyHandler);
+    _vpKeyHandler = function(e) {
+      if (!document.getElementById('vp-overlay')) {
+        document.removeEventListener('keydown', _vpKeyHandler); _vpKeyHandler = null; return;
+      }
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      switch (e.key) {
+        case 'Escape':
+          if (_vpCinema) { _vpToggleCinema(); e.preventDefault(); }
+          else { closeVideoPlayer(); e.preventDefault(); }
+          break;
+        case 'f': case 'F':
+          _vpToggleCinema(); e.preventDefault(); break;
+        case ' ':
+          if (_ytPlayerReady && _ytPlayer) {
+            _ytPlayerState === 1 ? _ytPlayer.pauseVideo() : _ytPlayer.playVideo();
+            e.preventDefault();
+          }
+          break;
+        case 'ArrowRight':
+          if (_ytPlayerReady && _ytPlayer) { _ytPlayer.seekTo((_ytPlayer.getCurrentTime() || 0) + 10, true); e.preventDefault(); } break;
+        case 'ArrowLeft':
+          if (_ytPlayerReady && _ytPlayer) { _ytPlayer.seekTo(Math.max(0, (_ytPlayer.getCurrentTime() || 0) - 10), true); e.preventDefault(); } break;
+        case 'm': case 'M':
+          if (_vfmActive) { _vfmMinimized ? expandVfm() : minimizeVfm(); } break;
+        case 'p': case 'P': _vpTryPiP(); break;
+      }
+    };
+    document.addEventListener('keydown', _vpKeyHandler);
+    // Double-tap seek zones (active only in cinema mode via CSS pointer-events)
+    let _tapTimer = null, _tapSide = null;
+    const seekZones = document.getElementById('vp-seek-zones');
+    if (seekZones) {
+      seekZones.addEventListener('click', e => {
+        const rect = seekZones.getBoundingClientRect();
+        const side = (e.clientX - rect.left) < rect.width / 2 ? 'left' : 'right';
+        if (_tapTimer !== null && _tapSide === side) {
+          clearTimeout(_tapTimer); _tapTimer = null; _tapSide = null;
+          const secs = side === 'right' ? 10 : -10;
+          if (_ytPlayerReady && _ytPlayer) _ytPlayer.seekTo(Math.max(0, (_ytPlayer.getCurrentTime() || 0) + secs), true);
+          const flash = document.getElementById(side === 'right' ? 'vp-seek-flash-r' : 'vp-seek-flash-l');
+          if (flash) { flash.classList.add('vp-seek-active'); setTimeout(() => flash.classList.remove('vp-seek-active'), 700); }
+        } else {
+          _tapSide = side;
+          _tapTimer = setTimeout(() => { _tapTimer = null; _tapSide = null; }, 320);
+        }
+      });
+    }
+  }
+
+  function _vpTryPiP() {
+    try {
+      if (document.pictureInPictureElement) { document.exitPictureInPicture().catch(() => {}); return; }
+      const iframe = document.getElementById('vp-iframe');
+      const vid = iframe?.contentDocument?.querySelector('video');
+      if (vid?.requestPictureInPicture) { vid.requestPictureInPicture().catch(() => {}); return; }
+    } catch (e) {}
+    toast('Picture-in-Picture not available for this video', 'info', 2500);
+  }
+
   function openVideoPlayer(groupId, itemId, _directItem) {
     let group = null, item = null;
     if (_directItem) {
@@ -5376,6 +5495,7 @@
     el.innerHTML = _buildPlayerOverlay(item, group, groupId, itemId);
     document.body.appendChild(el);
     document.body.style.overflow = 'hidden';
+    _vpInitPlayer(el);
     if (item.videoId) { loadYTApi(); setTimeout(tryBindYTPlayer, 900); }
   }
 
@@ -5390,6 +5510,8 @@
   function closeVideoPlayer() {
     stopVfm();
     _ytPlayer = null; _ytPlayerReady = false; _ytPlayerState = -1;
+    clearTimeout(_vpHudTimer); _vpHudTimer = null; _vpCinema = false;
+    if (_vpKeyHandler) { document.removeEventListener('keydown', _vpKeyHandler); _vpKeyHandler = null; }
     const el = document.getElementById('vp-overlay'); if (!el) return;
     el.classList.add('vp-closing');
     setTimeout(() => { el.remove(); document.body.style.overflow = ''; lockPortrait(); }, 210);
@@ -6746,6 +6868,7 @@
       closeVideoPlayer(); return;
     }
     if (act === 'vp-switch')   { switchVideoInPlayer(el.dataset.gid, el.dataset.iid); return; }
+    if (act === 'vp-cinema')   { _vpToggleCinema(); return; }
     if (act === 'vfm-start')   { openVfmPicker(); return; }
     if (act === 'vfm-minimize'){ minimizeVfm(); return; }
     if (act === 'vfm-expand')  { expandVfm(); return; }
