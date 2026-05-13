@@ -3580,6 +3580,7 @@
 
     view.innerHTML = `<div class="mkt-page">
       <div class="mkt-header">
+        <button class="mkt-back-btn" data-act="shop-back" aria-label="Back">←</button>
         <div class="mkt-header-left">
           <div class="mkt-title">🛒 Global XP Marketplace</div>
           <div class="mkt-subtitle">Spend your XP on premium rewards</div>

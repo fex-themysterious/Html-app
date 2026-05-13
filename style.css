@@ -5299,14 +5299,36 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 20px 16px 12px;
+  gap: 10px;
+  padding: 16px 16px 12px;
   position: sticky;
   top: 0;
   z-index: 50;
   background: linear-gradient(180deg, var(--bg, #090e15) 70%, transparent 100%);
   backdrop-filter: blur(12px);
 }
+.mkt-back-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.06);
+  color: var(--text, #e2ecf8);
+  font-size: 18px;
+  cursor: pointer;
+  transition: background 0.18s, transform 0.15s;
+  line-height: 1;
+  padding: 0;
+}
+.mkt-back-btn:hover {
+  background: rgba(255,255,255,0.12);
+  transform: translateX(-2px);
+}
+.mkt-header-left { flex: 1; min-width: 0; }
 .mkt-title {
   font-size: 20px;
   font-weight: 900;
@@ -5461,6 +5483,135 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+}
+
+/* ── Daily Quests card (inside shop) ─────────────────────────────── */
+.daily-quests-card {
+  margin: 0 16px 14px;
+  padding: 14px 16px;
+  background: var(--glass-bg, rgba(255,255,255,0.035));
+  border: 1px solid var(--glass-border, rgba(255,255,255,0.09));
+  border-radius: 16px;
+}
+.dq-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.dq-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text, #e2ecf8);
+}
+.dq-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted, #566e8a);
+  background: rgba(255,255,255,0.06);
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+.dq-count--done {
+  background: rgba(52,211,153,0.15);
+  color: #34d399;
+}
+.dq-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.quest-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.05);
+}
+.quest-row--done {
+  opacity: 0.55;
+}
+.quest-row-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  width: 28px;
+  text-align: center;
+}
+.quest-row-body {
+  flex: 1;
+  min-width: 0;
+}
+.quest-row-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text, #e2ecf8);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.quest-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.quest-bar-track {
+  flex: 1;
+  height: 5px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.quest-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #8b5cf6);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+.quest-bar--complete {
+  background: linear-gradient(90deg, #34d399, #10b981);
+}
+.quest-prog {
+  font-size: 10px;
+  color: var(--text-muted, #566e8a);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.quest-claimed {
+  font-size: 16px;
+  color: #34d399;
+  flex-shrink: 0;
+  font-weight: 700;
+}
+.quest-xp-pill {
+  font-size: 11px;
+  font-weight: 700;
+  color: #fbbf24;
+  background: rgba(251,191,36,0.12);
+  border: 1px solid rgba(251,191,36,0.25);
+  border-radius: 999px;
+  padding: 2px 8px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.quest-claim-btn {
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #10b981, #059669);
+  border: none;
+  border-radius: 999px;
+  padding: 4px 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.quest-claim-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16,185,129,0.35);
 }
 
 /* ── Category tabs ───────────────────────────────────────────────── */
