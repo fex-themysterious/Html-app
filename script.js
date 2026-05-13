@@ -491,7 +491,13 @@
             return;
           }
         }
-        // No cloud data yet — upload current local state
+        // No cloud data yet — but try to restore joinedRooms if it exists
+        const existingRooms = snap.exists && snap.data() && snap.data().joinedRooms;
+        if (Array.isArray(existingRooms) && existingRooms.length) {
+          _myGroupCodes = existingRooms;
+          try { localStorage.setItem('my_group_codes', JSON.stringify(_myGroupCodes)); } catch(_) {}
+        }
+        // Upload current local state
         await _db.collection('users').doc(user.uid).set({
           data:        JSON.stringify(state),
           uid:         user.uid,
@@ -680,6 +686,10 @@
   async function _authSignOut() {
     if (!_auth) return;
     try {
+      // Persist joined rooms to Firestore before signing out so they're restored on next login
+      if (_db && _userId && _myGroupCodes.length) {
+        _db.collection('users').doc(_userId).set({ joinedRooms: _myGroupCodes }, { merge: true }).catch(() => {});
+      }
       try { localStorage.removeItem('stk_logged_in'); } catch(_) {}
       await _auth.signOut();
       toast('Signed out successfully', 'info', 3000);
@@ -778,6 +788,8 @@
         focusStartedAt: status === 'focusing' ? (focusStartTime || Date.now()) : null,
         focusSubjectName: status === 'focusing' ? focusSubjectName : '',
         studyStreak: (state.streak && state.streak.count) || 0,
+        avatarUrl: state.profile.avatarDataUrl || '',
+        totalFocusMinutes: Object.values((state.focusStats && state.focusStats.minutesByDate) || {}).reduce((a, b) => a + b, 0),
         ...(extra || {})
       }, { merge: true });
     } catch (e) { console.warn('[Social] Presence failed:', e.message); }
@@ -1526,6 +1538,10 @@
       view.innerHTML = `<div class="social-gate"><div class="social-gate-icon">👥</div><h2 class="social-gate-title">Social Study Rooms</h2><p class="social-gate-sub">Sign in to join a room and study with friends, compete in duels, and hit group goals together.</p><button class="btn" data-act="auth-show-modal">Sign In to Continue</button></div>`;
       return;
     }
+    // Always keep global leaderboard fresh when social tab is open
+    if (!_socialRoomCode && (!_globalLbData || !_globalLbData.length)) {
+      _loadGlobalLeaderboard().catch(() => {});
+    }
     if (!_socialRoomCode) { view.innerHTML = _renderSocialLobby(); return; }
     // Confetti check for momentum bar
     const _momMembers = Object.values(_socialMembers);
@@ -1556,6 +1572,18 @@
           </div>`).join('')}
         </div>`
       : '';
+    // Global leaderboard section in lobby
+    const glbRows = _globalLbData.slice(0, 20).map((m, i) => {
+      const isMe = m.uid === _userId;
+      const topGlow = i === 0 ? ' lb-row-gold' : i === 1 ? ' lb-row-silver' : i === 2 ? ' lb-row-bronze' : '';
+      const med = i === 0 ? '<span class="lb-crown">👑</span>' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="color:var(--text-muted)">${i + 1}.</span>`;
+      return `<div class="lb-row${isMe ? ' lb-me' : ''}${topGlow}"><span class="lb-rank">${med}</span><span class="lb-av lb-av-click" style="background:${_sAvatarColor(m.uid)}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name || 'Anonymous')}">${_sInitials(m.name || 'S')}</span><span class="lb-name">${escapeHTML(m.name || 'Anonymous')}</span><span class="lb-val">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span><span class="lb-val2">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span></div>`;
+    }).join('') || '<div class="empty" style="padding:8px 0;font-size:13px">No global data yet — join a room and start focusing!</div>';
+    const globalLbSection = `<div class="social-global-lb-section">
+      <div class="social-global-lb-head"><span>🌍 Global Leaderboard</span><span class="slb-sub">Weekly XP — resets every Monday</span></div>
+      <div class="social-lb">${glbRows}</div>
+    </div>`;
+
     return `<div class="social-lobby">
       <div class="social-lobby-hero"><div class="social-lobby-icon">👥</div><h1 class="social-lobby-title">Study Together</h1><p class="social-lobby-sub">Join a room to see friends' live focus, duel for XP, and hit group goals together.</p></div>
       ${myGroupsHTML}
@@ -1563,6 +1591,7 @@
         <div class="social-lobby-card"><div class="slc-icon">🔗</div><div class="slc-title">Create a Room</div><div class="slc-code">${code}</div><div class="slc-hint">Share this code with friends</div><button class="btn btn-block" data-act="social-create" data-code="${code}">Create &amp; Join</button></div>
         <div class="social-lobby-card"><div class="slc-icon">🚪</div><div class="slc-title">Join a Room</div><input id="social-join-input" class="auth-input" style="margin:12px 0 8px;text-align:center;text-transform:uppercase;letter-spacing:4px;font-weight:700;font-size:18px" maxlength="6" placeholder="XXXXXX" autocomplete="off" spellcheck="false"/><button class="btn btn-block" data-act="social-join">Join Room</button></div>
       </div>
+      ${globalLbSection}
       <p class="social-lobby-privacy">🔒 Only members of the same room can see your data.</p>
     </div>`;
   }
@@ -1653,8 +1682,8 @@
         acts = `<div class="sm-actions">${nudgeBtn}${duelBtn}</div>`;
       }
       const youB = isMe ? '<span class="sm-you-badge">You</span>' : '';
-      const avatarContent = (isMe && state.profile.avatarDataUrl)
-        ? `<img src="${escapeHTML(state.profile.avatarDataUrl)}" class="sm-avatar-img" alt=""/>`
+      const avatarContent = m.avatarUrl
+        ? `<img src="${escapeHTML(m.avatarUrl)}" class="sm-avatar-img" alt=""/>`
         : ini;
       const profileAct = !isMe ? ` data-act="view-profile" data-uid="${m.uid}" title="View profile" style="cursor:pointer"` : '';
       return `<div class="${cardClass}">${particles}
@@ -1686,7 +1715,7 @@
         const isMe = m.uid === _userId;
         const topGlow = i === 0 ? ' lb-row-gold' : i === 1 ? ' lb-row-silver' : i === 2 ? ' lb-row-bronze' : '';
         const med = i === 0 ? '<span class="lb-crown">👑</span>' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="color:var(--text-muted)">${i + 1}.</span>`;
-        return `<div class="lb-row${isMe ? ' lb-me' : ''}${topGlow}"><span class="lb-rank">${med}</span><span class="lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.name || 'S')}</span><span class="lb-name">${escapeHTML(m.name || 'Anonymous')}</span><span class="lb-val">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span><span class="lb-val2">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span></div>`;
+        return `<div class="lb-row${isMe ? ' lb-me' : ''}${topGlow}"><span class="lb-rank">${med}</span><span class="lb-av lb-av-click" style="background:${_sAvatarColor(m.uid)}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name || 'Anonymous')}">${_sInitials(m.name || 'S')}</span><span class="lb-name">${escapeHTML(m.name || 'Anonymous')}</span><span class="lb-val">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span><span class="lb-val2">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span></div>`;
       }).join('') || '<div class="empty" style="padding:8px 0">Loading global rankings…</div>';
     } else {
       lbRows = lb.map((m, i) => {
@@ -1780,8 +1809,9 @@
       return `<div class="group-goal-card${pct >= 100 ? ' gg-complete' : ''}"><div class="gg-header"><span class="gg-title">${pct >= 100 ? '🏆 ' : '🎯 '}${escapeHTML(g.title)}</span>${canDel ? `<button class="gg-del" data-act="social-del-goal" data-gid="${g.id}">×</button>` : ''}</div><div class="gg-bar-row"><div class="gg-bar-track"><div class="gg-bar-fill" style="width:${pct}%"></div></div><span class="gg-pct">${pct}%</span></div><div class="gg-stats"><span>${minsToHrs(tot)} / ${minsToHrs(g.targetMinutes)} · Mine: ${minsToHrs(myC)}</span><div class="gg-contribs">${cs}</div></div></div>`;
     }).join('') || '<div class="empty" style="padding:0 16px">No group goals yet — create one below!</div>';
 
+    const isRoomCreator = _userId === (_socialRoomData && _socialRoomData.createdBy);
     return `<div class="social-room">
-      <div class="social-room-header"><div class="srh-left"><div class="srh-code-wrap"><span class="srh-label">ROOM</span><span class="srh-code">${_socialRoomCode}</span></div><span class="srh-count">${members.length} member${members.length !== 1 ? 's' : ''}</span></div><div class="srh-right"><button class="btn btn-ghost srh-theme" data-act="theme-gallery" title="Theme Gallery">🎨</button><button class="btn btn-ghost srh-leave" data-act="social-leave">Leave</button></div></div>
+      <div class="social-room-header"><div class="srh-left"><div class="srh-code-wrap"><span class="srh-label">ROOM</span><span class="srh-code">${_socialRoomCode}</span></div><span class="srh-count">${members.length} member${members.length !== 1 ? 's' : ''}</span></div><div class="srh-right">${isRoomCreator ? `<button class="btn btn-ghost srh-admin" data-act="social-admin" title="Admin Settings">⚙️ Admin</button>` : ''}<button class="btn btn-ghost srh-theme" data-act="theme-gallery" title="Theme Gallery">🎨</button><button class="btn btn-ghost srh-leave" data-act="social-leave">Leave</button></div></div>
       ${voicePanel}
       ${roomStatsHTML}
       ${momentumHTML}
@@ -1799,6 +1829,56 @@
       <div class="social-goals">${goalsHTML}</div>
       <div class="social-add-goal"><div class="sag-title">Create Group Goal</div><input id="gg-title-input" class="auth-input" placeholder="e.g. 50 hours of study this week" maxlength="60" style="margin:8px 0"/><div class="gg-add-row"><input id="gg-hours-input" class="auth-input gg-hours-input" type="number" min="1" max="1000" placeholder="Hours" value="50"/><button class="btn" data-act="social-add-goal">Set Goal</button></div></div>
     </div>`;
+  }
+
+  // ── Admin Settings Modal ──────────────────────────────────────────────────
+  function _openAdminSettings() {
+    if (!_db || !_userId || !_socialRoomCode || !_socialRoomData) { toast('Not available', 'warn'); return; }
+    if (_userId !== _socialRoomData.createdBy) { toast('Only the room creator can access Admin Settings', 'warn'); return; }
+    const members = Object.values(_socialMembers);
+    const memberRows = members.map(m => {
+      const isMe = m.uid === _userId;
+      return `<div class="admin-member-row">
+        <span class="lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName || 'S')}</span>
+        <span class="admin-member-name">${escapeHTML(m.displayName || 'Anonymous')}${isMe ? ' <span class="sm-you-badge">You (Creator)</span>' : ''}</span>
+        ${!isMe ? `<button class="btn btn-sm btn-danger" data-act="admin-kick" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName || 'Member')}">Remove</button>` : ''}
+      </div>`;
+    }).join('') || '<div class="empty" style="font-size:13px">No members yet.</div>';
+    openModal(`<h3>⚙️ Admin Settings</h3>
+      <div class="settings-section">
+        <h4>Room Code</h4>
+        <div style="font-size:22px;font-weight:900;letter-spacing:4px;color:var(--primary);margin:4px 0 2px">${_socialRoomCode}</div>
+        <div style="font-size:12px;color:var(--text-muted)">Share this code for others to join</div>
+      </div>
+      <div class="settings-section">
+        <h4>Members (${members.length})</h4>
+        <div class="admin-members-list">${memberRows}</div>
+      </div>
+      <div class="settings-section">
+        <h4>Danger Zone</h4>
+        <button class="btn btn-danger btn-block" data-act="admin-close-room">🗑 Close &amp; Delete Room</button>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">This removes the room from Firestore. Members will be returned to the lobby.</div>
+      </div>
+      <div class="actions"><button class="btn btn-ghost" data-close>Close</button></div>`);
+  }
+
+  async function _adminKickMember(uid_, name) {
+    if (!_db || !_socialRoomCode) return;
+    try {
+      await _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(uid_).update({ status: 'kicked' });
+      toast(`Removed ${name} from the room`, 'info');
+      closeModal();
+    } catch(e) { toast('Failed to remove member', 'danger'); }
+  }
+
+  async function _adminCloseRoom() {
+    if (!_db || !_socialRoomCode) return;
+    const code = _socialRoomCode;
+    _sLeaveRoom();
+    try {
+      await _db.collection('groups').doc(code).update({ closed: true });
+      toast('Room closed', 'info');
+    } catch(e) {}
   }
 
   // ── Global Leaderboard ────────────────────────────────────────────────────
@@ -1819,25 +1899,25 @@
     try {
       const snap = await _db.collection('global_lb').orderBy('weeklyXP', 'desc').limit(50).get();
       _globalLbData = snap.docs.map(d => d.data());
-      if (_currentTab === 'social' && _socialRoomCode) renderSocial();
+      if (_currentTab === 'social') renderSocial();
     } catch(e) { console.warn('[Global LB]', e.message); }
   }
 
   // ── Social Profile Modal ──────────────────────────────────────────────────
-  function _viewMemberProfile(uid_) {
-    const m = _socialMembers[uid_];
-    if (!m) { toast('Profile not available', 'warn'); return; }
-    const name = m.displayName || 'Anonymous';
-    const ini  = _sInitials(name);
-    const lvInfo = gamificationManager.calculateLevel(m.xpTotal || 0);
-    const focusHrs = minsToHrs((m.totalFocusMinutes || 0) + (m.weeklyMinutes || 0));
-    const streak = m.studyStreak || 0;
-    openModal(`<h3 style="text-align:center">Member Profile</h3>
+  function _buildProfileModal(uid_, name, xpTotal, weeklyMinutes, totalFocusMinutes, studyStreak, email, avatarUrl) {
+    const ini    = _sInitials(name);
+    const lvInfo = gamificationManager.calculateLevel(xpTotal || 0);
+    const focusHrs = minsToHrs((totalFocusMinutes || 0));
+    const streak   = studyStreak || 0;
+    const avatarHTML = avatarUrl
+      ? `<img src="${escapeHTML(avatarUrl)}" style="width:72px;height:72px;border-radius:50%;object-fit:cover" alt=""/>`
+      : `<div class="sm-avatar" style="width:72px;height:72px;border-radius:50%;background:${_sAvatarColor(uid_)};display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;color:#fff">${ini}</div>`;
+    openModal(`<h3 style="text-align:center">Profile Card</h3>
       <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:8px 0 16px">
-        <div class="sm-avatar" style="width:72px;height:72px;border-radius:50%;background:${_sAvatarColor(uid_)};display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;color:#fff">${ini}</div>
+        ${avatarHTML}
         <div style="text-align:center">
           <div style="font-size:18px;font-weight:800;color:var(--text)">${escapeHTML(name)}</div>
-          ${m.email ? `<div style="font-size:12px;color:var(--text-muted);margin-top:2px">${escapeHTML(m.email)}</div>` : ''}
+          ${email ? `<div style="font-size:12px;color:var(--text-muted);margin-top:2px">${escapeHTML(email)}</div>` : ''}
         </div>
         <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center">
           <div style="text-align:center;background:rgba(255,255,255,0.04);padding:10px 16px;border-radius:12px;min-width:70px">
@@ -1845,24 +1925,49 @@
             <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Level</div>
           </div>
           <div style="text-align:center;background:rgba(255,255,255,0.04);padding:10px 16px;border-radius:12px;min-width:70px">
-            <div style="font-size:20px;font-weight:900;color:#fbbf24">${streak}</div>
-            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">🔥 Streak</div>
+            <div style="font-size:20px;font-weight:900;color:var(--primary)">⚡ ${(xpTotal || 0).toLocaleString()}</div>
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Total XP</div>
           </div>
           <div style="text-align:center;background:rgba(255,255,255,0.04);padding:10px 16px;border-radius:12px;min-width:70px">
             <div style="font-size:20px;font-weight:900;color:#34d399">${focusHrs}</div>
-            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Focus</div>
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Focus Time</div>
           </div>
-          <div style="text-align:center;background:rgba(255,255,255,0.04);padding:10px 16px;border-radius:12px;min-width:70px">
-            <div style="font-size:20px;font-weight:900;color:#a78bfa">⚡ ${(m.weeklyXP || 0).toLocaleString()}</div>
-            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">This Week</div>
-          </div>
-        </div>
-        <div style="display:flex;gap:8px;margin-top:4px">
-          <button class="btn btn-sm btn-ghost" data-act="social-nudge" data-uid="${uid_}" data-name="${escapeHTML(name)}">👋 Poke</button>
-          ${_sStatusOf(m) !== 'offline' ? `<button class="btn btn-sm" data-act="social-duel" data-uid="${uid_}" data-name="${escapeHTML(name)}">⚔️ Duel</button>` : ''}
+          ${streak >= 2 ? `<div style="text-align:center;background:rgba(255,255,255,0.04);padding:10px 16px;border-radius:12px;min-width:70px">
+            <div style="font-size:20px;font-weight:900;color:#f97316">🔥 ${streak}</div>
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Day Streak</div>
+          </div>` : ''}
         </div>
       </div>
       <div class="actions"><button class="btn btn-ghost" data-close>Close</button></div>`);
+  }
+
+  function _viewMemberProfile(uid_) {
+    const m = _socialMembers[uid_];
+    if (!m) { toast('Profile not available', 'warn'); return; }
+    _buildProfileModal(uid_, m.displayName || 'Anonymous', m.xpTotal, m.weeklyMinutes, m.totalFocusMinutes, m.studyStreak, m.email, m.avatarUrl);
+  }
+
+  async function _viewGlobalProfile(uid_, fallbackName) {
+    // Try to find in current room first
+    const inRoom = _socialMembers[uid_];
+    if (inRoom) { _viewMemberProfile(uid_); return; }
+    // Fall back to global_lb data
+    const cached = _globalLbData.find(x => x.uid === uid_);
+    if (cached) {
+      _buildProfileModal(uid_, cached.name || fallbackName || 'Anonymous', cached.weeklyXP, cached.weeklyMinutes, null, null, null, null);
+      return;
+    }
+    // Fetch from Firestore
+    toast('Loading profile…', 'info', 1500);
+    try {
+      const snap = await _db.collection('global_lb').doc(uid_).get();
+      if (snap.exists) {
+        const d = snap.data();
+        _buildProfileModal(uid_, d.name || fallbackName || 'Anonymous', d.weeklyXP, d.weeklyMinutes, null, null, null, null);
+      } else {
+        toast('Profile not found', 'warn');
+      }
+    } catch(e) { toast('Could not load profile', 'danger'); }
   }
 
   // ── Change Password ───────────────────────────────────────────────────────
@@ -1994,7 +2099,10 @@
           }
         }
         if (data.answerer === _userId && data.offer && !data.answer && !_voicePeers[data.offerer]) {
-          await _vcHandleOffer(pairId, data).catch(e => console.warn('[Voice] handleOffer', e.message));
+          // Only handle incoming WebRTC offers if the user has explicitly joined voice
+          if (_inVoice) {
+            await _vcHandleOffer(pairId, data).catch(e => console.warn('[Voice] handleOffer', e.message));
+          }
         }
         if (data.answerer === _userId && data.answer) {
           const pc = _voicePeers[data.offerer];
@@ -7150,6 +7258,10 @@
       renderSocial(); return;
     }
     if (act === 'view-profile')  { _viewMemberProfile(el.dataset.uid); return; }
+    if (act === 'view-profile-global') { _viewGlobalProfile(el.dataset.uid, el.dataset.name); return; }
+    if (act === 'social-admin')  { _openAdminSettings(); return; }
+    if (act === 'admin-kick')    { const uid_ = el.dataset.uid, name = el.dataset.name; confirmModal(`Remove ${name} from the room?`, () => _adminKickMember(uid_, name), { title: 'Remove Member?', yesLabel: 'Remove', yesClass: 'btn btn-danger', noLabel: 'Cancel' }); return; }
+    if (act === 'admin-close-room') { confirmModal('Close and delete this room? All members will be sent back to the lobby.', () => _adminCloseRoom(), { title: 'Close Room?', yesLabel: 'Close Room', yesClass: 'btn btn-danger', noLabel: 'Cancel' }); return; }
     if (act === 'voice-join')    { _voiceJoin(); return; }
     if (act === 'voice-leave')   { _voiceLeave(false); return; }
     if (act === 'voice-mute')    { _voiceMuteToggle(); return; }
@@ -7163,7 +7275,7 @@
     if (act === 'social-nudge')  { _sNudge(el.dataset.uid, el.dataset.name).catch(() => {}); return; }
     if (act === 'social-duel')   { _sChallengeDuel(el.dataset.uid, el.dataset.name).catch(() => {}); return; }
     if (act === 'change-password') { closeModal(); _handleChangePassword(); return; }
-    if (act === 'open-shop') { closeModal(); renderShop(); return; }
+    if (act === 'open-shop') { closeModal(); switchTab('shop'); renderShop(); return; }
     if (act === 'remove-avatar') {
       state.profile.avatarDataUrl = null;
       saveState(); _scheduledCloudSync(); renderAll(); toast('Avatar removed', 'info'); modalSettings(); return;
