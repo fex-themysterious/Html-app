@@ -1328,13 +1328,21 @@
     if (!_db || !_userId || !_socialRoomCode || !msgId || !emoji) return;
     const msgRef = _db.collection('groups').doc(_socialRoomCode).collection('messages').doc(msgId);
     const localMsg = _chatMessages.find(m => m.id === msgId);
-    const alreadyReacted = localMsg && localMsg.reactions && (localMsg.reactions[emoji] || []).includes(_userId);
+    const reactions = (localMsg && localMsg.reactions) || {};
+    // Find any existing emoji this user has already reacted with on this message
+    const existingEmoji = Object.keys(reactions).find(e => (reactions[e] || []).includes(_userId));
+    const alreadyReactedSame = existingEmoji === emoji;
     try {
-      if (alreadyReacted) {
-        await msgRef.update({ [`reactions.${emoji}`]: firebase.firestore.FieldValue.arrayRemove(_userId) });
-      } else {
-        await msgRef.update({ [`reactions.${emoji}`]: firebase.firestore.FieldValue.arrayUnion(_userId) });
+      const batch = _db.batch();
+      if (existingEmoji) {
+        // Remove previous reaction regardless of which emoji
+        batch.update(msgRef, { [`reactions.${existingEmoji}`]: firebase.firestore.FieldValue.arrayRemove(_userId) });
       }
+      if (!alreadyReactedSame) {
+        // Add the new emoji only if it's different (toggling same emoji just removes)
+        batch.update(msgRef, { [`reactions.${emoji}`]: firebase.firestore.FieldValue.arrayUnion(_userId) });
+      }
+      await batch.commit();
     } catch(e) { toast('Could not save reaction', 'warn'); }
   }
 
@@ -2070,47 +2078,6 @@
       }, { passive: true });
     }
 
-    // ── Attachment button: open file picker and send image ──
-    const _attachBtn = document.querySelector('[data-act="chat-attach"]');
-    const _attachInput = document.getElementById('grm-attach-input');
-    if (_attachBtn && _attachInput) {
-      _attachBtn.addEventListener('click', () => _attachInput.click());
-      _attachInput.addEventListener('change', function() {
-        const file = (this.files || [])[0];
-        if (!file) return;
-        this.value = '';
-        if (!file.type.startsWith('image/')) {
-          toast('Only image files are supported', 'warn'); return;
-        }
-        if (file.size > 5 * 1024 * 1024) {
-          toast('Image too large (max 5 MB)', 'warn'); return;
-        }
-        const reader = new FileReader();
-        reader.onload = function(ev) {
-          const origDataUrl = ev.target.result;
-          const img = new Image();
-          img.onload = function() {
-            const MAX = 800;
-            let w = img.width, h = img.height;
-            if (w > MAX || h > MAX) {
-              if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
-              else       { w = Math.round(w * MAX / h); h = MAX; }
-            }
-            const canvas = document.createElement('canvas');
-            canvas.width = w; canvas.height = h;
-            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-            const compressed = canvas.toDataURL('image/jpeg', 0.7);
-            const caption = document.getElementById('chat-text-input');
-            const cap = caption ? caption.value.trim() : '';
-            if (caption) { caption.value = ''; caption.style.height = 'auto'; }
-            _sSendImageMessage(compressed, cap).catch(() => {});
-          };
-          img.src = origDataUrl;
-        };
-        reader.readAsDataURL(file);
-      });
-    }
-
   }
 
   function _renderSocialLobby() {
@@ -2361,10 +2328,6 @@
       </div>
       <div class="sroom-chat-composer">
         <div class="sroom-composer-inner">
-          <button class="sroom-composer-btn" data-act="chat-attach" title="Attach file">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-          </button>
-          <input type="file" id="grm-attach-input" style="display:none" accept="image/*,application/pdf"/>
           <textarea id="chat-text-input" class="sroom-chat-input" placeholder="Message…" rows="1" maxlength="2000"></textarea>
           <button class="sroom-send-btn" data-act="chat-send" title="Send">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
@@ -8724,9 +8687,6 @@
     if (act === 'voice-join')    { _voiceJoin(); return; }
     if (act === 'voice-leave')   { _voiceLeave(false); return; }
     if (act === 'voice-mute')    { _voiceMuteToggle(); return; }
-    if (act === 'chat-attach') {
-      document.getElementById('grm-attach-input')?.click(); return;
-    }
     if (act === 'chat-mic') {
       // Handled by direct listener in renderSocial; just guard against fallthrough
       return;
