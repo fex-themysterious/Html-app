@@ -1112,9 +1112,11 @@
       if (isMe) {
         html += `<div class="chat-msg-row chat-msg-me${isGrouped ? ' chat-grouped' : ''}" data-msgid="${escapeHTML(msg.id||'')}">
           ${swipeHint}
-          ${showHead ? `<div class="chat-ts-row"><span class="chat-ts">${ts}</span></div>` : ''}
-          <div class="chat-bubble chat-bubble-me${isDeleted ? ' chat-bubble-deleted' : ''}" ${menuAttrs}>${bubbleContent}${ticksHTML}</div>
-          ${reactRow}
+          <div class="chat-msg-body">
+            ${showHead ? `<div class="chat-ts-row"><span class="chat-ts">${ts}</span></div>` : ''}
+            <div class="chat-bubble chat-bubble-me${isDeleted ? ' chat-bubble-deleted' : ''}" ${menuAttrs}>${bubbleContent}${ticksHTML}</div>
+            ${reactRow}
+          </div>
         </div>`;
       } else {
         const ini = _sInitials(msg.name || 'S');
