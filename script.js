@@ -4870,12 +4870,7 @@
     audio.loop = true;
     audio.volume = 0.2;
     _alarmAudioEl = audio;
-    audio.play().catch(() => {
-      const fb = new Audio('./sounds/peaky-blinder.mp3');
-      fb.loop = true; fb.volume = 0.2;
-      _alarmAudioEl = fb;
-      fb.play().catch(() => {});
-    });
+    audio.play().catch(() => {});
     // Ramp 0.2 → 1.0 over 10 s: 80 steps × 125 ms
     let step = 0;
     _alarmRampTimer = setInterval(() => {
@@ -5400,7 +5395,11 @@
 
   // ========== Sound Track Catalogue ==========
   const SOUNDS = [
-    { id: 'none',          label: '🔇 Off',              src: null,                               cat: null },
+    { id: 'none',         label: '🔇 Off',           src: null,                           cat: null   },
+    { id: 'brown-noise',  label: '🌊 Brown Noise',    src: './sounds/void.wav',            cat: 'noise' },
+    { id: 'gamma-40hz',   label: '🧘 Monk Mode',      src: './sounds/monk-mode.wav',       cat: 'focus' },
+    { id: '528hz',        label: '✨ 528 Hz',         src: './sounds/solfeggio-528.wav',   cat: 'focus' },
+    { id: 'beta-wave',    label: '🧠 Beta Wave',      src: './sounds/focus-beta.wav',      cat: 'focus' },
   ];
   function soundById(id) { return SOUNDS.find(s => s.id === id) || SOUNDS[0]; }
 
@@ -6426,7 +6425,7 @@
   function playOvertimeAlarm() {
     stopOvertimeAlarm();
     resumeAudioContext();
-    const audio = new Audio('./sounds/rain.mp3');
+    const audio = new Audio('./sounds/alarm-wake.mp3');
     audio.loop   = true;
     audio.volume = 1.0;
     audio.preload = 'auto';
@@ -7350,7 +7349,10 @@
     state.focusStats.videoMinutes = state.focusStats.videoMinutes || {};
     state.focusStats.videoMinutes[todayStr]  = (state.focusStats.videoMinutes[todayStr]  || 0) + mins;
     awardXP(mins, todayStr);
+    bumpActivity();
+    checkBadges({ sessionMinutes: mins });
     saveState();
+    _updateLiveStats();
     renderDashboard();
     // Instant realtime chart update — no page refresh needed
     if (document.body.classList.contains('tab-stats')) renderStats();
@@ -9302,7 +9304,7 @@
       renderFullSession(); return;
     }
     if (act === 'fs-cycle-ambient') {
-      const modes = ['none', ...SOUNDS.map(s => s.id)];
+      const modes = SOUNDS.map(s => s.id);
       ambientMode = modes[(modes.indexOf(ambientMode) + 1) % modes.length];
       startAmbient(ambientMode); renderFullSession(); return;
     }
@@ -9645,8 +9647,10 @@
   // Orientation & resize — force layout recalculation so CSS media queries reapply cleanly
   function onOrientationChange() {
     setTimeout(() => {
-      // Sync --vh for any CSS that needs exact viewport height
-      document.documentElement.style.setProperty('--vh', (window.innerHeight * 0.01) + 'px');
+      // Sync --vh and --real-vh for any CSS that needs exact viewport height
+      const _vh = (window.innerHeight * 0.01) + 'px';
+      document.documentElement.style.setProperty('--vh', _vh);
+      document.documentElement.style.setProperty('--real-vh', _vh);
       // Re-render the active view so grid/flex layouts recalculate
       const active = document.querySelector('.view.active');
       if (active) {
@@ -9667,11 +9671,15 @@
   window.addEventListener('resize', () => {
     cancelAnimationFrame(_resizeRaf);
     _resizeRaf = requestAnimationFrame(() => {
-      document.documentElement.style.setProperty('--vh', (window.innerHeight * 0.01) + 'px');
+      const _vh2 = (window.innerHeight * 0.01) + 'px';
+      document.documentElement.style.setProperty('--vh', _vh2);
+      document.documentElement.style.setProperty('--real-vh', _vh2);
     });
   });
   // Set initial value
-  document.documentElement.style.setProperty('--vh', (window.innerHeight * 0.01) + 'px');
+  const _vhInit = (window.innerHeight * 0.01) + 'px';
+  document.documentElement.style.setProperty('--vh', _vhInit);
+  document.documentElement.style.setProperty('--real-vh', _vhInit);
 
   // Mobile keyboard adjustment
   if (typeof window !== 'undefined' && window.visualViewport) {
