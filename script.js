@@ -1700,76 +1700,151 @@
     if (!_socialLobbyCode) _socialLobbyCode = _sGenerateCode();
     const code = _socialLobbyCode;
 
-    // ── Section 1: Global Leaderboard (primary — shown at top) ──
-    const top5HTML = _globalLbData.slice(0, 5).map((m, i) => {
+    // ── Section 1: Global Leaderboard — Premium Podium + List ──
+    const top3 = _globalLbData.slice(0, 3);
+    // Reorder: 2nd, 1st, 3rd for podium visual
+    const podiumOrder = top3.length >= 3 ? [top3[1], top3[0], top3[2]] : top3;
+    const podiumPositions = top3.length >= 3 ? [1, 0, 2] : [0, 1, 2];
+
+    const podiumHTML = podiumOrder.map((m, pi) => {
+      if (!m) return '';
+      const origIdx = podiumPositions[pi];
       const isMe = m.uid === _userId;
-      const medal = i === 0 ? '👑' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}`;
-      const chipCls = (i === 0 ? ' slb-chip-gold' : i === 1 ? ' slb-chip-silver' : i === 2 ? ' slb-chip-bronze' : '') + (isMe ? ' slb-chip-me' : '');
+      const medal = origIdx === 0 ? '👑' : origIdx === 1 ? '🥈' : '🥉';
+      const rankClass = origIdx === 0 ? 'glb-pod-first' : origIdx === 1 ? 'glb-pod-second' : 'glb-pod-third';
       const xpLabel = (m.weeklyXP || 0) >= 1000 ? ((m.weeklyXP / 1000).toFixed(1) + 'k') : String(m.weeklyXP || 0);
-      return `<div class="slb-chip${chipCls}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name || 'Anonymous')}">
-        <div class="slb-chip-medal">${medal}</div>
-        <div class="slb-chip-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.name || 'S')}</div>
-        <div class="slb-chip-name">${escapeHTML((m.name || 'Anonymous').split(' ')[0])}</div>
-        <div class="slb-chip-xp">⚡ ${xpLabel}</div>
+      const streakN = m.studyStreak || 0;
+      const streakBadge = streakN >= 2 ? `<span class="glb-pod-streak">🔥${streakN}</span>` : '';
+      return `<div class="glb-pod-card ${rankClass}${isMe ? ' glb-pod-me' : ''}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name || 'Anonymous')}">
+        <div class="glb-pod-medal">${medal}</div>
+        <div class="glb-pod-av-ring">
+          <div class="glb-pod-av${origIdx === 0 ? ' glb-pod-av-shimmer' : ''}" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.name || 'S')}</div>
+        </div>
+        <div class="glb-pod-name">${escapeHTML((m.name || 'Anonymous').split(' ')[0])}</div>
+        <div class="glb-pod-xp">⚡ ${xpLabel}</div>
+        <div class="glb-pod-time">📚 ${minsToHrs(m.weeklyMinutes || 0)}</div>
+        ${streakBadge}
       </div>`;
     }).join('');
 
-    const glbRows = _globalLbData.slice(0, 20).map((m, i) => {
+    const restRows = _globalLbData.slice(3, 20).map((m, i) => {
+      const rank = i + 4;
       const isMe = m.uid === _userId;
-      const topGlow = i === 0 ? ' lb-row-gold' : i === 1 ? ' lb-row-silver' : i === 2 ? ' lb-row-bronze' : '';
-      const med = i === 0 ? '<span class="lb-crown">👑</span>' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="color:var(--text-muted)">${i + 1}.</span>`;
-      return `<div class="lb-row${isMe ? ' lb-me' : ''}${topGlow}"><span class="lb-rank">${med}</span><span class="lb-av lb-av-click" style="background:${_sAvatarColor(m.uid)}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name || 'Anonymous')}">${_sInitials(m.name || 'S')}</span><span class="lb-name">${escapeHTML(m.name || 'Anonymous')}</span><span class="lb-val">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span><span class="lb-val2">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span></div>`;
-    }).join('') || '<div class="empty" style="padding:12px 0;font-size:13px">No global data yet — start a focus session to appear here!</div>';
+      const streakN = m.studyStreak || 0;
+      const streakBadge = streakN >= 3 ? `<span class="lb-streak">🔥${streakN}</span>` : '';
+      return `<div class="lb-row${isMe ? ' lb-me' : ''}">
+        <span class="lb-rank"><span style="color:var(--text-muted);font-size:12px">${rank}</span></span>
+        <span class="lb-av lb-av-click" style="background:${_sAvatarColor(m.uid)}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name || 'Anonymous')}">${_sInitials(m.name || 'S')}</span>
+        <span class="lb-name">${escapeHTML(m.name || 'Anonymous')}${streakBadge}</span>
+        <span class="lb-val">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span>
+        <span class="lb-val2">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span>
+      </div>`;
+    }).join('');
 
-    const leaderboardSection = `<div class="slb-section">
-      <div class="slb-head-row">
-        <div>
-          <div class="slb-title">🌍 Global Leaderboard</div>
-          <div class="slb-sub-label">Weekly XP · resets every Monday</div>
+    const emptyLbMsg = !_globalLbData.length
+      ? `<div class="glb-empty"><div class="glb-empty-icon">🌍</div><div class="glb-empty-txt">No global data yet — complete a focus session to appear here!</div></div>`
+      : '';
+
+    const leaderboardSection = `<div class="glb-section">
+      <div class="glb-head-row">
+        <div class="glb-head-left">
+          <div class="glb-section-title">🌍 Global Leaderboard</div>
+          <div class="glb-section-sub">Weekly XP · resets every Monday</div>
         </div>
-        <button class="slb-refresh-btn" data-act="social-lb-refresh" title="Refresh rankings">↻</button>
+        <button class="glb-refresh-btn" data-act="social-lb-refresh" title="Refresh rankings">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        </button>
       </div>
-      ${top5HTML ? `<div class="slb-top5-scroll">${top5HTML}</div>` : ''}
-      <div class="social-lb slb-full-list">${glbRows}</div>
+      ${emptyLbMsg}
+      ${podiumHTML ? `<div class="glb-podium-row">${podiumHTML}</div>` : ''}
+      ${restRows ? `<div class="social-lb glb-rest-list">${restRows}</div>` : ''}
     </div>`;
 
-    // ── Section 2: My Rooms (only when user has joined rooms) ──
+    // ── Section 2: My Study Rooms — Premium Group Cards ──
     const myRoomsHTML = _myGroupCodes.length > 0 ? `<div class="my-rooms-section">
-      <div class="my-rooms-head">My Rooms</div>
+      <div class="my-rooms-head-row">
+        <span class="my-rooms-head">My Study Rooms</span>
+        <span class="my-rooms-count">${_myGroupCodes.length}</span>
+      </div>
       <div class="my-rooms-list">
-        ${_myGroupCodes.map(c => `<div class="my-room-card">
-          <div class="mrc-info">
-            <div class="mrc-name">Room ${c}</div>
-            <div class="mrc-code">${c}</div>
-          </div>
-          <div class="mrc-actions">
-            <button class="btn btn-sm mrc-enter-btn" data-act="social-rejoin" data-code="${c}">Enter</button>
-            <button class="mrc-trash-btn" data-act="social-delete-group" data-code="${c}" title="Delete room">🗑</button>
-          </div>
-        </div>`).join('')}
+        ${_myGroupCodes.map((c, idx) => {
+          // Deterministic privacy & accent from room code chars
+          const isPrivate = c.charCodeAt(0) % 3 === 0;
+          const accentIdx = c.charCodeAt(1) % 4;
+          const accents = ['#5badff','#a78bfa','#34d399','#f472b6'];
+          const accent = accents[accentIdx];
+          // Stacked avatar placeholders (decorative)
+          const fakeAvatars = [c.charCodeAt(0), c.charCodeAt(1), c.charCodeAt(2)].map((n, ai) => {
+            const cols = ['#5badff','#a78bfa','#f472b6','#fbbf24','#34d399'];
+            const col = cols[n % cols.length];
+            return `<div class="mrc-av-stack" style="background:${col};margin-left:${ai > 0 ? '-8px' : '0'}">${String.fromCharCode(65 + (n % 26))}</div>`;
+          }).join('');
+          return `<div class="mrc-premium-card" style="--mrc-accent:${accent}">
+            <div class="mrc-premium-glow"></div>
+            <div class="mrc-premium-top">
+              <div class="mrc-premium-left">
+                <div class="mrc-premium-name">Room <strong>${c}</strong></div>
+                <div class="mrc-premium-badges">
+                  <span class="mrc-privacy-pill${isPrivate ? ' mrc-private' : ' mrc-public'}">${isPrivate ? '🔒 Private' : '🌐 Public'}</span>
+                  <span class="mrc-streak-pill">🔥 Active</span>
+                </div>
+              </div>
+              <button class="mrc-settings-icon-btn" data-act="social-room-settings-lobby" data-code="${c}" title="Room settings">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              </button>
+            </div>
+            <div class="mrc-premium-stats">
+              <div class="mrc-av-stack-row">${fakeAvatars}<span class="mrc-members-label">Members</span></div>
+              <span class="mrc-last-active">Ready to join</span>
+            </div>
+            <button class="mrc-enter-btn" data-act="social-rejoin" data-code="${c}">
+              <span class="mrc-enter-glow-ring"></span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+              Enter Room
+            </button>
+          </div>`;
+        }).join('')}
       </div>
     </div>` : '';
 
-    // ── Section 3: Create & Join (2-column grid at bottom) ──
+    // ── Section 3: Create & Join — Premium Cards ──
     const discoverySection = `<div class="slb-discovery">
       <div class="slb-disc-head">Join or Create</div>
-      <div class="social-lobby-cards slb-disc-cards">
-        <div class="social-lobby-card">
-          <div class="slc-icon">🔗</div>
-          <div class="slc-title">Create a Room</div>
-          <div class="slc-code-row">
-            <span class="slc-code">${code}</span>
-            <button class="slc-copy-btn" data-act="social-copy-lobby-code" data-code="${code}" title="Copy code">⧉</button>
+      <div class="slc-cards-grid">
+
+        <div class="slc-prem-card slc-create-prem">
+          <div class="slc-prem-glow slc-glow-blue"></div>
+          <div class="slc-prem-icon">🔗</div>
+          <div class="slc-prem-title">Create a Room</div>
+          <div class="slc-prem-code-box">
+            <span class="slc-prem-code-val">${code}</span>
+            <button class="slc-prem-copy-btn" data-act="social-copy-lobby-code" data-code="${code}" title="Copy code">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
           </div>
-          <div class="slc-hint">Share this code with friends</div>
-          <button class="btn btn-block" data-act="social-create" data-code="${code}" style="margin-top:auto">Create &amp; Join</button>
+          <div class="slc-prem-hint">Share this code with friends</div>
+          <button class="slc-prem-create-btn btn" data-act="social-create" data-code="${code}">⚡ Create &amp; Join</button>
         </div>
-        <div class="social-lobby-card">
-          <div class="slc-icon">🚪</div>
-          <div class="slc-title">Join a Room</div>
-          <input id="social-join-input" class="auth-input slc-join-input" maxlength="6" placeholder="XXXXXX" autocomplete="off" spellcheck="false" inputmode="text"/>
-          <button class="btn btn-block" data-act="social-join">Join Room</button>
+
+        <div class="slc-prem-card slc-join-prem">
+          <div class="slc-prem-glow slc-glow-violet"></div>
+          <div class="slc-prem-icon">🚪</div>
+          <div class="slc-prem-title">Join a Room</div>
+          <input
+            id="social-join-input"
+            class="slc-prem-join-input"
+            maxlength="6"
+            placeholder="XXXXXX"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="characters"
+            spellcheck="false"
+            inputmode="text"
+            enterkeyhint="go"
+          />
+          <button class="slc-prem-join-btn btn" data-act="social-join">Join Room →</button>
         </div>
+
       </div>
     </div>`;
 
@@ -2093,94 +2168,179 @@
     else _openMemberSettings();
   }
 
-  // ── Admin Settings Modal ──────────────────────────────────────────────────
+  // ── Admin Settings Modal (bottom-sheet) ──────────────────────────────────
   function _openAdminSettings() {
     if (!_db || !_userId || !_socialRoomCode || !_socialRoomData) { toast('Not available', 'warn'); return; }
     if (_userId !== _socialRoomData.createdBy) { toast('Only the room creator can access Admin Settings', 'warn'); return; }
     const members = Object.values(_socialMembers);
     const isPrivate = !!(_socialRoomData && _socialRoomData.private);
+    const notifOn = !!(state.socialNotif !== false);
+    const roomName = (_socialRoomData && _socialRoomData.roomName) || `Room ${_socialRoomCode}`;
+
     const memberRows = members.map(m => {
       const isMe = m.uid === _userId;
-      return `<div class="admin-member-row">
-        <span class="lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName || 'S')}</span>
-        <span class="admin-member-name">${escapeHTML(m.displayName || 'Anonymous')}${isMe ? ' <span class="sm-you-badge">You (Creator)</span>' : ''}</span>
-        ${!isMe ? `<div class="admin-member-btns"><button class="btn btn-sm btn-danger" data-act="admin-kick" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName || 'Member')}">Kick</button></div>` : ''}
+      const st = _sStatusOf(m);
+      const dotCol = st === 'focusing' ? '#5badff' : st === 'online' ? '#22c55e' : '#566e8a';
+      return `<div class="adm-member-row">
+        <div class="adm-member-av-wrap">
+          <div class="adm-member-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName || 'S')}</div>
+          <div class="adm-member-dot" style="background:${dotCol}"></div>
+        </div>
+        <div class="adm-member-info">
+          <div class="adm-member-name">${escapeHTML(m.displayName || 'Anonymous')}</div>
+          <div class="adm-member-sub">${isMe ? '👑 Creator · You' : st === 'focusing' ? '🔵 In Focus' : st === 'online' ? '🟢 Online' : '⚪ Offline'}</div>
+        </div>
+        ${!isMe ? `<button class="adm-kick-btn" data-act="admin-kick" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName || 'Member')}">Kick</button>` : '<span class="adm-crown-badge">👑</span>'}
       </div>`;
-    }).join('') || '<div class="empty" style="font-size:13px">No members yet.</div>';
+    }).join('') || '<div class="adm-empty">No members yet.</div>';
 
-    openModal(`<div class="admin-modal-head"><span>⚙️ Admin Settings</span><span class="admin-room-code-badge">${_socialRoomCode}</span></div>
-      <div class="admin-modal-body">
-        <div class="admin-section">
-          <div class="admin-section-title">Room Code</div>
-          <div class="admin-code-row">
-            <span class="admin-code-display">${_socialRoomCode}</span>
-            <button class="btn btn-sm btn-ghost" data-act="social-copy-code">⧉ Copy</button>
-          </div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Share this code for others to join</div>
+    openModal(`<div class="adm-sheet">
+      <div class="adm-sheet-handle"></div>
+      <div class="adm-sheet-hdr">
+        <div class="adm-sheet-title">⚙️ Room Settings</div>
+        <div class="adm-sheet-code">${_socialRoomCode}</div>
+      </div>
+
+      <div class="adm-group">
+        <div class="adm-group-label">ROOM INFO</div>
+        <div class="adm-row">
+          <div class="adm-row-ico">🔑</div>
+          <div class="adm-row-body"><div class="adm-row-title">Room Code</div><div class="adm-row-sub adm-mono">${_socialRoomCode}</div></div>
+          <button class="adm-row-btn" data-act="social-copy-code">Copy</button>
         </div>
-        <div class="admin-section">
-          <div class="admin-section-title">Privacy</div>
-          <div class="admin-privacy-row">
-            <span class="admin-privacy-label">${isPrivate ? '🔒 Private' : '🌐 Public'}</span>
-            <button class="btn btn-sm btn-ghost" data-act="admin-toggle-privacy">${isPrivate ? 'Make Public' : 'Make Private'}</button>
-          </div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${isPrivate ? 'Only people with the code can join.' : 'Anyone can discover and join this room.'}</div>
-        </div>
-        <div class="admin-section">
-          <div class="admin-section-title">Members (${members.length})</div>
-          <div class="admin-members-list">${memberRows}</div>
-        </div>
-        <div class="admin-section admin-section-theme">
-          <div class="admin-section-title">Appearance</div>
-          <button class="btn btn-ghost admin-wide-btn" data-act="theme-gallery">🎨 Open Theme Gallery</button>
-        </div>
-        <div class="admin-section admin-danger-zone">
-          <div class="admin-section-title">Danger Zone</div>
-          <button class="btn btn-danger btn-block" data-act="admin-close-room">🗑 Close &amp; Delete Room</button>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:6px">This permanently removes the room. All members will be returned to the lobby.</div>
+        <div class="adm-row" data-act="admin-rename-room" style="cursor:pointer">
+          <div class="adm-row-ico">✏️</div>
+          <div class="adm-row-body"><div class="adm-row-title">Room Name</div><div class="adm-row-sub">${escapeHTML(roomName)}</div></div>
+          <div class="adm-row-chev">›</div>
         </div>
       </div>
-      <div class="actions"><button class="btn btn-ghost" data-close>Close</button></div>`);
+
+      <div class="adm-group">
+        <div class="adm-group-label">PRIVACY</div>
+        <div class="adm-row">
+          <div class="adm-row-ico">${isPrivate ? '🔒' : '🌐'}</div>
+          <div class="adm-row-body">
+            <div class="adm-row-title">${isPrivate ? 'Private Room' : 'Public Room'}</div>
+            <div class="adm-row-sub">${isPrivate ? 'Only members with the code can join' : 'Anyone can discover and join'}</div>
+          </div>
+          <button class="adm-toggle${isPrivate ? ' adm-toggle-on' : ''}" data-act="admin-toggle-privacy"><span class="adm-toggle-knob"></span></button>
+        </div>
+      </div>
+
+      <div class="adm-group">
+        <div class="adm-group-label">MEMBERS (${members.length})</div>
+        <div class="adm-members-list">${memberRows}</div>
+      </div>
+
+      <div class="adm-group">
+        <div class="adm-group-label">APPEARANCE</div>
+        <div class="adm-row" data-act="theme-gallery" data-close style="cursor:pointer">
+          <div class="adm-row-ico">🎨</div>
+          <div class="adm-row-body"><div class="adm-row-title">Theme Gallery</div><div class="adm-row-sub">Customise the app's look &amp; feel</div></div>
+          <div class="adm-row-chev">›</div>
+        </div>
+      </div>
+
+      <div class="adm-group">
+        <div class="adm-group-label">NOTIFICATIONS</div>
+        <div class="adm-row">
+          <div class="adm-row-ico">🔔</div>
+          <div class="adm-row-body"><div class="adm-row-title">Focus Alerts</div><div class="adm-row-sub">When members start a focus session</div></div>
+          <button class="adm-toggle${notifOn ? ' adm-toggle-on' : ''}" data-act="member-notif-toggle"><span class="adm-toggle-knob"></span></button>
+        </div>
+      </div>
+
+      <div class="adm-group">
+        <div class="adm-group-label">GROUP MANAGEMENT</div>
+        <div class="adm-row" data-act="social-copy-code" style="cursor:pointer">
+          <div class="adm-row-ico">🔗</div>
+          <div class="adm-row-body"><div class="adm-row-title">Share Room Link</div><div class="adm-row-sub">Copy code &amp; invite friends</div></div>
+          <div class="adm-row-chev">›</div>
+        </div>
+        <div class="adm-row" data-act="admin-rename-room" style="cursor:pointer">
+          <div class="adm-row-ico">✏️</div>
+          <div class="adm-row-body"><div class="adm-row-title">Rename Group</div><div class="adm-row-sub">Change the room display name</div></div>
+          <div class="adm-row-chev">›</div>
+        </div>
+      </div>
+
+      <div class="adm-group adm-danger-group">
+        <div class="adm-group-label adm-danger-label">DANGER ZONE</div>
+        <button class="adm-delete-btn" data-act="admin-close-room">
+          <span class="adm-delete-ico">🗑</span>
+          <div class="adm-delete-body">
+            <div class="adm-delete-title">Close &amp; Delete Room</div>
+            <div class="adm-delete-sub">Permanently wipes all room data for everyone</div>
+          </div>
+        </button>
+      </div>
+
+      <div class="adm-sheet-footer">
+        <button class="adm-close-btn" data-close>Done</button>
+      </div>
+    </div>`);
   }
 
-  // ── Member Settings Modal (for non-admins) ────────────────────────────────
+  // ── Member Settings Modal (bottom-sheet, for non-admins) ──────────────────
   function _openMemberSettings() {
     if (!_socialRoomData) { toast('Not in a room', 'warn'); return; }
     const creatorUid = _socialRoomData.createdBy;
     const creatorMember = _socialMembers[creatorUid];
     const creatorName = creatorMember ? (creatorMember.displayName || 'Room Creator') : 'Room Creator';
     const notifOn = !!(state.socialNotif !== false);
-    openModal(`<h3>Room Settings</h3>
-      <div class="member-settings-list">
-        <div class="member-setting-item">
-          <div class="msi-info">
-            <div class="msi-label">🔔 Focus Notifications</div>
-            <div class="msi-sub">Get notified when members start focusing</div>
-          </div>
-          <button class="btn btn-sm ${notifOn ? '' : 'btn-ghost'}" data-act="member-notif-toggle">${notifOn ? 'On' : 'Off'}</button>
+    const roomName = (_socialRoomData && _socialRoomData.roomName) || `Room ${_socialRoomCode}`;
+
+    openModal(`<div class="adm-sheet">
+      <div class="adm-sheet-handle"></div>
+      <div class="adm-sheet-hdr">
+        <div class="adm-sheet-title">${escapeHTML(roomName)}</div>
+        <div class="adm-sheet-code">${_socialRoomCode}</div>
+      </div>
+
+      <div class="adm-group">
+        <div class="adm-group-label">ROOM INFO</div>
+        <div class="adm-row">
+          <div class="adm-row-ico">🔑</div>
+          <div class="adm-row-body"><div class="adm-row-title">Room Code</div><div class="adm-row-sub adm-mono">${_socialRoomCode}</div></div>
+          <button class="adm-row-btn" data-act="social-copy-code">Copy</button>
         </div>
-        <div class="member-setting-item">
-          <div class="msi-info">
-            <div class="msi-label">🎨 Theme Gallery</div>
-            <div class="msi-sub">Customise the app's look</div>
-          </div>
-          <button class="btn btn-sm btn-ghost" data-act="theme-gallery" data-close>Open</button>
-        </div>
-        <div class="member-setting-item">
-          <div class="msi-info">
-            <div class="msi-label">👑 Room Creator</div>
-            <div class="msi-sub">${escapeHTML(creatorName)}</div>
-          </div>
-        </div>
-        <div class="member-setting-item member-setting-danger">
-          <div class="msi-info">
-            <div class="msi-label">🚪 Leave Room</div>
-            <div class="msi-sub">You can rejoin later with the same code</div>
-          </div>
-          <button class="btn btn-sm btn-danger" data-act="social-leave" data-close>Leave</button>
+        <div class="adm-row">
+          <div class="adm-row-ico">👑</div>
+          <div class="adm-row-body"><div class="adm-row-title">Room Creator</div><div class="adm-row-sub">${escapeHTML(creatorName)}</div></div>
         </div>
       </div>
-      <div class="actions"><button class="btn btn-ghost" data-close>Close</button></div>`);
+
+      <div class="adm-group">
+        <div class="adm-group-label">NOTIFICATIONS</div>
+        <div class="adm-row">
+          <div class="adm-row-ico">🔔</div>
+          <div class="adm-row-body"><div class="adm-row-title">Focus Alerts</div><div class="adm-row-sub">When members start a focus session</div></div>
+          <button class="adm-toggle${notifOn ? ' adm-toggle-on' : ''}" data-act="member-notif-toggle"><span class="adm-toggle-knob"></span></button>
+        </div>
+      </div>
+
+      <div class="adm-group">
+        <div class="adm-group-label">APPEARANCE</div>
+        <div class="adm-row" data-act="theme-gallery" data-close style="cursor:pointer">
+          <div class="adm-row-ico">🎨</div>
+          <div class="adm-row-body"><div class="adm-row-title">Theme Gallery</div><div class="adm-row-sub">Customise the app's look</div></div>
+          <div class="adm-row-chev">›</div>
+        </div>
+      </div>
+
+      <div class="adm-group adm-danger-group">
+        <div class="adm-group-label adm-danger-label">LEAVE</div>
+        <div class="adm-row adm-leave-row" data-act="social-leave" data-close style="cursor:pointer">
+          <div class="adm-row-ico">🚪</div>
+          <div class="adm-row-body"><div class="adm-row-title adm-leave-title">Leave Room</div><div class="adm-row-sub">You can rejoin later with the same code</div></div>
+          <div class="adm-row-chev adm-leave-chev">›</div>
+        </div>
+      </div>
+
+      <div class="adm-sheet-footer">
+        <button class="adm-close-btn" data-close>Done</button>
+      </div>
+    </div>`);
   }
 
   async function _adminKickMember(uid_, name) {
@@ -7793,6 +7953,27 @@
     if (act === 'view-profile-global') { _viewGlobalProfile(el.dataset.uid, el.dataset.name); return; }
     if (act === 'social-admin')  { _openAdminSettings(); return; }
     if (act === 'social-room-settings') { _openRoomSettings(); return; }
+    if (act === 'social-room-settings-lobby') {
+      const c_ = el.dataset.code;
+      confirmModal(`Remove room ${c_} from your list? You can rejoin later with the code.`, () => {
+        _myGroupCodes = _myGroupCodes.filter(c => c !== c_);
+        try { localStorage.setItem('my_group_codes', JSON.stringify(_myGroupCodes)); } catch(_) {}
+        if (_db && _userId) _db.collection('users').doc(_userId).update({ joinedRooms: _myGroupCodes }).catch(() => {});
+        renderSocial();
+      }, { title: 'Remove Room?', yesLabel: 'Remove', yesClass: 'btn btn-danger', noLabel: 'Cancel' });
+      return;
+    }
+    if (act === 'admin-rename-room') {
+      if (!_db || !_socialRoomCode) return;
+      const current = (_socialRoomData && _socialRoomData.roomName) || '';
+      const newName = prompt('Enter a new name for this room:', current);
+      if (newName && newName.trim()) {
+        _db.collection('groups').doc(_socialRoomCode).update({ roomName: newName.trim() })
+          .then(() => { toast('Room renamed!', 'success'); closeModal(); })
+          .catch(() => toast('Failed to rename', 'danger'));
+      }
+      return;
+    }
     if (act === 'social-copy-code') {
       const code = _socialRoomCode || _socialLobbyCode || '';
       if (code) {
