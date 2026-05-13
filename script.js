@@ -1973,38 +1973,10 @@
       });
     }
 
-    // ── Long-press on message bubbles (500ms) → coordinate-based context menu ──
+    // ── Prevent native browser context menu on chat bubbles (suppresses Android Chrome duplicate popup) ──
     if (_chatEl) {
-      let _lpTimer = null;
-      let _lpTarget = null;
-      const _cancelLp = () => { clearTimeout(_lpTimer); _lpTimer = null; _lpTarget = null; };
-      _chatEl.addEventListener('touchstart', e => {
-        const bubble = e.target.closest('.chat-bubble');
-        if (!bubble || bubble.classList.contains('chat-bubble-deleted')) return;
-        _lpTarget = bubble;
-        _lpTimer = setTimeout(() => {
-          if (!_lpTarget) return;
-          // Haptic feedback where available
-          if (navigator.vibrate) navigator.vibrate(30);
-          bubble.classList.add('chat-bubble-longpress');
-          setTimeout(() => bubble.classList.remove('chat-bubble-longpress'), 400);
-          const msgId = bubble.dataset.msgid;
-          const isMe  = bubble.dataset.ismine === 'true';
-          if (msgId) _showChatContextMenu(msgId, isMe, bubble.getBoundingClientRect());
-          _cancelLp();
-        }, 500);
-      }, { passive: true });
-      _chatEl.addEventListener('touchend',   _cancelLp, { passive: true });
-      _chatEl.addEventListener('touchmove',  _cancelLp, { passive: true });
-      _chatEl.addEventListener('touchcancel',_cancelLp, { passive: true });
-      // Desktop: right-click → coordinate context menu
       _chatEl.addEventListener('contextmenu', e => {
-        const bubble = e.target.closest('.chat-bubble');
-        if (!bubble || bubble.classList.contains('chat-bubble-deleted')) return;
-        e.preventDefault();
-        const msgId = bubble.dataset.msgid;
-        const isMe  = bubble.dataset.ismine === 'true';
-        if (msgId) _showChatContextMenu(msgId, isMe, bubble.getBoundingClientRect());
+        if (e.target.closest('.chat-bubble')) e.preventDefault();
       });
     }
 
@@ -9150,13 +9122,21 @@
     else renderAll();
   });
 
-  // Long-press on chat bubbles → action sheet
+  // ── Suppress native browser context menu on chat bubbles (prevents Android Chrome duplicate popup) ──
+  document.addEventListener('contextmenu', e => {
+    if (e.target.closest('.chat-bubble')) e.preventDefault();
+  });
+
+  // ── Long-press on chat bubbles → single bottom-sheet action menu ──
   let _lp = null;
+  let _lpFired = false; // blocks the click that follows a long-press
   document.addEventListener('touchstart', e => {
     const bubble = e.target.closest('.chat-bubble[data-act="chat-msg-menu"]');
     if (!bubble) return;
+    _lpFired = false;
     _lp = setTimeout(() => {
       _lp = null;
+      _lpFired = true; // prevent the imminent touchend→click from re-opening the menu
       const msgId = bubble.dataset.msgid;
       const isMe = bubble.dataset.ismine === 'true';
       if (navigator.vibrate) navigator.vibrate(30);
@@ -9166,6 +9146,14 @@
   document.addEventListener('touchend',   () => { if (_lp) { clearTimeout(_lp); _lp = null; } }, { passive: true });
   document.addEventListener('touchmove',  () => { if (_lp) { clearTimeout(_lp); _lp = null; } }, { passive: true });
   document.addEventListener('touchcancel',() => { if (_lp) { clearTimeout(_lp); _lp = null; } }, { passive: true });
+
+  // Block the click event that fires right after a long-press (prevents menu showing twice)
+  document.addEventListener('click', e => {
+    if (!_lpFired) return;
+    const bubble = e.target.closest('.chat-bubble[data-act="chat-msg-menu"]');
+    if (bubble) { e.stopImmediatePropagation(); _lpFired = false; }
+  }, true /* capture — runs before delegation */);
+
 
   // Keyboard
   document.addEventListener('keydown', e => {
