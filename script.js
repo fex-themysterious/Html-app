@@ -709,10 +709,12 @@
   const SOCIAL_RECONNECT_MAX     = 8;             // max reconnect attempts
   const SOCIAL_BOUNTY_XP         = 50;
   let _socialRoomCode        = null;
-  let _socialMembers         = {};
+  let _socialMembers         = {};   // real-time presence (online/offline status, XP snapshot)
+  let _socialRoomMembersList = {};   // persistent: everyone who has ever joined this room
   let _socialRoomData        = null;
   let _socialUnsubPresence   = null;
   let _socialUnsubRoom       = null;
+  let _socialUnsubMembers    = null; // listener for persistent members subcollection
   let _socialHeartbeatId     = null;
   let _socialHeartbeatMs     = SOCIAL_HEARTBEAT_FAST_MS;
   let _socialLobbyCode       = null;
@@ -1117,6 +1119,22 @@
         _sScheduleReconnect();
       });
 
+    // Persistent members listener — all users who have ever joined this room.
+    // Unlike presence docs (which expire after 30s), membership records are permanent.
+    // This ensures Settings > Members and Rankings > This Room always show the full list.
+    if (_socialUnsubMembers) { _socialUnsubMembers(); _socialUnsubMembers = null; }
+    _socialUnsubMembers = _db.collection('groups').doc(roomCode).collection('members')
+      .onSnapshot(snap => {
+        snap.docChanges().forEach(change => {
+          if (change.type === 'removed') { delete _socialRoomMembersList[change.doc.id]; return; }
+          const d = { ...change.doc.data() };
+          const key = d.uid || change.doc.id;
+          if (!d.uid) d.uid = change.doc.id;
+          _socialRoomMembersList[key] = d;
+        });
+        if (_currentTab === 'social') _renderSocialSafe();
+      }, () => {});
+
     // Adaptive heartbeat — starts fast, idles down automatically
     _sSetHeartbeatRate(SOCIAL_HEARTBEAT_FAST_MS);
     _sInitIdleTracker();
@@ -1175,6 +1193,13 @@
         if (_db && _userId) _db.collection('users').doc(_userId).update({ joinedRooms: _myGroupCodes }).catch(() => {});
       }
       await _sUpdatePresence('break');
+      // Write a persistent membership record so this user stays visible in
+      // Settings > Members and Rankings > This Room even when offline.
+      if (_db && _userId) {
+        _db.collection('groups').doc(code).collection('members').doc(_userId)
+          .set({ uid: _userId, displayName: _sDisplayName(), joinedAt: Date.now() }, { merge: true })
+          .catch(() => {});
+      }
       _sSubscribe();
       _updateGlobalLb();
       // join toast removed (room opens visually)
@@ -1189,6 +1214,7 @@
     _stopSocialLiveTimers();
     if (_socialUnsubPresence) { _socialUnsubPresence(); _socialUnsubPresence = null; }
     if (_socialUnsubRoom)     { _socialUnsubRoom();     _socialUnsubRoom = null; }
+    if (_socialUnsubMembers)  { _socialUnsubMembers();  _socialUnsubMembers = null; }
     if (_socialUnsubChat)     { _socialUnsubChat();     _socialUnsubChat = null; }
     if (_socialHeartbeatId)   { clearInterval(_socialHeartbeatId); _socialHeartbeatId = null; }
     if (_socialReconnectTimer){ clearTimeout(_socialReconnectTimer); _socialReconnectTimer = null; }
@@ -1200,11 +1226,30 @@
       _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId)
         .set({ status: 'offline', lastSeen: Date.now() }, { merge: true }).catch(() => {});
     }
-    _socialRoomCode = null; _socialMembers = {}; _socialRoomData = null;
+    _socialRoomCode = null; _socialMembers = {}; _socialRoomData = null; _socialRoomMembersList = {};
     _socialLobbyCode = null;
     try { localStorage.removeItem('social_room_code'); } catch (e) {}
     if (_inVoice) _voiceLeave(true);
     renderSocial();
+  }
+
+  // Returns the full list of room members, merging two sources:
+  //  - _socialRoomMembersList  — persistent (everyone who joined, even if offline/away)
+  //  - _socialMembers          — real-time presence (status, XP, heartbeat data)
+  // Persistent members who are currently online get their full presence data overlaid.
+  // Members who are offline still appear (status resolved by _sStatusOf) rather than
+  // vanishing from Settings > Members and Rankings > This Room.
+  function _mergedMembers() {
+    const merged = {};
+    Object.values(_socialRoomMembersList).forEach(m => { merged[m.uid] = { ...m }; });
+    Object.values(_socialMembers).forEach(m => {
+      merged[m.uid] = { ...(merged[m.uid] || {}), ...m };
+    });
+    // Guarantee own user is always present while in room
+    if (_userId && _socialRoomCode && !merged[_userId]) {
+      merged[_userId] = { uid: _userId, displayName: _sDisplayName(), lastSeen: Date.now(), status: 'break' };
+    }
+    return Object.values(merged);
   }
 
   // ── Chat System ───────────────────────────────────────────────────────────
@@ -2548,7 +2593,7 @@
 
   function _renderSocialRoom() {
     const now = Date.now();
-    const members = Object.values(_socialMembers);
+    const members = _mergedMembers();
     const sorted = members.slice().sort((a, b) => {
       if (a.uid === _userId) return -1; if (b.uid === _userId) return 1;
       const r = { focusing: 0, break: 1, idle: 2, offline: 3 };
@@ -2984,7 +3029,7 @@
   function _openAdminSettings() {
     if (!_db || !_userId || !_socialRoomCode || !_socialRoomData) { toast('Not available', 'warn'); return; }
     if (_userId !== _socialRoomData.createdBy) { toast('Only the room admin can access these settings', 'warn'); return; }
-    const members = Object.values(_socialMembers);
+    const members = _mergedMembers();
     const isPrivate = !!(_socialRoomData && _socialRoomData.private);
     const notifOn = !!(state.socialNotif !== false);
     const roomName = (_socialRoomData && _socialRoomData.roomName) || `Room ${_socialRoomCode}`;
