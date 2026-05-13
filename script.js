@@ -1086,6 +1086,51 @@
       const showHead = msg.uid !== prevUid || timeDiff > 5 * 60 * 1000;
       const isGrouped = !showHead;
       const ts = _formatChatTime(msg.sentAt);
+      // ── Special full-width message types ────────────────────────
+      if (msg.type === 'announcement') {
+        html += `<div class="chat-announcement">
+          <div class="chat-ann-hdr">
+            <span class="chat-ann-icon">📢</span>
+            <span class="chat-ann-label">Announcement</span>
+            <span class="chat-ann-by">by ${escapeHTML(msg.name || 'Admin')}</span>
+            <span class="chat-ts">${ts}</span>
+          </div>
+          <div class="chat-ann-text">${escapeHTML(msg.text || '')}</div>
+        </div>`;
+        prevUid = msg.uid; prevTime = msg.sentAt;
+        return;
+      }
+      if (msg.type === 'poll') {
+        const optTexts = msg.options || [];
+        const vkeys = ['v0','v1','v2','v3'];
+        const totalVotes = vkeys.reduce((s, k) => s + ((msg[k] || []).length), 0);
+        const myVote = vkeys.findIndex(k => (msg[k] || []).includes(_userId));
+        const optionsHTML = optTexts.map((opt, i) => {
+          const count = (msg[`v${i}`] || []).length;
+          const pct = totalVotes > 0 ? Math.round(count / totalVotes * 100) : 0;
+          const isMine = myVote === i;
+          return `<button class="poll-opt${isMine ? ' poll-opt-mine' : ''}" data-act="poll-vote" data-msgid="${escapeHTML(msg.id)}" data-idx="${i}">
+            <div class="poll-opt-bar-bg"><div class="poll-opt-bar-fill" style="width:${pct}%"></div></div>
+            <div class="poll-opt-content">
+              <span class="poll-opt-text">${escapeHTML(opt)}</span>
+              <span class="poll-opt-stat">${isMine ? '✓ ' : ''}${pct}% · ${count}</span>
+            </div>
+          </button>`;
+        }).join('');
+        html += `<div class="chat-poll-card">
+          <div class="chat-poll-hdr">
+            <span class="chat-poll-icon">📊</span>
+            <span class="chat-poll-label">Poll</span>
+            <span class="chat-poll-by">by ${escapeHTML(msg.name || 'Admin')}</span>
+            <span class="chat-ts">${ts}</span>
+          </div>
+          <div class="chat-poll-question">${escapeHTML(msg.question || '')}</div>
+          <div class="chat-poll-options">${optionsHTML}</div>
+          <div class="chat-poll-footer">${totalVotes} vote${totalVotes !== 1 ? 's' : ''}${myVote >= 0 ? ' · You voted' : ' · Tap to vote'}</div>
+        </div>`;
+        prevUid = msg.uid; prevTime = msg.sentAt;
+        return;
+      }
       // Reactions
       const reactions = msg.reactions || {};
       const reactsHTML = Object.entries(reactions).filter(([, uids]) => uids.length > 0)
@@ -1225,6 +1270,96 @@
       _chatMessages = _chatMessages.filter(m => m.id !== msg.id);
       _renderChatOnly();
     }
+  }
+
+  // ── Announcement ─────────────────────────────────────────────────────────
+  function _openAnnouncementModal() {
+    openModal(`<div class="poll-modal">
+      <div class="poll-modal-hdr"><span>📢</span><span class="poll-modal-title">Send Announcement</span></div>
+      <p class="poll-modal-desc">This will appear as a highlighted banner in the chat for all members.</p>
+      <textarea id="ann-text-input" class="modal-input poll-modal-textarea" placeholder="Write your announcement…" maxlength="300" rows="3"></textarea>
+      <div class="poll-modal-footer">
+        <button class="poll-modal-cancel" data-close>Cancel</button>
+        <button class="poll-modal-send" data-act="announcement-send">📢 Send</button>
+      </div>
+    </div>`);
+    setTimeout(() => document.getElementById('ann-text-input')?.focus(), 100);
+  }
+
+  async function _sSendAnnouncement(text) {
+    if (!text || !_db || !_userId || !_socialRoomCode) return;
+    const msg = { id: uid(), uid: _userId, name: _sDisplayName(), type: 'announcement', text, sentAt: Date.now() };
+    _chatMessages.push(msg);
+    _renderChatOnly();
+    try {
+      await _db.collection('groups').doc(_socialRoomCode).collection('messages').doc(msg.id).set(msg);
+      toast('📢 Announcement sent!', 'success', 2500);
+    } catch(e) {
+      toast('Failed to send announcement', 'danger');
+      _chatMessages = _chatMessages.filter(m => m.id !== msg.id);
+      _renderChatOnly();
+    }
+  }
+
+  // ── Poll ─────────────────────────────────────────────────────────────────
+  function _openCreatePollModal() {
+    openModal(`<div class="poll-modal">
+      <div class="poll-modal-hdr"><span>📊</span><span class="poll-modal-title">Create Poll</span></div>
+      <input id="poll-question-input" class="modal-input" placeholder="Ask a question…" maxlength="150" style="margin-bottom:10px"/>
+      <div class="poll-opts-label">Options <span style="color:var(--text-muted);font-size:11px">(2–4)</span></div>
+      <div id="poll-options-list" style="display:flex;flex-direction:column;gap:7px;margin-bottom:10px">
+        <input class="poll-option-input modal-input" placeholder="Option 1" maxlength="80"/>
+        <input class="poll-option-input modal-input" placeholder="Option 2" maxlength="80"/>
+      </div>
+      <button class="poll-add-opt-btn" data-act="poll-modal-add-option">+ Add option</button>
+      <div class="poll-modal-footer">
+        <button class="poll-modal-cancel" data-close>Cancel</button>
+        <button class="poll-modal-send" data-act="poll-modal-send">📊 Create Poll</button>
+      </div>
+    </div>`);
+    setTimeout(() => document.getElementById('poll-question-input')?.focus(), 100);
+  }
+
+  async function _sSendPoll(question, options) {
+    if (!question || !options || options.length < 2 || !_db || !_userId || !_socialRoomCode) return;
+    const msg = {
+      id: uid(), uid: _userId, name: _sDisplayName(),
+      type: 'poll', question, options,
+      v0: [], v1: [], v2: [], v3: [],
+      sentAt: Date.now()
+    };
+    _chatMessages.push(msg);
+    _renderChatOnly();
+    try {
+      await _db.collection('groups').doc(_socialRoomCode).collection('messages').doc(msg.id).set(msg);
+      toast('📊 Poll created!', 'success', 2500);
+    } catch(e) {
+      toast('Failed to create poll', 'danger');
+      _chatMessages = _chatMessages.filter(m => m.id !== msg.id);
+      _renderChatOnly();
+    }
+  }
+
+  async function _sPollVote(msgId, optionIdx) {
+    if (!_db || !_userId || !_socialRoomCode || !msgId) return;
+    const msgRef = _db.collection('groups').doc(_socialRoomCode).collection('messages').doc(msgId);
+    const localMsg = _chatMessages.find(m => m.id === msgId);
+    if (!localMsg) return;
+    const vkeys = ['v0','v1','v2','v3'];
+    const existingKey = vkeys.find(k => (localMsg[k] || []).includes(_userId));
+    const newKey = vkeys[optionIdx];
+    if (!newKey) return;
+    const isSame = existingKey === newKey;
+    try {
+      const batch = _db.batch();
+      if (existingKey) {
+        batch.update(msgRef, { [existingKey]: firebase.firestore.FieldValue.arrayRemove(_userId) });
+      }
+      if (!isSame) {
+        batch.update(msgRef, { [newKey]: firebase.firestore.FieldValue.arrayUnion(_userId) });
+      }
+      await batch.commit();
+    } catch(e) { toast('Could not save vote', 'warn'); }
   }
 
   function _showChatContextMenu(msgId, isMe, anchorRect) {
@@ -2621,6 +2756,20 @@
         <div class="adm-row" data-act="theme-gallery" data-close style="cursor:pointer">
           <div class="adm-row-ico">🎨</div>
           <div class="adm-row-body"><div class="adm-row-title">Theme Gallery</div><div class="adm-row-sub">Customise the app's look &amp; feel</div></div>
+          <div class="adm-row-chev">›</div>
+        </div>
+      </div>
+
+      <div class="adm-group">
+        <div class="adm-group-label">TOOLS</div>
+        <div class="adm-row" data-act="admin-send-announcement" style="cursor:pointer">
+          <div class="adm-row-ico">📢</div>
+          <div class="adm-row-body"><div class="adm-row-title">Send Announcement</div><div class="adm-row-sub">Broadcast a highlighted message to all members</div></div>
+          <div class="adm-row-chev">›</div>
+        </div>
+        <div class="adm-row" data-act="admin-create-poll" style="cursor:pointer">
+          <div class="adm-row-ico">📊</div>
+          <div class="adm-row-body"><div class="adm-row-title">Create Poll</div><div class="adm-row-sub">Ask members a question with up to 4 options</div></div>
           <div class="adm-row-chev">›</div>
         </div>
       </div>
@@ -8709,6 +8858,40 @@
       saveState();
       closeModal();
       toast(state.socialNotif ? '🔔 Notifications on' : '🔕 Notifications off', 'info');
+      return;
+    }
+    if (act === 'admin-send-announcement') { closeModal(); _openAnnouncementModal(); return; }
+    if (act === 'admin-create-poll')       { closeModal(); _openCreatePollModal(); return; }
+    if (act === 'announcement-send') {
+      const text = (document.getElementById('ann-text-input')?.value || '').trim();
+      if (!text) { toast('Please enter announcement text', 'warn'); return; }
+      _sSendAnnouncement(text).catch(() => {});
+      closeModal();
+      return;
+    }
+    if (act === 'poll-modal-send') {
+      const q = (document.getElementById('poll-question-input')?.value || '').trim();
+      const opts = Array.from(document.querySelectorAll('.poll-option-input')).map(i => i.value.trim()).filter(Boolean);
+      if (!q) { toast('Please enter a question', 'warn'); return; }
+      if (opts.length < 2) { toast('Please add at least 2 options', 'warn'); return; }
+      _sSendPoll(q, opts).catch(() => {});
+      closeModal();
+      return;
+    }
+    if (act === 'poll-modal-add-option') {
+      const list = document.getElementById('poll-options-list');
+      const count = list ? list.querySelectorAll('.poll-option-input').length : 0;
+      if (count >= 4) { toast('Maximum 4 options', 'warn'); return; }
+      const inp = document.createElement('input');
+      inp.type = 'text'; inp.className = 'poll-option-input modal-input';
+      inp.placeholder = `Option ${count + 1}`; inp.maxLength = 80;
+      list.appendChild(inp); inp.focus();
+      return;
+    }
+    if (act === 'poll-vote') {
+      const msgId = el.dataset.msgid;
+      const idx = parseInt(el.dataset.idx, 10);
+      if (msgId && !isNaN(idx)) _sPollVote(msgId, idx).catch(() => {});
       return;
     }
     if (act === 'admin-kick')    { const uid_ = el.dataset.uid, name = el.dataset.name; confirmModal(`Kick ${name} from the room?`, () => _adminKickMember(uid_, name), { title: 'Kick Member?', yesLabel: 'Kick', yesClass: 'btn btn-danger', noLabel: 'Cancel' }); return; }
