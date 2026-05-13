@@ -2128,9 +2128,87 @@
     if (!_socialLobbyCode) _socialLobbyCode = _sGenerateCode();
     const code = _socialLobbyCode;
 
+    // ── Global Leaderboard: featured #1 card ──
+    const top1 = _globalLbData[0] || null;
+    const restRows = _globalLbData.slice(1, 20).map((m, i) => {
+      const isMe = m.uid === _userId;
+      const streak = (m.studyStreak || 0) >= 3 ? `<span class="slob-lb-streak">🔥${m.studyStreak}</span>` : '';
+      return `<div class="slob-lb-row${isMe ? ' slob-lb-me' : ''}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name || 'Anonymous')}">
+        <span class="slob-lb-rank">${i + 2}</span>
+        <span class="slob-lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.name || 'S')}</span>
+        <span class="slob-lb-name">${escapeHTML(m.name || 'Anonymous')}${streak}</span>
+        <span class="slob-lb-xp">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span>
+        <span class="slob-lb-time">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span>
+      </div>`;
+    }).join('');
+
+    const featuredCard = top1 ? `
+      <div class="slob-lb-featured" data-act="view-profile-global" data-uid="${top1.uid}" data-name="${escapeHTML(top1.name || 'Anonymous')}">
+        <div class="slob-lb-featured-crown">👑</div>
+        <div class="slob-lb-featured-av" style="background:${_sAvatarColor(top1.uid)}">${_sInitials(top1.name || 'S')}</div>
+        <div class="slob-lb-featured-name">${escapeHTML((top1.name || 'Anonymous').split(' ')[0])}</div>
+        <div class="slob-lb-featured-xp">⚡ ${(top1.weeklyXP || 0).toLocaleString()}</div>
+        <div class="slob-lb-featured-time">📚 ${minsToHrs(top1.weeklyMinutes || 0)}</div>
+      </div>` : `<div class="slob-lb-empty">Complete a focus session to appear here!</div>`;
+
+    const lbSection = `
+      <div class="slob-section">
+        <div class="slob-section-label-row">
+          <div>
+            <div class="slob-lb-title">🌍 Global Leaderboard</div>
+            <div class="slob-lb-sub">Weekly XP · resets every Monday</div>
+          </div>
+          <button class="slob-refresh-btn" data-act="social-lb-refresh" title="Refresh">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          </button>
+        </div>
+        ${featuredCard}
+        ${restRows ? `<div class="slob-lb-rest">${restRows}</div>` : ''}
+      </div>
+    `;
+
+    // ── My Study Rooms ──
+    const myRoomsHTML = _myGroupCodes.length ? `
+      <div class="slob-section">
+        <div class="slob-section-label-row">
+          <span class="slob-section-label">My Study Rooms</span>
+          <span class="slob-rooms-count-badge">${_myGroupCodes.length}</span>
+        </div>
+        <div class="slob-rooms-list">
+          ${_myGroupCodes.map(c => {
+            const avatarColors = ['#e05c97','#5ba3ff','#f7b731','#26de81','#a29bfe'];
+            const fakeAvatars = [0,1,2].map(i => `<div class="slob-room-card-av" style="background:${avatarColors[(c.charCodeAt(i % c.length) + i) % avatarColors.length]};margin-left:${i > 0 ? '-8px' : '0'}"></div>`).join('');
+            return `
+            <div class="slob-room-card">
+              <div class="slob-room-card-header">
+                <div class="slob-room-card-title">Room ${c}</div>
+                <button class="slob-room-settings" data-act="social-room-settings-lobby" data-code="${c}" title="Settings">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                </button>
+              </div>
+              <div class="slob-room-tags">
+                <span class="slob-tag slob-tag-public">🌍 Public</span>
+                <span class="slob-tag slob-tag-active">🔥 Active</span>
+              </div>
+              <div class="slob-room-members-row">
+                <div class="slob-room-avatars">${fakeAvatars}</div>
+                <span class="slob-room-members-label">Members</span>
+                <span class="slob-room-status">Ready to join</span>
+              </div>
+              <button class="btn slob-enter-room-btn" data-act="social-rejoin" data-code="${c}">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+                Enter Room
+              </button>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+    ` : '';
+
+    // ── Join or Create ──
     const createJoinHTML = `
       <div class="slob-section">
-        <div class="slob-section-label">Create or Join</div>
+        <div class="slob-section-label">Join or Create</div>
         <div class="slob-cj-grid">
           <div class="slob-card slob-card-create">
             <div class="slob-card-icon">🔗</div>
@@ -2141,7 +2219,7 @@
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
               </button>
             </div>
-            <div class="slob-card-hint">Share this code with your friends</div>
+            <div class="slob-card-hint">Share this code with friends</div>
             <button class="btn slob-create-btn" data-act="social-create" data-code="${code}">⚡ Create &amp; Join</button>
           </div>
           <div class="slob-card slob-card-join">
@@ -2155,76 +2233,10 @@
       </div>
     `;
 
-    const myRoomsHTML = _myGroupCodes.length ? `
-      <div class="slob-section">
-        <div class="slob-section-label">My Rooms</div>
-        <div class="slob-rooms-list">
-          ${_myGroupCodes.map(c => `
-            <div class="slob-room-row">
-              <div class="slob-room-av" style="background:${_sAvatarColor(c)}">${c.slice(0,2)}</div>
-              <div class="slob-room-info">
-                <div class="slob-room-name">Room ${c}</div>
-                <div class="slob-room-code">${c}</div>
-              </div>
-              <button class="btn btn-sm slob-room-enter" data-act="social-rejoin" data-code="${c}">Enter</button>
-              <button class="slob-room-settings" data-act="social-room-settings-lobby" data-code="${c}" title="Settings">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-              </button>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    ` : '';
-
-    const top3 = _globalLbData.slice(0, 3);
-    const podiumOrder = top3.length >= 3 ? [top3[1], top3[0], top3[2]] : top3;
-    const podiumPositions = top3.length >= 3 ? [1, 0, 2] : [0, 1, 2];
-    const podiumHTML = podiumOrder.length ? `<div class="slob-podium">${podiumOrder.map((m, pi) => {
-      if (!m) return '';
-      const origIdx = podiumPositions[pi];
-      const medal = origIdx === 0 ? '🥇' : origIdx === 1 ? '🥈' : '🥉';
-      const isMe = m.uid === _userId;
-      const xpLabel = (m.weeklyXP || 0) >= 1000 ? ((m.weeklyXP / 1000).toFixed(1) + 'k') : String(m.weeklyXP || 0);
-      const podClass = ['slob-pod-second','slob-pod-first','slob-pod-third'][pi];
-      return `<div class="slob-pod-item ${podClass}${isMe ? ' slob-pod-me' : ''}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name || 'Anonymous')}">
-        <div class="slob-pod-medal">${medal}</div>
-        <div class="slob-pod-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.name || 'S')}</div>
-        <div class="slob-pod-name">${escapeHTML((m.name || 'Anon').split(' ')[0])}</div>
-        <div class="slob-pod-xp">⚡ ${xpLabel}</div>
-      </div>`;
-    }).join('')}</div>` : '';
-
-    const restRows = _globalLbData.slice(3, 20).map((m, i) => {
-      const isMe = m.uid === _userId;
-      const streak = (m.studyStreak || 0) >= 3 ? `<span class="slob-lb-streak">🔥${m.studyStreak}</span>` : '';
-      return `<div class="slob-lb-row${isMe ? ' slob-lb-me' : ''}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name || 'Anonymous')}">
-        <span class="slob-lb-rank">${i + 4}</span>
-        <span class="slob-lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.name || 'S')}</span>
-        <span class="slob-lb-name">${escapeHTML(m.name || 'Anonymous')}${streak}</span>
-        <span class="slob-lb-xp">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span>
-        <span class="slob-lb-time">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span>
-      </div>`;
-    }).join('');
-
-    const lbSection = `
-      <div class="slob-section">
-        <div class="slob-section-label-row">
-          <span class="slob-section-label">🌍 Global Leaderboard</span>
-          <button class="slob-refresh-btn" data-act="social-lb-refresh" title="Refresh">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-          </button>
-        </div>
-        <div class="slob-lb-sub">Weekly XP · resets every Monday</div>
-        ${!_globalLbData.length ? '<div class="slob-lb-empty">Complete a focus session to appear here!</div>' : ''}
-        ${podiumHTML}
-        ${restRows ? `<div class="slob-lb-rest">${restRows}</div>` : ''}
-      </div>
-    `;
-
     return `<div class="slob-page">
-      ${createJoinHTML}
-      ${myRoomsHTML}
       ${lbSection}
+      ${myRoomsHTML}
+      ${createJoinHTML}
     </div>`;
   }
 

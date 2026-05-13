@@ -4497,22 +4497,125 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 /* ══════════════════════════════════════════════════════════════
    LOBBY
    ══════════════════════════════════════════════════════════════ */
-.slob-page { display: flex; flex-direction: column; gap: 20px; padding: 16px 16px 100px; }
-.slob-section { display: flex; flex-direction: column; gap: 10px; }
+.slob-page { display: flex; flex-direction: column; gap: 24px; padding: 16px 16px 100px; }
+.slob-section { display: flex; flex-direction: column; gap: 12px; }
 .slob-section-label {
   font-size: 11px; font-weight: 700; color: var(--text-muted);
   text-transform: uppercase; letter-spacing: 0.08em;
 }
 .slob-section-label-row { display: flex; align-items: center; justify-content: space-between; }
-.slob-lb-sub { font-size: 11px; color: var(--text-dim); margin-top: -4px; }
-.slob-refresh-btn {
-  width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
-  background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border);
-  border-radius: 8px; cursor: pointer; color: var(--text-muted);
-  transition: all var(--t-fast);
-}
-.slob-refresh-btn:hover { color: var(--primary); border-color: var(--primary); }
 
+/* ── Leaderboard header ── */
+.slob-lb-title { font-size: 18px; font-weight: 800; color: var(--text); }
+.slob-lb-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.slob-refresh-btn {
+  width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.06); border: 1px solid var(--glass-border);
+  border-radius: 10px; cursor: pointer; color: var(--text-muted);
+  transition: all var(--t-fast); flex-shrink: 0;
+}
+.slob-refresh-btn:hover { color: var(--primary); border-color: var(--primary); background: rgba(91,173,255,0.1); }
+
+/* ── Featured #1 card ── */
+.slob-lb-featured {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  background: linear-gradient(145deg, rgba(20,26,40,0.95), rgba(12,18,30,0.98));
+  border: 1px solid rgba(251,191,36,0.25);
+  border-radius: 20px; padding: 20px 16px 18px;
+  cursor: pointer; transition: border-color var(--t-fast);
+  position: relative; overflow: hidden;
+}
+.slob-lb-featured::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 50% 0%, rgba(251,191,36,0.07) 0%, transparent 65%);
+  pointer-events: none;
+}
+.slob-lb-featured:hover { border-color: rgba(251,191,36,0.45); }
+.slob-lb-featured-crown { font-size: 28px; line-height: 1; margin-bottom: 2px; }
+.slob-lb-featured-av {
+  width: 64px; height: 64px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; font-weight: 800; color: #fff;
+  border: 3px solid rgba(255,255,255,0.15);
+}
+.slob-lb-featured-name { font-size: 17px; font-weight: 800; color: var(--text); margin-top: 2px; }
+.slob-lb-featured-xp   { font-size: 15px; font-weight: 700; color: #fbbf24; }
+.slob-lb-featured-time { font-size: 13px; color: var(--text-muted); }
+.slob-lb-empty { text-align: center; color: var(--text-muted); font-size: 13px; padding: 24px 0; }
+
+/* ── Rest of leaderboard rows ── */
+.slob-lb-rest  { display: flex; flex-direction: column; }
+.slob-lb-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 2px; border-bottom: 1px solid rgba(255,255,255,0.04); cursor: pointer;
+}
+.slob-lb-row:last-child { border-bottom: none; }
+.slob-lb-me { background: rgba(91,173,255,0.06); border-radius: 8px; padding-left: 6px; }
+.slob-lb-rank { font-size: 12px; color: var(--text-muted); min-width: 22px; text-align: center; flex-shrink: 0; }
+.slob-lb-av {
+  width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; color: #fff; flex-shrink: 0;
+}
+.slob-lb-name   { flex: 1; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slob-lb-streak { font-size: 11px; margin-left: 4px; }
+.slob-lb-xp     { font-size: 12px; color: #fbbf24; font-weight: 600; flex-shrink: 0; }
+.slob-lb-time   { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+
+/* ── My Study Rooms ── */
+.slob-rooms-count-badge {
+  min-width: 22px; height: 22px; padding: 0 6px;
+  background: var(--primary); border-radius: 11px;
+  font-size: 12px; font-weight: 700; color: #fff;
+  display: flex; align-items: center; justify-content: center;
+}
+.slob-rooms-list { display: flex; flex-direction: column; gap: 10px; }
+.slob-room-card {
+  background: linear-gradient(145deg, rgba(18,24,40,0.95), rgba(10,16,30,0.98));
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 18px; padding: 14px 14px 14px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.slob-room-card-header {
+  display: flex; align-items: center; justify-content: space-between;
+}
+.slob-room-card-title { font-size: 16px; font-weight: 800; color: var(--text); }
+.slob-room-settings {
+  width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px; cursor: pointer; color: var(--text-muted);
+  transition: color var(--t-fast), background var(--t-fast); flex-shrink: 0;
+}
+.slob-room-settings:hover { color: var(--text); background: rgba(255,255,255,0.12); }
+.slob-room-tags { display: flex; gap: 6px; }
+.slob-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 10px; border-radius: 20px;
+  font-size: 11px; font-weight: 700;
+}
+.slob-tag-public { background: rgba(38,222,129,0.15); color: #26de81; border: 1px solid rgba(38,222,129,0.25); }
+.slob-tag-active { background: rgba(240,100,60,0.15); color: #f0643c; border: 1px solid rgba(240,100,60,0.25); }
+.slob-room-members-row {
+  display: flex; align-items: center; gap: 8px;
+}
+.slob-room-avatars { display: flex; align-items: center; }
+.slob-room-card-av {
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 2px solid rgba(10,16,30,0.9);
+  flex-shrink: 0;
+}
+.slob-room-members-label { font-size: 13px; color: var(--text-muted); flex: 1; }
+.slob-room-status { font-size: 12px; color: var(--text-muted); }
+.slob-enter-room-btn {
+  width: 100%; justify-content: center; gap: 8px;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  border: none; border-radius: 12px; padding: 12px;
+  font-size: 15px; font-weight: 700; color: #fff;
+  display: flex; align-items: center;
+}
+.slob-enter-room-btn:hover { background: linear-gradient(135deg, #4f92ff, #3b72f0); }
+
+/* ── Create / Join cards ── */
 .slob-cj-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 360px) { .slob-cj-grid { grid-template-columns: 1fr; } }
 .slob-card {
@@ -4544,7 +4647,13 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 }
 .slob-code-copy:hover { background: rgba(255,255,255,0.14); color: var(--primary); }
 .slob-card-hint { font-size: 11px; color: var(--text-muted); }
-.slob-create-btn, .slob-join-btn { width: 100%; justify-content: center; margin-top: auto; }
+.slob-create-btn { width: 100%; justify-content: center; margin-top: auto; }
+.slob-join-btn {
+  width: 100%; justify-content: center; margin-top: auto;
+  background: linear-gradient(135deg, #a855f7, #7c3aed);
+  border: none;
+}
+.slob-join-btn:hover { background: linear-gradient(135deg, #b86bff, #8b4aff); }
 .slob-join-input {
   width: 100%; box-sizing: border-box;
   padding: 9px 10px; background: rgba(255,255,255,0.05);
@@ -4555,67 +4664,6 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 }
 .slob-join-input:focus { border-color: var(--primary); }
 .slob-join-input::placeholder { color: var(--text-dim); letter-spacing: 2px; font-size: 14px; font-family: inherit; font-weight: 400; }
-
-.slob-rooms-list { display: flex; flex-direction: column; gap: 8px; }
-.slob-room-row {
-  display: flex; align-items: center; gap: 10px;
-  background: var(--glass-bg); border: 1px solid var(--glass-border);
-  border-radius: 14px; padding: 10px 12px;
-}
-.slob-room-av {
-  width: 38px; height: 38px; border-radius: 11px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 14px; font-weight: 700; color: #fff; flex-shrink: 0;
-}
-.slob-room-info { flex: 1; min-width: 0; }
-.slob-room-name { font-size: 13px; font-weight: 700; color: var(--text); }
-.slob-room-code { font-size: 11px; color: var(--text-muted); font-family: 'Courier New', monospace; letter-spacing: 1px; }
-.slob-room-enter { flex-shrink: 0; }
-.slob-room-settings {
-  width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
-  background: transparent; border: none; cursor: pointer; color: var(--text-muted);
-  border-radius: 8px; transition: color var(--t-fast), background var(--t-fast); flex-shrink: 0;
-}
-.slob-room-settings:hover { color: var(--text); background: rgba(255,255,255,0.07); }
-
-.slob-lb-empty { text-align: center; color: var(--text-muted); font-size: 13px; padding: 20px 0; }
-.slob-podium {
-  display: flex; align-items: flex-end; justify-content: center; gap: 8px; padding: 12px 0 6px;
-}
-.slob-pod-item {
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  padding: 12px 8px 10px; border-radius: 16px; cursor: pointer;
-  background: var(--glass-bg); border: 1px solid var(--glass-border);
-  flex: 1; max-width: 110px; min-width: 80px; transition: border-color var(--t-fast);
-}
-.slob-pod-first  { padding-top: 18px; border-color: rgba(251,191,36,0.3); }
-.slob-pod-me     { border-color: var(--primary) !important; }
-.slob-pod-medal  { font-size: 18px; }
-.slob-pod-av {
-  width: 44px; height: 44px; border-radius: 13px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 16px; font-weight: 700; color: #fff;
-}
-.slob-pod-first .slob-pod-av { width: 50px; height: 50px; font-size: 18px; }
-.slob-pod-name { font-size: 12px; font-weight: 700; color: var(--text); text-align: center; }
-.slob-pod-xp   { font-size: 11px; color: #fbbf24; font-weight: 700; }
-.slob-lb-rest  { display: flex; flex-direction: column; margin-top: 4px; }
-.slob-lb-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 2px; border-bottom: 1px solid rgba(255,255,255,0.04); cursor: pointer;
-}
-.slob-lb-row:last-child { border-bottom: none; }
-.slob-lb-me { background: rgba(91,173,255,0.06); border-radius: 8px; padding-left: 6px; }
-.slob-lb-rank { font-size: 12px; color: var(--text-muted); min-width: 22px; text-align: center; flex-shrink: 0; }
-.slob-lb-av {
-  width: 28px; height: 28px; border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 10px; font-weight: 700; color: #fff; flex-shrink: 0;
-}
-.slob-lb-name   { flex: 1; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.slob-lb-streak { font-size: 11px; margin-left: 4px; }
-.slob-lb-xp     { font-size: 12px; color: #fbbf24; font-weight: 600; flex-shrink: 0; }
-.slob-lb-time   { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
 
 /* ══════════════════════════════════════════════════════════════
    ROOM PAGE
