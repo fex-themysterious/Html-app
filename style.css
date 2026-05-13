@@ -8509,3 +8509,516 @@ body[data-theme="golden"] .social-member-card.sm-focusing  { background: rgba(25
 
 /* ── Dynamic theme custom properties (set by _applyTheme()) ─────── */
 /* These are applied to :root via JS — CSS fallbacks are here for reference */
+
+/* ═══════════════════════════════════════════════════════════════════
+   STUDY GROUP ROOM v2 — Premium Dark Interface
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Full-screen Room Overlay ─────────────────────────────────────── */
+.grm2-room {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  flex-direction: column;
+  background: #050810;
+  overflow: hidden;
+}
+
+/* ── Header ───────────────────────────────────────────────────────── */
+.grm2-header {
+  flex-shrink: 0;
+  background: rgba(5,8,16,0.97);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  padding: 10px 14px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+.grm2-header-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 600px;
+  margin: 0 auto;
+}
+.grm2-back-btn {
+  flex-shrink: 0;
+  width: 38px; height: 38px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 50%;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s;
+}
+.grm2-back-btn:active { background: rgba(249,115,22,0.15); border-color: rgba(249,115,22,0.4); transform: scale(0.92); }
+.grm2-av {
+  flex-shrink: 0;
+  width: 38px; height: 38px;
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 800; color: #fff;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+}
+.grm2-title-block { flex: 1; min-width: 0; }
+.grm2-room-name {
+  font-size: 15px; font-weight: 800;
+  color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 160px; display: block;
+}
+.grm2-edit-name-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  background: none; border: none;
+  color: var(--text-muted); cursor: pointer; border-radius: 6px;
+  transition: color 0.15s;
+}
+.grm2-edit-name-btn:hover { color: var(--primary); }
+.grm2-header-meta {
+  display: flex; align-items: center; gap: 6px; margin-top: 3px; flex-wrap: wrap;
+}
+.grm2-online-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 600; color: #4ade80;
+}
+.grm2-live-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 6px #4ade80;
+  animation: grm2-pulse 1.8s ease-in-out infinite;
+  flex-shrink: 0;
+}
+@keyframes grm2-pulse {
+  0%,100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.5; transform: scale(0.75); }
+}
+.grm2-code-chip {
+  font-size: 10px; font-weight: 800; letter-spacing: 1.5px;
+  color: var(--primary);
+  background: rgba(91,173,255,0.1);
+  border: 1px solid rgba(91,173,255,0.2);
+  border-radius: 6px; padding: 2px 7px;
+  cursor: pointer; font-family: 'Courier New', monospace;
+  transition: background 0.15s;
+}
+.grm2-code-chip:active { background: rgba(91,173,255,0.22); transform: scale(0.96); }
+.grm2-privacy-badge { font-size: 13px; }
+.grm2-settings-btn {
+  flex-shrink: 0; width: 38px; height: 38px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 50%; color: var(--text-muted); cursor: pointer;
+  transition: background 0.18s, color 0.18s;
+}
+.grm2-settings-btn:active { background: rgba(255,255,255,0.12); color: var(--text); transform: scale(0.92); }
+
+/* ── Status Bar ───────────────────────────────────────────────────── */
+.grm2-status-bar {
+  flex-shrink: 0;
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 16px;
+  background: rgba(249,115,22,0.06);
+  border-bottom: 1px solid rgba(249,115,22,0.12);
+  font-size: 12px; font-weight: 600; color: var(--text-muted);
+  overflow: hidden;
+}
+.grm2-status-focus-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: rgba(255,255,255,0.2); flex-shrink: 0;
+  transition: background 0.3s, box-shadow 0.3s;
+}
+.grm2-status-focus-dot.grm2-dot-active {
+  background: #f97316;
+  box-shadow: 0 0 8px rgba(249,115,22,0.7);
+  animation: grm2-pulse 1.4s ease-in-out infinite;
+}
+.grm2-status-txt strong { color: var(--text); }
+.grm2-status-sep { color: rgba(255,255,255,0.2); }
+.grm2-status-energy { color: #fbbf24; }
+.grm2-status-time { color: var(--text-muted); }
+
+/* ── Tab Content Area ─────────────────────────────────────────────── */
+.grm2-tab-content {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ── Panes ────────────────────────────────────────────────────────── */
+.grm2-pane {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s ease;
+  padding: 14px 14px 14px;
+}
+.grm2-pane.grm2-pane-active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Chat pane uses flex column instead of scroll */
+.grm2-pane-chat {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+/* ── Pane Section wrapper (for Rankings/Goals/Stats) ──────────────── */
+.grm2-pane-scroll {
+  padding: 14px;
+}
+.grm2-pane-section {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 18px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.grm2-pane-section-head {
+  font-size: 12px; font-weight: 800; letter-spacing: 0.07em;
+  text-transform: uppercase; color: var(--text-muted);
+  margin-bottom: 14px;
+}
+
+/* ── Member Card Grid ─────────────────────────────────────────────── */
+.grm2-members-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  padding: 4px 0 4px;
+}
+@media (min-width: 420px) { .grm2-members-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 640px) { .grm2-members-grid { grid-template-columns: repeat(4, 1fr); } }
+
+/* ── Member Card ──────────────────────────────────────────────────── */
+.grm2-mc {
+  background: rgba(255,255,255,0.04);
+  border: 1.5px solid rgba(255,255,255,0.07);
+  border-radius: 18px;
+  padding: 14px 12px 12px;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 5px;
+  transition: border-color 0.3s, box-shadow 0.3s, transform 0.15s;
+  position: relative;
+  overflow: hidden;
+  min-height: 150px;
+}
+.grm2-mc:active { transform: scale(0.97); }
+.grm2-mc-me {
+  border-color: rgba(91,173,255,0.3);
+  background: rgba(91,173,255,0.05);
+}
+.grm2-mc-focusing {
+  border-color: rgba(249,115,22,0.45);
+  background: rgba(249,115,22,0.05);
+  box-shadow: 0 0 22px rgba(249,115,22,0.12), inset 0 0 20px rgba(249,115,22,0.04);
+}
+.grm2-mc-offline { opacity: 0.45; }
+
+/* Avatar wrapper */
+.grm2-mc-av-wrap {
+  position: relative; width: 56px; height: 56px;
+  cursor: pointer;
+}
+.grm2-mc-avatar {
+  width: 56px; height: 56px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; font-weight: 800; color: #fff;
+  overflow: hidden; position: relative; z-index: 1;
+}
+.grm2-mc-avatar-img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+
+/* Focusing glow ring */
+.grm2-mc-glow {
+  position: absolute; inset: -5px;
+  border-radius: 50%;
+  background: transparent;
+  border: 2.5px solid rgba(249,115,22,0.6);
+  animation: grm2-glow-ring 2s ease-in-out infinite;
+  z-index: 0;
+}
+@keyframes grm2-glow-ring {
+  0%,100% { opacity: 1; box-shadow: 0 0 10px rgba(249,115,22,0.4); }
+  50%      { opacity: 0.6; box-shadow: 0 0 20px rgba(249,115,22,0.7); }
+}
+
+/* Status dot */
+.grm2-mc-dot {
+  position: absolute; bottom: 2px; right: 2px;
+  width: 12px; height: 12px; border-radius: 50%;
+  border: 2px solid #050810; z-index: 2;
+}
+.grm2-dot-focusing { background: #f97316; box-shadow: 0 0 6px rgba(249,115,22,0.8); }
+.grm2-dot-online   { background: #4ade80; }
+.grm2-dot-offline  { background: #475569; }
+
+/* Crown badge */
+.grm2-mc-crown {
+  position: absolute; top: -6px; right: -4px;
+  font-size: 14px; z-index: 3;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.6));
+}
+
+/* Mic badge */
+.grm2-mc-mic {
+  position: absolute; bottom: 2px; left: 2px;
+  font-size: 10px; z-index: 3;
+}
+.grm2-mc-muted { opacity: 0.5; }
+
+/* Badges row */
+.grm2-mc-badges {
+  display: flex; gap: 4px; flex-wrap: wrap; justify-content: center;
+  min-height: 18px;
+}
+.grm2-you-tag {
+  font-size: 9px; font-weight: 800; letter-spacing: 0.06em;
+  color: var(--primary); background: rgba(91,173,255,0.12);
+  border: 1px solid rgba(91,173,255,0.25);
+  border-radius: 999px; padding: 1px 6px; text-transform: uppercase;
+}
+.grm2-streak-tag {
+  font-size: 9px; font-weight: 800;
+  color: #f97316; background: rgba(249,115,22,0.1);
+  border: 1px solid rgba(249,115,22,0.2);
+  border-radius: 999px; padding: 1px 5px;
+}
+
+/* Card text */
+.grm2-mc-name {
+  font-size: 13px; font-weight: 700; color: var(--text);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: center;
+}
+.grm2-mc-status-row {
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+}
+.grm2-mc-timer {
+  font-size: 12px; font-weight: 700; color: #f97316;
+  font-variant-numeric: tabular-nums;
+  font-family: 'Courier New', monospace;
+}
+.grm2-mc-status-lbl { font-size: 11px; font-weight: 600; }
+.grm2-status-focusing { color: #f97316; }
+.grm2-status-online   { color: #4ade80; }
+.grm2-status-offline  { color: var(--text-dim); }
+.grm2-mc-subject {
+  font-size: 10px; font-weight: 600; color: var(--text-muted);
+  background: rgba(255,255,255,0.06); border-radius: 999px;
+  padding: 2px 8px;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.grm2-mc-xp {
+  font-size: 11px; font-weight: 700; color: #fbbf24;
+  margin-top: 2px;
+}
+
+/* Action buttons */
+.grm2-mc-acts {
+  display: flex; gap: 5px; margin-top: 4px;
+}
+.grm2-act-btn {
+  font-size: 14px; line-height: 1;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px; padding: 5px 8px;
+  cursor: pointer; transition: background 0.15s, transform 0.12s;
+}
+.grm2-act-btn:active { transform: scale(0.88); }
+.grm2-duel-btn { border-color: rgba(248,113,113,0.25); background: rgba(248,113,113,0.06); }
+
+/* Empty state */
+.grm2-empty-members {
+  grid-column: 1 / -1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding: 48px 20px;
+  color: var(--text-muted); text-align: center;
+}
+.grm2-empty-icon { font-size: 40px; opacity: 0.5; }
+.grm2-empty-txt { font-size: 13px; font-weight: 500; }
+
+/* ── Chat Pane ────────────────────────────────────────────────────── */
+.grm2-chat-wrap {
+  display: flex; flex-direction: column;
+  height: 100%; overflow: hidden;
+}
+.grm2-chat-topbar {
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px 8px;
+  background: rgba(5,8,16,0.8);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.grm2-chat-title {
+  font-size: 14px; font-weight: 800; color: var(--text);
+}
+.grm2-chat-online-pill {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 600; color: #4ade80;
+}
+.grm2-typing-bar {
+  flex-shrink: 0;
+  padding: 5px 14px;
+  min-height: 24px;
+  background: rgba(255,255,255,0.02);
+}
+.grm2-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 10px 12px;
+  scroll-behavior: smooth;
+}
+.grm2-chat-new-pill {
+  position: absolute; bottom: 68px; left: 50%; transform: translateX(-50%);
+  background: var(--primary); color: #fff;
+  font-size: 12px; font-weight: 700;
+  border-radius: 999px; padding: 5px 14px;
+  cursor: pointer; box-shadow: 0 4px 16px rgba(91,173,255,0.35);
+  display: flex; align-items: center; gap: 4px;
+  white-space: nowrap; z-index: 2;
+}
+.grm2-chat-composer {
+  flex-shrink: 0;
+  display: flex; align-items: flex-end; gap: 8px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: rgba(5,8,16,0.95);
+  border-top: 1px solid rgba(255,255,255,0.07);
+}
+.grm2-chat-input {
+  flex: 1;
+  background: rgba(255,255,255,0.07);
+  border: 1.5px solid rgba(255,255,255,0.1);
+  border-radius: 20px;
+  color: var(--text);
+  font-size: 14px; font-weight: 500;
+  padding: 10px 16px;
+  outline: none; resize: none;
+  max-height: 110px; overflow-y: auto;
+  font-family: inherit; line-height: 1.4;
+  transition: border-color 0.18s;
+  -webkit-overflow-scrolling: touch;
+}
+.grm2-chat-input:focus {
+  border-color: var(--primary);
+  background: rgba(91,173,255,0.06);
+}
+.grm2-chat-input::placeholder { color: var(--text-dim); }
+.grm2-send-btn {
+  flex-shrink: 0; width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--primary);
+  border: none; border-radius: 50%;
+  color: #fff; cursor: pointer;
+  box-shadow: 0 3px 12px rgba(91,173,255,0.4);
+  transition: background 0.15s, transform 0.12s;
+}
+.grm2-send-btn:active { transform: scale(0.88); background: #4a9de0; }
+
+/* ── Room Bottom Nav ──────────────────────────────────────────────── */
+.grm2-room-nav {
+  flex-shrink: 0;
+  display: flex; align-items: stretch;
+  background: rgba(5,8,16,0.98);
+  border-top: 1px solid rgba(255,255,255,0.07);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+.grm2-rnav-btn {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px;
+  padding: 9px 4px 10px;
+  background: none; border: none;
+  color: var(--text-dim);
+  font-size: 9px; font-weight: 700; letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: color 0.18s;
+  position: relative;
+}
+.grm2-rnav-btn svg {
+  width: 20px; height: 20px;
+  transition: transform 0.18s;
+}
+.grm2-rnav-btn span {
+  white-space: nowrap;
+  font-size: 9px;
+}
+.grm2-rnav-btn.grm2-rnav-active {
+  color: #f97316;
+}
+.grm2-rnav-btn.grm2-rnav-active svg {
+  transform: scale(1.1);
+}
+.grm2-rnav-btn.grm2-rnav-active::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 20%; right: 20%; height: 2px;
+  background: #f97316;
+  border-radius: 0 0 3px 3px;
+}
+.grm2-rnav-btn:active { transform: scale(0.9); }
+
+/* ── Override old grm- selectors used inside room panels ─────────── */
+.grm2-room .grm-stats-grid {
+  grid-template-columns: repeat(3, 1fr);
+}
+.grm2-room .grm-lb-list { max-height: none; overflow: visible; }
+.grm2-room .grm-goals-list { padding: 0; background: none; border: none; border-radius: 0; }
+.grm2-room .grm-goal-card { border-radius: 14px; }
+.grm2-room .grm-mastery-list { padding: 0; }
+.grm2-room .grm-mastery-card { border-radius: 14px; }
+.grm2-room .grm-duel-card { border-radius: 14px; }
+.grm2-room .grm-add-goal { padding: 0; }
+.grm2-room .social-vault-wrap {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 18px;
+  overflow: hidden;
+  padding: 14px 16px;
+}
+.grm2-room .social-section-head { display: none; }
+.grm2-room .social-vault-wrap::before {
+  content: '🏦 Group XP Vault';
+  display: block;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  color: var(--text-muted); text-transform: uppercase;
+  margin-bottom: 12px; padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+
+/* Keep old grm- message/chat bubble styles working */
+.grm2-chat-messages .chat-msg { padding: 0 0 10px; }
+.grm2-chat-messages .chat-bubble {
+  background: rgba(255,255,255,0.06);
+  border-radius: 14px; padding: 8px 12px;
+  max-width: 85%;
+}
+.grm2-chat-messages .chat-bubble.chat-mine {
+  background: rgba(91,173,255,0.18);
+  border: 1px solid rgba(91,173,255,0.25);
+}
+
+/* Keyboard-safe: when chat is focused, room nav stays visible */
+.grm2-chat-mode .grm2-room-nav { display: flex; }
+
+/* ── Smooth entrance animation ───────────────────────────────────── */
+.grm2-room { animation: grm2-room-in 0.28s cubic-bezier(0.25,0.46,0.45,0.94) both; }
+@keyframes grm2-room-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.grm2-pane.grm2-pane-active { animation: grm2-pane-in 0.2s ease both; }
+@keyframes grm2-pane-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

@@ -725,6 +725,7 @@
   // ── Multi-group / Global LB / Voice ──────────────────────────────────────
   let _myGroupCodes    = [];
   let _lbView          = 'group';
+  let _socialRoomTab   = 'members';
   let _globalLbData    = [];
   let _globalLbUnsub   = null;
   let _voicePeers      = {};
@@ -1963,9 +1964,9 @@
       return sRank[_sStatusOf(a)] - sRank[_sStatusOf(b)];
     });
 
-    const activeFocusing = members.filter(m => _sStatusOf(m) === 'focusing').length;
-    const onlineCount    = members.filter(m => _sStatusOf(m) !== 'offline').length;
-    const todayKey_      = todayKey();
+    const activeFocusing  = members.filter(m => _sStatusOf(m) === 'focusing').length;
+    const onlineCount     = members.filter(m => _sStatusOf(m) !== 'offline').length;
+    const todayKey_       = todayKey();
     const totalFocusToday = members.reduce((s, m) => s + ((m.focusStatsByDate || {})[todayKey_] || 0), 0);
     const totalWeeklyXP   = members.reduce((s, m) => s + (m.weeklyXP || 0), 0);
     const momentumTarget  = Math.max(500, members.length * 300);
@@ -1977,156 +1978,132 @@
     const roomName        = (_socialRoomData && _socialRoomData.roomName) || `Room ${_socialRoomCode}`;
     const isPrivate       = !!(_socialRoomData && _socialRoomData.private);
 
-    // ── 1. Group Header ──────────────────────────────────────────────────────
+    // ── 1. Header ────────────────────────────────────────────────────────────
     const headerHTML = `
-    <div class="grm-header">
-      <div class="grm-header-inner">
-        <button class="grm-back-btn" data-act="social-leave" title="Back to Lobby">
+    <div class="grm2-header">
+      <div class="grm2-header-inner">
+        <button class="grm2-back-btn" data-act="social-leave" aria-label="Back to Lobby">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
-        <div class="grm-av" style="background:${_sAvatarColor(_socialRoomCode)}">${_sInitials(roomName)}</div>
-        <div class="grm-title-block">
+        <div class="grm2-av" style="background:${_sAvatarColor(_socialRoomCode)}">${_sInitials(roomName)}</div>
+        <div class="grm2-title-block">
           <div class="grm-name-display" id="grm-name-display">
-            <span class="grm-room-name">${escapeHTML(roomName)}</span>
-            ${isCreator ? `<button class="grm-edit-name-btn" data-act="grm-name-inline-edit" title="Rename room">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-            </button>` : ''}
+            <span class="grm2-room-name">${escapeHTML(roomName)}</span>
+            ${isCreator ? `<button class="grm2-edit-name-btn" data-act="grm-name-inline-edit" aria-label="Rename room"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>` : ''}
           </div>
           <div class="grm-name-edit-form" id="grm-name-edit-form">
             <input id="grm-name-input" class="grm-name-input" type="text" value="${escapeHTML(roomName)}" maxlength="40" autocomplete="off" spellcheck="false"/>
             <button class="grm-name-save-btn" data-act="grm-name-inline-save">✓</button>
             <button class="grm-name-cancel-btn" data-act="grm-name-inline-cancel">✕</button>
           </div>
-          <div class="grm-header-meta">
-            <button class="grm-code-chip" data-act="social-copy-code" title="Tap to copy code">
-              <span class="grm-code-mono">${_socialRoomCode}</span>
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            </button>
-            <span class="grm-online-chip"><span class="grm-online-dot-sm"></span>${onlineCount} online</span>
-            <span class="grm-privacy-chip${isPrivate ? ' grm-privacy-private' : ''}">${isPrivate ? '🔒' : '🌐'}</span>
+          <div class="grm2-header-meta">
+            <span class="grm-online-chip grm2-online-pill"><span class="grm2-live-dot"></span>${onlineCount} online</span>
+            <button class="grm2-code-chip" data-act="social-copy-code" title="Copy room code">${_socialRoomCode}</button>
+            <span class="grm2-privacy-badge">${isPrivate ? '🔒' : '🌐'}</span>
           </div>
         </div>
-        <button class="grm-settings-btn" data-act="social-room-settings" title="Room Settings">
+        <button class="grm2-settings-btn" data-act="social-room-settings" aria-label="Room Settings">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         </button>
       </div>
     </div>`;
 
-    // ── 2. Live Stats ────────────────────────────────────────────────────────
-    const statsHTML = `
-    <div class="grm-section grm-stats-section">
-      <div class="grm-section-label">📊 Live Stats</div>
-      <div class="grm-stats-grid">
-        <div class="grm-stat-card"><div class="grm-stat-val" style="color:${activeFocusing > 0 ? '#4ade80' : 'var(--text-muted)'}">${activeFocusing}</div><div class="grm-stat-lbl">Focusing</div></div>
-        <div class="grm-stat-card"><div class="grm-stat-val">${minsToHrs(totalFocusToday)}</div><div class="grm-stat-lbl">Today</div></div>
-        <div class="grm-stat-card"><div class="grm-stat-val">${members.length}</div><div class="grm-stat-lbl">Members</div></div>
-        <div class="grm-stat-card"><div class="grm-stat-val" style="color:#fbbf24">${totalWeeklyXP >= 1000 ? (totalWeeklyXP/1000).toFixed(1)+'k' : totalWeeklyXP}</div><div class="grm-stat-lbl">Weekly XP</div></div>
-        <div class="grm-stat-card"><div class="grm-stat-val" style="color:#f97316">${groupStreak > 0 ? '🔥' : ''}${groupStreak}d</div><div class="grm-stat-lbl">Best Streak</div></div>
-        <div class="grm-stat-card"><div class="grm-stat-val" style="color:#a78bfa">${momentumPct}%</div><div class="grm-stat-lbl">Momentum</div></div>
-      </div>
-      <div class="grm-bars">
-        <div class="grm-bar-row">
-          <div class="grm-bar-meta"><span class="grm-bar-lbl">⚡ Collective Momentum</span><span class="grm-bar-pct">${momentumPct}%</span></div>
-          <div class="grm-bar-track"><div class="grm-bar-fill grm-bar-momentum${momentumComplete ? ' grm-bar-complete' : ''}" style="width:${momentumPct}%"></div></div>
-          <div class="grm-bar-sub">${totalWeeklyXP.toLocaleString()} / ${momentumTarget.toLocaleString()} XP this week${momentumComplete ? ' 🎉' : ''}</div>
-        </div>
-        <div class="grm-bar-row">
-          <div class="grm-bar-meta"><span class="grm-bar-lbl">🔥 Room Energy</span><span class="grm-bar-pct">${energyPct}%</span></div>
-          <div class="grm-bar-track"><div class="grm-bar-fill grm-bar-energy" style="width:${energyPct}%"></div></div>
-          <div class="grm-bar-sub">${activeFocusing} of ${members.length} focusing now</div>
-        </div>
-      </div>
+    // ── 2. Status Bar ─────────────────────────────────────────────────────────
+    const statusBarHTML = `
+    <div class="grm2-status-bar">
+      <span class="grm2-status-focus-dot${activeFocusing > 0 ? ' grm2-dot-active' : ''}"></span>
+      <span class="grm2-status-txt">${activeFocusing > 0 ? `<strong>${activeFocusing}</strong> studying now` : onlineCount > 0 ? `<strong>${onlineCount}</strong> online` : 'No one online'}</span>
+      <span class="grm2-status-sep">·</span>
+      <span class="grm2-status-energy">⚡ ${momentumPct}% momentum</span>
+      ${activeFocusing > 0 ? `<span class="grm2-status-sep">·</span><span class="grm2-status-time">📚 ${minsToHrs(totalFocusToday)} today</span>` : ''}
     </div>`;
 
-    // ── 3. Messenger Chat ────────────────────────────────────────────────────
-    const typingNow = members.filter(m => m.uid !== _userId && m.typing && (now - m.typing) < 5000);
-    const typingText = typingNow.length === 1
-      ? `${escapeHTML(typingNow[0].displayName || 'Someone')} is typing…`
-      : typingNow.length > 1 ? `${typingNow.length} people are typing…` : '';
-    const chatHTML = `
-    <div class="grm-section grm-chat-section">
-      <div class="grm-chat-header">
-        <div class="grm-chat-title-row">
-          <span class="grm-chat-title">💬 Group Chat</span>
-          <span class="grm-chat-online"><span class="grm-online-dot-sm"></span>${onlineCount} online</span>
-        </div>
-        ${typingText ? `<div class="grm-typing-row"><span class="grm-typing-dots"><span></span><span></span><span></span></span><span class="grm-typing-txt">${typingText}</span></div>` : ''}
-      </div>
-      <div class="grm-chat-body">
-        <div class="grm-chat-messages" id="chat-messages">${_buildChatMessagesHTML()}</div>
-        <div class="grm-chat-new-pill" id="chat-new-pill" style="display:none" data-act="chat-scroll-bottom">↓ New messages</div>
-      </div>
-      <div class="grm-chat-composer" id="grm-chat-composer">
-        <div class="grm-composer-row">
-          <textarea
-            class="grm-chat-input"
-            id="chat-text-input"
-            placeholder="Message the group…"
-            rows="1"
-            maxlength="500"
-            autocomplete="off"
-            autocorrect="off"
-            autocapitalize="sentences"
-            spellcheck="true"
-            inputmode="text"
-            enterkeyhint="send"
-          ></textarea>
-          <button class="grm-send-btn" data-act="chat-send" title="Send">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-          </button>
-        </div>
-      </div>
-    </div>`;
-
-    // ── 4. Active Members ────────────────────────────────────────────────────
-    const memberCardsHTML = sorted.map(m => {
+    // ── 3. Member Cards (new premium 2-col grid) ──────────────────────────────
+    const memberCardsHTML = sorted.length ? sorted.map(m => {
       const st = _sStatusOf(m);
       const isMe = m.uid === _userId;
       const ini = _sInitials(m.displayName || 'S');
       const isFocusing = st === 'focusing';
-      const isOnline = st !== 'offline';
-      const isOwner = m.uid === (_socialRoomData && _socialRoomData.createdBy);
-      let elapsedChip = '';
+      const isOnline   = st !== 'offline';
+      const isOwner    = m.uid === (_socialRoomData && _socialRoomData.createdBy);
+      let elapsedTxt = '';
       if (isFocusing && m.focusStartedAt) {
         const s = Math.floor((now - m.focusStartedAt) / 1000);
         const h = Math.floor(s / 3600), mn = Math.floor((s % 3600) / 60), sc = s % 60;
-        const initTxt = h > 0 ? `${h}h ${mn}m` : mn > 0 ? `${mn}m ${String(sc).padStart(2,'0')}s` : `${sc}s`;
-        elapsedChip = `<span class="grm-elapsed" data-focusat="${m.focusStartedAt}">${initTxt}</span>`;
+        elapsedTxt = h > 0 ? `${h}h ${mn}m` : mn > 0 ? `${mn}m ${String(sc).padStart(2,'0')}s` : `${sc}s`;
       }
-      const statusKey = isFocusing ? 'focusing' : isOnline ? 'online' : 'offline';
-      const statusTxt = isFocusing ? 'In Focus' : isOnline ? 'Online' : 'Offline';
-      const streakN = m.studyStreak || 0;
-      const subPill = isFocusing && m.focusSubjectName
-        ? `<span class="grm-subject-pill">${_sSubjectEmoji(m.focusSubjectName)} ${escapeHTML(m.focusSubjectName)}</span>` : '';
+      const statusKey  = isFocusing ? 'focusing' : isOnline ? 'online' : 'offline';
+      const statusTxt  = isFocusing ? 'In Focus' : isOnline ? 'Online' : 'Offline';
+      const streakN    = m.studyStreak || 0;
+      const subName    = isFocusing && m.focusSubjectName ? escapeHTML(m.focusSubjectName) : '';
       const inVoiceNow = !!(isMe ? _inVoice : _voiceMembers[m.uid]);
-      const micBadge = inVoiceNow ? `<span class="grm-mic-badge${isMe && _voiceMuted ? ' grm-mic-muted' : ''}">${isMe && _voiceMuted ? '🔇' : '🎙'}</span>` : '';
-      const avatarContent = m.avatarUrl ? `<img src="${escapeHTML(m.avatarUrl)}" class="grm-member-avatar-img" alt=""/>` : ini;
-      const profileAct = !isMe ? ` data-act="view-profile" data-uid="${m.uid}" title="View profile"` : '';
-      const actBtns = !isMe
-        ? `<div class="grm-member-acts">
-            <button class="grm-act-btn" data-act="social-nudge" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName || '')}" title="Poke">👋</button>
-            ${isOnline ? `<button class="grm-act-btn grm-duel-btn" data-act="social-duel" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName || '')}" title="Challenge to duel">⚔️</button>` : ''}
-          </div>`
-        : `<span class="grm-you-badge">You</span>`;
-      return `<div class="grm-member-card grm-mc-${statusKey}">
-        <div class="grm-mc-av-wrap">
-          <div class="grm-mc-avatar" style="background:${_sAvatarColor(m.uid)}"${profileAct}>${avatarContent}${micBadge}</div>
-          <div class="grm-mc-status-dot grm-dot-${statusKey}"></div>
-          ${isOwner ? '<div class="grm-mc-crown">👑</div>' : ''}
-        </div>
-        <div class="grm-mc-info">
-          <div class="grm-mc-name-row">
-            <span class="grm-mc-name">${escapeHTML(m.displayName || 'Anonymous')}</span>
-            ${streakN >= 2 ? `<span class="grm-mc-streak">🔥${streakN}d</span>` : ''}
+      const micBadge   = inVoiceNow ? `<div class="grm2-mc-mic${isMe && _voiceMuted ? ' grm2-mc-muted' : ''}">${isMe && _voiceMuted ? '🔇' : '🎙'}</div>` : '';
+      const avatarContent = m.avatarUrl ? `<img src="${escapeHTML(m.avatarUrl)}" class="grm2-mc-avatar-img" alt=""/>` : ini;
+      const profileAct = !isMe ? ` data-act="view-profile" data-uid="${m.uid}"` : '';
+      return `<div class="grm2-mc grm2-mc-${statusKey}${isMe ? ' grm2-mc-me' : ''}">
+        <div class="grm2-mc-top">
+          <div class="grm2-mc-av-wrap"${profileAct}>
+            <div class="grm2-mc-avatar" style="background:${_sAvatarColor(m.uid)}">${avatarContent}</div>
+            <div class="grm2-mc-dot grm2-dot-${statusKey}"></div>
+            ${isFocusing ? '<div class="grm2-mc-glow"></div>' : ''}
+            ${isOwner ? '<div class="grm2-mc-crown">👑</div>' : ''}
+            ${micBadge}
           </div>
-          <div class="grm-mc-status">${statusTxt}${elapsedChip}${subPill}</div>
-          <div class="grm-mc-xp">⚡ ${(m.xpTotal || 0).toLocaleString()} XP · 📚 ${minsToHrs(m.weeklyMinutes || 0)}/wk</div>
+          <div class="grm2-mc-badges">
+            ${isMe ? '<span class="grm2-you-tag">You</span>' : ''}
+            ${streakN >= 2 ? `<span class="grm2-streak-tag">🔥${streakN}d</span>` : ''}
+          </div>
         </div>
-        ${actBtns}
+        <div class="grm2-mc-name">${escapeHTML((m.displayName || 'Anonymous').split(' ')[0])}</div>
+        <div class="grm2-mc-status-row">
+          ${isFocusing
+            ? `<span class="grm2-mc-timer grm-elapsed" data-focusat="${m.focusStartedAt}">${elapsedTxt}</span>`
+            : `<span class="grm2-mc-status-lbl grm2-status-${statusKey}">${statusTxt}</span>`}
+        </div>
+        ${subName ? `<div class="grm2-mc-subject">${_sSubjectEmoji(m.focusSubjectName)} ${subName}</div>` : ''}
+        <div class="grm2-mc-xp">⚡ ${(m.xpTotal || 0) >= 1000 ? ((m.xpTotal/1000).toFixed(1)+'k') : (m.xpTotal||0)} XP</div>
+        ${!isMe ? `<div class="grm2-mc-acts">
+          <button class="grm2-act-btn" data-act="social-nudge" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName||'')}" title="Poke">👋</button>
+          ${isOnline ? `<button class="grm2-act-btn grm2-duel-btn" data-act="social-duel" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName||'')}" title="Duel">⚔️</button>` : ''}
+        </div>` : ''}
       </div>`;
-    }).join('') || '<div class="grm-empty-state">No one here yet — share the code!</div>';
+    }).join('') : `<div class="grm2-empty-members"><div class="grm2-empty-icon">👥</div><div class="grm2-empty-txt">No one here yet — share the room code!</div></div>`;
 
-    // ── 5. Leaderboard ───────────────────────────────────────────────────────
+    // ── 4. Chat ───────────────────────────────────────────────────────────────
+    const typingNow  = members.filter(m => m.uid !== _userId && m.typing && (now - m.typing) < 5000);
+    const typingText = typingNow.length === 1
+      ? `${escapeHTML(typingNow[0].displayName || 'Someone')} is typing…`
+      : typingNow.length > 1 ? `${typingNow.length} people are typing…` : '';
+    const chatHTML = `
+    <div class="grm2-chat-wrap">
+      <div class="grm2-chat-topbar">
+        <span class="grm2-chat-title">Group Chat</span>
+        <span class="grm-chat-online grm2-chat-online-pill"><span class="grm2-live-dot"></span>${onlineCount} online</span>
+      </div>
+      ${typingText ? `<div class="grm-typing-row grm2-typing-bar"><span class="grm-typing-dots"><span></span><span></span><span></span></span><span class="grm-typing-txt">${typingText}</span></div>` : '<div class="grm-typing-row grm2-typing-bar" style="display:none"></div>'}
+      <div class="grm2-chat-messages" id="chat-messages">${_buildChatMessagesHTML()}</div>
+      <div class="grm2-chat-new-pill" id="chat-new-pill" style="display:none" data-act="chat-scroll-bottom">↓ New messages</div>
+      <div class="grm2-chat-composer" id="grm-chat-composer">
+        <textarea
+          class="grm2-chat-input"
+          id="chat-text-input"
+          placeholder="Message the group…"
+          rows="1"
+          maxlength="500"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="sentences"
+          spellcheck="true"
+          inputmode="text"
+          enterkeyhint="send"
+        ></textarea>
+        <button class="grm2-send-btn" data-act="chat-send" aria-label="Send">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+      </div>
+    </div>`;
+
+    // ── 5. Leaderboard ────────────────────────────────────────────────────────
     const lb = [...members].sort((a, b) => (b.weeklyXP || 0) - (a.weeklyXP || 0));
     const lbNow = new Date();
     const daysToMon = (8 - lbNow.getDay()) % 7 || 7;
@@ -2139,12 +2116,12 @@
       lbRows = _globalLbData.slice(0, 30).map((m, i) => {
         const isMe = m.uid === _userId;
         const topClass = i === 0 ? ' grm-lb-gold' : i === 1 ? ' grm-lb-silver' : i === 2 ? ' grm-lb-bronze' : '';
-        const med = i === 0 ? '👑' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="color:var(--text-muted);font-size:12px">${i + 1}</span>`;
+        const med = i === 0 ? '👑' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="color:var(--text-muted);font-size:12px">${i+1}</span>`;
         return `<div class="grm-lb-row${isMe ? ' grm-lb-me' : ''}${topClass}">
           <span class="grm-lb-rank">${med}</span>
-          <span class="grm-lb-av" style="background:${_sAvatarColor(m.uid)}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name || 'Anonymous')}">${_sInitials(m.name || 'S')}</span>
-          <span class="grm-lb-name">${escapeHTML(m.name || 'Anonymous')}</span>
-          <span class="grm-lb-xp">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span>
+          <span class="grm-lb-av" style="background:${_sAvatarColor(m.uid)}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name||'Anonymous')}">${_sInitials(m.name||'S')}</span>
+          <span class="grm-lb-name">${escapeHTML(m.name||'Anonymous')}</span>
+          <span class="grm-lb-xp">⚡ ${(m.weeklyXP||0).toLocaleString()}</span>
         </div>`;
       }).join('') || '<div class="grm-empty-state">Loading global rankings…</div>';
     } else {
@@ -2159,44 +2136,43 @@
         }
         _socialPrevRanks[m.uid] = i;
         const topClass = i === 0 ? ' grm-lb-gold' : i === 1 ? ' grm-lb-silver' : i === 2 ? ' grm-lb-bronze' : '';
-        const med = i === 0 ? '👑' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="color:var(--text-muted);font-size:12px">${i + 1}</span>`;
-        const streak = (m.studyStreak || 0) >= 2 ? `<span class="grm-lb-streak">🔥${m.studyStreak}</span>` : '';
+        const med = i === 0 ? '👑' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="color:var(--text-muted);font-size:12px">${i+1}</span>`;
+        const streak = (m.studyStreak||0) >= 2 ? `<span class="grm-lb-streak">🔥${m.studyStreak}</span>` : '';
         return `<div class="grm-lb-row${isMe ? ' grm-lb-me' : ''}${topClass}">
           ${mvIcon}<span class="grm-lb-rank">${med}</span>
-          <span class="grm-lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName || 'S')}</span>
-          <span class="grm-lb-name">${escapeHTML(m.displayName || 'Anonymous')}${streak}</span>
-          <span class="grm-lb-xp">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span>
+          <span class="grm-lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName||'S')}</span>
+          <span class="grm-lb-name">${escapeHTML(m.displayName||'Anonymous')}${streak}</span>
+          <span class="grm-lb-xp">⚡ ${(m.weeklyXP||0).toLocaleString()}</span>
         </div>`;
       }).join('') || '<div class="grm-empty-state">No data yet</div>';
     }
     const leaderboardHTML = `
-    <div class="grm-section grm-lb-section">
-      <div class="grm-section-label">🏆 Leaderboard</div>
-      <div class="grm-lb-tabs">
-        <button class="grm-lb-tab${_lbView === 'group' ? ' grm-lb-tab-active' : ''}" data-act="lb-view" data-v="group">👥 Group</button>
-        <button class="grm-lb-tab${_lbView === 'global' ? ' grm-lb-tab-active' : ''}" data-act="lb-view" data-v="global">🌍 Global</button>
+    <div class="grm2-pane-section">
+      <div class="grm2-pane-section-head">🏆 Rankings</div>
+      <div class="grm-lb-tabs"style="margin:0 0 12px">
+        <button class="grm-lb-tab${_lbView==='group'?' grm-lb-tab-active':''}" data-act="lb-view" data-v="group">👥 Group</button>
+        <button class="grm-lb-tab${_lbView==='global'?' grm-lb-tab-active':''}" data-act="lb-view" data-v="global">🌍 Global</button>
       </div>
       <div class="grm-lb-list">${lbRows}</div>
-      ${_lbView === 'group' ? `<div class="grm-lb-reset">🔄 Resets in <strong>${countdownTxt}</strong></div>` : ''}
+      ${_lbView==='group' ? `<div class="grm-lb-reset">🔄 Resets in <strong>${countdownTxt}</strong></div>` : ''}
     </div>`;
 
-    // ── 6. Group XP Vault ────────────────────────────────────────────────────
+    // ── 6. Vault ─────────────────────────────────────────────────────────────
     const vaultSection = _renderVaultSection();
 
-    // ── 7. Group Goals / Challenges ──────────────────────────────────────────
+    // ── 7. Goals ─────────────────────────────────────────────────────────────
     const goals = (_socialRoomData && _socialRoomData.groupGoals) || [];
     const goalsCardsHTML = goals.map(g => {
-      const tot = Object.values(g.contributions || {}).reduce((a, b) => a + b, 0);
+      const tot = Object.values(g.contributions||{}).reduce((a,b) => a+b, 0);
       const pct = Math.min(100, Math.round(tot / g.targetMinutes * 100));
-      const myC = (g.contributions || {})[_userId] || 0;
-      const canDel = isCreator;
-      const contribs = Object.entries(g.contributions || {}).sort(([, a], [, b]) => b - a).slice(0, 5)
-        .map(([u_, m_]) => { const mb = _socialMembers[u_]; const n = mb ? mb.displayName : u_.slice(0, 4); return `<span class="grm-goal-av" title="${escapeHTML(n)}: ${minsToHrs(m_)}" style="background:${_sAvatarColor(u_)}">${_sInitials(n)}</span>`; }).join('');
-      return `<div class="grm-goal-card${pct >= 100 ? ' grm-goal-done' : ''}">
+      const myC = (g.contributions||{})[_userId] || 0;
+      const contribs = Object.entries(g.contributions||{}).sort(([,a],[,b]) => b-a).slice(0,5)
+        .map(([u_,m_]) => { const mb = _socialMembers[u_]; const n = mb ? mb.displayName : u_.slice(0,4); return `<span class="grm-goal-av" title="${escapeHTML(n)}: ${minsToHrs(m_)}" style="background:${_sAvatarColor(u_)}">${_sInitials(n)}</span>`; }).join('');
+      return `<div class="grm-goal-card${pct>=100?' grm-goal-done':''}">
         <div class="grm-goal-head">
-          <span class="grm-goal-icon">${pct >= 100 ? '🏆' : '🎯'}</span>
+          <span class="grm-goal-icon">${pct>=100?'🏆':'🎯'}</span>
           <span class="grm-goal-title">${escapeHTML(g.title)}</span>
-          ${canDel ? `<button class="grm-goal-del" data-act="social-del-goal" data-gid="${g.id}">×</button>` : ''}
+          ${isCreator ? `<button class="grm-goal-del" data-act="social-del-goal" data-gid="${g.id}">×</button>` : ''}
         </div>
         <div class="grm-goal-progress">
           <div class="grm-goal-track"><div class="grm-goal-fill" style="width:${pct}%"></div></div>
@@ -2209,10 +2185,10 @@
       </div>`;
     }).join('') || '<div class="grm-empty-state">No group goals yet — create one below!</div>';
     const goalsHTML = `
-    <div class="grm-section grm-goals-section">
-      <div class="grm-section-label">🎯 Group Goals</div>
+    <div class="grm2-pane-section">
+      <div class="grm2-pane-section-head">🎯 Group Goals</div>
       <div class="grm-goals-list">${goalsCardsHTML}</div>
-      <div class="grm-add-goal">
+      <div class="grm-add-goal" style="margin-top:12px">
         <div class="grm-add-goal-lbl">Create New Goal</div>
         <input id="gg-title-input" class="grm-goal-input" placeholder="e.g. 50 hours of study this week" maxlength="60"/>
         <div class="grm-add-goal-row">
@@ -2224,49 +2200,74 @@
 
     // ── 8. Subject Mastery ───────────────────────────────────────────────────
     const subMap = {};
-    members.forEach(m => Object.entries(m.subjectMinutes || {}).forEach(([sid, mins]) => {
+    members.forEach(m => Object.entries(m.subjectMinutes||{}).forEach(([sid,mins]) => {
       if (!subMap[sid]) subMap[sid] = [];
       subMap[sid].push({ uid: m.uid, name: m.displayName, mins });
     }));
-    const subRanked = Object.entries(subMap).map(([sid, arr]) => ({
+    const subRanked = Object.entries(subMap).map(([sid,arr]) => ({
       sid,
-      name: (s => s ? s.name : sid)(state.subjects.find(x => x.id === sid)),
-      color: (s => s ? s.color : '#5badff')(state.subjects.find(x => x.id === sid)),
-      total: arr.reduce((a, b) => a + b.mins, 0), top: arr.slice().sort((a, b) => b.mins - a.mins)
-    })).sort((a, b) => b.total - a.total).slice(0, 3);
+      name: (s => s ? s.name : sid)(state.subjects.find(x => x.id===sid)),
+      color: (s => s ? s.color : '#5badff')(state.subjects.find(x => x.id===sid)),
+      total: arr.reduce((a,b) => a+b.mins, 0), top: arr.slice().sort((a,b) => b.mins-a.mins)
+    })).sort((a,b) => b.total-a.total).slice(0,3);
     const masteryCardsHTML = subRanked.length ? subRanked.map(sr => {
       const top = sr.top[0];
-      const emoji = _sSubjectEmoji(sr.name);
       return `<div class="grm-mastery-card">
         <div class="grm-mc-head">
-          <div class="grm-mc-badge" style="background:${sr.color}1a;color:${sr.color};border-color:${sr.color}30">${emoji}</div>
-          <div style="flex:1"><div class="grm-mc-subname">${escapeHTML(sr.name)}</div><div class="grm-mc-king">👑 ${escapeHTML(top ? top.name || '—' : '—')} <span style="color:var(--text-muted)">${minsToHrs(top ? top.mins : 0)}</span></div></div>
+          <div class="grm-mc-badge" style="background:${sr.color}1a;color:${sr.color};border-color:${sr.color}30">${_sSubjectEmoji(sr.name)}</div>
+          <div style="flex:1"><div class="grm-mc-subname">${escapeHTML(sr.name)}</div><div class="grm-mc-king">👑 ${escapeHTML(top?top.name||'—':'—')} <span style="color:var(--text-muted)">${minsToHrs(top?top.mins:0)}</span></div></div>
         </div>
         <div class="grm-mc-members">${sr.top.map(t => `<div class="grm-mc-m"><span class="grm-mc-av" style="background:${_sAvatarColor(t.uid)}">${_sInitials(t.name||'S')}</span><div class="grm-mc-bar-wrap"><div class="grm-mc-bar" style="width:${sr.total?Math.round(t.mins/sr.top[0].mins*100):0}%;background:${sr.color}"></div></div><span class="grm-mc-time">${minsToHrs(t.mins)}</span></div>`).join('')}</div>
       </div>`;
     }).join('') : '<div class="grm-empty-state">Complete focus sessions to populate mastery.</div>';
     const masteryHTML = `
-    <div class="grm-section grm-mastery-section">
-      <div class="grm-section-label">🎓 Subject Mastery</div>
+    <div class="grm2-pane-section">
+      <div class="grm2-pane-section-head">🎓 Subject Mastery</div>
       <div class="grm-mastery-list">${masteryCardsHTML}</div>
     </div>`;
 
-    // ── Active Duels ─────────────────────────────────────────────────────────
-    const activeDuels = ((_socialRoomData && _socialRoomData.duels) || []).filter(d => !d.winner && d.endsAt > now && (d.challenger === _userId || d.opponent === _userId));
+    // ── 9. Live Stats ─────────────────────────────────────────────────────────
+    const statsHTML = `
+    <div class="grm2-pane-section">
+      <div class="grm2-pane-section-head">📊 Live Stats</div>
+      <div class="grm-stats-grid">
+        <div class="grm-stat-card"><div class="grm-stat-val" style="color:${activeFocusing>0?'#4ade80':'var(--text-muted)'}">${activeFocusing}</div><div class="grm-stat-lbl">Focusing</div></div>
+        <div class="grm-stat-card"><div class="grm-stat-val">${minsToHrs(totalFocusToday)}</div><div class="grm-stat-lbl">Today</div></div>
+        <div class="grm-stat-card"><div class="grm-stat-val">${members.length}</div><div class="grm-stat-lbl">Members</div></div>
+        <div class="grm-stat-card"><div class="grm-stat-val" style="color:#fbbf24">${totalWeeklyXP>=1000?(totalWeeklyXP/1000).toFixed(1)+'k':totalWeeklyXP}</div><div class="grm-stat-lbl">Weekly XP</div></div>
+        <div class="grm-stat-card"><div class="grm-stat-val" style="color:#f97316">${groupStreak>0?'🔥':''}${groupStreak}d</div><div class="grm-stat-lbl">Best Streak</div></div>
+        <div class="grm-stat-card"><div class="grm-stat-val" style="color:#a78bfa">${momentumPct}%</div><div class="grm-stat-lbl">Momentum</div></div>
+      </div>
+      <div class="grm-bars" style="margin-top:16px">
+        <div class="grm-bar-row">
+          <div class="grm-bar-meta"><span class="grm-bar-lbl">⚡ Collective Momentum</span><span class="grm-bar-pct">${momentumPct}%</span></div>
+          <div class="grm-bar-track"><div class="grm-bar-fill grm-bar-momentum${momentumComplete?' grm-bar-complete':''}" style="width:${momentumPct}%"></div></div>
+          <div class="grm-bar-sub">${totalWeeklyXP.toLocaleString()} / ${momentumTarget.toLocaleString()} XP this week${momentumComplete?' 🎉':''}</div>
+        </div>
+        <div class="grm-bar-row">
+          <div class="grm-bar-meta"><span class="grm-bar-lbl">🔥 Room Energy</span><span class="grm-bar-pct">${energyPct}%</span></div>
+          <div class="grm-bar-track"><div class="grm-bar-fill grm-bar-energy" style="width:${energyPct}%"></div></div>
+          <div class="grm-bar-sub">${activeFocusing} of ${members.length} focusing now</div>
+        </div>
+      </div>
+    </div>`;
+
+    // ── 10. Duels ─────────────────────────────────────────────────────────────
+    const activeDuels = ((_socialRoomData&&_socialRoomData.duels)||[]).filter(d => !d.winner && d.endsAt>now && (d.challenger===_userId||d.opponent===_userId));
     const duelsHTML = activeDuels.length ? `
-    <div class="grm-section grm-duels-section">
-      <div class="grm-section-label">⚔️ Active Duel</div>
+    <div class="grm2-pane-section">
+      <div class="grm2-pane-section-head">⚔️ Active Duel</div>
       ${activeDuels.map(d => {
         const iAm = d.challenger === _userId;
-        const myG = Math.max(0, ((state.xp && state.xp.total) || 0) - (iAm ? d.challengerXPStart : d.opponentXPStart));
+        const myG = Math.max(0, ((state.xp&&state.xp.total)||0) - (iAm?d.challengerXPStart:d.opponentXPStart));
         const oppUid = iAm ? d.opponent : d.challenger;
-        const oppN = iAm ? d.opponentName : d.challengerName;
-        const opp = _socialMembers[oppUid];
-        const oppG = opp ? Math.max(0, (opp.xpTotal || 0) - (iAm ? d.opponentXPStart : d.challengerXPStart)) : 0;
-        const rem = Math.max(0, Math.ceil((d.endsAt - now) / 60000));
-        const tl = rem >= 60 ? `${Math.floor(rem/60)}h ${rem%60}m` : `${rem}m`;
-        const myP = Math.max(myG, oppG) > 0 ? Math.round(myG / Math.max(myG, oppG) * 100) : 50;
-        const win = myG >= oppG;
+        const oppN   = iAm ? d.opponentName : d.challengerName;
+        const opp    = _socialMembers[oppUid];
+        const oppG   = opp ? Math.max(0, (opp.xpTotal||0) - (iAm?d.opponentXPStart:d.challengerXPStart)) : 0;
+        const rem    = Math.max(0, Math.ceil((d.endsAt-now)/60000));
+        const tl     = rem>=60 ? `${Math.floor(rem/60)}h ${rem%60}m` : `${rem}m`;
+        const myP    = Math.max(myG,oppG)>0 ? Math.round(myG/Math.max(myG,oppG)*100) : 50;
+        const win    = myG >= oppG;
         return `<div class="grm-duel-card">
           <div class="grm-duel-head"><span>⚔️ Focus Duel</span><span class="grm-duel-timer">⏱ ${tl} left</span></div>
           <div class="grm-duel-fighters">
@@ -2279,21 +2280,53 @@
       }).join('')}
     </div>` : '';
 
-    return `<div class="grm-room">
+    // ── 11. Room Nav ─────────────────────────────────────────────────────────
+    const T = _socialRoomTab;
+    const roomNavHTML = `
+    <nav class="grm2-room-nav" role="tablist">
+      <button class="grm2-rnav-btn${T==='members'?' grm2-rnav-active':''}" data-act="grm-room-tab" data-tab="members" role="tab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span>Members</span>
+      </button>
+      <button class="grm2-rnav-btn${T==='chat'?' grm2-rnav-active':''}" data-act="grm-room-tab" data-tab="chat" role="tab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span>Chat</span>
+      </button>
+      <button class="grm2-rnav-btn${T==='rankings'?' grm2-rnav-active':''}" data-act="grm-room-tab" data-tab="rankings" role="tab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        <span>Rankings</span>
+      </button>
+      <button class="grm2-rnav-btn${T==='goals'?' grm2-rnav-active':''}" data-act="grm-room-tab" data-tab="goals" role="tab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+        <span>Goals</span>
+      </button>
+      <button class="grm2-rnav-btn${T==='stats'?' grm2-rnav-active':''}" data-act="grm-room-tab" data-tab="stats" role="tab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        <span>Stats</span>
+      </button>
+    </nav>`;
+
+    return `<div class="grm2-room">
       ${headerHTML}
-      <div class="grm-body">
-        ${statsHTML}
-        ${chatHTML}
-        <div class="grm-section grm-members-section">
-          <div class="grm-section-label">👥 Active Members <span class="grm-section-count">${members.length}</span></div>
-          <div class="grm-members-list">${memberCardsHTML}</div>
+      ${statusBarHTML}
+      <div class="grm2-tab-content${T==='chat'?' grm2-chat-mode':''}">
+        <div class="grm2-pane${T==='members'?' grm2-pane-active':''}">
+          <div class="grm2-members-grid">${memberCardsHTML}</div>
         </div>
-        ${duelsHTML}
-        ${leaderboardHTML}
-        ${vaultSection}
-        ${goalsHTML}
-        ${masteryHTML}
+        <div class="grm2-pane grm2-pane-chat${T==='chat'?' grm2-pane-active':''}">
+          ${chatHTML}
+        </div>
+        <div class="grm2-pane${T==='rankings'?' grm2-pane-active':''}">
+          <div class="grm2-pane-scroll">${leaderboardHTML}</div>
+        </div>
+        <div class="grm2-pane${T==='goals'?' grm2-pane-active':''}">
+          <div class="grm2-pane-scroll">${goalsHTML}${masteryHTML}${vaultSection}</div>
+        </div>
+        <div class="grm2-pane${T==='stats'?' grm2-pane-active':''}">
+          <div class="grm2-pane-scroll">${statsHTML}${duelsHTML}</div>
+        </div>
       </div>
+      ${roomNavHTML}
     </div>`;
   }
 
@@ -8354,6 +8387,11 @@
     if (act === 'voice-join')    { _voiceJoin(); return; }
     if (act === 'voice-leave')   { _voiceLeave(false); return; }
     if (act === 'voice-mute')    { _voiceMuteToggle(); return; }
+    if (act === 'grm-room-tab') {
+      _socialRoomTab = el.dataset.tab || 'members';
+      if (_socialRoomTab === 'rankings' && _lbView === 'global') { _loadGlobalLeaderboard().catch(() => {}); }
+      renderSocial(); return;
+    }
     if (act === 'lb-view') {
       _lbView = el.dataset.v || 'group';
       if (_lbView === 'global') { _loadGlobalLeaderboard().catch(() => {}); }
