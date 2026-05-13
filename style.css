@@ -4776,46 +4776,91 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 }
 @media (max-width: 330px) { .sroom-members-grid { grid-template-columns: 1fr; } }
 .sroom-mc {
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  background: var(--glass-bg); border: 1px solid var(--glass-border);
-  border-radius: 16px; padding: 12px 10px; position: relative; overflow: hidden;
-  transition: border-color var(--t-fast);
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 18px; padding: 14px 10px 12px; position: relative; overflow: hidden;
+  transition: border-color 0.25s, box-shadow 0.25s, transform 0.15s;
+  backdrop-filter: blur(8px);
 }
-.sroom-mc-focusing { border-color: rgba(91,173,255,0.4); }
-.sroom-mc-me { border-color: rgba(167,139,250,0.4); background: rgba(167,139,250,0.03); }
+.sroom-mc:active { transform: scale(0.97); }
+.sroom-mc-focusing {
+  border-color: rgba(249,115,22,0.4);
+  box-shadow: 0 0 18px rgba(249,115,22,0.1), inset 0 0 16px rgba(249,115,22,0.04);
+}
+.sroom-mc-break { border-color: rgba(74,222,128,0.25); }
+.sroom-mc-me {
+  border-color: rgba(91,173,255,0.35);
+  background: rgba(91,173,255,0.05);
+}
+.sroom-mc-offline { opacity: 0.5; }
 .sroom-mc-av-wrap { position: relative; cursor: pointer; }
 .sroom-mc-av {
-  width: 54px; height: 54px; border-radius: 16px;
+  width: 56px; height: 56px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-size: 19px; font-weight: 700; color: #fff; overflow: hidden;
+  font-size: 20px; font-weight: 800; color: #fff; overflow: hidden;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
 }
-.sroom-mc-img { width: 100%; height: 100%; object-fit: cover; }
+.sroom-mc-img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
 .sroom-mc-dot {
-  position: absolute; bottom: -2px; right: -2px;
-  width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--bg);
+  position: absolute; bottom: 1px; right: 1px;
+  width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--bg, #090e15);
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.3);
+  z-index: 2;
 }
-.sroom-dot-focusing { background: #3b82f6; }
-.sroom-dot-break    { background: #22c55e; }
-.sroom-dot-offline  { background: #566e8a; }
+.sroom-dot-focusing { background: #f97316; box-shadow: 0 0 6px rgba(249,115,22,0.9); }
+.sroom-dot-break    { background: #4ade80; box-shadow: 0 0 5px rgba(74,222,128,0.6); }
+.sroom-dot-offline  { background: #475569; }
 .sroom-mc-pulse {
-  position: absolute; inset: 0; border-radius: 16px;
-  border: 2px solid rgba(91,173,255,0.55);
+  position: absolute; inset: -4px; border-radius: 50%;
+  border: 2px solid rgba(249,115,22,0.6);
   animation: sroom-mc-glow 2s ease-in-out infinite;
-  pointer-events: none;
+  pointer-events: none; z-index: 0;
 }
-@keyframes sroom-mc-glow { 0%, 100% { opacity: 0.4; transform: scale(1); } 50% { opacity: 1; transform: scale(1.03); } }
-.sroom-mc-crown { position: absolute; top: -6px; right: -4px; font-size: 14px; line-height: 1; }
-.sroom-mc-name   { font-size: 12px; font-weight: 700; color: var(--text); text-align: center; margin-top: 3px; }
-.sroom-mc-status { font-size: 11px; text-align: center; }
-.sroom-mc-timer  { color: #3b82f6; font-weight: 700; font-size: 12px; }
-.sroom-mc-sl     { color: var(--text-muted); }
-.sroom-sl-focusing { color: #3b82f6; }
-.sroom-sl-break    { color: #22c55e; }
-.sroom-sl-offline  { color: var(--text-dim); }
-.sroom-mc-sub    { font-size: 10px; color: var(--text-muted); text-align: center; }
-.sroom-mc-xp     { font-size: 11px; color: #fbbf24; font-weight: 600; }
-.sroom-mc-streak { font-size: 10px; color: #f97316; }
-.sroom-mc-acts   { display: flex; gap: 4px; margin-top: 4px; }
+@keyframes sroom-mc-glow { 0%, 100% { opacity: 0.5; transform: scale(1); } 50% { opacity: 1; transform: scale(1.06); } }
+.sroom-mc-crown {
+  position: absolute; top: -5px; right: -3px; font-size: 14px; line-height: 1;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.5));
+  z-index: 3;
+}
+.sroom-mc-name {
+  font-size: 13px; font-weight: 700; color: var(--text);
+  text-align: center; margin-top: 4px; letter-spacing: -0.01em;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sroom-mc-status-row { font-size: 11px; text-align: center; }
+.sroom-mc-timer  { color: #f97316; font-weight: 700; font-size: 12px; letter-spacing: 0.02em; }
+.sroom-mc-sl     { color: var(--text-muted); font-weight: 500; }
+.sroom-sl-focusing { color: #f97316; font-weight: 700; }
+.sroom-sl-break    { color: #4ade80; }
+.sroom-sl-offline  { color: #475569; }
+
+/* Activity chip */
+.sroom-mc-chip {
+  font-size: 10px; font-weight: 700; border-radius: 999px;
+  padding: 2px 9px; max-width: 96%; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; text-align: center;
+  letter-spacing: 0.01em;
+}
+.sroom-chip-focus {
+  background: rgba(249,115,22,0.13);
+  color: #fb923c;
+  border: 1px solid rgba(249,115,22,0.22);
+}
+.sroom-chip-break {
+  background: rgba(74,222,128,0.1);
+  color: #4ade80;
+  border: 1px solid rgba(74,222,128,0.18);
+}
+/* Last seen timestamp */
+.sroom-mc-lastseen {
+  font-size: 10px; color: #888; text-align: center;
+  font-weight: 400; letter-spacing: 0.01em;
+}
+
+.sroom-mc-xp     { font-size: 11px; color: #fbbf24; font-weight: 700; }
+.sroom-mc-streak { font-size: 10px; color: #f97316; font-weight: 600; }
+.sroom-mc-acts   { display: flex; gap: 5px; margin-top: 5px; }
 .sroom-act-btn {
   width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
   background: rgba(255,255,255,0.07); border: none; border-radius: 9px;

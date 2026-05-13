@@ -758,6 +758,17 @@
     const ms = typeof m.lastSeen === 'number' ? m.lastSeen : (m.lastSeen.toMillis ? m.lastSeen.toMillis() : 0);
     return (!ms || Date.now() - ms > SOCIAL_OFFLINE_MS) ? 'offline' : (m.status || 'break');
   }
+  function _sLastSeenText(m) {
+    if (!m || !m.lastSeen) return 'Offline';
+    const ms = typeof m.lastSeen === 'number' ? m.lastSeen : (m.lastSeen.toMillis ? m.lastSeen.toMillis() : 0);
+    if (!ms) return 'Offline';
+    const diff = Date.now() - ms;
+    if (diff < 60000)           return 'Active just now';
+    if (diff < 3600000)         return `Active ${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000)        return `Active ${Math.floor(diff / 3600000)}h ago`;
+    if (diff < 7 * 86400000)    return `Active ${Math.floor(diff / 86400000)}d ago`;
+    return 'Offline';
+  }
   function _sAvatarColor(uid_) {
     const C = ['#5badff','#a78bfa','#f472b6','#34d399','#fbbf24','#fb7185','#38bdf8','#818cf8'];
     let h = 0; for (let i = 0; i < (uid_ || '').length; i++) h = ((h << 5) - h + uid_.charCodeAt(i)) | 0;
@@ -2404,9 +2415,22 @@
       const isOwner    = m.uid === (_socialRoomData && _socialRoomData.createdBy);
       const ini        = _sInitials(m.displayName || 'S');
       const streak     = m.studyStreak || 0;
-      const stLabel    = isFocusing ? 'In Focus' : isOnline ? 'Online' : 'Offline';
+      const xpStr      = (m.xpTotal || 0) >= 1000 ? ((m.xpTotal/1000).toFixed(1)+'k') : (m.xpTotal||0);
       const avContent  = m.avatarUrl ? `<img src="${escapeHTML(m.avatarUrl)}" class="sroom-mc-img" alt=""/>` : ini;
       const profAct    = !isMe ? `data-act="view-profile" data-uid="${m.uid}"` : '';
+      // Status label
+      const stLabel = isFocusing ? 'Focusing' : isOnline ? 'Online' : 'Offline';
+      // Activity chip — shown below status
+      let activityHTML;
+      if (isFocusing && m.focusSubjectName) {
+        activityHTML = `<div class="sroom-mc-chip sroom-chip-focus">📚 ${escapeHTML(m.focusSubjectName)}</div>`;
+      } else if (isFocusing) {
+        activityHTML = `<div class="sroom-mc-chip sroom-chip-focus">📚 Studying</div>`;
+      } else if (isOnline) {
+        activityHTML = `<div class="sroom-mc-chip sroom-chip-break">☕ On Break</div>`;
+      } else {
+        activityHTML = `<div class="sroom-mc-lastseen">${_sLastSeenText(m)}</div>`;
+      }
       return `<div class="sroom-mc sroom-mc-${st}${isMe ? ' sroom-mc-me' : ''}">
         <div class="sroom-mc-av-wrap" ${profAct}>
           <div class="sroom-mc-av" style="background:${_sAvatarColor(m.uid)}">${avContent}</div>
@@ -2415,13 +2439,13 @@
           ${isOwner ? '<div class="sroom-mc-crown">👑</div>' : ''}
         </div>
         <div class="sroom-mc-name">${escapeHTML((m.displayName || 'Anonymous').split(' ')[0])}</div>
-        <div class="sroom-mc-status">
+        <div class="sroom-mc-status-row">
           ${isFocusing && m.focusStartedAt
             ? `<span class="sroom-mc-timer grm-elapsed" data-focusat="${m.focusStartedAt}">0s</span>`
             : `<span class="sroom-mc-sl sroom-sl-${st}">${stLabel}</span>`}
         </div>
-        ${isFocusing && m.focusSubjectName ? `<div class="sroom-mc-sub">${_sSubjectEmoji(m.focusSubjectName)} ${escapeHTML(m.focusSubjectName)}</div>` : ''}
-        <div class="sroom-mc-xp">⚡ ${(m.xpTotal || 0) >= 1000 ? ((m.xpTotal/1000).toFixed(1)+'k') : (m.xpTotal||0)}</div>
+        ${activityHTML}
+        <div class="sroom-mc-xp">⚡ ${xpStr}</div>
         ${streak >= 2 ? `<div class="sroom-mc-streak">🔥 ${streak}d</div>` : ''}
         ${!isMe ? `<div class="sroom-mc-acts">
           <button class="sroom-act-btn" data-act="social-nudge" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName||'')}" title="Poke">👋</button>
