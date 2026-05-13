@@ -229,6 +229,13 @@
     if (!s.badges || typeof s.badges !== 'object') s.badges = {};
     if (typeof s.eyeCareMode !== 'boolean') s.eyeCareMode = false;
     if (typeof s.rankTestHours !== 'number' || isNaN(s.rankTestHours)) s.rankTestHours = 0;
+    // XP Marketplace state
+    if (!s.shopBooster || typeof s.shopBooster !== 'object') s.shopBooster = { expiresAt: null };
+    if (typeof s.focusMusicUnlocked !== 'boolean') s.focusMusicUnlocked = false;
+    if (typeof s.themeUnlocked !== 'boolean') s.themeUnlocked = false;
+    if (typeof s.selectedTheme !== 'string') s.selectedTheme = 'default';
+    if (typeof s.selectedBadge !== 'string') s.selectedBadge = '';
+    if (typeof s.customBadgeOwned !== 'boolean') s.customBadgeOwned = false;
     if (!s.classroom || typeof s.classroom !== 'object') s.classroom = { groups: [] };
     if (!Array.isArray(s.classroom.groups)) s.classroom.groups = [];
     s.classroom.groups = s.classroom.groups.map(g => ({
@@ -2967,10 +2974,12 @@
       return amount;
     },
 
-    // Focus XP: 25 XP per 30 min (proportional, minimum 1 XP)
+    // Focus XP: 10 XP per minute, doubled if booster active
     addFocusXP(elapsedMin, dateStr) {
       if (!elapsedMin || elapsedMin <= 0) return;
-      const amount = Math.max(1, Math.round(elapsedMin * 25 / 30));
+      const base = Math.max(1, Math.round(elapsedMin * 10));
+      const mult = _isBoosterActive() ? 2 : 1;
+      const amount = base * mult;
       this.addXP(amount, 'focus');
       this._updateFocusStreak(elapsedMin, dateStr);
       this.checkStreakBonus();
@@ -2981,11 +2990,12 @@
       showXPFloat(amount, ringEl);
     },
 
-    // Task XP: exactly 10 XP per completed task
-    // sourceEl — the DOM element that was checked (used to position the float)
+    // Task XP: 50 XP per completed task, doubled if booster active
     addTaskXP(sourceEl) {
-      this.addXP(10, 'task');
-      showXPFloat(10, sourceEl || null);
+      const mult = _isBoosterActive() ? 2 : 1;
+      const amount = 50 * mult;
+      this.addXP(amount, 'task');
+      showXPFloat(amount, sourceEl || null);
     },
 
     // 7-day streak bonus: award 100 XP once per qualifying streak
@@ -3057,28 +3067,89 @@
     gamificationManager.addFocusXP(minutes, dateStr);
   }
 
+  // ── XP Booster helpers ────────────────────────────────────────────────────
+  function _isBoosterActive() {
+    const exp = state.shopBooster && state.shopBooster.expiresAt;
+    return !!(exp && Date.now() < exp);
+  }
+  function _boosterRemaining() {
+    if (!_isBoosterActive()) return 0;
+    return Math.max(0, state.shopBooster.expiresAt - Date.now());
+  }
+  function _activateBooster() {
+    if (!state.shopBooster || typeof state.shopBooster !== 'object') state.shopBooster = {};
+    state.shopBooster.expiresAt = Date.now() + 24 * 60 * 60 * 1000;
+    saveState();
+  }
+  function _boosterCountdownStr() {
+    const ms = _boosterRemaining();
+    if (ms <= 0) return '';
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    return `${h}h ${m}m remaining`;
+  }
+
+  // ── Theme application ─────────────────────────────────────────────────────
+  const PREMIUM_THEMES = {
+    'default':    { label: 'Default',    '--bg-primary': '#090e15', '--bg-secondary': '#111827', '--accent': '#6366f1', '--accent2': '#818cf8' },
+    'dark-gold':  { label: 'Dark Gold',  '--bg-primary': '#0d0a00', '--bg-secondary': '#1a1400', '--accent': '#f59e0b', '--accent2': '#fbbf24' },
+    'buet-blue':  { label: 'BUET Blue',  '--bg-primary': '#00050f', '--bg-secondary': '#001533', '--accent': '#0ea5e9', '--accent2': '#38bdf8' },
+    'neon-night': { label: 'Neon Night', '--bg-primary': '#050010', '--bg-secondary': '#100028', '--accent': '#a855f7', '--accent2': '#d946ef' },
+  };
+  function _applyTheme(themeId) {
+    const theme = PREMIUM_THEMES[themeId] || PREMIUM_THEMES['default'];
+    const root = document.documentElement;
+    Object.entries(theme).forEach(([k, v]) => {
+      if (k !== 'label') root.style.setProperty(k, v);
+    });
+  }
+  function _initTheme() {
+    const t = (state.themeUnlocked && state.selectedTheme) ? state.selectedTheme : 'default';
+    _applyTheme(t);
+  }
+
+  // ── Shop booster live-timer interval ─────────────────────────────────────
+  let _shopBoosterInterval = null;
+  function _startShopBoosterTimer() {
+    clearInterval(_shopBoosterInterval);
+    _shopBoosterInterval = setInterval(() => {
+      const el = document.querySelector('.mkt-booster-countdown');
+      if (!el) { clearInterval(_shopBoosterInterval); return; }
+      if (_isBoosterActive()) {
+        el.textContent = _boosterCountdownStr();
+      } else {
+        el.closest('.mkt-booster-active-banner') && el.closest('.mkt-booster-active-banner').remove();
+        clearInterval(_shopBoosterInterval);
+        if (_currentTab === 'shop') renderShop();
+      }
+    }, 30000);
+  }
+
   // ═══════════════════════════════════════════════════════════════
-  // XP SHOP SYSTEM
+  // GLOBAL XP MARKETPLACE — ITEM CATALOGUE
   // ═══════════════════════════════════════════════════════════════
   var SHOP_ITEMS = [
-    // Profile
-    { id:'border_flame',   name:'Flame Border',    cat:'profile', rarity:'epic',      cost:500,  icon:'🔥', desc:'Animated fire ring pulses around your avatar',       equip:'border' },
-    { id:'border_galaxy',  name:'Galaxy Frame',    cat:'profile', rarity:'legendary', cost:1500, icon:'🌌', desc:'Swirling galaxy frame — the rarest border',          equip:'border' },
-    { id:'border_crystal', name:'Crystal Aura',    cat:'profile', rarity:'rare',      cost:350,  icon:'💎', desc:'Shimmering crystal ring — elegant & rare',           equip:'border' },
-    { id:'title_botany',   name:'Botany Expert',   cat:'profile', rarity:'rare',      cost:300,  icon:'🌿', desc:'Custom title shown in Social rooms',                 equip:'title'  },
-    { id:'title_night',    name:'Night Scholar',   cat:'profile', rarity:'rare',      cost:300,  icon:'🌙', desc:'For those who study after midnight',                 equip:'title'  },
-    { id:'title_focus',    name:'Focus Master',    cat:'profile', rarity:'epic',      cost:600,  icon:'⚡', desc:'Elite title — only for the truly dedicated',         equip:'title'  },
-    { id:'title_grind',    name:'The Grinder',     cat:'profile', rarity:'legendary', cost:1200, icon:'💀', desc:'Legendary status — earned through relentless grind', equip:'title'  },
-    // Visual
-    { id:'aura_fire',      name:'Fire Aura',       cat:'visual',  rarity:'epic',      cost:700,  icon:'🔥', desc:'Blazing aura pulses when you\'re online',           equip:'aura'   },
-    { id:'aura_lightning', name:'Lightning Pulse', cat:'visual',  rarity:'epic',      cost:800,  icon:'⚡', desc:'Electric pulse rings during focus sessions',        equip:'aura'   },
-    { id:'aura_galaxy',    name:'Galaxy Orb',      cat:'visual',  rarity:'legendary', cost:1800, icon:'🌌', desc:'Orbital galaxy effect — rarest visual in the shop', equip:'aura'   },
-    { id:'aura_leaf',      name:'Leaf Animation',  cat:'visual',  rarity:'common',    cost:200,  icon:'🍃', desc:'Peaceful floating leaves during study sessions',    equip:'aura'   },
-    // Utility (stackable)
-    { id:'streak_freeze',  name:'Streak Freeze',   cat:'utility', rarity:'rare',      cost:150,  icon:'🧊', desc:'Protects your streak for 1 missed day. Stackable.',    equip:null, stackable:true },
-    { id:'xp_boost_2x',    name:'XP Booster 2×',  cat:'utility', rarity:'rare',      cost:400,  icon:'⚡', desc:'Double XP for your next focus session. Stackable.',    equip:null, stackable:true },
-    { id:'session_shield', name:'Session Shield',  cat:'utility', rarity:'common',    cost:200,  icon:'🛡️', desc:'Protect your longest session record. Stackable.',     equip:null, stackable:true },
-    { id:'focus_energy',   name:'Focus Energy',    cat:'utility', rarity:'common',    cost:100,  icon:'🔋', desc:'Instantly refill your focus energy. Stackable.',      equip:null, stackable:true },
+    // Profile borders
+    { id:'border_flame',      name:'Flame Border',      cat:'profile',  rarity:'epic',      cost:500,  icon:'🔥', desc:'Animated fire ring pulses around your avatar',        equip:'border' },
+    { id:'border_galaxy',     name:'Galaxy Frame',      cat:'profile',  rarity:'legendary', cost:1500, icon:'🌌', desc:'Swirling galaxy frame — the rarest border',           equip:'border' },
+    { id:'border_crystal',    name:'Crystal Aura',      cat:'profile',  rarity:'rare',      cost:350,  icon:'💎', desc:'Shimmering crystal ring — elegant & rare',            equip:'border' },
+    // Profile titles
+    { id:'title_botany',      name:'Botany Expert',     cat:'profile',  rarity:'rare',      cost:300,  icon:'🌿', desc:'Custom title shown in Social rooms',                  equip:'title'  },
+    { id:'title_night',       name:'Night Scholar',     cat:'profile',  rarity:'rare',      cost:300,  icon:'🌙', desc:'For those who study after midnight',                  equip:'title'  },
+    { id:'title_focus',       name:'Focus Master',      cat:'profile',  rarity:'epic',      cost:600,  icon:'⚡', desc:'Elite title — only for the truly dedicated',          equip:'title'  },
+    { id:'title_grind',       name:'The Grinder',       cat:'profile',  rarity:'legendary', cost:1200, icon:'💀', desc:'Legendary status — earned through relentless grind',  equip:'title'  },
+    // Visual auras
+    { id:'aura_fire',         name:'Fire Aura',         cat:'visual',   rarity:'epic',      cost:700,  icon:'🔥', desc:'Blazing aura pulses when you\'re online',            equip:'aura'   },
+    { id:'aura_lightning',    name:'Lightning Pulse',   cat:'visual',   rarity:'epic',      cost:800,  icon:'⚡', desc:'Electric pulse rings during focus sessions',         equip:'aura'   },
+    { id:'aura_galaxy',       name:'Galaxy Orb',        cat:'visual',   rarity:'legendary', cost:1800, icon:'🌌', desc:'Orbital galaxy effect — rarest visual in the shop',  equip:'aura'   },
+    { id:'aura_leaf',         name:'Leaf Animation',    cat:'visual',   rarity:'common',    cost:200,  icon:'🍃', desc:'Peaceful floating leaves during study sessions',     equip:'aura'   },
+    // Utility — stackable / timed
+    { id:'streak_freeze',     name:'Streak Freeze',     cat:'utility',  rarity:'rare',      cost:150,  icon:'🧊', desc:'Protects your streak for 1 missed day. Stackable.',   equip:null, stackable:true },
+    { id:'xp_boost_2x',       name:'XP Booster 2×',    cat:'utility',  rarity:'rare',      cost:400,  icon:'⚡', desc:'Doubles ALL earned XP for 24 hours — tasks & focus both.',  equip:null, timed:true },
+    // Premium items
+    { id:'focus_music_pack',  name:'Focus Music Pack',  cat:'premium',  rarity:'epic',      cost:500,  icon:'🎵', desc:'Unlock premium Lo-fi, Ambient, Rain Study & Deep Focus audio tracks.' },
+    { id:'custom_badge',      name:'Custom Badge',      cat:'premium',  rarity:'legendary', cost:1000, icon:'🏅', desc:'Equip an animated profile badge: Verified Learner, Hardworker, or Top Grinder.' },
+    { id:'theme_unlocker',    name:'Theme Unlocker',    cat:'premium',  rarity:'legendary', cost:800,  icon:'🎨', desc:'Unlock premium app themes: Dark Gold, BUET Blue & Neon Night.' },
   ];
 
   var QUEST_TEMPLATES = [
@@ -3107,133 +3178,238 @@
     return (state.equippedItems || {})[item.equip] === id;
   }
 
+  // ── Render a single marketplace card ────────────────────────────────────
+  function _mktCard(it, bal) {
+    const owned    = _itemOwned(it.id);
+    const equipped = _itemEquipped(it.id);
+    const canAfford = bal >= it.cost;
+    const rarityLabel = it.rarity.charAt(0).toUpperCase() + it.rarity.slice(1);
+
+    // Determine item-specific state
+    let locked = false, specialHTML = '', btnHTML = '';
+
+    if (it.id === 'xp_boost_2x') {
+      if (_isBoosterActive()) {
+        specialHTML = `<div class="mkt-booster-active-banner"><span class="mkt-booster-pulse"></span>BOOST ACTIVE — <span class="mkt-booster-countdown">${_boosterCountdownStr()}</span></div>`;
+        btnHTML = `<button class="mkt-btn mkt-btn-active" disabled>⚡ BOOST ACTIVE</button>`;
+      } else if (canAfford) {
+        btnHTML = `<button class="mkt-btn mkt-btn-buy" data-act="shop-buy" data-iid="${it.id}">⚡ ${it.cost.toLocaleString()} XP</button>`;
+      } else {
+        locked = true;
+        btnHTML = `<button class="mkt-btn mkt-btn-locked" disabled>⚡ ${it.cost.toLocaleString()} XP</button>`;
+      }
+    } else if (it.id === 'focus_music_pack') {
+      if (state.focusMusicUnlocked) {
+        btnHTML = `<button class="mkt-btn mkt-btn-owned" disabled>🎵 UNLOCKED</button>`;
+      } else if (canAfford) {
+        btnHTML = `<button class="mkt-btn mkt-btn-buy" data-act="shop-buy" data-iid="${it.id}">⚡ ${it.cost.toLocaleString()} XP</button>`;
+      } else {
+        locked = true;
+        btnHTML = `<button class="mkt-btn mkt-btn-locked" disabled>⚡ ${it.cost.toLocaleString()} XP</button>`;
+      }
+    } else if (it.id === 'custom_badge') {
+      if (state.customBadgeOwned) {
+        const badges = [
+          { id:'verified',   label:'✅ Verified Learner' },
+          { id:'hardworker', label:'💪 Hardworker' },
+          { id:'grinder',    label:'🏆 Top Grinder' },
+        ];
+        const badgeBtns = badges.map(b =>
+          `<button class="mkt-badge-pill${state.selectedBadge === b.id ? ' active' : ''}" data-act="shop-select-badge" data-bid="${b.id}">${b.label}</button>`
+        ).join('');
+        specialHTML = `<div class="mkt-badge-picker"><div class="mkt-badge-label">Choose your badge:</div><div class="mkt-badge-pills">${badgeBtns}</div></div>`;
+        btnHTML = `<button class="mkt-btn mkt-btn-owned" disabled>🏅 OWNED</button>`;
+      } else if (canAfford) {
+        btnHTML = `<button class="mkt-btn mkt-btn-buy" data-act="shop-buy" data-iid="${it.id}">⚡ ${it.cost.toLocaleString()} XP</button>`;
+      } else {
+        locked = true;
+        btnHTML = `<button class="mkt-btn mkt-btn-locked" disabled>⚡ ${it.cost.toLocaleString()} XP</button>`;
+      }
+    } else if (it.id === 'theme_unlocker') {
+      if (state.themeUnlocked) {
+        const themes = Object.entries(PREMIUM_THEMES).filter(([k]) => k !== 'default');
+        const themeBtns = themes.map(([id, t]) =>
+          `<button class="mkt-theme-pill${state.selectedTheme === id ? ' active' : ''}" data-act="shop-select-theme" data-tid="${id}">${t.label}</button>`
+        ).join('');
+        specialHTML = `<div class="mkt-badge-picker"><div class="mkt-badge-label">Choose theme:</div><div class="mkt-badge-pills">${themeBtns}</div></div>`;
+        btnHTML = `<button class="mkt-btn mkt-btn-owned" disabled>🎨 UNLOCKED</button>`;
+      } else if (canAfford) {
+        btnHTML = `<button class="mkt-btn mkt-btn-buy" data-act="shop-buy" data-iid="${it.id}">⚡ ${it.cost.toLocaleString()} XP</button>`;
+      } else {
+        locked = true;
+        btnHTML = `<button class="mkt-btn mkt-btn-locked" disabled>⚡ ${it.cost.toLocaleString()} XP</button>`;
+      }
+    } else if (it.stackable) {
+      const qty = _itemQty(it.id);
+      if (canAfford) {
+        btnHTML = `<button class="mkt-btn mkt-btn-buy" data-act="shop-buy" data-iid="${it.id}">⚡ ${it.cost.toLocaleString()} XP${qty > 0 ? ` <span class="mkt-qty">×${qty}</span>` : ''}</button>`;
+      } else {
+        locked = true;
+        btnHTML = `<button class="mkt-btn mkt-btn-locked" disabled>⚡ ${it.cost.toLocaleString()} XP${qty > 0 ? ` <span class="mkt-qty">×${qty}</span>` : ''}</button>`;
+      }
+    } else if (equipped) {
+      btnHTML = `<button class="mkt-btn mkt-btn-equip" data-act="shop-unequip" data-iid="${it.id}">✓ Equipped — Unequip</button>`;
+    } else if (owned) {
+      btnHTML = `<button class="mkt-btn mkt-btn-buy" data-act="shop-equip" data-iid="${it.id}">Equip</button>`;
+    } else if (canAfford) {
+      btnHTML = `<button class="mkt-btn mkt-btn-buy" data-act="shop-buy" data-iid="${it.id}">⚡ ${it.cost.toLocaleString()} XP</button>`;
+    } else {
+      locked = true;
+      btnHTML = `<button class="mkt-btn mkt-btn-locked" disabled>⚡ ${it.cost.toLocaleString()} XP</button>`;
+    }
+
+    return `<div class="mkt-card rarity-${it.rarity}${locked ? ' mkt-card--locked' : ''}${equipped ? ' mkt-card--equipped' : ''}">
+      <div class="mkt-card-glow"></div>
+      <div class="mkt-rarity-bar rarity-${it.rarity}"></div>
+      <div class="mkt-card-head">
+        <div class="mkt-icon rarity-${it.rarity}">${it.icon}</div>
+        <div class="mkt-meta">
+          <div class="mkt-name">${escapeHTML(it.name)}</div>
+          <div class="mkt-rarity-pill rarity-${it.rarity}">${rarityLabel}</div>
+        </div>
+        ${locked ? `<div class="mkt-lock-icon">🔒</div>` : ''}
+      </div>
+      <div class="mkt-desc">${escapeHTML(it.desc)}</div>
+      ${specialHTML}
+      ${btnHTML}
+    </div>`;
+  }
+
   function renderShop() {
     const view = document.getElementById('view-shop');
     if (!view) return;
     if (!_userId && !_authSkipped) {
-      view.innerHTML = `<div class="social-gate"><div class="social-gate-icon">🛍️</div><h2 class="social-gate-title">XP Shop</h2><p class="social-gate-sub">Sign in to spend your earned XP on exclusive items, effects &amp; titles.</p><button class="btn" data-act="auth-show-modal">Sign In to Continue</button></div>`;
+      view.innerHTML = `<div class="social-gate"><div class="social-gate-icon">🛒</div><h2 class="social-gate-title">Global XP Marketplace</h2><p class="social-gate-sub">Sign in to spend your earned XP on exclusive items, effects &amp; themes.</p><button class="btn" data-act="auth-show-modal">Sign In to Continue</button></div>`;
       return;
     }
     const bal      = _xpBalance();
     const lifetime = (state.xp && state.xp.total) || 0;
     const spent    = (state.xp && state.xp.spent)  || 0;
+
     const cats = [
       { id:'profile', label:'Profile', icon:'👤' },
       { id:'visual',  label:'Visual',  icon:'✨' },
       { id:'utility', label:'Utility', icon:'🛠️' },
+      { id:'premium', label:'Premium', icon:'💎' },
     ];
     const catTabs = cats.map(c =>
-      `<button class="shop-cat-btn${c.id === _shopCategory ? ' active' : ''}" data-act="shop-cat" data-cat="${c.id}">${c.icon} ${c.label}</button>`
+      `<button class="mkt-cat-btn${c.id === _shopCategory ? ' active' : ''}" data-act="shop-cat" data-cat="${c.id}">${c.icon} ${c.label}</button>`
     ).join('');
 
     const items = SHOP_ITEMS.filter(it => it.cat === _shopCategory);
-    const itemsHTML = items.map(it => {
-      const owned    = _itemOwned(it.id);
-      const equipped = _itemEquipped(it.id);
-      const qty      = it.stackable ? _itemQty(it.id) : 0;
-      const canAfford = bal >= it.cost;
-      const qtyBadge = qty > 0 ? `<span class="shop-qty-badge">×${qty}</span>` : '';
-      let stateClass = '', stateLabel = '';
-      if (equipped)            { stateClass = 'shop-item--equipped'; stateLabel = '✓ Equipped'; }
-      else if (owned && !it.stackable) { stateClass = 'shop-item--owned';    stateLabel = 'Owned'; }
-      else if (!canAfford)     { stateClass = 'shop-item--locked'; }
-      let btnHTML;
-      if (equipped && it.equip) {
-        btnHTML = `<button class="shop-btn shop-btn-ghost" data-act="shop-unequip" data-iid="${it.id}">Unequip</button>`;
-      } else if (owned && it.equip && !it.stackable) {
-        btnHTML = `<button class="shop-btn shop-btn-equip" data-act="shop-equip" data-iid="${it.id}">Equip</button>`;
-      } else if (canAfford) {
-        btnHTML = `<button class="shop-btn shop-btn-buy" data-act="shop-buy" data-iid="${it.id}">⚡ ${it.cost.toLocaleString()}</button>`;
-      } else {
-        btnHTML = `<button class="shop-btn shop-btn-locked" disabled>⚡ ${it.cost.toLocaleString()}</button>`;
-      }
-      return `<div class="shop-item-card rarity-${it.rarity} ${stateClass}">
-        <div class="shop-rarity-bar rarity-${it.rarity}"></div>
-        <div class="shop-item-top">
-          <div class="shop-item-icon rarity-${it.rarity}">${it.icon}</div>
-          <div class="shop-item-meta">
-            <div class="shop-item-name">${escapeHTML(it.name)}${qtyBadge}</div>
-            <div class="shop-rarity-pill rarity-${it.rarity}">${it.rarity.charAt(0).toUpperCase()+it.rarity.slice(1)}</div>
-          </div>
-          ${stateLabel ? `<span class="shop-state-badge">${stateLabel}</span>` : ''}
-        </div>
-        <div class="shop-item-desc">${escapeHTML(it.desc)}</div>
-        ${btnHTML}
-      </div>`;
-    }).join('') || '<div class="empty">No items in this category yet.</div>';
+    const itemsHTML = items.map(it => _mktCard(it, bal)).join('') ||
+      '<div class="mkt-empty">No items in this category yet.</div>';
 
-    const ownedItems  = SHOP_ITEMS.filter(it => _itemOwned(it.id));
-    const invPreview  = ownedItems.slice(0, 8).map(it => `<span class="inv-icon" title="${escapeHTML(it.name)}">${it.icon}</span>`).join('')
-                        || '<span style="color:var(--text-muted);font-size:12px">Nothing yet — buy something below!</span>';
+    const ownedItems = SHOP_ITEMS.filter(it => _itemOwned(it.id) || state.focusMusicUnlocked && it.id === 'focus_music_pack' || state.themeUnlocked && it.id === 'theme_unlocker' || state.customBadgeOwned && it.id === 'custom_badge');
+    const invPreview = ownedItems.slice(0, 8).map(it => `<span class="inv-icon" title="${escapeHTML(it.name)}">${it.icon}</span>`).join('')
+                       || '<span style="color:var(--text-muted);font-size:12px">Buy something below to start your collection!</span>';
 
-    // Daily quests section
+    const boosterBannerHTML = _isBoosterActive()
+      ? `<div class="mkt-global-boost"><span class="mkt-boost-pulse"></span>⚡ 2× XP BOOST ACTIVE — <span class="mkt-booster-countdown">${_boosterCountdownStr()}</span></div>`
+      : '';
+
     const questsHTML = renderDailyQuestsHTML();
 
-    view.innerHTML = `<div class="view-pad shop-page">
-      <div class="shop-topbar">
-        <button class="shop-back-btn" data-act="shop-back" aria-label="Back">← Back</button>
-      </div>
-      <div class="shop-header-card">
-        <div class="shop-header-row">
-          <div><h1 class="shop-title">⚡ XP Shop</h1><p class="shop-sub">Spend your XP on premium rewards</p></div>
-          <div class="shop-bal-pill">⚡ ${bal.toLocaleString()}</div>
+    view.innerHTML = `<div class="mkt-page">
+      <div class="mkt-header">
+        <div class="mkt-header-left">
+          <div class="mkt-title">🛒 Global XP Marketplace</div>
+          <div class="mkt-subtitle">Spend your XP on premium rewards</div>
         </div>
-        <div class="shop-xp-stats">
-          <div class="shop-stat"><span class="shop-stat-val">${lifetime.toLocaleString()}</span><span class="shop-stat-lbl">Lifetime</span></div>
-          <div class="shop-stat-div"></div>
-          <div class="shop-stat"><span class="shop-stat-val">${spent.toLocaleString()}</span><span class="shop-stat-lbl">Spent</span></div>
-          <div class="shop-stat-div"></div>
-          <div class="shop-stat"><span class="shop-stat-val">${bal.toLocaleString()}</span><span class="shop-stat-lbl">Balance</span></div>
-        </div>
+        <div class="mkt-bal-pill"><span class="mkt-bal-icon">⚡</span><span class="mkt-bal-num">${bal.toLocaleString()}</span> XP</div>
       </div>
-      <div class="shop-inv-row"><span class="shop-inv-label">🎒 Inventory</span><div class="shop-inv-icons">${invPreview}</div></div>
+      ${boosterBannerHTML}
+      <div class="mkt-stats-row">
+        <div class="mkt-stat"><span class="mkt-stat-val">${lifetime.toLocaleString()}</span><span class="mkt-stat-lbl">Lifetime XP</span></div>
+        <div class="mkt-stat-div"></div>
+        <div class="mkt-stat"><span class="mkt-stat-val">${spent.toLocaleString()}</span><span class="mkt-stat-lbl">Spent</span></div>
+        <div class="mkt-stat-div"></div>
+        <div class="mkt-stat"><span class="mkt-stat-val">${bal.toLocaleString()}</span><span class="mkt-stat-lbl">Available</span></div>
+      </div>
+      <div class="mkt-earn-info">
+        <div class="mkt-earn-row"><span class="mkt-earn-icon">✅</span><span>1 task completed = <strong>50 XP</strong>${_isBoosterActive() ? ' → <strong style="color:#fbbf24">100 XP</strong>' : ''}</span></div>
+        <div class="mkt-earn-row"><span class="mkt-earn-icon">⏱</span><span>1 minute focused = <strong>10 XP</strong>${_isBoosterActive() ? ' → <strong style="color:#fbbf24">20 XP</strong>' : ''}</span></div>
+      </div>
+      <div class="mkt-inv-row"><span class="mkt-inv-label">🎒 Collection</span><div class="mkt-inv-icons">${invPreview}</div></div>
       ${questsHTML}
-      <div class="shop-cats">${catTabs}</div>
-      <div class="shop-items">${itemsHTML}</div>
+      <div class="mkt-cats">${catTabs}</div>
+      <div class="mkt-grid">${itemsHTML}</div>
     </div>`;
+
+    // Start live booster timer if active
+    if (_isBoosterActive()) _startShopBoosterTimer();
   }
 
+  // ── Purchase confirmation modal ─────────────────────────────────────────
   function _shopBuy(itemId) {
     const it = SHOP_ITEMS.find(i => i.id === itemId);
     if (!it) return;
     const bal = _xpBalance();
-    if (bal < it.cost) { toast('Not enough XP to buy this!', 'warn', 3000); return; }
-    openModal(`<div class="modal-body">
-      <h3 style="text-align:center;margin-bottom:16px">Confirm Purchase</h3>
-      <div style="text-align:center;padding:4px 0 12px">
-        <div style="font-size:48px;margin-bottom:8px">${it.icon}</div>
-        <div style="font-size:17px;font-weight:800;margin-bottom:4px">${escapeHTML(it.name)}</div>
-        <div class="shop-rarity-pill rarity-${it.rarity}" style="display:inline-block;margin-bottom:12px">${it.rarity.charAt(0).toUpperCase()+it.rarity.slice(1)}</div>
-        <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px;line-height:1.5">${escapeHTML(it.desc)}</div>
-        <div style="font-size:17px;font-weight:900;color:#fbbf24">⚡ ${it.cost.toLocaleString()} XP</div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:3px">Balance after: ⚡ ${(bal - it.cost).toLocaleString()}</div>
-      </div>
-      <div style="display:flex;gap:10px;margin-top:8px">
-        <button class="btn btn-ghost btn-block" data-act="close-modal">Cancel</button>
-        <button class="btn btn-block" data-act="shop-confirm-buy" data-iid="${itemId}" style="background:linear-gradient(135deg,#f59e0b,#fbbf24);color:#1a1122;font-weight:800">Buy Now ⚡</button>
+    if (bal < it.cost) {
+      toast('❌ Not enough XP!', 'warn', 3000);
+      // Error shake on balance pill
+      const pill = document.querySelector('.mkt-bal-pill');
+      if (pill) { pill.classList.add('mkt-bal-shake'); setTimeout(() => pill.classList.remove('mkt-bal-shake'), 600); }
+      return;
+    }
+    const rarityLabel = it.rarity.charAt(0).toUpperCase() + it.rarity.slice(1);
+    openModal(`<div class="mkt-confirm-modal">
+      <div class="mkt-confirm-icon rarity-${it.rarity}">${it.icon}</div>
+      <div class="mkt-confirm-title">Confirm Purchase</div>
+      <div class="mkt-confirm-name">${escapeHTML(it.name)}</div>
+      <div class="mkt-rarity-pill rarity-${it.rarity}" style="display:inline-block;margin-bottom:12px">${rarityLabel}</div>
+      <div class="mkt-confirm-desc">${escapeHTML(it.desc)}</div>
+      <div class="mkt-confirm-cost">⚡ ${it.cost.toLocaleString()} XP</div>
+      <div class="mkt-confirm-after">Balance after: ⚡ ${(bal - it.cost).toLocaleString()} XP</div>
+      <div class="mkt-confirm-btns">
+        <button class="mkt-modal-cancel" data-act="close-modal">Cancel</button>
+        <button class="mkt-modal-buy" data-act="shop-confirm-buy" data-iid="${itemId}">Buy Now ⚡</button>
       </div>
     </div>`);
   }
 
+  // ── Execute purchase ────────────────────────────────────────────────────
   function _shopConfirmBuy(itemId) {
     closeModal();
     const it = SHOP_ITEMS.find(i => i.id === itemId);
     if (!it) return;
-    if (_xpBalance() < it.cost) { toast('Not enough XP!', 'warn', 3000); return; }
+    if (_xpBalance() < it.cost) { toast('❌ Not enough XP!', 'warn', 3000); return; }
+    // Deduct XP
     if (!state.xp) state.xp = { total: 0 };
     if (typeof state.xp.spent !== 'number') state.xp.spent = 0;
     state.xp.spent += it.cost;
     if (!state.inventory) state.inventory = {};
-    state.inventory[it.id] = (state.inventory[it.id] || 0) + 1;
-    if (it.equip && !it.stackable) {
-      if (!state.equippedItems) state.equippedItems = {};
-      state.equippedItems[it.equip] = it.id;
+
+    // Item-specific activation
+    if (it.id === 'xp_boost_2x') {
+      _activateBooster();
+      toast('⚡ XP Booster 2× activated! All XP doubled for 24 hours!', 'success', 5000);
+      gamificationManager._flashGlow('rgba(251,191,36,0.22)');
+    } else if (it.id === 'focus_music_pack') {
+      state.focusMusicUnlocked = true;
+      toast('🎵 Focus Music Pack unlocked! Premium audio tracks available.', 'success', 4000);
+    } else if (it.id === 'custom_badge') {
+      state.customBadgeOwned = true;
+      if (!state.selectedBadge) state.selectedBadge = 'verified';
+      toast('🏅 Custom Badge unlocked! Choose your badge below.', 'success', 4000);
+    } else if (it.id === 'theme_unlocker') {
+      state.themeUnlocked = true;
+      if (!state.selectedTheme || state.selectedTheme === 'default') state.selectedTheme = 'dark-gold';
+      _applyTheme(state.selectedTheme);
+      toast('🎨 Theme Unlocker activated! Choose your theme below.', 'success', 4000);
+    } else {
+      state.inventory[it.id] = (state.inventory[it.id] || 0) + 1;
+      if (it.equip && !it.stackable) {
+        if (!state.equippedItems) state.equippedItems = {};
+        state.equippedItems[it.equip] = it.id;
+      }
+      toast(`${it.icon} ${it.name} purchased!`, 'success', 3500);
     }
+
     saveState();
     gamificationManager._updateXPBar();
-    toast(`${it.icon} ${it.name} purchased!`, 'success', 3500);
-    const balEl = document.querySelector('.shop-bal-pill');
-    if (balEl) showXPFloat(-it.cost, balEl);
+    const balEl = document.querySelector('.mkt-bal-num');
+    if (balEl) { showXPFloat(-it.cost, balEl); balEl.textContent = _xpBalance().toLocaleString(); }
     renderShop();
   }
 
@@ -3253,7 +3429,25 @@
     if (!state.equippedItems) state.equippedItems = {};
     delete state.equippedItems[it.equip];
     saveState();
-    toast(`Unequipped`, 'info', 2000);
+    toast('Unequipped', 'info', 2000);
+    renderShop();
+  }
+
+  // ── Badge & theme selectors ──────────────────────────────────────────────
+  function _shopSelectBadge(badgeId) {
+    state.selectedBadge = badgeId;
+    saveState();
+    const labels = { verified: 'Verified Learner', hardworker: 'Hardworker', grinder: 'Top Grinder' };
+    toast(`🏅 Badge set: ${labels[badgeId] || badgeId}`, 'success', 2500);
+    renderShop();
+  }
+
+  function _shopSelectTheme(themeId) {
+    state.selectedTheme = themeId;
+    _applyTheme(themeId);
+    saveState();
+    const t = PREMIUM_THEMES[themeId];
+    toast(`🎨 Theme activated: ${t ? t.label : themeId}`, 'success', 2500);
     renderShop();
   }
 
@@ -8209,10 +8403,12 @@
       renderShop();
       return;
     }
-    if (act === 'shop-buy')         { _shopBuy(el.dataset.iid);        return; }
-    if (act === 'shop-confirm-buy') { _shopConfirmBuy(el.dataset.iid); return; }
-    if (act === 'shop-equip')       { _shopEquip(el.dataset.iid);      return; }
-    if (act === 'shop-unequip')     { _shopUnequip(el.dataset.iid);    return; }
+    if (act === 'shop-buy')          { _shopBuy(el.dataset.iid);           return; }
+    if (act === 'shop-confirm-buy')  { _shopConfirmBuy(el.dataset.iid);    return; }
+    if (act === 'shop-equip')        { _shopEquip(el.dataset.iid);         return; }
+    if (act === 'shop-unequip')      { _shopUnequip(el.dataset.iid);       return; }
+    if (act === 'shop-select-badge') { _shopSelectBadge(el.dataset.bid);   return; }
+    if (act === 'shop-select-theme') { _shopSelectTheme(el.dataset.tid);   return; }
     // ── Daily Quests ─────────────────────────────────────────────────────
     if (act === 'quest-claim')      { _claimQuestXP(el.dataset.qid);   return; }
     if (act === 'focus-toggle') {
@@ -8682,6 +8878,7 @@
   // ========== Init ==========
   function init() {
     _migrateLegacyBadges();
+    _initTheme();
     applyTheme(getActiveTheme());
     pruneRevisions();
     initMiniTimer();
