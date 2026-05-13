@@ -823,7 +823,7 @@
       // serverTimestamp() causes an instant re-fire where lastSeen === null,
       // making _sStatusOf() return 'offline' for every member including yourself.
       const nowMs = Date.now();
-      await _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId).set({
+      const presencePayload = {
         uid: _userId, displayName: _sDisplayName(), email: (u && u.email) || '',
         status, lastSeen: nowMs,
         xpTotal: (state.xp && state.xp.total) || 0, weeklyXP: _sWeeklyXP(),
@@ -838,7 +838,12 @@
         totalSessions: ((state.focusStats && state.focusStats.sessions) || []).length,
         equippedItems: state.equippedItems || {},
         ...(extra || {})
-      }, { merge: true });
+      };
+      // Pre-seed own entry in _socialMembers immediately so onlineCount is correct
+      // BEFORE the async Firestore listener round-trip completes. This eliminates the
+      // "0 online" flash caused by rendering before the listener fires.
+      _socialMembers[_userId] = { ...(_socialMembers[_userId] || {}), ...presencePayload };
+      await _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId).set(presencePayload, { merge: true });
     } catch (e) { console.warn('[Social] Presence failed:', e.message); }
   }
 
@@ -853,7 +858,9 @@
   function _updateSocialInPlace() {
     const now = Date.now();
     const members = Object.values(_socialMembers);
-    const onlineCount = members.filter(m => _sStatusOf(m) !== 'offline').length;
+    // Always treat the current user as online — they're subscribed and active in the room.
+    // _sStatusOf checks lastSeen which may lag behind the async listener round-trip.
+    const onlineCount = members.filter(m => (m.uid === _userId && _socialRoomCode) || _sStatusOf(m) !== 'offline').length;
 
     // Typing indicator in chat header
     const typingNow = members.filter(m => m.uid !== _userId && m.typing && (now - m.typing) < 5000);
@@ -925,7 +932,7 @@
       _renderSocialDebounceTimer = null;
       _pendingRenderSocial = false;
       if (_currentTab === 'social') renderSocial();
-    }, 800);
+    }, 200);
   }
 
   // ── Reconnect with exponential backoff ───────────────────────────────────
@@ -1678,6 +1685,8 @@
 
   async function _sChallengeDuel(memberUid, memberName) {
     if (!_db || !_userId || !_socialRoomCode) return;
+    // Prevent self-duels (can happen if the same account is open in multiple tabs)
+    if (memberUid === _userId) { toast("You can't duel yourself!", 'warn'); return; }
     // Reject if target is already dueling anyone (global visibility)
     const activeDuels = (_socialRoomData && _socialRoomData.duels || []).filter(d =>
       !d.winner && d.duelState !== 'COMPLETED' && d.endsAt > Date.now());
@@ -2245,8 +2254,10 @@
     const saved = (() => { try { return localStorage.getItem('social_room_code'); } catch (e) { return null; } })();
     if (saved && _db && _userId && !_socialRoomCode) {
       _socialRoomCode = saved;
-      await _sUpdatePresence('break');
+      await _sUpdatePresence('break'); // pre-seeds _socialMembers[_userId] immediately
       _sSubscribe();
+      _startSocialLiveTimers();
+      if (_currentTab === 'social') renderSocial(); // render room UI without waiting for listener
     }
   }
 
@@ -2544,7 +2555,9 @@
       return (r[_sStatusOf(a)] ?? 3) - (r[_sStatusOf(b)] ?? 3);
     });
     const activeFocusing   = members.filter(m => _sStatusOf(m) === 'focusing').length;
-    const onlineCount      = members.filter(m => _sStatusOf(m) !== 'offline').length;
+    // Always treat the current user as online — guarantees the count is ≥1 while
+    // in a room even before the Firestore listener has completed its first round-trip.
+    const onlineCount      = members.filter(m => (m.uid === _userId && _socialRoomCode) || _sStatusOf(m) !== 'offline').length;
     const totalWeeklyXP    = members.reduce((s, m) => s + (m.weeklyXP || 0), 0);
     const momentumTarget   = Math.max(500, members.length * 300);
     const momentumPct      = Math.min(100, Math.round(totalWeeklyXP / momentumTarget * 100));
