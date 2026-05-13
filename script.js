@@ -1188,6 +1188,81 @@
     } catch(e) { toast('Could not edit', 'danger'); }
   }
 
+  function _showChatContextMenu(msgId, isMe, anchorRect) {
+    const existing  = document.getElementById('chat-ctx-menu');
+    const existingBd = document.getElementById('chat-ctx-backdrop');
+    if (existing)   existing.remove();
+    if (existingBd) existingBd.remove();
+
+    const msg = _chatMessages.find(m => m.id === msgId);
+    if (!msg || msg.deletedAt) return;
+
+    const MENU_EMOJIS = ['👍','🔥','💯','😂','❤️','😮','🙌','👏'];
+    const preview = (msg.text || '').slice(0, 60);
+
+    const menu = document.createElement('div');
+    menu.id = 'chat-ctx-menu';
+    menu.className = 'chat-ctx-menu';
+    menu.setAttribute('role', 'menu');
+    menu.innerHTML = `
+      <div class="chat-ctx-emojis">
+        ${MENU_EMOJIS.map(e => `<button class="chat-ctx-emoji" data-act="chat-react" data-msgid="${escapeHTML(msgId)}" data-emoji="${e}">${e}</button>`).join('')}
+      </div>
+      <div class="chat-ctx-divider"></div>
+      <button class="chat-ctx-action" data-act="chat-menu-reply" data-msgid="${escapeHTML(msgId)}" data-mname="${escapeHTML(msg.name||'Unknown')}" data-mtext="${escapeHTML(preview)}">
+        <span>↩️</span> Reply
+      </button>
+      <button class="chat-ctx-action" id="chat-ctx-copy-btn">
+        <span>📋</span> Copy Text
+      </button>
+      ${isMe ? `
+      <div class="chat-ctx-divider"></div>
+      <button class="chat-ctx-action" data-act="chat-menu-edit" data-msgid="${escapeHTML(msgId)}" data-mtext="${escapeHTML(msg.text||'')}">
+        <span>✏️</span> Edit Message
+      </button>
+      <button class="chat-ctx-action chat-ctx-danger" data-act="chat-menu-delete-all" data-msgid="${escapeHTML(msgId)}">
+        <span>🗑️</span> Delete for Everyone
+      </button>` : ''}
+    `;
+
+    const bd = document.createElement('div');
+    bd.id = 'chat-ctx-backdrop';
+    bd.className = 'chat-ctx-backdrop';
+    const _closeCtx = () => { menu.remove(); bd.remove(); };
+    bd.addEventListener('pointerdown', _closeCtx, { once: true });
+
+    // Close after any action fires through delegation
+    menu.addEventListener('click', e => {
+      if (e.target.closest('[data-act]') || e.target.id === 'chat-ctx-copy-btn') {
+        setTimeout(_closeCtx, 80);
+      }
+    });
+
+    // Copy handler
+    menu.querySelector('#chat-ctx-copy-btn')?.addEventListener('click', () => {
+      navigator.clipboard.writeText(msg.text || '').then(() => toast('Copied!', 'success')).catch(() => {});
+    });
+
+    document.body.appendChild(bd);
+    document.body.appendChild(menu);
+
+    // Position: prefer above the bubble, center-align, clamp to viewport
+    const menuW = 220;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const menuH = 240 + (isMe ? 100 : 0);
+
+    let left = anchorRect.left + (anchorRect.width - menuW) / 2;
+    left = Math.max(8, Math.min(left, vw - menuW - 8));
+
+    let top = anchorRect.top - menuH - 10;
+    if (top < 60) top = Math.min(anchorRect.bottom + 8, vh - menuH - 10);
+    top = Math.max(60, top);
+
+    menu.style.left = left + 'px';
+    menu.style.top  = top + 'px';
+    menu.style.minWidth = menuW + 'px';
+  }
+
   function _showChatMsgMenu(msgId, isMe) {
     const msg = _chatMessages.find(m => m.id === msgId);
     if (!msg || msg.deletedAt) return;
@@ -1869,15 +1944,22 @@
       }, { passive: true });
     }
 
-    // ── visualViewport: scroll messages to bottom when keyboard opens/closes ──
-    // Note: we do NOT change any CSS positions here — that causes layout shifts that kill focus.
-    if (_chatEl && window.visualViewport) {
+    // ── visualViewport: zero-gap keyboard fix + scroll to bottom ──
+    if (window.visualViewport) {
       const _vpHandler = () => {
-        if (_isChatFocused() && _chatScrollAtBottom) {
+        const vv = window.visualViewport;
+        const room = document.querySelector('.grm2-room');
+        if (room) {
+          const kbdH = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+          room.style.bottom = kbdH > 10 ? kbdH + 'px' : '';
+          room.style.top    = vv.offsetTop > 0 ? vv.offsetTop + 'px' : '';
+        }
+        if (_chatEl && _chatScrollAtBottom) {
           requestAnimationFrame(() => { _chatEl.scrollTop = _chatEl.scrollHeight; });
         }
       };
       window.visualViewport.addEventListener('resize', _vpHandler, { passive: true });
+      window.visualViewport.addEventListener('scroll', _vpHandler, { passive: true });
     }
 
     // ── Inline room name edit setup ──
@@ -1889,7 +1971,7 @@
       });
     }
 
-    // ── Long-press on message bubbles (500ms) → show reaction/action menu ──
+    // ── Long-press on message bubbles (500ms) → coordinate-based context menu ──
     if (_chatEl) {
       let _lpTimer = null;
       let _lpTarget = null;
@@ -1900,25 +1982,27 @@
         _lpTarget = bubble;
         _lpTimer = setTimeout(() => {
           if (!_lpTarget) return;
+          // Haptic feedback where available
+          if (navigator.vibrate) navigator.vibrate(30);
           bubble.classList.add('chat-bubble-longpress');
           setTimeout(() => bubble.classList.remove('chat-bubble-longpress'), 400);
           const msgId = bubble.dataset.msgid;
           const isMe  = bubble.dataset.ismine === 'true';
-          if (msgId) _showChatMsgMenu(msgId, isMe);
+          if (msgId) _showChatContextMenu(msgId, isMe, bubble.getBoundingClientRect());
           _cancelLp();
         }, 500);
       }, { passive: true });
       _chatEl.addEventListener('touchend',   _cancelLp, { passive: true });
       _chatEl.addEventListener('touchmove',  _cancelLp, { passive: true });
       _chatEl.addEventListener('touchcancel',_cancelLp, { passive: true });
-      // Desktop: right-click → context menu
+      // Desktop: right-click → coordinate context menu
       _chatEl.addEventListener('contextmenu', e => {
         const bubble = e.target.closest('.chat-bubble');
         if (!bubble || bubble.classList.contains('chat-bubble-deleted')) return;
         e.preventDefault();
         const msgId = bubble.dataset.msgid;
         const isMe  = bubble.dataset.ismine === 'true';
-        if (msgId) _showChatMsgMenu(msgId, isMe);
+        if (msgId) _showChatContextMenu(msgId, isMe, bubble.getBoundingClientRect());
       });
     }
 
@@ -8724,7 +8808,17 @@
     if (act === 'voice-join')    { _voiceJoin(); return; }
     if (act === 'voice-leave')   { _voiceLeave(false); return; }
     if (act === 'voice-mute')    { _voiceMuteToggle(); return; }
+    if (act === 'chat-attach') {
+      document.getElementById('grm-attach-input')?.click(); return;
+    }
+    if (act === 'chat-mic') {
+      // Handled by direct listener in renderSocial; just guard against fallthrough
+      return;
+    }
     if (act === 'grm-room-tab') {
+      // Close any open context menu on tab switch
+      document.getElementById('chat-ctx-menu')?.remove();
+      document.getElementById('chat-ctx-backdrop')?.remove();
       _socialRoomTab = el.dataset.tab || 'members';
       if (_socialRoomTab === 'rankings' && _lbView === 'global') { _loadGlobalLeaderboard().catch(() => {}); }
       renderSocial(); return;
