@@ -4671,26 +4671,30 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
    ═══════════════════════════════════════════════════ */
 .sroom-header {
   display: flex; align-items: center; gap: 10px;
-  padding: 12px 14px 10px;
-  background: rgba(9,14,21,0.85);
-  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(255,255,255,0.07);
+  padding: 0 14px;
+  height: 68px; min-height: 68px;
+  background: rgba(11,15,23,0.65);
+  backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+  border-bottom: 1px solid rgba(255,255,255,0.05);
   flex-shrink: 0; z-index: 10;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.04), 0 4px 24px rgba(0,0,0,0.25);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.34);
 }
 .sroom-back {
-  width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.1);
+  width: 42px; height: 42px; display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
   border-radius: 50%;
   cursor: pointer; color: var(--text); flex-shrink: 0;
-  transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+  transition: all 320ms cubic-bezier(0.22,1,0.36,1);
 }
-.sroom-back:hover { background: rgba(255,255,255,0.14); transform: translateX(-2px); }
+.sroom-back:hover { background: rgba(91,168,255,0.14); transform: translateY(-2px); box-shadow: 0 0 18px rgba(91,168,255,0.22); }
+.sroom-back:active { transform: scale(0.97); }
 .sroom-header-center { flex: 1; min-width: 0; }
 .sroom-name-row { display: flex; align-items: center; gap: 6px; }
 .sroom-name {
-  font-size: 16px; font-weight: 800; color: var(--text);
+  font-size: 24px; font-weight: 800;
+  background: linear-gradient(90deg, #ffffff, #A9CFFF);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   letter-spacing: -0.02em;
 }
@@ -4721,11 +4725,11 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .sroom-meta { display: flex; align-items: center; gap: 6px; margin-top: 3px; flex-wrap: wrap; }
 .sroom-online {
   display: flex; align-items: center; gap: 4px;
-  font-size: 11px; color: var(--text-muted); font-weight: 500;
+  font-size: 13px; color: rgba(243,246,251,0.75); font-weight: 600;
 }
 .sroom-live-dot {
-  width: 7px; height: 7px; border-radius: 50%; background: #4ade80;
-  box-shadow: 0 0 6px rgba(74,222,128,0.7);
+  width: 8px; height: 8px; border-radius: 50%; background: #47B76B;
+  box-shadow: 0 0 10px rgba(71,183,107,0.8);
   animation: sroom-pulse 2s infinite; flex-shrink: 0;
 }
 @keyframes sroom-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.85); } }
@@ -4741,23 +4745,24 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .sroom-code-pill:hover { background: rgba(91,173,255,0.2); box-shadow: 0 0 10px rgba(91,173,255,0.2); }
 .sroom-privacy { font-size: 12px; }
 .sroom-settings-btn {
-  width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.1);
+  width: 42px; height: 42px; display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
   border-radius: 50%;
   cursor: pointer; color: var(--text-muted); flex-shrink: 0;
-  transition: color 0.2s, background 0.2s, transform 0.2s, box-shadow 0.2s;
+  transition: all 320ms cubic-bezier(0.22,1,0.36,1);
 }
 .sroom-settings-btn:hover {
-  color: var(--text); background: rgba(255,255,255,0.13);
-  transform: rotate(45deg); box-shadow: 0 0 12px rgba(255,255,255,0.08);
+  color: var(--text); background: rgba(91,168,255,0.14);
+  transform: rotate(20deg) translateY(-2px); box-shadow: 0 0 18px rgba(91,168,255,0.22);
 }
+.sroom-settings-btn:active { transform: scale(0.97); }
 
 /* ── Momentum Bar ──────────────────────────────────────────────── */
 .sroom-momentum {
   padding: 12px 16px 10px; flex-shrink: 0;
   border-bottom: 1px solid rgba(255,255,255,0.06);
-  background: linear-gradient(180deg, rgba(91,173,255,0.04) 0%, transparent 100%);
+  background: linear-gradient(180deg, rgba(91,168,255,0.05) 0%, transparent 100%);
 }
 .sroom-mom-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .sroom-mom-label {
@@ -4765,51 +4770,54 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   text-transform: uppercase; letter-spacing: 0.07em;
 }
 .sroom-mom-pct {
-  font-size: 14px; font-weight: 900; color: #5badff;
-  text-shadow: 0 0 12px rgba(91,173,255,0.4);
+  font-size: 12px; font-weight: 700; color: #A9CFFF;
+  text-shadow: 0 0 12px rgba(91,168,255,0.4);
 }
 .sroom-mom-track {
-  height: 7px; background: rgba(255,255,255,0.06);
+  height: 10px; background: rgba(255,255,255,0.05);
   border-radius: 99px; overflow: hidden;
-  box-shadow: inset 0 1px 2px rgba(0,0,0,0.3);
+  box-shadow: inset 0 1px 2px rgba(255,255,255,0.08);
 }
 .sroom-mom-fill {
   height: 100%; border-radius: 99px;
-  background: linear-gradient(90deg, #5badff, #a78bfa, #f472b6);
-  box-shadow: 0 0 10px rgba(91,173,255,0.4);
+  background: linear-gradient(90deg, #5BA8FF, #47B76B);
+  box-shadow: 0 0 16px rgba(91,168,255,0.28);
   transition: width 1.2s cubic-bezier(0.4,0,0.2,1);
 }
 .sroom-mom-fill.sroom-mom-complete {
-  background: linear-gradient(90deg, #22c55e, #4ade80);
-  box-shadow: 0 0 14px rgba(34,197,94,0.5);
+  background: linear-gradient(90deg, #47B76B, #4ade80);
+  box-shadow: 0 0 16px rgba(71,183,107,0.4);
 }
 .sroom-mom-sub { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
 
 /* ── Bottom Tab Nav ────────────────────────────────────────────── */
 .sroom-nav {
   display: flex; flex-shrink: 0; order: 10;
+  height: 64px; min-height: 64px;
   border-top: 1px solid rgba(255,255,255,0.06);
-  background: rgba(9,14,21,0.9);
-  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-  padding: 2px 4px;
+  background: rgba(17,24,39,0.58);
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  padding: 4px 6px;
 }
 .sroom-nav-btn {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 3px; padding: 8px 4px 6px; border: none; background: transparent;
-  color: var(--text-muted); cursor: pointer; position: relative;
-  border-radius: 12px; margin: 2px;
-  transition: color 0.2s, background 0.2s;
+  color: rgba(243,246,251,0.42); cursor: pointer; position: relative;
+  border-radius: 999px; margin: 4px 2px;
+  transition: all 320ms cubic-bezier(0.22,1,0.36,1);
 }
-.sroom-nav-btn svg  { width: 18px; height: 18px; transition: transform 0.2s; }
+.sroom-nav-btn svg  { width: 18px; height: 18px; transition: all 320ms cubic-bezier(0.22,1,0.36,1); }
 .sroom-nav-btn span { font-size: 10px; font-weight: 600; letter-spacing: 0.01em; }
 .sroom-nav-btn:hover { color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.05); }
-.sroom-nav-btn:hover svg { transform: translateY(-1px); }
+.sroom-nav-btn:hover svg { transform: scale(1.08); }
 .sroom-nav-active {
-  color: #fff !important;
-  background: linear-gradient(135deg, rgba(91,173,255,0.2), rgba(167,139,250,0.15)) !important;
-  border: 1px solid rgba(91,173,255,0.2);
+  color: #5BA8FF !important;
+  background: linear-gradient(135deg, rgba(91,168,255,0.22), rgba(139,93,255,0.18)) !important;
+  border: 1px solid rgba(91,168,255,0.32);
+  box-shadow: 0 0 18px rgba(91,168,255,0.22);
+  border-radius: 999px;
 }
-.sroom-nav-active span { color: #5badff; }
+.sroom-nav-active span { color: #5BA8FF; }
 .sroom-nav-active::before { display: none; }
 
 .sroom-content { flex: 1; min-height: 0; position: relative; overflow: hidden; overflow-x: hidden; }
@@ -4827,12 +4835,14 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 @media (max-width: 330px) { .sroom-members-grid { grid-template-columns: 1fr; } }
 .sroom-mc {
   display: flex; flex-direction: column; align-items: center; gap: 5px;
-  background: rgba(255,255,255,0.035);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(17,24,39,0.72);
+  border: 1px solid rgba(255,255,255,0.07);
   border-radius: 18px; padding: 14px 10px 12px; position: relative; overflow: hidden;
-  transition: border-color 0.25s, box-shadow 0.25s, transform 0.15s;
-  backdrop-filter: blur(8px);
+  transition: all 320ms cubic-bezier(0.22,1,0.36,1);
+  backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+  box-shadow: 0 10px 35px rgba(0,0,0,0.38);
 }
+.sroom-mc:hover { transform: translateY(-3px); box-shadow: 0 16px 50px rgba(0,0,0,0.52); border-color: rgba(255,255,255,0.12); }
 .sroom-mc:active { transform: scale(0.97); }
 .sroom-mc-focusing {
   border-color: rgba(249,115,22,0.4);
@@ -4945,9 +4955,13 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .sroom-chat-wrap   { display: flex; flex-direction: column; height: 100%; min-height: 0; position: relative; overflow-x: hidden; width: 100%; }
 .sroom-pinned-bar {
   display: flex; align-items: center; gap: 10px; padding: 8px 14px;
-  background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(167,139,250,0.08));
-  border-bottom: 1px solid rgba(99,102,241,0.2);
-  backdrop-filter: blur(8px); flex-shrink: 0;
+  background: linear-gradient(135deg, rgba(139,93,255,0.22), rgba(91,168,255,0.12));
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-left: 3px solid #8B5DFF;
+  border-radius: 0 18px 18px 0;
+  backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+  box-shadow: 0 8px 28px rgba(0,0,0,0.32);
+  flex-shrink: 0;
 }
 .sroom-pinned-icon { font-size: 14px; flex-shrink: 0; }
 .sroom-pinned-content { flex: 1; min-width: 0; }
@@ -4974,6 +4988,14 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
+.sroom-chat-msgs::-webkit-scrollbar { width: 6px; }
+.sroom-chat-msgs::-webkit-scrollbar-track { background: transparent; }
+.sroom-chat-msgs::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 6px; }
+.sroom-chat-msgs::-webkit-scrollbar-thumb:hover { background: rgba(91,168,255,0.42); }
+.sroom-pane-scroll::-webkit-scrollbar { width: 6px; }
+.sroom-pane-scroll::-webkit-scrollbar-track { background: transparent; }
+.sroom-pane-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 6px; }
+.sroom-pane-scroll::-webkit-scrollbar-thumb:hover { background: rgba(91,168,255,0.42); }
 .sroom-chat-new-pill {
   position: absolute; bottom: 72px; left: 50%; transform: translateX(-50%);
   background: var(--primary); color: #fff; font-size: 11px; font-weight: 700;
@@ -5005,19 +5027,19 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   flex-shrink: 0; padding: 10px 12px;
   padding-bottom: max(10px, env(safe-area-inset-bottom, 10px));
   border-top: 1px solid rgba(255,255,255,0.06);
-  background: rgba(9,14,21,0.9);
-  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  background: rgba(17,24,39,0.76);
+  backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
 }
 .sroom-composer-inner {
   display: flex; align-items: flex-end; gap: 6px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 26px; padding: 6px 6px 6px 14px;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  background: rgba(17,24,39,0.76);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 22px; padding: 6px 6px 6px 14px;
+  transition: all 320ms cubic-bezier(0.22,1,0.36,1);
 }
 .sroom-composer-inner:focus-within {
-  border-color: rgba(91,173,255,0.35);
-  box-shadow: 0 0 0 3px rgba(91,173,255,0.08);
+  border-color: rgba(91,168,255,0.48);
+  box-shadow: 0 0 22px rgba(91,168,255,0.22);
 }
 .sroom-composer-btn {
   width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
@@ -5030,21 +5052,21 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .grm2-mic-recording { color: #f87171 !important; }
 .sroom-chat-input {
   flex: 1; background: transparent; border: none; outline: none;
-  color: var(--text); font-family: inherit; font-size: 14px; font-weight: 400;
+  color: #F3F6FB; font-family: inherit; font-size: 15px; font-weight: 400;
   resize: none; max-height: 120px; line-height: 1.5; padding: 5px 0;
   -webkit-overflow-scrolling: touch;
 }
-.sroom-chat-input::placeholder { color: var(--text-dim); }
+.sroom-chat-input::placeholder { color: rgba(243,246,251,0.35); }
 .sroom-send-btn {
-  width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, #5badff, #a78bfa);
+  width: 46px; height: 46px; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #5BA8FF, #8B5DFF);
   border: none; border-radius: 50%;
   cursor: pointer; color: #fff; flex-shrink: 0;
-  box-shadow: 0 2px 12px rgba(91,173,255,0.35);
-  transition: transform 0.15s, box-shadow 0.2s; -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 0 18px rgba(91,168,255,0.35);
+  transition: all 320ms cubic-bezier(0.22,1,0.36,1); -webkit-tap-highlight-color: transparent;
 }
-.sroom-send-btn:hover { box-shadow: 0 4px 18px rgba(91,173,255,0.5); transform: scale(1.05); }
-.sroom-send-btn:active { transform: scale(0.88); box-shadow: none; }
+.sroom-send-btn:hover { box-shadow: 0 0 26px rgba(91,168,255,0.55); transform: translateY(-2px); }
+.sroom-send-btn:active { transform: scale(0.97); box-shadow: none; }
 body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px)); }
 
 /* Chat bubbles & messages */
@@ -5095,7 +5117,7 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
 
 /* Bubbles */
 .chat-bubble {
-  padding: 8px 12px; font-size: 14px; line-height: 1.5;
+  padding: 8px 12px; font-size: 14px; line-height: 1.55;
   word-break: break-word; white-space: pre-wrap;
   max-width: 100%; box-sizing: border-box;
   cursor: pointer;
@@ -5104,15 +5126,18 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
   -webkit-touch-callout: none;
   touch-action: manipulation;
   transition: opacity 0.12s;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.22);
 }
 .chat-bubble:active { opacity: 0.75; }
 .chat-bubble-me   {
-  background: var(--primary); color: #fff;
-  border-radius: 16px 16px 4px 16px;
+  background: linear-gradient(135deg, rgba(91,168,255,0.22), rgba(139,93,255,0.18)); color: #fff;
+  border-radius: 18px 18px 4px 18px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.22);
 }
 .chat-bubble-them {
-  background: rgba(255,255,255,0.08); color: var(--text);
-  border-radius: 4px 16px 16px 16px;
+  background: rgba(255,255,255,0.05); color: var(--text);
+  border-radius: 4px 18px 18px 18px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.22);
 }
 .chat-bubble-deleted { opacity: 0.5; font-style: italic; cursor: default; }
 .chat-deleted-label  { font-size: 13px; }
@@ -5174,10 +5199,11 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
 /* Rankings pane */
 /* ── Rankings ──────────────────────────────────────────────────── */
 .sroom-lb-section {
-  background: rgba(255,255,255,0.025);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 20px; overflow: hidden;
-  backdrop-filter: blur(8px);
+  background: rgba(17,24,39,0.72);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 22px; overflow: hidden;
+  backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+  box-shadow: 0 14px 34px rgba(0,0,0,0.38);
 }
 .sroom-lb-head {
   font-size: 10px; font-weight: 800; color: var(--text-muted);
@@ -5195,18 +5221,19 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
 .sroom-lb-row {
   display: flex; align-items: center; gap: 10px; padding: 10px 16px;
   border-top: 1px solid rgba(255,255,255,0.04);
-  cursor: pointer; transition: background 0.15s;
+  cursor: pointer;
+  transition: all 320ms cubic-bezier(0.22,1,0.36,1);
 }
-.sroom-lb-row:hover { background: rgba(255,255,255,0.04); }
-.sroom-lb-me  { background: rgba(91,173,255,0.08) !important; border-left: 2px solid rgba(91,173,255,0.5); }
+.sroom-lb-row:hover { background: rgba(255,255,255,0.04); transform: translateY(-2px); }
+.sroom-lb-me  { background: rgba(91,168,255,0.08) !important; border-left: 2px solid rgba(91,168,255,0.55); }
 .sroom-lb-rank {
   font-size: 15px; min-width: 26px; text-align: center; flex-shrink: 0;
   font-weight: 900;
 }
 /* Gold / Silver / Bronze for top 3 numeric ranks */
-.sroom-lb-row:nth-child(2) .sroom-lb-rank { color: #fbbf24; text-shadow: 0 0 8px rgba(251,191,36,0.6); }
-.sroom-lb-row:nth-child(3) .sroom-lb-rank { color: #9ca3af; text-shadow: 0 0 6px rgba(156,163,175,0.4); }
-.sroom-lb-row:nth-child(4) .sroom-lb-rank { color: #b45309; }
+.sroom-lb-row:nth-child(2) .sroom-lb-rank { color: #D4AF37; text-shadow: 0 0 10px rgba(212,175,55,0.7); }
+.sroom-lb-row:nth-child(3) .sroom-lb-rank { color: #C0C7D1; text-shadow: 0 0 8px rgba(192,199,209,0.5); }
+.sroom-lb-row:nth-child(4) .sroom-lb-rank { color: #CD7F32; text-shadow: 0 0 8px rgba(205,127,50,0.5); }
 .sroom-lb-av {
   width: 34px; height: 34px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
@@ -5225,29 +5252,30 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
 .sroom-goals-section { margin-bottom: 16px; }
 .sroom-goals-list    { display: flex; flex-direction: column; gap: 10px; }
 .sroom-goal-card {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 18px; padding: 14px 16px;
-  backdrop-filter: blur(8px);
-  transition: border-color 0.2s, box-shadow 0.2s;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 20px; padding: 14px 16px;
+  backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+  transition: all 320ms cubic-bezier(0.22,1,0.36,1);
+  box-shadow: 0 10px 35px rgba(0,0,0,0.38);
 }
-.sroom-goal-card:hover { border-color: rgba(91,173,255,0.2); box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
-.sroom-goal-done  { opacity: 0.65; }
-.sroom-goal-done .sroom-goal-card { border-color: rgba(74,222,128,0.2); }
+.sroom-goal-card:hover { border-color: rgba(91,168,255,0.32); transform: translateY(-3px); box-shadow: 0 16px 40px rgba(0,0,0,0.44); }
+.sroom-goal-done  { opacity: 0.7; }
+.sroom-goal-done .sroom-goal-card { border-color: rgba(71,183,107,0.28); box-shadow: 0 0 18px rgba(71,183,107,0.28); }
 .sroom-goal-top   { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .sroom-goal-icon  { font-size: 18px; flex-shrink: 0; }
 .sroom-goal-title { flex: 1; font-size: 14px; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
 .sroom-goal-del {
   width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
-  background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.2);
-  border-radius: 8px; color: #f87171; cursor: pointer;
+  background: rgba(255,107,107,0.06); border: 1px solid rgba(255,107,107,0.18);
+  border-radius: 8px; color: #FF6B6B; cursor: pointer;
   font-size: 14px; font-weight: 700; flex-shrink: 0;
-  transition: background 0.2s, transform 0.15s;
+  transition: all 320ms cubic-bezier(0.22,1,0.36,1);
 }
-.sroom-goal-del:hover { background: rgba(248,113,113,0.2); transform: scale(1.1); }
+.sroom-goal-del:hover { background: rgba(255,107,107,0.14); border-color: rgba(255,107,107,0.4); transform: scale(1.1); }
 .sroom-goal-track-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .sroom-goal-track {
-  flex: 1; height: 7px;
+  flex: 1; height: 8px;
   background: rgba(255,255,255,0.06);
   border-radius: 99px; overflow: hidden;
   box-shadow: inset 0 1px 2px rgba(0,0,0,0.3);
@@ -5368,20 +5396,22 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
 /* ── Stats Pane ────────────────────────────────────────────────── */
 .sroom-stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
 .sroom-stat-card  {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 16px; padding: 12px 8px 10px; text-align: center;
-  backdrop-filter: blur(8px);
-  transition: border-color 0.2s, transform 0.15s;
+  background: rgba(17,24,39,0.72);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 22px; padding: 12px 8px 10px; text-align: center;
+  backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+  box-shadow: 0 10px 35px rgba(0,0,0,0.38);
+  transition: all 320ms cubic-bezier(0.22,1,0.36,1);
 }
+.sroom-stat-card:hover { transform: translateY(-3px); box-shadow: 0 16px 50px rgba(0,0,0,0.52); }
 .sroom-stat-card:active { transform: scale(0.97); }
 .sroom-stat-val   {
-  font-size: 22px; font-weight: 900; color: var(--text);
+  font-size: 28px; font-weight: 800; color: var(--text);
   letter-spacing: -0.03em; line-height: 1;
 }
 .sroom-stat-lbl   {
-  font-size: 9px; color: var(--text-muted); margin-top: 4px;
-  text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700;
+  font-size: 12px; color: var(--text-muted); margin-top: 4px;
+  text-transform: uppercase; letter-spacing: 0.07em; font-weight: 600;
   line-height: 1.3;
 }
 /* Accent colors per stat card index */
@@ -5454,20 +5484,22 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
 
 /* ── Duel Cards ────────────────────────────────────────────────── */
 .sroom-duel-card {
-  background: rgba(251,191,36,0.04);
-  border: 1px solid rgba(251,191,36,0.2);
-  border-radius: 18px; padding: 14px 16px; margin-bottom: 10px;
-  backdrop-filter: blur(8px);
-  box-shadow: 0 4px 20px rgba(251,191,36,0.06);
+  background: linear-gradient(135deg, rgba(212,175,55,0.16), rgba(255,107,107,0.12));
+  border: 1px solid rgba(212,175,55,0.22);
+  border-radius: 24px; padding: 14px 16px; margin-bottom: 10px;
+  backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+  box-shadow: 0 10px 35px rgba(0,0,0,0.38);
+  transition: all 320ms cubic-bezier(0.22,1,0.36,1);
 }
+.sroom-duel-card:hover { transform: translateY(-3px); box-shadow: 0 16px 50px rgba(0,0,0,0.52); }
 .sroom-duel-head {
   display: flex; justify-content: space-between; margin-bottom: 12px;
   font-size: 13px; font-weight: 800; color: var(--text);
   letter-spacing: -0.01em;
 }
 .sroom-duel-timer {
-  font-size: 11px; color: #fbbf24; font-weight: 700;
-  background: rgba(251,191,36,0.12); border: 1px solid rgba(251,191,36,0.2);
+  font-size: 11px; color: #FF6B6B; font-weight: 700;
+  background: rgba(255,107,107,0.14); border: 1px solid rgba(255,107,107,0.25);
   border-radius: 6px; padding: 2px 7px;
 }
 .sroom-duel-vs-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
@@ -5487,12 +5519,13 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
   display: flex; align-items: center; justify-content: center;
   font-size: 16px; font-weight: 800; color: #fff;
   box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+  border: 2px solid rgba(212,175,55,0.55);
 }
 .sroom-duel-name { font-size: 12px; font-weight: 700; color: var(--text); }
-.sroom-duel-xp   { font-size: 12px; color: #fbbf24; font-weight: 800; }
+.sroom-duel-xp   { font-size: 12px; color: #D4AF37; font-weight: 800; }
 .sroom-duel-vs   {
-  font-size: 14px; font-weight: 900; color: #fbbf24; flex-shrink: 0;
-  text-shadow: 0 0 12px rgba(251,191,36,0.5);
+  font-size: 20px; font-weight: 800; color: #D4AF37; flex-shrink: 0;
+  text-shadow: 0 0 16px rgba(212,175,55,0.7);
 }
 .sroom-duel-bar  {
   height: 6px; background: rgba(255,255,255,0.06);
@@ -5539,9 +5572,11 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
 }
 .adm-row {
   display: flex; align-items: center; gap: 12px; padding: 8px 10px;
-  border-radius: 12px; transition: background 0.15s; cursor: default;
+  min-height: 58px;
+  border-radius: 12px; transition: all 320ms cubic-bezier(0.22,1,0.36,1); cursor: default;
+  background: rgba(255,255,255,0.03);
 }
-.adm-row:hover { background: rgba(255,255,255,0.04); }
+.adm-row:hover { background: rgba(91,168,255,0.08); }
 .adm-row-ico   { font-size: 18px; flex-shrink: 0; width: 32px; text-align: center; }
 .adm-row-body  { flex: 1; min-width: 0; }
 .adm-row-title { font-size: 13px; font-weight: 600; color: var(--text); }
@@ -5563,7 +5598,7 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
   position: relative; flex-shrink: 0;
   transition: background 0.25s, box-shadow 0.25s;
 }
-.adm-toggle-on { background: #5badff; box-shadow: 0 0 10px rgba(91,173,255,0.35); }
+.adm-toggle-on { background: #5BA8FF; box-shadow: 0 0 16px rgba(91,168,255,0.28); }
 .adm-toggle-knob {
   position: absolute; top: 4px; left: 4px;
   width: 18px; height: 18px; border-radius: 50%;
@@ -5607,12 +5642,12 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
 .adm-danger-label { color: #f87171 !important; }
 .adm-delete-btn {
   width: 100%; display: flex; align-items: center; gap: 12px;
-  background: rgba(248,113,113,0.04);
-  border: 1px solid rgba(248,113,113,0.18);
+  background: linear-gradient(135deg, rgba(255,107,107,0.06), rgba(255,138,138,0.04));
+  border: 1px solid rgba(255,107,107,0.2);
   border-radius: 14px; padding: 14px; cursor: pointer;
-  transition: background 0.2s, border-color 0.2s;
+  transition: all 320ms cubic-bezier(0.22,1,0.36,1);
 }
-.adm-delete-btn:hover { background: rgba(248,113,113,0.1); border-color: rgba(248,113,113,0.3); }
+.adm-delete-btn:hover { background: linear-gradient(135deg, rgba(255,107,107,0.14), rgba(255,138,138,0.10)); border-color: rgba(255,107,107,0.4); transform: translateY(-2px); }
 .adm-delete-ico   { font-size: 20px; }
 .adm-delete-body  { text-align: left; }
 .adm-delete-title { font-size: 13px; font-weight: 700; color: #f87171; }
@@ -6768,10 +6803,12 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
   flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
   padding: 10px 12px 6px;
   display: flex; flex-direction: column;
-  background: #0b1020;
+  background: #0B0F17;
 }
-.grm2-chat-messages::-webkit-scrollbar { width: 3px; }
-.grm2-chat-messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+.grm2-chat-messages::-webkit-scrollbar { width: 6px; }
+.grm2-chat-messages::-webkit-scrollbar-track { background: transparent; }
+.grm2-chat-messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 6px; }
+.grm2-chat-messages::-webkit-scrollbar-thumb:hover { background: rgba(91,168,255,0.42); }
 
 /* ── Date separator ─────────────────────────────────────────────────────── */
 .chat-date-sep {
@@ -6851,16 +6888,16 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
 }
 .grm2-chat-messages .chat-bubble:active { opacity: 0.82; transform: scale(0.98); }
 .grm2-chat-messages .chat-bubble-me {
-  background: #4f8cff;
+  background: linear-gradient(135deg, rgba(91,168,255,0.22), rgba(139,93,255,0.18));
   color: #fff; border-radius: 18px 18px 4px 18px;
-  border: 1px solid rgba(255,255,255,0.12);
-  box-shadow: 0 4px 16px rgba(79,140,255,0.38), 0 1px 4px rgba(0,0,0,0.3);
+  border: 1px solid rgba(91,168,255,0.22);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.22);
 }
 .grm2-chat-messages .chat-bubble-them {
-  background: #121a2b; color: var(--text);
+  background: rgba(255,255,255,0.05); color: var(--text);
   border-radius: 4px 18px 18px 18px;
-  border: 1px solid #1e293b;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.06);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.22);
 }
 .grm2-chat-messages .chat-bubble-deleted {
   opacity: 0.45; font-style: italic; cursor: default;
@@ -6941,7 +6978,8 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
 .grm2-chat-composer {
   flex-shrink: 0; display: flex; align-items: flex-end; gap: 6px;
   padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
-  background: #121a2b; border-top: 1px solid #1e293b;
+  background: rgba(17,24,39,0.76); border-top: 1px solid rgba(255,255,255,0.06);
+  backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
 }
 .grm2-emoji-btn {
   flex-shrink: 0; width: 34px; height: 34px; border-radius: 50%;
@@ -6978,24 +7016,25 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
 }
 .grm2-mic-btn:active { background: rgba(248,113,113,0.15); }
 .grm2-chat-input {
-  flex: 1; background: rgba(255,255,255,0.06);
-  border: 1.5px solid #1e293b; border-radius: 20px;
-  color: var(--text); font-size: 14px; font-weight: 500;
+  flex: 1; background: rgba(17,24,39,0.76);
+  border: 1px solid rgba(255,255,255,0.06); border-radius: 22px;
+  color: #F3F6FB; font-size: 15px; font-weight: 500;
   padding: 9px 14px; outline: none; resize: none;
   max-height: 110px; overflow-y: auto; font-family: inherit; line-height: 1.4;
-  transition: border-color 0.18s, background 0.18s; -webkit-overflow-scrolling: touch;
+  transition: all 320ms cubic-bezier(0.22,1,0.36,1); -webkit-overflow-scrolling: touch;
 }
-.grm2-chat-input:focus { border-color: rgba(79,140,255,0.6); background: rgba(79,140,255,0.05); }
-.grm2-chat-input::placeholder { color: var(--text-dim); }
+.grm2-chat-input:focus { border-color: rgba(91,168,255,0.48); box-shadow: 0 0 22px rgba(91,168,255,0.22); background: rgba(17,24,39,0.9); }
+.grm2-chat-input::placeholder { color: rgba(243,246,251,0.35); }
 .grm2-send-btn {
-  flex-shrink: 0; width: 36px; height: 36px;
+  flex-shrink: 0; width: 46px; height: 46px;
   display: flex; align-items: center; justify-content: center;
-  background: #4f8cff;
+  background: linear-gradient(135deg, #5BA8FF, #8B5DFF);
   border: none; border-radius: 50%; color: #fff; cursor: pointer;
-  box-shadow: 0 2px 12px rgba(79,140,255,0.4);
-  transition: transform 0.12s, box-shadow 0.12s; -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 0 18px rgba(91,168,255,0.35);
+  transition: all 320ms cubic-bezier(0.22,1,0.36,1); -webkit-tap-highlight-color: transparent;
 }
-.grm2-send-btn:active { transform: scale(0.86); box-shadow: none; }
+.grm2-send-btn:hover { box-shadow: 0 0 26px rgba(91,168,255,0.55); transform: translateY(-2px); }
+.grm2-send-btn:active { transform: scale(0.97); box-shadow: none; }
 
 /* ── Double tick read receipt ─────────────────────────────────────────────── */
 .chat-ticks {
