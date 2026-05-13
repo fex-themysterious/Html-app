@@ -854,6 +854,8 @@
       await _sUpdatePresence('break');
       _sSubscribe();
       toast(`✅ Joined room ${code}!`, 'success');
+      // Award Group Member achievement on first room join
+      checkBadges({ joinedRoom: true });
       renderSocial();
       return true;
     } catch (e) { console.warn('[Social] Join failed:', e.message); toast('Failed to join room', 'danger'); return false; }
@@ -1338,19 +1340,33 @@
   // Patch live stat widgets across any visible DOM without a full re-render
   function _updateLiveStats() {
     const streak = state.streak.count || 0;
+    const today = todayKey();
     const totalFocusMin = Object.values(state.focusStats.minutesByDate || {}).reduce((a, b) => a + b, 0);
-    const todayMin = state.focusStats.minutesByDate[todayKey()] || 0;
-    // Streak badges
+    const todayMin = state.focusStats.minutesByDate[today] || 0;
+    // 7-day weekly total (for weekly graph meta label)
+    const weekMin = [0,1,2,3,4,5,6].reduce((a, i) => a + (state.focusStats.minutesByDate[addDaysISO(today, -i)] || 0), 0);
+    // Streak badges (class-based, used in Home XP board + stats tile)
     document.querySelectorAll('.live-streak-count').forEach(el => { el.textContent = streak + ' 🔥'; });
-    // Focus today badges
+    // Home XP board streak number
+    const homeStreakNum = document.querySelector('.xp-board-streak-num');
+    if (homeStreakNum) homeStreakNum.textContent = streak;
+    // Focus today (focus tab + any live label)
     document.querySelectorAll('.live-focus-today').forEach(el => { el.textContent = minsToHrs(todayMin); });
     // Total focus badges
     document.querySelectorAll('.live-focus-total').forEach(el => { el.textContent = minsToHrs(totalFocusMin); });
-    // Stat tiles in stats view (patch without full re-render when not on stats tab)
+    // Stat tiles in stats view (patch in-place when on stats/focus tab)
     const todayFocusTile = document.querySelector('[data-live="today-focus"] .v');
     if (todayFocusTile) todayFocusTile.textContent = minsToHrs(todayMin);
     const totalFocusTile = document.querySelector('[data-live="total-focus"] .v');
     if (totalFocusTile) totalFocusTile.textContent = minsToHrs(totalFocusMin);
+    const streakTile = document.querySelector('[data-live="streak"] .v');
+    if (streakTile) streakTile.textContent = streak + ' 🔥';
+    // Weekly chart meta label
+    const weekMeta = document.querySelector('.stats-weekly-meta');
+    if (weekMeta) weekMeta.textContent = minsToHrs(weekMin) + ' this week';
+    // Mastery bento streak line in Home
+    const masteryStreak = document.querySelector('.bento-mastery-streak');
+    if (masteryStreak) masteryStreak.textContent = streak + ' day streak 🏅';
   }
 
   // ========== XP & Gamification System ==========
@@ -1761,30 +1777,43 @@
   // ========== Badge System ==========
   const ACHIEVEMENTS = [
     // ── Easy Tier (Bronze) — +50 XP each ──────────────────────────────────
-    { id: 'first_session',    tier: 'easy',   icon: '🎯', name: 'First Step',        desc: 'Complete your first focus session',         xp: 50  },
-    { id: 'early_bird',       tier: 'easy',   icon: '🌅', name: 'Early Bird',         desc: 'Start a focus session before 7 AM',         xp: 50  },
-    { id: 'night_owl',        tier: 'easy',   icon: '🦉', name: 'Night Owl',          desc: 'Start a session after 11 PM',               xp: 50  },
-    { id: 'topic_starter',    tier: 'easy',   icon: '📝', name: 'Topic Starter',      desc: 'Complete your first topic',                 xp: 50  },
-    { id: 'week_starter',     tier: 'easy',   icon: '📅', name: 'Week Starter',       desc: 'Study on 3 different days in a week',       xp: 50  },
-    { id: 'first_revision',   tier: 'easy',   icon: '🔄', name: 'First Revision',     desc: 'Complete your first spaced revision',       xp: 50  },
-    { id: 'plan_completer',   tier: 'easy',   icon: '✅', name: 'Plan Completer',     desc: 'Complete all tasks in a daily plan',        xp: 50  },
-    // ── Medium Tier (Silver) — +150 XP each ───────────────────────────────
-    { id: 'deep_diver',       tier: 'medium', icon: '🏊', name: 'Deep Diver',         desc: 'Complete a 90-minute continuous session',   xp: 150 },
-    { id: 'consistency_king', tier: 'medium', icon: '👑', name: 'Consistency King',   desc: 'Maintain a 7-day study streak',             xp: 150 },
-    { id: 'week_warrior',     tier: 'medium', icon: '⚔️', name: 'Week Warrior',       desc: '7 focus sessions in one week',              xp: 150 },
-    { id: 'topic_master',     tier: 'medium', icon: '📚', name: 'Topic Master',       desc: 'Complete 10 or more topics',                xp: 150 },
-    { id: 'speed_learner',    tier: 'medium', icon: '⚡', name: 'Speed Learner',      desc: 'Complete 5 topics in a single day',         xp: 150 },
-    { id: 'focus_10h',        tier: 'medium', icon: '⏱️', name: '10-Hour Club',        desc: 'Accumulate 10 total focus hours',           xp: 150 },
-    { id: 'streak_14',        tier: 'medium', icon: '🔥', name: 'Fortnight Fire',     desc: 'Maintain a 14-day study streak',            xp: 150 },
+    { id: 'first_milestone',  tier: 'easy',   icon: '🎯', name: 'First Milestone',    desc: 'Complete your first focus session',         xp: 50  },
+    { id: 'group_member',     tier: 'easy',   icon: '👥', name: 'Group Member',        desc: 'Join a Social Study Room',                  xp: 50  },
+    { id: 'early_bird',       tier: 'easy',   icon: '🌅', name: 'Early Bird',          desc: 'Start a focus session before 7 AM',         xp: 50  },
+    { id: 'night_owl',        tier: 'easy',   icon: '🦉', name: 'Night Owl',           desc: 'Start a session after 11 PM',               xp: 50  },
+    { id: 'topic_starter',    tier: 'easy',   icon: '📝', name: 'Topic Starter',       desc: 'Complete your first topic',                 xp: 50  },
+    { id: 'week_starter',     tier: 'easy',   icon: '📅', name: 'Week Starter',        desc: 'Study on 3 different days in a week',       xp: 50  },
+    { id: 'first_revision',   tier: 'easy',   icon: '🔄', name: 'First Revision',      desc: 'Complete your first spaced revision',       xp: 50  },
+    { id: 'plan_completer',   tier: 'easy',   icon: '✅', name: 'Plan Completer',      desc: 'Complete all tasks in a daily plan',        xp: 50  },
+    // ── Medium Tier (Silver) — +200 XP each ───────────────────────────────
+    { id: 'deep_work',        tier: 'medium', icon: '🧠', name: 'Deep Work',           desc: '5 hours of focus in a single day',          xp: 200 },
+    { id: 'weekly_streak',    tier: 'medium', icon: '🔥', name: 'Weekly Streak',       desc: 'Maintain a 7-day study streak',             xp: 200 },
+    { id: 'deep_diver',       tier: 'medium', icon: '🏊', name: 'Deep Diver',          desc: 'Complete a 90-minute continuous session',   xp: 200 },
+    { id: 'consistency_king', tier: 'medium', icon: '👑', name: 'Consistency King',    desc: 'Maintain a 7-day streak with 3+ hrs/day',   xp: 200 },
+    { id: 'week_warrior',     tier: 'medium', icon: '⚔️', name: 'Week Warrior',        desc: '7 focus sessions in one week',              xp: 200 },
+    { id: 'topic_master',     tier: 'medium', icon: '📚', name: 'Topic Master',        desc: 'Complete 10 or more topics',                xp: 200 },
+    { id: 'focus_10h',        tier: 'medium', icon: '⏱️', name: '10-Hour Club',         desc: 'Accumulate 10 total focus hours',           xp: 200 },
+    { id: 'streak_14',        tier: 'medium', icon: '🌊', name: 'Fortnight Fire',      desc: 'Maintain a 14-day study streak',            xp: 200 },
     // ── Hard Tier (Gold) — +500 XP each ───────────────────────────────────
-    { id: 'century_club',     tier: 'hard',   icon: '💯', name: 'Century Club',       desc: 'Accumulate 100 total focus hours',          xp: 500 },
-    { id: 'marathon_study',   tier: 'hard',   icon: '🏃', name: 'Marathon Scholar',   desc: 'Complete a 3-hour continuous session',      xp: 500 },
-    { id: 'streak_30',        tier: 'hard',   icon: '🌟', name: '30-Day Legend',      desc: 'Maintain a 30-day study streak',            xp: 500 },
-    { id: 'topic_50',         tier: 'hard',   icon: '🎓', name: 'Subject Dominator',  desc: 'Complete 50 or more topics',                xp: 500 },
-    { id: 'focus_50h',        tier: 'hard',   icon: '🔱', name: 'Titan Scholar',      desc: 'Accumulate 50 total focus hours',           xp: 500 },
-    { id: 'duel_victor',      tier: 'hard',   icon: '🏆', name: 'Duel Victor',        desc: 'Won a 2-hour XP Duel against a friend',    xp: 500 },
+    { id: 'focus_legend',     tier: 'hard',   icon: '⭐', name: 'Focus Legend',        desc: 'Accumulate 100 total focus hours',          xp: 500 },
+    { id: 'curriculum_master',tier: 'hard',   icon: '🎓', name: 'Curriculum Master',   desc: '100% syllabus completion in any subject',   xp: 500 },
+    { id: 'marathon_study',   tier: 'hard',   icon: '🏃', name: 'Marathon Scholar',    desc: 'Complete a 3-hour continuous session',      xp: 500 },
+    { id: 'streak_30',        tier: 'hard',   icon: '🌟', name: '30-Day Legend',       desc: 'Maintain a 30-day study streak',            xp: 500 },
+    { id: 'topic_50',         tier: 'hard',   icon: '📖', name: 'Subject Dominator',   desc: 'Complete 50 or more topics',                xp: 500 },
+    { id: 'focus_50h',        tier: 'hard',   icon: '🔱', name: 'Titan Scholar',       desc: 'Accumulate 50 total focus hours',           xp: 500 },
+    { id: 'duel_victor',      tier: 'hard',   icon: '🏆', name: 'Duel Victor',         desc: 'Won a 2-hour XP Duel against a friend',    xp: 500 },
   ];
   const BADGES = ACHIEVEMENTS; // backward-compat alias
+  // Map legacy IDs → current IDs for users who had old badges saved
+  const _LEGACY_ID_MAP = { first_session: 'first_milestone', century_club: 'focus_legend', speed_learner: 'topic_master' };
+  function _migrateLegacyBadges() {
+    if (!state.badges) return;
+    let changed = false;
+    for (const [old, cur] of Object.entries(_LEGACY_ID_MAP)) {
+      if (state.badges[old] && !state.badges[cur]) { state.badges[cur] = state.badges[old]; delete state.badges[old]; changed = true; }
+    }
+    if (changed) saveState();
+  }
 
   function achievementToast(ach) {
     const wrap = document.getElementById('toast-container'); if (!wrap) return;
@@ -1800,44 +1829,54 @@
     setTimeout(() => el.remove(), 7000);
   }
 
-  function checkBadges({ sessionMinutes = 0, sessionStartHour = null } = {}) {
+  function checkBadges({ sessionMinutes = 0, sessionStartHour = null, joinedRoom = false } = {}) {
     if (!state.badges || typeof state.badges !== 'object') state.badges = {};
+    _migrateLegacyBadges();
     const newlyUnlocked = [];
+    const today = todayKey();
     const totalFocusMin = Object.values(state.focusStats.minutesByDate || {}).reduce((a, b) => a + b, 0);
+    const todayFocusMin = state.focusStats.minutesByDate[today] || 0;
     const totalFocusSessions = Object.values(state.focusStats.sessions || {}).reduce((a, b) => a + b, 0);
     const totalRevDone = state.revisions.reduce((a, r) => a + r.schedule.filter(s => s.done).length, 0);
     const doneTopics = state.subjects.reduce((a, sub) => a + sub.chapters.reduce((b, ch) => b + ch.topics.filter(t => t.done).length, 0), 0);
-    const today = todayKey();
-    let weekSessions = 0;
-    for (let i = 0; i < 7; i++) weekSessions += (state.focusStats.sessions[addDaysISO(today, -i)] || 0);
-    // Days with activity this week
-    let weekActiveDays = 0;
+    const streakCount = state.streak.count || 0;
+    // Curriculum master: any single subject where ALL chapters are effectively done (and subject has chapters)
+    const hasFullSubject = state.subjects.some(sub =>
+      sub.chapters.length > 0 && sub.chapters.every(ch => isChapterEffectivelyDone(ch))
+    );
+    let weekSessions = 0, weekActiveDays = 0;
     for (let i = 0; i < 7; i++) {
       const d = addDaysISO(today, -i);
+      weekSessions += (state.focusStats.sessions[d] || 0);
       if ((state.focusStats.minutesByDate[d] || 0) > 0 || (state.activity[d] || 0) > 0) weekActiveDays++;
     }
     // All plan tasks done today?
     const allTodayDone = (() => {
       try { const tasks = getActivePlanTasks(); return tasks.length > 0 && tasks.every(t => t.done); } catch (_) { return false; }
     })();
+    // Consistency king: 7-day streak + avg 3+ hrs/day this week
+    const weekTotalMin = [0,1,2,3,4,5,6].reduce((a, i) => a + (state.focusStats.minutesByDate[addDaysISO(today, -i)] || 0), 0);
     const conditions = {
-      first_session:    totalFocusSessions >= 1,
+      first_milestone:  totalFocusSessions >= 1,
+      group_member:     joinedRoom,
       early_bird:       sessionStartHour !== null && sessionStartHour < 7,
       night_owl:        sessionStartHour !== null && sessionStartHour >= 23,
       topic_starter:    doneTopics >= 1,
       week_starter:     weekActiveDays >= 3,
       first_revision:   totalRevDone >= 1,
       plan_completer:   allTodayDone,
+      deep_work:        todayFocusMin >= 300,   // 5 hours in one day
+      weekly_streak:    streakCount >= 7,
       deep_diver:       sessionMinutes >= 90,
-      consistency_king: (state.streak.count || 0) >= 7,
+      consistency_king: streakCount >= 7 && weekTotalMin / 7 >= 180,
       week_warrior:     weekSessions >= 7,
       topic_master:     doneTopics >= 10,
-      speed_learner:    false, // checked separately via topic completion flow
       focus_10h:        totalFocusMin / 60 >= 10,
-      streak_14:        (state.streak.count || 0) >= 14,
-      century_club:     totalFocusMin / 60 >= 100,
+      streak_14:        streakCount >= 14,
+      focus_legend:     totalFocusMin / 60 >= 100,
+      curriculum_master: hasFullSubject,
       marathon_study:   sessionMinutes >= 180,
-      streak_30:        (state.streak.count || 0) >= 30,
+      streak_30:        streakCount >= 30,
       topic_50:         doneTopics >= 50,
       focus_50h:        totalFocusMin / 60 >= 50,
     };
@@ -3831,7 +3870,7 @@
         <div class="focus-sessions-info">
           <div class="grid">
             <div><div class="v">${focusSessions}</div><div class="k">Sessions today</div></div>
-            <div><div class="v">${state.focusStats.minutesByDate[todayKey()] || 0}m</div><div class="k">Minutes focused</div></div>
+            <div class="live-focus-today-wrap"><div class="v live-focus-today">${minsToHrs(state.focusStats.minutesByDate[todayKey()] || 0)}</div><div class="k">Focus today</div></div>
           </div>
         </div>
         <div class="ambient-panel">
@@ -5221,7 +5260,7 @@
 
       <div class="stats-chart-pair">
         <div class="stats-chart-half">
-          <div class="stats-section-head"><span>Weekly Focus (HRS)</span><span class="stats-section-meta">${minsToHrs(days7.reduce((a, b) => a + b.min, 0))} this week</span></div>
+          <div class="stats-section-head"><span>Weekly Focus (HRS)</span><span class="stats-section-meta stats-weekly-meta">${minsToHrs(days7.reduce((a, b) => a + b.min, 0))} this week</span></div>
           <div class="stats-chart-card"><div class="stats-chart-wrap"><canvas id="stats-weekly-chart"></canvas></div></div>
         </div>
         <div class="stats-chart-half">
@@ -5232,7 +5271,7 @@
         </div>
       </div>
 
-      <div class="stats-section-head" style="margin-top:18px"><span>🎓 Classroom Time</span><span class="stats-section-meta">${classroomFmt(classroomMinToday)} today</span></div>
+      <div class="stats-section-head" style="margin-top:18px"><span>🎓 Classroom Time</span><span class="stats-section-meta stats-classroom-meta">${classroomFmt(classroomMinToday)} today</span></div>
       <div class="stats-chart-card">
         <div class="stats-chart-wrap"><canvas id="stats-classroom-chart"></canvas></div>
         <div class="stats-row" style="margin-top:10px">
@@ -5286,7 +5325,7 @@
 
       <div class="stats-row" style="margin-top:16px">
         <div class="stat-tile"><div class="v">${overall}%</div><div class="k">Overall</div></div>
-        <div class="stat-tile"><div class="v">${state.streak.count} 🔥</div><div class="k">Streak</div></div>
+        <div class="stat-tile" data-live="streak"><div class="v live-streak-count">${state.streak.count} 🔥</div><div class="k">Streak</div></div>
         <div class="stat-tile"><div class="v">${consistencyPct}%</div><div class="k">Consistency</div></div>
         <div class="stat-tile"><div class="v">${activeDays30}/${daysSinceInstall || 1}</div><div class="k">Active Days</div></div>
       </div>
@@ -5595,7 +5634,7 @@
         data: {
           labels: days7cls.map(d => d.label),
           datasets: [{
-            data: days7cls.map(d => d.vmin || 0),
+            data: days7cls.map(d => parseFloat(((d.vmin || 0) / 60).toFixed(2))),
             backgroundColor: days7cls.map((d, i) => {
               if (i === 6) return 'rgba(163,230,53,0.90)';
               if ((d.vmin || 0) > 0) return 'rgba(163,230,53,0.42)';
@@ -5613,12 +5652,12 @@
             tooltip: {
               backgroundColor: '#0d1b2a', borderColor: 'rgba(163,230,53,0.4)', borderWidth: 1,
               titleColor: '#f0f6ff', bodyColor: '#94a3b8', padding: 10,
-              callbacks: { label: ctx => ` ${ctx.parsed.y} min` }
+              callbacks: { label: ctx => ` ${ctx.parsed.y.toFixed(1)} hrs` }
             }
           },
           scales: {
             x: { grid: { display: false }, border: { display: false }, ticks: { color: 'rgba(148,163,184,0.75)', font: { size: 11, weight: '600' } } },
-            y: { grid: { color: 'rgba(255,255,255,0.05)' }, border: { display: false }, ticks: { color: 'rgba(148,163,184,0.6)', font: { size: 10 }, callback: v => v + 'm', maxTicksLimit: 4 }, beginAtZero: true }
+            y: { min: 0, grid: { color: 'rgba(255,255,255,0.05)' }, border: { display: false }, ticks: { color: 'rgba(148,163,184,0.6)', font: { size: 10 }, callback: v => v + 'h', maxTicksLimit: 4 }, beginAtZero: true }
           }
         }
       });
@@ -6450,6 +6489,7 @@
 
   // ========== Init ==========
   function init() {
+    _migrateLegacyBadges();
     pruneRevisions();
     initMiniTimer();
     switchTab('home');
