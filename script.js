@@ -731,6 +731,7 @@
   let _socialUnsubChat    = null;
   let _chatScrollAtBottom = true;
   let _chatTypingTimeout  = null;
+  let _pendingRenderSocial = false;  // deferred full re-render when chat input is focused
   let _voiceRemoteAudios = {};
 
   function _sDisplayName() {
@@ -799,6 +800,55 @@
     } catch (e) { console.warn('[Social] Presence failed:', e.message); }
   }
 
+  // Returns true when the chat textarea is currently focused (keyboard open on mobile)
+  function _isChatFocused() {
+    const el = document.activeElement;
+    return !!(el && el.id === 'chat-text-input');
+  }
+
+  // Targeted in-place DOM update — safe to call while chat input is focused.
+  // Updates only the typing indicator and online counts without replacing any nodes.
+  function _updateSocialInPlace() {
+    const now = Date.now();
+    const members = Object.values(_socialMembers);
+    const onlineCount = members.filter(m => _sStatusOf(m) !== 'offline').length;
+
+    // Typing indicator in chat header
+    const typingNow = members.filter(m => m.uid !== _userId && m.typing && (now - m.typing) < 5000);
+    const typingText = typingNow.length === 1
+      ? `${escapeHTML(typingNow[0].displayName || 'Someone')} is typing…`
+      : typingNow.length > 1 ? `${typingNow.length} people are typing…` : '';
+    const typingRow = document.querySelector('.grm-typing-row');
+    if (typingRow) {
+      const txt = typingRow.querySelector('.grm-typing-txt');
+      if (typingText) {
+        typingRow.style.display = '';
+        if (txt) txt.textContent = typingText;
+      } else {
+        typingRow.style.display = 'none';
+      }
+    }
+
+    // Online count chips (header meta + chat header)
+    document.querySelectorAll('.grm-chat-online').forEach(el => {
+      el.innerHTML = `<span class="grm-online-dot-sm"></span>${onlineCount} online`;
+    });
+    document.querySelectorAll('.grm-online-chip').forEach(el => {
+      el.innerHTML = `<span class="grm-online-dot-sm"></span>${onlineCount} online`;
+    });
+  }
+
+  // Smart re-render gate — skips full re-render while chat is focused, queues it for blur.
+  function _renderSocialSafe() {
+    if (_isChatFocused()) {
+      _updateSocialInPlace();
+      _pendingRenderSocial = true;
+    } else {
+      _pendingRenderSocial = false;
+      renderSocial();
+    }
+  }
+
   function _sSubscribe() {
     if (!_db || !_socialRoomCode) return;
     if (_socialUnsubPresence) { _socialUnsubPresence(); _socialUnsubPresence = null; }
@@ -863,7 +913,7 @@
               });
           }
         });
-        if (_currentTab === 'social') renderSocial();
+        if (_currentTab === 'social') _renderSocialSafe();
       }, e => { console.warn('[Social] Presence error:', e.message); });
     _socialUnsubRoom = _db.collection('groups').doc(_socialRoomCode)
       .onSnapshot(snap => {
@@ -879,7 +929,7 @@
             toast(`🎨 Group theme unlocked: ${tObj ? tObj.icon + ' ' + tObj.name : tid}! Open Theme Gallery to equip it.`, 'success', 8000);
           }
         }
-        if (_currentTab === 'social') renderSocial();
+        if (_currentTab === 'social') _renderSocialSafe();
       }, e => { console.warn('[Social] Room error:', e.message); });
     if (_socialHeartbeatId) clearInterval(_socialHeartbeatId);
     _socialHeartbeatId = setInterval(() => {
@@ -1686,6 +1736,7 @@
     }
 
     // ── Chat input: auto-grow + typing + Enter to send ──
+    _pendingRenderSocial = false;
     const _chatInp = document.getElementById('chat-text-input');
     if (_chatInp) {
       _chatInp.oninput = function() {
@@ -1699,28 +1750,32 @@
           if (this.value.trim()) { _sSendMessage(this.value).catch(() => {}); this.value = ''; this.style.height = 'auto'; }
         }
       });
-      // Focus: scroll messages to bottom so composer is visible
+      // Focus: only scroll the messages area — do NOT call scrollIntoView (fights with mobile keyboard)
       _chatInp.addEventListener('focus', () => {
+        if (_chatEl) {
+          requestAnimationFrame(() => { _chatEl.scrollTop = _chatEl.scrollHeight; });
+        }
+      }, { passive: true });
+      // Blur: flush any pending re-render that was skipped while keyboard was open
+      _chatInp.addEventListener('blur', () => {
         setTimeout(() => {
-          if (_chatEl) _chatEl.scrollTop = _chatEl.scrollHeight;
-          _chatInp.scrollIntoView({ behavior: 'smooth', block: 'end' });
+          if (_pendingRenderSocial && _currentTab === 'social' && !_isChatFocused()) {
+            _pendingRenderSocial = false;
+            renderSocial();
+          }
         }, 200);
-      });
+      }, { passive: true });
     }
 
-    // ── Keyboard / visualViewport fix for mobile ──
-    const _composer = document.getElementById('grm-chat-composer');
-    if (_composer && window.visualViewport) {
+    // ── visualViewport: scroll messages to bottom when keyboard opens/closes ──
+    // Note: we do NOT change any CSS positions here — that causes layout shifts that kill focus.
+    if (_chatEl && window.visualViewport) {
       const _vpHandler = () => {
-        const vp = window.visualViewport;
-        const offsetBottom = Math.max(0, window.innerHeight - vp.height - vp.offsetTop);
-        _composer.style.setProperty('--kb-offset', offsetBottom + 'px');
-        if (_chatEl && _chatScrollAtBottom) {
+        if (_isChatFocused() && _chatScrollAtBottom) {
           requestAnimationFrame(() => { _chatEl.scrollTop = _chatEl.scrollHeight; });
         }
       };
       window.visualViewport.addEventListener('resize', _vpHandler, { passive: true });
-      window.visualViewport.addEventListener('scroll', _vpHandler, { passive: true });
     }
 
     // ── Inline room name edit setup ──

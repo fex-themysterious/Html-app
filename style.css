@@ -7396,10 +7396,7 @@ body[data-theme="golden"] .social-member-card.sm-focusing  { background: rgba(25
   background: rgba(5, 8, 15, 0.85);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  position: sticky;
-  bottom: var(--kb-offset, 0px);
-  z-index: 20;
-  transition: bottom 0.05s linear;
+  /* Natural flex flow — no sticky/fixed positioning that fights mobile keyboard */
 }
 .grm-composer-row {
   display: flex;
