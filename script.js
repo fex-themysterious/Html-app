@@ -2128,547 +2128,437 @@
     if (!_socialLobbyCode) _socialLobbyCode = _sGenerateCode();
     const code = _socialLobbyCode;
 
-    // ── Section 1: Global Leaderboard — Premium Podium + List ──
-    const top3 = _globalLbData.slice(0, 3);
-    // Reorder: 2nd, 1st, 3rd for podium visual
-    const podiumOrder = top3.length >= 3 ? [top3[1], top3[0], top3[2]] : top3;
-    const podiumPositions = top3.length >= 3 ? [1, 0, 2] : [0, 1, 2];
-
-    const podiumHTML = podiumOrder.map((m, pi) => {
-      if (!m) return '';
-      const origIdx = podiumPositions[pi];
-      const isMe = m.uid === _userId;
-      const medal = origIdx === 0 ? '👑' : origIdx === 1 ? '🥈' : '🥉';
-      const rankClass = origIdx === 0 ? 'glb-pod-first' : origIdx === 1 ? 'glb-pod-second' : 'glb-pod-third';
-      const xpLabel = (m.weeklyXP || 0) >= 1000 ? ((m.weeklyXP / 1000).toFixed(1) + 'k') : String(m.weeklyXP || 0);
-      const streakN = m.studyStreak || 0;
-      const streakBadge = streakN >= 2 ? `<span class="glb-pod-streak">🔥${streakN}</span>` : '';
-      return `<div class="glb-pod-card ${rankClass}${isMe ? ' glb-pod-me' : ''}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name || 'Anonymous')}">
-        <div class="glb-pod-medal">${medal}</div>
-        <div class="glb-pod-av-ring">
-          <div class="glb-pod-av${origIdx === 0 ? ' glb-pod-av-shimmer' : ''}" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.name || 'S')}</div>
-        </div>
-        <div class="glb-pod-name">${escapeHTML((m.name || 'Anonymous').split(' ')[0])}</div>
-        <div class="glb-pod-xp">⚡ ${xpLabel}</div>
-        <div class="glb-pod-time">📚 ${minsToHrs(m.weeklyMinutes || 0)}</div>
-        ${streakBadge}
-      </div>`;
-    }).join('');
-
-    const restRows = _globalLbData.slice(3, 20).map((m, i) => {
-      const rank = i + 4;
-      const isMe = m.uid === _userId;
-      const streakN = m.studyStreak || 0;
-      const streakBadge = streakN >= 3 ? `<span class="lb-streak">🔥${streakN}</span>` : '';
-      return `<div class="lb-row${isMe ? ' lb-me' : ''}">
-        <span class="lb-rank"><span style="color:var(--text-muted);font-size:12px">${rank}</span></span>
-        <span class="lb-av lb-av-click" style="background:${_sAvatarColor(m.uid)}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name || 'Anonymous')}">${_sInitials(m.name || 'S')}</span>
-        <span class="lb-name">${escapeHTML(m.name || 'Anonymous')}${streakBadge}</span>
-        <span class="lb-val">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span>
-        <span class="lb-val2">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span>
-      </div>`;
-    }).join('');
-
-    const emptyLbMsg = !_globalLbData.length
-      ? `<div class="glb-empty"><div class="glb-empty-icon">🌍</div><div class="glb-empty-txt">No global data yet — complete a focus session to appear here!</div></div>`
-      : '';
-
-    const leaderboardSection = `<div class="glb-section">
-      <div class="glb-head-row">
-        <div class="glb-head-left">
-          <div class="glb-section-title">🌍 Global Leaderboard</div>
-          <div class="glb-section-sub">Weekly XP · resets every Monday</div>
-        </div>
-        <button class="glb-refresh-btn" data-act="social-lb-refresh" title="Refresh rankings">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-        </button>
-      </div>
-      ${emptyLbMsg}
-      ${podiumHTML ? `<div class="glb-podium-row">${podiumHTML}</div>` : ''}
-      ${restRows ? `<div class="social-lb glb-rest-list">${restRows}</div>` : ''}
-    </div>`;
-
-    // ── Section 2: My Study Rooms — Premium Group Cards ──
-    const myRoomsHTML = _myGroupCodes.length > 0 ? `<div class="my-rooms-section">
-      <div class="my-rooms-head-row">
-        <span class="my-rooms-head">My Study Rooms</span>
-        <span class="my-rooms-count">${_myGroupCodes.length}</span>
-      </div>
-      <div class="my-rooms-list">
-        ${_myGroupCodes.map((c, idx) => {
-          // Deterministic privacy & accent from room code chars
-          const isPrivate = c.charCodeAt(0) % 3 === 0;
-          const accentIdx = c.charCodeAt(1) % 4;
-          const accents = ['#5badff','#a78bfa','#34d399','#f472b6'];
-          const accent = accents[accentIdx];
-          // Stacked avatar placeholders (decorative)
-          const fakeAvatars = [c.charCodeAt(0), c.charCodeAt(1), c.charCodeAt(2)].map((n, ai) => {
-            const cols = ['#5badff','#a78bfa','#f472b6','#fbbf24','#34d399'];
-            const col = cols[n % cols.length];
-            return `<div class="mrc-av-stack" style="background:${col};margin-left:${ai > 0 ? '-8px' : '0'}">${String.fromCharCode(65 + (n % 26))}</div>`;
-          }).join('');
-          return `<div class="mrc-premium-card" style="--mrc-accent:${accent}">
-            <div class="mrc-premium-glow"></div>
-            <div class="mrc-premium-top">
-              <div class="mrc-premium-left">
-                <div class="mrc-premium-name">Room <strong>${c}</strong></div>
-                <div class="mrc-premium-badges">
-                  <span class="mrc-privacy-pill${isPrivate ? ' mrc-private' : ' mrc-public'}">${isPrivate ? '🔒 Private' : '🌐 Public'}</span>
-                  <span class="mrc-streak-pill">🔥 Active</span>
-                </div>
-              </div>
-              <button class="mrc-settings-icon-btn" data-act="social-room-settings-lobby" data-code="${c}" title="Room settings">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    const createJoinHTML = `
+      <div class="slob-section">
+        <div class="slob-section-label">Create or Join</div>
+        <div class="slob-cj-grid">
+          <div class="slob-card slob-card-create">
+            <div class="slob-card-icon">🔗</div>
+            <div class="slob-card-title">Create a Room</div>
+            <div class="slob-code-box">
+              <span class="slob-code-val">${code}</span>
+              <button class="slob-code-copy" data-act="social-copy-lobby-code" data-code="${code}" title="Copy">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
               </button>
             </div>
-            <div class="mrc-premium-stats">
-              <div class="mrc-av-stack-row">${fakeAvatars}<span class="mrc-members-label">Members</span></div>
-              <span class="mrc-last-active">Ready to join</span>
-            </div>
-            <button class="mrc-enter-btn" data-act="social-rejoin" data-code="${c}">
-              <span class="mrc-enter-glow-ring"></span>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
-              Enter Room
-            </button>
-          </div>`;
-        }).join('')}
-      </div>
-    </div>` : '';
-
-    // ── Section 3: Create & Join — Premium Cards ──
-    const discoverySection = `<div class="slb-discovery">
-      <div class="slb-disc-head">Join or Create</div>
-      <div class="slc-cards-grid">
-
-        <div class="slc-prem-card slc-create-prem">
-          <div class="slc-prem-glow slc-glow-blue"></div>
-          <div class="slc-prem-icon">🔗</div>
-          <div class="slc-prem-title">Create a Room</div>
-          <div class="slc-prem-code-box">
-            <span class="slc-prem-code-val">${code}</span>
-            <button class="slc-prem-copy-btn" data-act="social-copy-lobby-code" data-code="${code}" title="Copy code">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            </button>
+            <div class="slob-card-hint">Share this code with your friends</div>
+            <button class="btn slob-create-btn" data-act="social-create" data-code="${code}">⚡ Create &amp; Join</button>
           </div>
-          <div class="slc-prem-hint">Share this code with friends</div>
-          <button class="slc-prem-create-btn btn" data-act="social-create" data-code="${code}">⚡ Create &amp; Join</button>
+          <div class="slob-card slob-card-join">
+            <div class="slob-card-icon">🚪</div>
+            <div class="slob-card-title">Join a Room</div>
+            <input id="social-join-input" class="slob-join-input" maxlength="6" placeholder="XXXXXX"
+              autocapitalize="characters" autocorrect="off" spellcheck="false" inputmode="text" enterkeyhint="go"/>
+            <button class="btn slob-join-btn" data-act="social-join">Join Room →</button>
+          </div>
         </div>
-
-        <div class="slc-prem-card slc-join-prem">
-          <div class="slc-prem-glow slc-glow-violet"></div>
-          <div class="slc-prem-icon">🚪</div>
-          <div class="slc-prem-title">Join a Room</div>
-          <input
-            id="social-join-input"
-            class="slc-prem-join-input"
-            maxlength="6"
-            placeholder="XXXXXX"
-            autocomplete="off"
-            autocorrect="off"
-            autocapitalize="characters"
-            spellcheck="false"
-            inputmode="text"
-            enterkeyhint="go"
-          />
-          <button class="slc-prem-join-btn btn" data-act="social-join">Join Room →</button>
-        </div>
-
       </div>
-    </div>`;
+    `;
 
-    return `<div class="social-lobby">
-      ${leaderboardSection}
+    const myRoomsHTML = _myGroupCodes.length ? `
+      <div class="slob-section">
+        <div class="slob-section-label">My Rooms</div>
+        <div class="slob-rooms-list">
+          ${_myGroupCodes.map(c => `
+            <div class="slob-room-row">
+              <div class="slob-room-av" style="background:${_sAvatarColor(c)}">${c.slice(0,2)}</div>
+              <div class="slob-room-info">
+                <div class="slob-room-name">Room ${c}</div>
+                <div class="slob-room-code">${c}</div>
+              </div>
+              <button class="btn btn-sm slob-room-enter" data-act="social-rejoin" data-code="${c}">Enter</button>
+              <button class="slob-room-settings" data-act="social-room-settings-lobby" data-code="${c}" title="Settings">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              </button>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : '';
+
+    const top3 = _globalLbData.slice(0, 3);
+    const podiumOrder = top3.length >= 3 ? [top3[1], top3[0], top3[2]] : top3;
+    const podiumPositions = top3.length >= 3 ? [1, 0, 2] : [0, 1, 2];
+    const podiumHTML = podiumOrder.length ? `<div class="slob-podium">${podiumOrder.map((m, pi) => {
+      if (!m) return '';
+      const origIdx = podiumPositions[pi];
+      const medal = origIdx === 0 ? '🥇' : origIdx === 1 ? '🥈' : '🥉';
+      const isMe = m.uid === _userId;
+      const xpLabel = (m.weeklyXP || 0) >= 1000 ? ((m.weeklyXP / 1000).toFixed(1) + 'k') : String(m.weeklyXP || 0);
+      const podClass = ['slob-pod-second','slob-pod-first','slob-pod-third'][pi];
+      return `<div class="slob-pod-item ${podClass}${isMe ? ' slob-pod-me' : ''}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name || 'Anonymous')}">
+        <div class="slob-pod-medal">${medal}</div>
+        <div class="slob-pod-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.name || 'S')}</div>
+        <div class="slob-pod-name">${escapeHTML((m.name || 'Anon').split(' ')[0])}</div>
+        <div class="slob-pod-xp">⚡ ${xpLabel}</div>
+      </div>`;
+    }).join('')}</div>` : '';
+
+    const restRows = _globalLbData.slice(3, 20).map((m, i) => {
+      const isMe = m.uid === _userId;
+      const streak = (m.studyStreak || 0) >= 3 ? `<span class="slob-lb-streak">🔥${m.studyStreak}</span>` : '';
+      return `<div class="slob-lb-row${isMe ? ' slob-lb-me' : ''}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name || 'Anonymous')}">
+        <span class="slob-lb-rank">${i + 4}</span>
+        <span class="slob-lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.name || 'S')}</span>
+        <span class="slob-lb-name">${escapeHTML(m.name || 'Anonymous')}${streak}</span>
+        <span class="slob-lb-xp">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span>
+        <span class="slob-lb-time">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span>
+      </div>`;
+    }).join('');
+
+    const lbSection = `
+      <div class="slob-section">
+        <div class="slob-section-label-row">
+          <span class="slob-section-label">🌍 Global Leaderboard</span>
+          <button class="slob-refresh-btn" data-act="social-lb-refresh" title="Refresh">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          </button>
+        </div>
+        <div class="slob-lb-sub">Weekly XP · resets every Monday</div>
+        ${!_globalLbData.length ? '<div class="slob-lb-empty">Complete a focus session to appear here!</div>' : ''}
+        ${podiumHTML}
+        ${restRows ? `<div class="slob-lb-rest">${restRows}</div>` : ''}
+      </div>
+    `;
+
+    return `<div class="slob-page">
+      ${createJoinHTML}
       ${myRoomsHTML}
-      ${discoverySection}
+      ${lbSection}
     </div>`;
   }
 
   function _renderSocialRoom() {
     const now = Date.now();
     const members = Object.values(_socialMembers);
-    const sRank = { focusing: 0, break: 1, offline: 2 };
     const sorted = members.slice().sort((a, b) => {
       if (a.uid === _userId) return -1; if (b.uid === _userId) return 1;
-      return sRank[_sStatusOf(a)] - sRank[_sStatusOf(b)];
+      const r = { focusing: 0, break: 1, offline: 2 };
+      return (r[_sStatusOf(a)] || 2) - (r[_sStatusOf(b)] || 2);
     });
-
-    const activeFocusing  = members.filter(m => _sStatusOf(m) === 'focusing').length;
-    const onlineCount     = members.filter(m => _sStatusOf(m) !== 'offline').length;
-    const todayKey_       = todayKey();
-    const totalFocusToday = members.reduce((s, m) => s + ((m.focusStatsByDate || {})[todayKey_] || 0), 0);
-    const totalWeeklyXP   = members.reduce((s, m) => s + (m.weeklyXP || 0), 0);
-    const momentumTarget  = Math.max(500, members.length * 300);
-    const momentumPct     = Math.min(100, Math.round(totalWeeklyXP / momentumTarget * 100));
+    const activeFocusing   = members.filter(m => _sStatusOf(m) === 'focusing').length;
+    const onlineCount      = members.filter(m => _sStatusOf(m) !== 'offline').length;
+    const totalWeeklyXP    = members.reduce((s, m) => s + (m.weeklyXP || 0), 0);
+    const momentumTarget   = Math.max(500, members.length * 300);
+    const momentumPct      = Math.min(100, Math.round(totalWeeklyXP / momentumTarget * 100));
     const momentumComplete = momentumPct >= 100;
-    const energyPct       = members.length ? Math.min(100, Math.round((activeFocusing / members.length) * 100)) : 0;
-    const groupStreak     = members.reduce((s, m) => Math.max(s, m.studyStreak || 0), 0);
-    const isCreator       = _userId === (_socialRoomData && _socialRoomData.createdBy);
-    const roomName        = (_socialRoomData && _socialRoomData.roomName) || `Room ${_socialRoomCode}`;
-    const isPrivate       = !!(_socialRoomData && _socialRoomData.private);
+    const isCreator        = _userId === (_socialRoomData && _socialRoomData.createdBy);
+    const roomName         = (_socialRoomData && _socialRoomData.roomName) || `Room ${_socialRoomCode}`;
+    const isPrivate        = !!(_socialRoomData && _socialRoomData.private);
+    const T                = _socialRoomTab;
 
-    // ── 1. Header ────────────────────────────────────────────────────────────
+    // ── HEADER ──────────────────────────────────────────────────────
     const headerHTML = `
-    <div class="grm2-header">
-      <div class="grm2-header-inner">
-        <button class="grm2-back-btn" data-act="social-leave" aria-label="Back to Lobby">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-        </button>
-        <div class="grm2-av" style="background:${_sAvatarColor(_socialRoomCode)}">${_sInitials(roomName)}</div>
-        <div class="grm2-title-block">
-          <div class="grm-name-display" id="grm-name-display">
-            <span class="grm2-room-name">${escapeHTML(roomName)}</span>
-            ${isCreator ? `<button class="grm2-edit-name-btn" data-act="grm-name-inline-edit" aria-label="Rename room"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>` : ''}
-          </div>
-          <div class="grm-name-edit-form" id="grm-name-edit-form">
-            <input id="grm-name-input" class="grm-name-input" type="text" value="${escapeHTML(roomName)}" maxlength="40" autocomplete="off" spellcheck="false"/>
-            <button class="grm-name-save-btn" data-act="grm-name-inline-save">✓</button>
-            <button class="grm-name-cancel-btn" data-act="grm-name-inline-cancel">✕</button>
-          </div>
-          <div class="grm2-header-meta">
-            <span class="grm-online-chip grm2-online-pill"><span class="grm2-live-dot"></span>${onlineCount} online</span>
-            <button class="grm2-code-chip" data-act="social-copy-code" title="Copy room code">${_socialRoomCode}</button>
-            <span class="grm2-privacy-badge">${isPrivate ? '🔒' : '🌐'}</span>
-          </div>
+    <div class="sroom-header">
+      <button class="sroom-back" data-act="social-leave" aria-label="Back">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <div class="sroom-header-center">
+        <div class="sroom-name-row" id="grm-name-display">
+          <span class="sroom-name">${escapeHTML(roomName)}</span>
+          ${isCreator ? `<button class="sroom-edit-btn" data-act="grm-name-inline-edit" aria-label="Rename"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>` : ''}
         </div>
-        <button class="grm2-settings-btn" data-act="social-room-settings" aria-label="Room Settings">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        </button>
+        <div class="sroom-name-edit" id="grm-name-edit-form" style="display:none">
+          <input id="grm-name-input" class="sroom-name-input" type="text" value="${escapeHTML(roomName)}" maxlength="40" autocomplete="off"/>
+          <button class="sroom-name-save" data-act="grm-name-inline-save">✓</button>
+          <button class="sroom-name-cancel" data-act="grm-name-inline-cancel">✕</button>
+        </div>
+        <div class="sroom-meta">
+          <span class="sroom-online grm-online-chip"><span class="sroom-live-dot"></span>${onlineCount} online</span>
+          <button class="sroom-code-pill" data-act="social-copy-code" title="Copy room code">${_socialRoomCode}</button>
+          ${isPrivate ? '<span class="sroom-privacy">🔒</span>' : ''}
+        </div>
       </div>
+      <button class="sroom-settings-btn" data-act="social-room-settings" aria-label="Settings">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
     </div>`;
 
-    // ── 2. Status Bar ─────────────────────────────────────────────────────────
-    const statusBarHTML = `
-    <div class="grm2-status-bar">
-      <span class="grm2-status-focus-dot${activeFocusing > 0 ? ' grm2-dot-active' : ''}"></span>
-      <span class="grm2-status-txt">${activeFocusing > 0 ? `<strong>${activeFocusing}</strong> studying now` : onlineCount > 0 ? `<strong>${onlineCount}</strong> online` : 'No one online'}</span>
-      <span class="grm2-status-sep">·</span>
-      <span class="grm2-status-energy">⚡ ${momentumPct}% momentum</span>
-      ${activeFocusing > 0 ? `<span class="grm2-status-sep">·</span><span class="grm2-status-time">📚 ${minsToHrs(totalFocusToday)} today</span>` : ''}
+    // ── MOMENTUM BAR ─────────────────────────────────────────────────
+    const momentumHTML = `
+    <div class="sroom-momentum">
+      <div class="sroom-mom-top">
+        <span class="sroom-mom-label">⚡ Collective Momentum</span>
+        <span class="sroom-mom-pct">${momentumPct}%</span>
+      </div>
+      <div class="sroom-mom-track">
+        <div class="sroom-mom-fill${momentumComplete ? ' sroom-mom-complete' : ''}" style="width:${momentumPct}%"></div>
+      </div>
+      <div class="sroom-mom-sub">${activeFocusing > 0 ? `${activeFocusing} focusing now · ` : ''}${totalWeeklyXP.toLocaleString()} / ${momentumTarget.toLocaleString()} weekly XP${momentumComplete ? ' 🎉' : ''}</div>
     </div>`;
 
-    // ── 3. Member Cards (new premium 2-col grid) ──────────────────────────────
+    // ── TAB NAV ──────────────────────────────────────────────────────
+    const _tabs = [
+      { id:'members',  label:'Members',  ico:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>` },
+      { id:'chat',     label:'Chat',     ico:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>` },
+      { id:'rankings', label:'Rankings', ico:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>` },
+      { id:'goals',    label:'Goals',    ico:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>` },
+      { id:'stats',    label:'Stats',    ico:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>` },
+    ];
+    const tabNavHTML = `<nav class="sroom-nav" role="tablist">
+      ${_tabs.map(t => `<button class="sroom-nav-btn${T===t.id?' sroom-nav-active':''}" data-act="grm-room-tab" data-tab="${t.id}" role="tab" aria-selected="${T===t.id}">${t.ico}<span>${t.label}</span></button>`).join('')}
+    </nav>`;
+
+    // ── MEMBERS PANE ─────────────────────────────────────────────────
     const memberCardsHTML = sorted.length ? sorted.map(m => {
       const st = _sStatusOf(m);
-      const isMe = m.uid === _userId;
-      const ini = _sInitials(m.displayName || 'S');
+      const isMe       = m.uid === _userId;
       const isFocusing = st === 'focusing';
       const isOnline   = st !== 'offline';
       const isOwner    = m.uid === (_socialRoomData && _socialRoomData.createdBy);
-      let elapsedTxt = '';
-      if (isFocusing && m.focusStartedAt) {
-        const s = Math.floor((now - m.focusStartedAt) / 1000);
-        const h = Math.floor(s / 3600), mn = Math.floor((s % 3600) / 60), sc = s % 60;
-        elapsedTxt = h > 0 ? `${h}h ${mn}m` : mn > 0 ? `${mn}m ${String(sc).padStart(2,'0')}s` : `${sc}s`;
-      }
-      const statusKey  = isFocusing ? 'focusing' : isOnline ? 'online' : 'offline';
-      const statusTxt  = isFocusing ? 'In Focus' : isOnline ? 'Online' : 'Offline';
-      const streakN    = m.studyStreak || 0;
-      const subName    = isFocusing && m.focusSubjectName ? escapeHTML(m.focusSubjectName) : '';
-      const inVoiceNow = !!(isMe ? _inVoice : _voiceMembers[m.uid]);
-      const micBadge   = inVoiceNow ? `<div class="grm2-mc-mic${isMe && _voiceMuted ? ' grm2-mc-muted' : ''}">${isMe && _voiceMuted ? '🔇' : '🎙'}</div>` : '';
-      const avatarContent = m.avatarUrl ? `<img src="${escapeHTML(m.avatarUrl)}" class="grm2-mc-avatar-img" alt=""/>` : ini;
-      const profileAct = !isMe ? ` data-act="view-profile" data-uid="${m.uid}"` : '';
-      return `<div class="grm2-mc grm2-mc-${statusKey}${isMe ? ' grm2-mc-me' : ''}">
-        <div class="grm2-mc-top">
-          <div class="grm2-mc-av-wrap"${profileAct}>
-            <div class="grm2-mc-avatar" style="background:${_sAvatarColor(m.uid)}">${avatarContent}</div>
-            <div class="grm2-mc-dot grm2-dot-${statusKey}"></div>
-            ${isFocusing ? '<div class="grm2-mc-glow"></div>' : ''}
-            ${isOwner ? '<div class="grm2-mc-crown">👑</div>' : ''}
-            ${micBadge}
-          </div>
-          <div class="grm2-mc-badges">
-            ${isMe ? '<span class="grm2-you-tag">You</span>' : ''}
-            ${streakN >= 2 ? `<span class="grm2-streak-tag">🔥${streakN}d</span>` : ''}
-          </div>
+      const ini        = _sInitials(m.displayName || 'S');
+      const streak     = m.studyStreak || 0;
+      const stLabel    = isFocusing ? 'In Focus' : isOnline ? 'Online' : 'Offline';
+      const avContent  = m.avatarUrl ? `<img src="${escapeHTML(m.avatarUrl)}" class="sroom-mc-img" alt=""/>` : ini;
+      const profAct    = !isMe ? `data-act="view-profile" data-uid="${m.uid}"` : '';
+      return `<div class="sroom-mc sroom-mc-${st}${isMe ? ' sroom-mc-me' : ''}">
+        <div class="sroom-mc-av-wrap" ${profAct}>
+          <div class="sroom-mc-av" style="background:${_sAvatarColor(m.uid)}">${avContent}</div>
+          <div class="sroom-mc-dot sroom-dot-${st}"></div>
+          ${isFocusing ? '<div class="sroom-mc-pulse"></div>' : ''}
+          ${isOwner ? '<div class="sroom-mc-crown">👑</div>' : ''}
         </div>
-        <div class="grm2-mc-name">${escapeHTML((m.displayName || 'Anonymous').split(' ')[0])}</div>
-        <div class="grm2-mc-status-row">
-          ${isFocusing
-            ? `<span class="grm2-mc-timer grm-elapsed" data-focusat="${m.focusStartedAt}">${elapsedTxt}</span>`
-            : `<span class="grm2-mc-status-lbl grm2-status-${statusKey}">${statusTxt}</span>`}
+        <div class="sroom-mc-name">${escapeHTML((m.displayName || 'Anonymous').split(' ')[0])}</div>
+        <div class="sroom-mc-status">
+          ${isFocusing && m.focusStartedAt
+            ? `<span class="sroom-mc-timer grm-elapsed" data-focusat="${m.focusStartedAt}">0s</span>`
+            : `<span class="sroom-mc-sl sroom-sl-${st}">${stLabel}</span>`}
         </div>
-        ${subName ? `<div class="grm2-mc-subject">${_sSubjectEmoji(m.focusSubjectName)} ${subName}</div>` : ''}
-        <div class="grm2-mc-xp">⚡ ${(m.xpTotal || 0) >= 1000 ? ((m.xpTotal/1000).toFixed(1)+'k') : (m.xpTotal||0)} XP</div>
-        ${!isMe ? `<div class="grm2-mc-acts">
-          <button class="grm2-act-btn" data-act="social-nudge" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName||'')}" title="Poke">👋</button>
-          ${isOnline ? `<button class="grm2-act-btn grm2-duel-btn" data-act="social-duel" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName||'')}" title="Duel">⚔️</button>` : ''}
+        ${isFocusing && m.focusSubjectName ? `<div class="sroom-mc-sub">${_sSubjectEmoji(m.focusSubjectName)} ${escapeHTML(m.focusSubjectName)}</div>` : ''}
+        <div class="sroom-mc-xp">⚡ ${(m.xpTotal || 0) >= 1000 ? ((m.xpTotal/1000).toFixed(1)+'k') : (m.xpTotal||0)}</div>
+        ${streak >= 2 ? `<div class="sroom-mc-streak">🔥 ${streak}d</div>` : ''}
+        ${!isMe ? `<div class="sroom-mc-acts">
+          <button class="sroom-act-btn" data-act="social-nudge" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName||'')}" title="Poke">👋</button>
+          ${isOnline ? `<button class="sroom-act-btn sroom-duel-btn" data-act="social-duel" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName||'')}" title="Duel">⚔️</button>` : ''}
         </div>` : ''}
       </div>`;
-    }).join('') : `<div class="grm2-empty-members"><div class="grm2-empty-icon">👥</div><div class="grm2-empty-txt">No one here yet — share the room code!</div></div>`;
+    }).join('') : `<div class="sroom-empty"><div class="sroom-empty-icon">👥</div><div>No one here yet<br>Share the room code!</div></div>`;
 
-    // ── 4. Chat ───────────────────────────────────────────────────────────────
+    // ── CHAT PANE ────────────────────────────────────────────────────
     const typingNow  = members.filter(m => m.uid !== _userId && m.typing && (now - m.typing) < 5000);
     const typingText = typingNow.length === 1
       ? `${escapeHTML(typingNow[0].displayName || 'Someone')} is typing…`
       : typingNow.length > 1 ? `${typingNow.length} people are typing…` : '';
     const chatHTML = `
-    <div class="grm2-chat-wrap">
-      ${typingText ? `<div class="grm2-typing-bar grm-typing-row"><span class="grm-typing-dots"><span></span><span></span><span></span></span><span class="grm-typing-txt">${typingText}</span></div>` : ''}
-      <div class="grm2-chat-messages" id="chat-messages">${_buildChatMessagesHTML()}</div>
-      <div class="grm2-chat-new-pill" id="chat-new-pill" style="display:none" data-act="chat-scroll-bottom">↓ New messages</div>
-      <div class="grm2-reply-bar" id="chat-reply-bar" style="display:none">
-        <div class="grm2-reply-bar-inner">
-          <div class="grm2-reply-bar-name" id="chat-reply-bar-name">Replying to</div>
-          <div class="grm2-reply-bar-text" id="chat-reply-bar-text"></div>
+    <div class="sroom-chat-wrap">
+      <div class="grm-typing-row" style="${typingText ? '' : 'display:none'}">
+        <span class="grm-typing-dots"><span></span><span></span><span></span></span>
+        <span class="grm-typing-txt">${typingText}</span>
+      </div>
+      <div class="sroom-chat-msgs" id="chat-messages">${_buildChatMessagesHTML()}</div>
+      <div class="sroom-chat-new-pill" id="chat-new-pill" style="display:none" data-act="chat-scroll-bottom">↓ New messages</div>
+      <div class="sroom-chat-reply-bar" id="chat-reply-bar" style="display:none">
+        <div class="sroom-reply-content">
+          <span class="sroom-reply-name" id="chat-reply-bar-name">Replying</span>
+          <span class="sroom-reply-text" id="chat-reply-bar-text"></span>
         </div>
-        <button class="grm2-reply-bar-close" data-act="chat-reply-cancel">✕</button>
+        <button class="sroom-reply-cancel" data-act="chat-reply-cancel">✕</button>
       </div>
-      <div class="grm2-emoji-picker" id="chat-emoji-picker">
-        ${'😊 😂 ❤️ 🔥 👍 👎 😮 😢 🎉 🤔 💯 🙏 ✨ 🚀 💪 🎯 🏆 ⚡ 🌟 😎 🤣 💀 🤦 🙌 👏 🫡 😍 🤩 😏 🥹'.split(' ').map(e => `<button class="grm2-emoji-key" data-act="chat-emoji-insert" data-emoji="${e}">${e}</button>`).join('')}
-      </div>
-      <div class="grm2-chat-composer" id="grm-chat-composer">
-        <button class="grm2-attach-btn" data-act="chat-attach" aria-label="Attach file">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-        </button>
-        <button class="grm2-emoji-btn" data-act="chat-emoji-toggle" aria-label="Emoji">😊</button>
-        <textarea
-          class="grm2-chat-input"
-          id="chat-text-input"
-          placeholder="Message the group…"
-          rows="1"
-          maxlength="500"
-          autocomplete="off"
-          autocorrect="off"
-          autocapitalize="sentences"
-          spellcheck="true"
-          inputmode="text"
-          enterkeyhint="send"
-        ></textarea>
-        <button class="grm2-mic-btn" data-act="chat-mic" aria-label="Voice message" id="grm-mic-btn">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-        </button>
-        <button class="grm2-send-btn" data-act="chat-send" aria-label="Send">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-        </button>
-        <input type="file" id="grm-attach-input" accept="image/*,application/pdf,.doc,.docx,.txt" style="display:none" multiple/>
+      <div class="sroom-chat-composer">
+        <div class="sroom-composer-inner">
+          <button class="sroom-composer-btn" data-act="chat-attach" title="Attach file">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          </button>
+          <input type="file" id="grm-attach-input" style="display:none" accept="image/*,application/pdf"/>
+          <textarea id="chat-text-input" class="sroom-chat-input" placeholder="Message…" rows="1" maxlength="2000"></textarea>
+          <button class="sroom-composer-btn" id="grm-mic-btn" data-act="chat-mic" title="Voice">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+          </button>
+          <button class="sroom-send-btn" data-act="chat-send" title="Send">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
       </div>
     </div>`;
 
-    // ── 5. Leaderboard ────────────────────────────────────────────────────────
-    const lb = [...members].sort((a, b) => (b.weeklyXP || 0) - (a.weeklyXP || 0));
-    const lbNow = new Date();
-    const daysToMon = (8 - lbNow.getDay()) % 7 || 7;
-    const nextMon = new Date(lbNow); nextMon.setDate(lbNow.getDate() + daysToMon); nextMon.setHours(0, 0, 0, 0);
-    const secsLeft = Math.max(0, Math.floor((nextMon - lbNow) / 1000));
-    const hLeft = Math.floor(secsLeft / 3600), mLeft = Math.floor((secsLeft % 3600) / 60);
-    const countdownTxt = secsLeft > 86400 ? `${daysToMon}d ${hLeft % 24}h left` : `${hLeft}h ${mLeft}m left`;
-    let lbRows;
-    if (_lbView === 'global') {
-      lbRows = _globalLbData.slice(0, 30).map((m, i) => {
-        const isMe = m.uid === _userId;
-        const topClass = i === 0 ? ' grm-lb-gold' : i === 1 ? ' grm-lb-silver' : i === 2 ? ' grm-lb-bronze' : '';
-        const med = i === 0 ? '👑' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="color:var(--text-muted);font-size:12px">${i+1}</span>`;
-        return `<div class="grm-lb-row${isMe ? ' grm-lb-me' : ''}${topClass}">
-          <span class="grm-lb-rank">${med}</span>
-          <span class="grm-lb-av" style="background:${_sAvatarColor(m.uid)}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name||'Anonymous')}">${_sInitials(m.name||'S')}</span>
-          <span class="grm-lb-name">${escapeHTML(m.name||'Anonymous')}</span>
-          <span class="grm-lb-xp">⚡ ${(m.weeklyXP||0).toLocaleString()}</span>
-        </div>`;
-      }).join('') || '<div class="grm-empty-state">Loading global rankings…</div>';
-    } else {
-      lbRows = lb.map((m, i) => {
-        const isMe = m.uid === _userId;
-        const prevRank = _socialPrevRanks[m.uid];
-        let mvIcon = '';
-        if (prevRank !== undefined && prevRank !== i) {
-          mvIcon = i < prevRank ? '<span class="grm-lb-mv-up">↑</span>' : '<span class="grm-lb-mv-dn">↓</span>';
-        } else if (prevRank !== undefined) {
-          mvIcon = '<span class="grm-lb-mv-eq">—</span>';
-        }
-        _socialPrevRanks[m.uid] = i;
-        const topClass = i === 0 ? ' grm-lb-gold' : i === 1 ? ' grm-lb-silver' : i === 2 ? ' grm-lb-bronze' : '';
-        const med = i === 0 ? '👑' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="color:var(--text-muted);font-size:12px">${i+1}</span>`;
-        const streak = (m.studyStreak||0) >= 2 ? `<span class="grm-lb-streak">🔥${m.studyStreak}</span>` : '';
-        return `<div class="grm-lb-row${isMe ? ' grm-lb-me' : ''}${topClass}">
-          ${mvIcon}<span class="grm-lb-rank">${med}</span>
-          <span class="grm-lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName||'S')}</span>
-          <span class="grm-lb-name">${escapeHTML(m.displayName||'Anonymous')}${streak}</span>
-          <span class="grm-lb-xp">⚡ ${(m.weeklyXP||0).toLocaleString()}</span>
-        </div>`;
-      }).join('') || '<div class="grm-empty-state">No data yet</div>';
-    }
-    const leaderboardHTML = `
-    <div class="grm2-pane-section">
-      <div class="grm2-pane-section-head">🏆 Rankings</div>
-      <div class="grm-lb-tabs"style="margin:0 0 12px">
-        <button class="grm-lb-tab${_lbView==='group'?' grm-lb-tab-active':''}" data-act="lb-view" data-v="group">👥 Group</button>
-        <button class="grm-lb-tab${_lbView==='global'?' grm-lb-tab-active':''}" data-act="lb-view" data-v="global">🌍 Global</button>
+    // ── RANKINGS PANE ────────────────────────────────────────────────
+    const grpSorted = members.slice().sort((a, b) => (b.weeklyXP||0) - (a.weeklyXP||0));
+    const grpRowsHTML = grpSorted.length ? grpSorted.map((m, i) => {
+      const isMe = m.uid === _userId;
+      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : String(i+1);
+      const xpLabel = (m.weeklyXP||0) >= 1000 ? ((m.weeklyXP/1000).toFixed(1)+'k') : String(m.weeklyXP||0);
+      return `<div class="sroom-lb-row${isMe ? ' sroom-lb-me' : ''}">
+        <span class="sroom-lb-rank">${medal}</span>
+        <span class="sroom-lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName||'S')}</span>
+        <span class="sroom-lb-name">${escapeHTML((m.displayName||'Anon').split(' ')[0])}</span>
+        <span class="sroom-lb-xp">⚡ ${xpLabel}</span>
+        <span class="sroom-lb-time">📚 ${minsToHrs(m.weeklyMinutes||0)}</span>
+      </div>`;
+    }).join('') : '<div class="sroom-empty-txt">No ranking data yet.</div>';
+
+    const glbRowsHTML = _globalLbData.slice(0, 15).map((m, i) => {
+      const isMe = m.uid === _userId;
+      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : String(i+1);
+      return `<div class="sroom-lb-row${isMe ? ' sroom-lb-me' : ''}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name||'Anonymous')}">
+        <span class="sroom-lb-rank">${medal}</span>
+        <span class="sroom-lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.name||'S')}</span>
+        <span class="sroom-lb-name">${escapeHTML((m.name||'Anon').split(' ')[0])}</span>
+        <span class="sroom-lb-xp">⚡ ${(m.weeklyXP||0).toLocaleString()}</span>
+        <span class="sroom-lb-time">📚 ${minsToHrs(m.weeklyMinutes||0)}</span>
+      </div>`;
+    }).join('');
+
+    const rankingsHTML = `
+    <div class="sroom-lb-section">
+      <div class="sroom-lb-head">This Room — This Week</div>
+      ${grpRowsHTML}
+    </div>
+    <div class="sroom-lb-section" style="margin-top:14px">
+      <div class="sroom-lb-head-row">
+        <span class="sroom-lb-head">🌍 Global</span>
+        <button class="sroom-lb-refresh" data-act="social-lb-refresh" title="Refresh"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
       </div>
-      <div class="grm-lb-list">${lbRows}</div>
-      ${_lbView==='group' ? `<div class="grm-lb-reset">🔄 Resets in <strong>${countdownTxt}</strong></div>` : ''}
+      ${!_globalLbData.length ? '<div class="sroom-empty-txt" style="padding:12px 14px">No global data yet.</div>' : glbRowsHTML}
     </div>`;
 
-    // ── 6. Vault ─────────────────────────────────────────────────────────────
-    const vaultSection = _renderVaultSection();
-
-    // ── 7. Goals ─────────────────────────────────────────────────────────────
+    // ── GOALS PANE ───────────────────────────────────────────────────
     const goals = (_socialRoomData && _socialRoomData.groupGoals) || [];
-    const goalsCardsHTML = goals.map(g => {
-      const tot = Object.values(g.contributions||{}).reduce((a,b) => a+b, 0);
-      const pct = Math.min(100, Math.round(tot / g.targetMinutes * 100));
-      const myC = (g.contributions||{})[_userId] || 0;
-      const contribs = Object.entries(g.contributions||{}).sort(([,a],[,b]) => b-a).slice(0,5)
-        .map(([u_,m_]) => { const mb = _socialMembers[u_]; const n = mb ? mb.displayName : u_.slice(0,4); return `<span class="grm-goal-av" title="${escapeHTML(n)}: ${minsToHrs(m_)}" style="background:${_sAvatarColor(u_)}">${_sInitials(n)}</span>`; }).join('');
-      return `<div class="grm-goal-card${pct>=100?' grm-goal-done':''}">
-        <div class="grm-goal-head">
-          <span class="grm-goal-icon">${pct>=100?'🏆':'🎯'}</span>
-          <span class="grm-goal-title">${escapeHTML(g.title)}</span>
-          ${isCreator ? `<button class="grm-goal-del" data-act="social-del-goal" data-gid="${g.id}">×</button>` : ''}
+    const goalsListHTML = goals.length ? goals.map(g => {
+      const tot  = Object.values(g.contributions||{}).reduce((a,b) => a+b, 0);
+      const pct  = Math.min(100, Math.round(tot / g.targetMinutes * 100));
+      const myC  = (g.contributions||{})[_userId] || 0;
+      const done = pct >= 100;
+      const topAvs = Object.entries(g.contributions||{}).sort(([,a],[,b]) => b-a).slice(0,4)
+        .map(([u_]) => `<span class="sroom-goal-av" style="background:${_sAvatarColor(u_)}">${_sInitials((_socialMembers[u_]||{}).displayName||'S')}</span>`).join('');
+      return `<div class="sroom-goal-card${done ? ' sroom-goal-done' : ''}">
+        <div class="sroom-goal-top">
+          <span class="sroom-goal-icon">${done ? '🏆' : '🎯'}</span>
+          <span class="sroom-goal-title">${escapeHTML(g.title)}</span>
+          ${isCreator ? `<button class="sroom-goal-del" data-act="social-del-goal" data-gid="${g.id}">×</button>` : ''}
         </div>
-        <div class="grm-goal-progress">
-          <div class="grm-goal-track"><div class="grm-goal-fill" style="width:${pct}%"></div></div>
-          <span class="grm-goal-pct">${pct}%</span>
+        <div class="sroom-goal-track-row">
+          <div class="sroom-goal-track"><div class="sroom-goal-fill" style="width:${pct}%"></div></div>
+          <span class="sroom-goal-pct">${pct}%</span>
         </div>
-        <div class="grm-goal-footer">
-          <span class="grm-goal-stat">${minsToHrs(tot)} / ${minsToHrs(g.targetMinutes)} · Mine: ${minsToHrs(myC)}</span>
-          <div class="grm-goal-avs">${contribs}</div>
+        <div class="sroom-goal-meta">
+          <div class="sroom-goal-avs">${topAvs}</div>
+          <span class="sroom-goal-stat">${minsToHrs(tot)} / ${minsToHrs(g.targetMinutes)} · Mine: ${minsToHrs(myC)}</span>
         </div>
       </div>`;
-    }).join('') || '<div class="grm-empty-state">No group goals yet — create one below!</div>';
+    }).join('') : '<div class="sroom-empty-txt">No group goals yet — create one below!</div>';
+
     const goalsHTML = `
-    <div class="grm2-pane-section">
-      <div class="grm2-pane-section-head">🎯 Group Goals</div>
-      <div class="grm-goals-list">${goalsCardsHTML}</div>
-      <div class="grm-add-goal" style="margin-top:12px">
-        <div class="grm-add-goal-lbl">Create New Goal</div>
-        <input id="gg-title-input" class="grm-goal-input" placeholder="e.g. 50 hours of study this week" maxlength="60"/>
-        <div class="grm-add-goal-row">
-          <input id="gg-hours-input" class="grm-goal-input grm-goal-hours" type="number" min="1" max="1000" placeholder="Hours" value="50"/>
-          <button class="btn grm-add-goal-btn" data-act="social-add-goal">Set Goal</button>
+    <div class="sroom-goals-section">
+      <div class="sroom-sec-head">🎯 Group Goals</div>
+      <div class="sroom-goals-list">${goalsListHTML}</div>
+      <div class="sroom-add-goal-form">
+        <div class="sroom-form-label">New Group Goal</div>
+        <input id="gg-title-input" class="sroom-form-input" placeholder="e.g. 50 hours of study this week" maxlength="60"/>
+        <div class="sroom-form-row">
+          <input id="gg-hours-input" class="sroom-form-input sroom-hours-input" type="number" min="1" max="1000" placeholder="Hours" value="50"/>
+          <button class="btn" data-act="social-add-goal">+ Set Goal</button>
         </div>
       </div>
-    </div>`;
+    </div>
+    ${_renderVaultSection()}`;
 
-    // ── 8. Subject Mastery ───────────────────────────────────────────────────
+    // ── STATS PANE ───────────────────────────────────────────────────
+    const totalFocusToday = members.reduce((s, m) => s + ((m.focusStatsByDate||{})[todayKey()]||0), 0);
+    const groupStreak     = members.reduce((s, m) => Math.max(s, m.studyStreak||0), 0);
+    const energyPct       = members.length ? Math.min(100, Math.round((activeFocusing/members.length)*100)) : 0;
+
     const subMap = {};
-    members.forEach(m => Object.entries(m.subjectMinutes||{}).forEach(([sid,mins]) => {
+    members.forEach(m => Object.entries(m.subjectMinutes||{}).forEach(([sid, mins]) => {
       if (!subMap[sid]) subMap[sid] = [];
       subMap[sid].push({ uid: m.uid, name: m.displayName, mins });
     }));
-    const subRanked = Object.entries(subMap).map(([sid,arr]) => ({
-      sid,
-      name: (s => s ? s.name : sid)(state.subjects.find(x => x.id===sid)),
-      color: (s => s ? s.color : '#5badff')(state.subjects.find(x => x.id===sid)),
-      total: arr.reduce((a,b) => a+b.mins, 0), top: arr.slice().sort((a,b) => b.mins-a.mins)
-    })).sort((a,b) => b.total-a.total).slice(0,3);
-    const masteryCardsHTML = subRanked.length ? subRanked.map(sr => {
-      const top = sr.top[0];
-      return `<div class="grm-mastery-card">
-        <div class="grm-mc-head">
-          <div class="grm-mc-badge" style="background:${sr.color}1a;color:${sr.color};border-color:${sr.color}30">${_sSubjectEmoji(sr.name)}</div>
-          <div style="flex:1"><div class="grm-mc-subname">${escapeHTML(sr.name)}</div><div class="grm-mc-king">👑 ${escapeHTML(top?top.name||'—':'—')} <span style="color:var(--text-muted)">${minsToHrs(top?top.mins:0)}</span></div></div>
+    const subRanked = Object.entries(subMap).map(([sid, arr]) => ({
+      sid, total: arr.reduce((a, b) => a + b.mins, 0),
+      name:  (s => s ? s.name  : sid)(state.subjects.find(x => x.id === sid)),
+      color: (s => s ? s.color : '#5badff')(state.subjects.find(x => x.id === sid)),
+      top:   arr.slice().sort((a, b) => b.mins - a.mins)
+    })).sort((a, b) => b.total - a.total).slice(0, 4);
+
+    const masteryHTML = subRanked.length ? subRanked.map(sr => {
+      const maxM = sr.top[0] ? sr.top[0].mins : 1;
+      return `<div class="sroom-mastery-card">
+        <div class="sroom-mastery-head">
+          <span class="sroom-mastery-badge" style="background:${sr.color}22;color:${sr.color}">${_sSubjectEmoji(sr.name)}</span>
+          <div><div class="sroom-mastery-name">${escapeHTML(sr.name)}</div>${sr.top[0]?`<div class="sroom-mastery-king">👑 ${escapeHTML(sr.top[0].name||'—')} · ${minsToHrs(sr.top[0].mins)}</div>`:''}</div>
         </div>
-        <div class="grm-mc-members">${sr.top.map(t => `<div class="grm-mc-m"><span class="grm-mc-av" style="background:${_sAvatarColor(t.uid)}">${_sInitials(t.name||'S')}</span><div class="grm-mc-bar-wrap"><div class="grm-mc-bar" style="width:${sr.total?Math.round(t.mins/sr.top[0].mins*100):0}%;background:${sr.color}"></div></div><span class="grm-mc-time">${minsToHrs(t.mins)}</span></div>`).join('')}</div>
+        ${sr.top.map(t => `<div class="sroom-mastery-row">
+          <span class="sroom-mastery-av" style="background:${_sAvatarColor(t.uid)}">${_sInitials(t.name||'S')}</span>
+          <div class="sroom-mastery-bar-wrap"><div class="sroom-mastery-bar" style="width:${Math.round(t.mins/maxM*100)}%;background:${sr.color}"></div></div>
+          <span class="sroom-mastery-time">${minsToHrs(t.mins)}</span>
+        </div>`).join('')}
       </div>`;
-    }).join('') : '<div class="grm-empty-state">Complete focus sessions to populate mastery.</div>';
-    const masteryHTML = `
-    <div class="grm2-pane-section">
-      <div class="grm2-pane-section-head">🎓 Subject Mastery</div>
-      <div class="grm-mastery-list">${masteryCardsHTML}</div>
-    </div>`;
+    }).join('') : '<div class="sroom-empty-txt">Complete focus sessions to see mastery data.</div>';
 
-    // ── 9. Live Stats ─────────────────────────────────────────────────────────
-    const statsHTML = `
-    <div class="grm2-pane-section">
-      <div class="grm2-pane-section-head">📊 Live Stats</div>
-      <div class="grm-stats-grid">
-        <div class="grm-stat-card"><div class="grm-stat-val" style="color:${activeFocusing>0?'#4ade80':'var(--text-muted)'}">${activeFocusing}</div><div class="grm-stat-lbl">Focusing</div></div>
-        <div class="grm-stat-card"><div class="grm-stat-val">${minsToHrs(totalFocusToday)}</div><div class="grm-stat-lbl">Today</div></div>
-        <div class="grm-stat-card"><div class="grm-stat-val">${members.length}</div><div class="grm-stat-lbl">Members</div></div>
-        <div class="grm-stat-card"><div class="grm-stat-val" style="color:#fbbf24">${totalWeeklyXP>=1000?(totalWeeklyXP/1000).toFixed(1)+'k':totalWeeklyXP}</div><div class="grm-stat-lbl">Weekly XP</div></div>
-        <div class="grm-stat-card"><div class="grm-stat-val" style="color:#f97316">${groupStreak>0?'🔥':''}${groupStreak}d</div><div class="grm-stat-lbl">Best Streak</div></div>
-        <div class="grm-stat-card"><div class="grm-stat-val" style="color:#a78bfa">${momentumPct}%</div><div class="grm-stat-lbl">Momentum</div></div>
-      </div>
-      <div class="grm-bars" style="margin-top:16px">
-        <div class="grm-bar-row">
-          <div class="grm-bar-meta"><span class="grm-bar-lbl">⚡ Collective Momentum</span><span class="grm-bar-pct">${momentumPct}%</span></div>
-          <div class="grm-bar-track"><div class="grm-bar-fill grm-bar-momentum${momentumComplete?' grm-bar-complete':''}" style="width:${momentumPct}%"></div></div>
-          <div class="grm-bar-sub">${totalWeeklyXP.toLocaleString()} / ${momentumTarget.toLocaleString()} XP this week${momentumComplete?' 🎉':''}</div>
-        </div>
-        <div class="grm-bar-row">
-          <div class="grm-bar-meta"><span class="grm-bar-lbl">🔥 Room Energy</span><span class="grm-bar-pct">${energyPct}%</span></div>
-          <div class="grm-bar-track"><div class="grm-bar-fill grm-bar-energy" style="width:${energyPct}%"></div></div>
-          <div class="grm-bar-sub">${activeFocusing} of ${members.length} focusing now</div>
-        </div>
-      </div>
-    </div>`;
-
-    // ── 10. Duels ─────────────────────────────────────────────────────────────
-    const activeDuels = ((_socialRoomData&&_socialRoomData.duels)||[]).filter(d => !d.winner && d.endsAt>now && (d.challenger===_userId||d.opponent===_userId));
-    const duelsHTML = activeDuels.length ? `
-    <div class="grm2-pane-section">
-      <div class="grm2-pane-section-head">⚔️ Active Duel</div>
-      ${activeDuels.map(d => {
-        const iAm = d.challenger === _userId;
-        const myG = Math.max(0, ((state.xp&&state.xp.total)||0) - (iAm?d.challengerXPStart:d.opponentXPStart));
-        const oppUid = iAm ? d.opponent : d.challenger;
-        const oppN   = iAm ? d.opponentName : d.challengerName;
-        const opp    = _socialMembers[oppUid];
-        const oppG   = opp ? Math.max(0, (opp.xpTotal||0) - (iAm?d.opponentXPStart:d.challengerXPStart)) : 0;
-        const rem    = Math.max(0, Math.ceil((d.endsAt-now)/60000));
-        const tl     = rem>=60 ? `${Math.floor(rem/60)}h ${rem%60}m` : `${rem}m`;
-        const myP    = Math.max(myG,oppG)>0 ? Math.round(myG/Math.max(myG,oppG)*100) : 50;
-        const win    = myG >= oppG;
-        return `<div class="grm-duel-card">
-          <div class="grm-duel-head"><span>⚔️ Focus Duel</span><span class="grm-duel-timer">⏱ ${tl} left</span></div>
-          <div class="grm-duel-fighters">
-            <div class="grm-duel-side${win?' grm-duel-winning':''}"><div class="grm-duel-av" style="background:${_sAvatarColor(_userId)}">${_sInitials(_sDisplayName())}</div><div class="grm-duel-name">You</div><div class="grm-duel-xp">+${myG} XP</div></div>
-            <div class="grm-duel-vs">VS</div>
-            <div class="grm-duel-side${!win?' grm-duel-winning':''}"><div class="grm-duel-av" style="background:${_sAvatarColor(oppUid)}">${_sInitials(oppN||'S')}</div><div class="grm-duel-name">${escapeHTML(oppN||'Opp')}</div><div class="grm-duel-xp">+${oppG} XP</div></div>
+    const activeDuels = ((_socialRoomData&&_socialRoomData.duels)||[])
+      .filter(d => !d.winner && d.endsAt > now && (d.challenger === _userId || d.opponent === _userId));
+    const duelsHTML = activeDuels.map(d => {
+      const iAm  = d.challenger === _userId;
+      const myG  = Math.max(0, ((state.xp&&state.xp.total)||0) - (iAm ? d.challengerXPStart : d.opponentXPStart));
+      const oppUid = iAm ? d.opponent : d.challenger;
+      const oppN = iAm ? d.opponentName : d.challengerName;
+      const opp  = _socialMembers[oppUid];
+      const oppG = opp ? Math.max(0, (opp.xpTotal||0) - (iAm ? d.opponentXPStart : d.challengerXPStart)) : 0;
+      const rem  = Math.max(0, Math.ceil((d.endsAt - now) / 60000));
+      const tl   = rem >= 60 ? `${Math.floor(rem/60)}h ${rem%60}m` : `${rem}m`;
+      const myP  = Math.max(myG, oppG) > 0 ? Math.round(myG / Math.max(myG, oppG) * 100) : 50;
+      const win  = myG >= oppG;
+      return `<div class="sroom-duel-card">
+        <div class="sroom-duel-head"><span>⚔️ XP Duel</span><span class="sroom-duel-timer">⏱ ${tl} left</span></div>
+        <div class="sroom-duel-vs-row">
+          <div class="sroom-duel-side${win ? ' sroom-duel-winning' : ''}">
+            <div class="sroom-duel-av" style="background:${_sAvatarColor(_userId)}">${_sInitials(_sDisplayName())}</div>
+            <div class="sroom-duel-name">You</div><div class="sroom-duel-xp">+${myG} XP</div>
           </div>
-          <div class="grm-duel-bar-track"><div class="grm-duel-bar-fill" style="width:${myP}%;background:${win?'#22c55e':'#f87171'}"></div></div>
-        </div>`;
-      }).join('')}
-    </div>` : '';
-
-    // ── 11. Room Nav ─────────────────────────────────────────────────────────
-    const T = _socialRoomTab;
-    const roomNavHTML = `
-    <nav class="grm2-room-nav" role="tablist">
-      <button class="grm2-rnav-btn${T==='members'?' grm2-rnav-active':''}" data-act="grm-room-tab" data-tab="members" role="tab">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-        <span>Members</span>
-      </button>
-      <button class="grm2-rnav-btn${T==='chat'?' grm2-rnav-active':''}" data-act="grm-room-tab" data-tab="chat" role="tab">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        <span>Chat</span>
-      </button>
-      <button class="grm2-rnav-btn${T==='rankings'?' grm2-rnav-active':''}" data-act="grm-room-tab" data-tab="rankings" role="tab">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-        <span>Rankings</span>
-      </button>
-      <button class="grm2-rnav-btn${T==='goals'?' grm2-rnav-active':''}" data-act="grm-room-tab" data-tab="goals" role="tab">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
-        <span>Goals</span>
-      </button>
-      <button class="grm2-rnav-btn${T==='stats'?' grm2-rnav-active':''}" data-act="grm-room-tab" data-tab="stats" role="tab">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-        <span>Stats</span>
-      </button>
-    </nav>`;
-
-    return `<div class="grm2-room">
-      ${headerHTML}
-      ${statusBarHTML}
-      <div class="grm2-tab-content${T==='chat'?' grm2-chat-mode':''}">
-        <div class="grm2-pane${T==='members'?' grm2-pane-active':''}">
-          <div class="grm2-members-grid">${memberCardsHTML}</div>
+          <div class="sroom-duel-vs">VS</div>
+          <div class="sroom-duel-side${!win ? ' sroom-duel-winning' : ''}">
+            <div class="sroom-duel-av" style="background:${_sAvatarColor(oppUid)}">${_sInitials(oppN||'S')}</div>
+            <div class="sroom-duel-name">${escapeHTML(oppN||'Opp')}</div><div class="sroom-duel-xp">+${oppG} XP</div>
+          </div>
         </div>
-        <div class="grm2-pane grm2-pane-chat${T==='chat'?' grm2-pane-active':''}">
+        <div class="sroom-duel-bar"><div class="sroom-duel-fill" style="width:${myP}%;background:${win?'#22c55e':'#f87171'}"></div></div>
+      </div>`;
+    }).join('');
+
+    const statsHTML = `
+    <div class="sroom-stats-grid">
+      <div class="sroom-stat-card"><div class="sroom-stat-val" style="color:${activeFocusing>0?'#4ade80':'var(--text-muted)'}">${activeFocusing}</div><div class="sroom-stat-lbl">Focusing</div></div>
+      <div class="sroom-stat-card"><div class="sroom-stat-val">${minsToHrs(totalFocusToday)}</div><div class="sroom-stat-lbl">Today</div></div>
+      <div class="sroom-stat-card"><div class="sroom-stat-val">${members.length}</div><div class="sroom-stat-lbl">Members</div></div>
+      <div class="sroom-stat-card"><div class="sroom-stat-val" style="color:#fbbf24">${totalWeeklyXP>=1000?(totalWeeklyXP/1000).toFixed(1)+'k':totalWeeklyXP}</div><div class="sroom-stat-lbl">Weekly XP</div></div>
+      <div class="sroom-stat-card"><div class="sroom-stat-val" style="color:#f97316">${groupStreak>0?'🔥':''}${groupStreak}d</div><div class="sroom-stat-lbl">Best Streak</div></div>
+      <div class="sroom-stat-card"><div class="sroom-stat-val" style="color:#a78bfa">${momentumPct}%</div><div class="sroom-stat-lbl">Momentum</div></div>
+    </div>
+    <div class="sroom-bars">
+      <div class="sroom-bar-row">
+        <div class="sroom-bar-meta"><span>⚡ Momentum</span><span>${momentumPct}%</span></div>
+        <div class="sroom-bar-track"><div class="sroom-bar-fill sroom-bar-momentum${momentumComplete?' sroom-bar-complete':''}" style="width:${momentumPct}%"></div></div>
+      </div>
+      <div class="sroom-bar-row">
+        <div class="sroom-bar-meta"><span>🔥 Room Energy</span><span>${energyPct}%</span></div>
+        <div class="sroom-bar-track"><div class="sroom-bar-fill sroom-bar-energy" style="width:${energyPct}%"></div></div>
+      </div>
+    </div>
+    ${duelsHTML ? `<div class="sroom-sec-head" style="margin-top:16px">⚔️ Active Duels</div>${duelsHTML}` : ''}
+    <div class="sroom-sec-head" style="margin-top:16px">🎓 Subject Mastery</div>
+    <div class="sroom-mastery-list">${masteryHTML}</div>`;
+
+    // ── ASSEMBLE ─────────────────────────────────────────────────────
+    return `<div class="sroom-page">
+      ${headerHTML}
+      ${momentumHTML}
+      <div class="sroom-content${T==='chat'?' sroom-chat-mode':''}">
+        <div class="sroom-pane${T==='members'?' sroom-pane-active':''}">
+          <div class="sroom-members-grid">${memberCardsHTML}</div>
+        </div>
+        <div class="sroom-pane sroom-pane-chat${T==='chat'?' sroom-pane-active':''}">
           ${chatHTML}
         </div>
-        <div class="grm2-pane${T==='rankings'?' grm2-pane-active':''}">
-          <div class="grm2-pane-scroll">${leaderboardHTML}</div>
+        <div class="sroom-pane${T==='rankings'?' sroom-pane-active':''}">
+          <div class="sroom-pane-scroll">${rankingsHTML}</div>
         </div>
-        <div class="grm2-pane${T==='goals'?' grm2-pane-active':''}">
-          <div class="grm2-pane-scroll">${goalsHTML}${masteryHTML}${vaultSection}</div>
+        <div class="sroom-pane${T==='goals'?' sroom-pane-active':''}">
+          <div class="sroom-pane-scroll">${goalsHTML}</div>
         </div>
-        <div class="grm2-pane${T==='stats'?' grm2-pane-active':''}">
-          <div class="grm2-pane-scroll">${statsHTML}${duelsHTML}</div>
+        <div class="sroom-pane${T==='stats'?' sroom-pane-active':''}">
+          <div class="sroom-pane-scroll">${statsHTML}</div>
         </div>
       </div>
-      ${roomNavHTML}
+      ${tabNavHTML}
     </div>`;
   }
 
