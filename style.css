@@ -2598,11 +2598,36 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .vp-embed-wrap {
   position: relative; padding-bottom: 56.25%; height: 0;
   background: #000; flex-shrink: 0;
-  /* Ensure iframes can request native fullscreen on all browsers */
+  overflow: hidden; /* clip scaled iframe during pinch-zoom */
 }
 .vp-embed-wrap iframe {
   position: absolute; inset: 0; width: 100%; height: 100%; border: none;
+  transform-origin: 50% 50%;
+  will-change: transform;
 }
+
+/* ── Pinch-zoom capture layer (sits above iframe; pointer-events toggled by JS) */
+#vp-zoom-layer {
+  position: absolute; inset: 0; z-index: 2;
+  touch-action: none; pointer-events: none;
+}
+
+/* ── Zoom percentage HUD badge ─────────────────────────────── */
+#vp-zoom-hud {
+  position: absolute; top: 14px; left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.68);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid rgba(255,255,255,0.13);
+  color: #fff; font-size: 13px; font-weight: 800; letter-spacing: 0.05em;
+  padding: 5px 14px; border-radius: 100px;
+  pointer-events: none; z-index: 10;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  white-space: nowrap;
+}
+#vp-zoom-hud.vp-zoom-hud-visible { opacity: 1; }
 
 /* ── Mobile landscape: video fills the full screen height ────── */
 @media (orientation: landscape) and (max-height: 500px) {

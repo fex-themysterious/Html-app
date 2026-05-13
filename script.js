@@ -6112,6 +6112,157 @@
     toast('Picture-in-Picture not available for this video', 'info', 2500);
   }
 
+  // ── Video Pinch-to-Zoom & Pan ───────────────────────────────
+  function _initVideoZoom(wrapEl) {
+    if (!wrapEl) return;
+    const iframe = wrapEl.querySelector('iframe');
+    if (!iframe) return;
+
+    // Transparent layer on top of iframe — pointer-events:none at 1x so YouTube controls work;
+    // enabled only when zoomed in (for panning) or when a 2-finger pinch is detected.
+    const layer = document.createElement('div');
+    layer.id = 'vp-zoom-layer';
+    wrapEl.appendChild(layer);
+
+    // State
+    let scale = 1, tx = 0, ty = 0;
+    let isPinching = false;
+    let pinchStartDist = 0, pinchStartScale = 1;
+    let pinchStartTx = 0, pinchStartTy = 0, pinchMidX = 0, pinchMidY = 0;
+    let lastTapTime = 0;
+    let hudTimer = null, panRafId = null;
+    let panStartX = 0, panStartY = 0, panStartTx = 0, panStartTy = 0;
+
+    function applyTransform(animate) {
+      if (animate) {
+        iframe.style.transition = 'transform 0.28s cubic-bezier(0.25,0.46,0.45,0.94)';
+        setTimeout(() => { iframe.style.transition = ''; }, 310);
+      } else {
+        iframe.style.transition = '';
+      }
+      iframe.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`;
+      // Enable layer for panning only when zoomed; otherwise let touches reach the iframe
+      layer.style.pointerEvents = scale > 1.02 ? 'auto' : 'none';
+    }
+
+    function clampTranslation() {
+      const maxTx = wrapEl.offsetWidth  * (scale - 1) / 2;
+      const maxTy = wrapEl.offsetHeight * (scale - 1) / 2;
+      tx = Math.max(-maxTx, Math.min(maxTx, tx));
+      ty = Math.max(-maxTy, Math.min(maxTy, ty));
+    }
+
+    function showHud(s) {
+      const vpEl = document.getElementById('vp-overlay'); if (!vpEl) return;
+      let hud = document.getElementById('vp-zoom-hud');
+      if (!hud) {
+        hud = document.createElement('div');
+        hud.id = 'vp-zoom-hud';
+        vpEl.appendChild(hud);
+      }
+      hud.textContent = Math.round(s * 100) + '%';
+      hud.className = 'vp-zoom-hud-visible';
+      clearTimeout(hudTimer);
+      hudTimer = setTimeout(() => { if (hud) hud.className = ''; }, 1100);
+    }
+
+    function resetZoom(animate) {
+      scale = 1; tx = 0; ty = 0;
+      applyTransform(animate !== false);
+      const hud = document.getElementById('vp-zoom-hud');
+      if (hud) hud.className = '';
+    }
+
+    // ── Pinch detection via capture-phase on the wrap element.
+    // Because the iframe absorbs touches in its own document, we intercept in the
+    // capture phase of the parent — this fires before the event reaches the iframe.
+    wrapEl.addEventListener('touchstart', function(e) {
+      if (e.touches.length >= 2) {
+        // 2-finger → always intercept for pinch; stop iframe receiving it
+        e.preventDefault();
+        isPinching = true;
+        layer.style.pointerEvents = 'auto';
+        const t0 = e.touches[0], t1 = e.touches[1];
+        pinchStartDist  = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+        pinchStartScale = scale;
+        pinchStartTx = tx; pinchStartTy = ty;
+        const rect = wrapEl.getBoundingClientRect();
+        // Pinch midpoint in container-centre coordinates (so math stays correct at any scale)
+        pinchMidX = ((t0.clientX + t1.clientX) / 2) - rect.left  - rect.width  / 2;
+        pinchMidY = ((t0.clientY + t1.clientY) / 2) - rect.top   - rect.height / 2;
+      } else if (e.touches.length === 1 && scale <= 1.02) {
+        // Single tap at 1x — track timing for a double-tap-to-reset attempt at 1x
+        const now = Date.now();
+        lastTapTime = (now - lastTapTime < 280) ? 0 : now;
+      }
+    }, { passive: false, capture: true });
+
+    wrapEl.addEventListener('touchmove', function(e) {
+      if (!isPinching || e.touches.length < 2) return;
+      e.preventDefault();
+      const t0 = e.touches[0], t1 = e.touches[1];
+      const dist     = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+      const newScale = Math.max(1, Math.min(4, pinchStartScale * (dist / pinchStartDist)));
+      // Keep the pinch midpoint visually stationary while scaling
+      const ratio = newScale / pinchStartScale;
+      tx = pinchMidX * (1 - ratio) + pinchStartTx * ratio;
+      ty = pinchMidY * (1 - ratio) + pinchStartTy * ratio;
+      scale = newScale;
+      clampTranslation();
+      applyTransform(false);
+      showHud(scale);
+    }, { passive: false, capture: true });
+
+    wrapEl.addEventListener('touchend', function(e) {
+      if (isPinching && e.touches.length < 2) {
+        isPinching = false;
+        if (scale < 1.08) resetZoom(true); // snap back if barely zoomed
+      }
+    }, { passive: true, capture: true });
+
+    // ── Pan & double-tap (layer is active only when scale > 1) ──
+    layer.addEventListener('touchstart', function(e) {
+      if (e.touches.length !== 1 || isPinching) return;
+      e.preventDefault();
+      const now = Date.now();
+      if (now - lastTapTime < 280 && lastTapTime !== 0) {
+        // Double-tap → smooth reset to 1×
+        resetZoom(true);
+        lastTapTime = 0;
+        return;
+      }
+      lastTapTime = now;
+      panStartX  = e.touches[0].clientX; panStartY  = e.touches[0].clientY;
+      panStartTx = tx;                   panStartTy = ty;
+    }, { passive: false });
+
+    layer.addEventListener('touchmove', function(e) {
+      if (e.touches.length !== 1 || isPinching) return;
+      e.preventDefault();
+      const nx = panStartTx + (e.touches[0].clientX - panStartX);
+      const ny = panStartTy + (e.touches[0].clientY - panStartY);
+      if (panRafId !== null) cancelAnimationFrame(panRafId);
+      panRafId = requestAnimationFrame(() => {
+        panRafId = null;
+        tx = nx; ty = ny;
+        clampTranslation();
+        applyTransform(false);
+      });
+    }, { passive: false });
+
+    layer.addEventListener('touchend', function() {
+      if (panRafId !== null) { cancelAnimationFrame(panRafId); panRafId = null; }
+    }, { passive: true });
+
+    // Expose a reset handle on the element so switchVideoInPlayer can call it
+    wrapEl._zoomReset = resetZoom;
+  }
+
+  function _resetVideoZoom() {
+    const wrap = document.querySelector('#vp-overlay .vp-embed-wrap');
+    if (wrap && typeof wrap._zoomReset === 'function') wrap._zoomReset(false);
+  }
+
   function openVideoPlayer(groupId, itemId, _directItem) {
     let group = null, item = null;
     if (_directItem) {
@@ -6129,6 +6280,7 @@
     document.body.appendChild(el);
     document.body.style.overflow = 'hidden';
     _vpInitPlayer(el);
+    _initVideoZoom(el.querySelector('.vp-embed-wrap'));
     _startEyeBreakTimer();
     if (item.videoId) { loadYTApi(); setTimeout(tryBindYTPlayer, 900); }
   }
@@ -6195,6 +6347,9 @@
     if (desktopCol) desktopCol.innerHTML = newNotes;
     const mobileNotes = document.querySelector('.vp-notes-mobile');
     if (mobileNotes) mobileNotes.innerHTML = newNotes;
+
+    // Reset zoom when switching videos
+    _resetVideoZoom();
 
     // Rebind YT player to new video
     _ytPlayer = null; _ytPlayerReady = false; _ytPlayerState = -1;
