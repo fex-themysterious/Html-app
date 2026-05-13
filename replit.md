@@ -52,6 +52,14 @@ An offline-capable Progressive Web App for tracking study progress with spaced r
 ## User preferences
 _Populate as you build_
 
+## Date / Timezone Architecture
+- **`localISO(d)`** — canonical date formatter. Uses `d.getFullYear() / getMonth() / getDate()` (local fields). NEVER use `toISOString().slice(0,10)` for date keys — it returns UTC and causes off-by-one on UTC+ devices.
+- **`todayKey()`** — returns `localISO(new Date())`. All storage keys (`minutesByDate`, `sessions`, `videoMinutes`, `activity`) are local-timezone YYYY-MM-DD strings.
+- **`addDaysISO(base, days)`** — uses `localISO()` for the result. Safe for revision scheduling, streak maths, etc.
+- **`buildDateRange(n)`** — returns array of last N local-date keys, ascending, ending with today. Used for all chart loops (no `for` loop with `toISOString`).
+- **Migration** — runs once at startup (`_migrateStatsToLocalDates`): re-keys any old UTC-midnight keys to their local-date equivalent, then persists.
+- **Chart instant update** — focus session end (`onVfmComplete`) AND Pomodoro session end both call `renderStats()` if the Stats tab is visible. No page refresh needed.
+
 ## Gotchas
 - Cache-busting query param on `script.js?v=97` and `style.css?v=66` — increment when making changes; SW cache is `syllabus-tracker-v97`
 - Audio files need HTTP Range request support (already handled in `server.js` and `sw.js`)

@@ -11,7 +11,35 @@
 
   const STORAGE_KEY = 'syllabus_tracker_v2';
   const BACKUP_DATE_KEY = 'backup_last_date';
-  const todayKey = () => new Date().toISOString().slice(0, 10);
+
+  // ── Shared date utilities (always local-timezone, never UTC) ─────────────
+  // Zero day-offset guarantee: format a Date using local year/month/date fields.
+  // Never use toISOString() for date keys — it returns UTC which shifts for UTC+ zones.
+  function localISO(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+  // Returns today's YYYY-MM-DD in local timezone (used as the canonical storage key)
+  const todayKey = () => localISO(new Date());
+  // Build a date key N calendar days from a base local-ISO key
+  function addDaysISO(base, days) {
+    const d = new Date(base + 'T00:00:00');
+    d.setDate(d.getDate() + days);
+    return localISO(d);
+  }
+  // Build an array of the last N local-date keys ending with today (ascending)
+  function buildDateRange(n) {
+    const arr = [];
+    const now = new Date();
+    for (let i = n - 1; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      arr.push(localISO(d));
+    }
+    return arr;
+  }
   const uid = () => Math.random().toString(36).slice(2, 10);
 
   // ── Built-in Motivation Quotes (interval system) ─────────────────
@@ -43,7 +71,7 @@
 
   function addDaysISO(base, days) {
     const d = new Date(base + 'T00:00:00'); d.setDate(d.getDate() + days);
-    return d.toISOString().slice(0, 10);
+    return localISO(d);
   }
   function nextDateISO(d) { return addDaysISO(todayKey(), d); }
   function daysBetween(a, b) { return Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000); }
@@ -692,7 +720,7 @@
   function _sWeekStart() {
     const d = new Date(todayKey() + 'T00:00:00'), dow = d.getDay();
     d.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
-    return d.toISOString().slice(0, 10);
+    return localISO(d);
   }
   function _sWeeklyMinutes() {
     const m = (state.focusStats && state.focusStats.minutesByDate) || {}, s = _sWeekStart();
@@ -1423,6 +1451,43 @@
   const _hadLocalData = !!localStorage.getItem(STORAGE_KEY);
   let state = loadState();
 
+  // ── One-time migration: UTC date keys → local-date keys ──────────────────
+  // Old todayKey() used toISOString() (UTC). For UTC+ timezones this stored
+  // data under the wrong calendar date.  Re-key each entry so the UTC midnight
+  // is mapped to the user's local calendar date, then persist once.
+  (function _migrateStatsToLocalDates() {
+    const fields = ['minutesByDate', 'sessions', 'videoMinutes'];
+    let changed = false;
+    fields.forEach(field => {
+      const obj = state.focusStats[field];
+      if (!obj || typeof obj !== 'object') return;
+      const next = {};
+      Object.entries(obj).forEach(([k, v]) => {
+        // Interpret the stored key as UTC midnight and find the local calendar date
+        const utcMidnight = new Date(k + 'T00:00:00Z');
+        const localKey = localISO(utcMidnight);
+        if (localKey !== k) changed = true;
+        next[localKey] = (next[localKey] || 0) + v;
+      });
+      state.focusStats[field] = next;
+    });
+    // Also migrate activity keys
+    const act = state.activity;
+    if (act && typeof act === 'object') {
+      const nextAct = {};
+      Object.entries(act).forEach(([k, v]) => {
+        const localKey = localISO(new Date(k + 'T00:00:00Z'));
+        if (localKey !== k) changed = true;
+        nextAct[localKey] = (nextAct[localKey] || 0) + v;
+      });
+      if (changed) state.activity = nextAct;
+    }
+    if (changed) {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {}
+      console.log('[DateFix] Migrated UTC stat keys → local-date keys');
+    }
+  })();
+
   // ========== Helpers ==========
   function escapeHTML(s) {
     return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -2145,11 +2210,9 @@
 
   // ========== Burnout Detector ==========
   function activeDaysInLast(n) {
-    const today = new Date(todayKey() + 'T00:00:00'); let count = 0;
-    for (let i = 0; i < n; i++) {
-      const d = new Date(today); d.setDate(d.getDate() - i);
-      if ((state.activity[d.toISOString().slice(0, 10)] || 0) > 0) count++;
-    }
+    let count = 0;
+    const keys = buildDateRange(n);
+    keys.forEach(k => { if ((state.activity[k] || 0) > 0) count++; });
     return count;
   }
   function detectBurnout() {
@@ -4990,6 +5053,8 @@
     awardXP(mins, todayStr);
     saveState();
     renderDashboard();
+    // Instant realtime chart update — no page refresh needed
+    if (document.body.classList.contains('tab-stats')) renderStats();
     toast('🎉 Focus session complete! Great work!', 'success', 5000);
   }
 
@@ -5158,9 +5223,12 @@
       for (const t of ch.topics) { totalTopics++; if (t.done) doneTopics++; if (isWeakTopic(t)) totalWeak++; }
     }
 
-    // Activity: 14-day bars
-    const today = new Date(todayKey() + 'T00:00:00'); const days14 = [];
-    for (let i = 13; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); const k = d.toISOString().slice(0, 10); days14.push({ k, count: state.activity[k] || 0, label: d.toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 3) }); }
+    // Activity: 14-day bars (local-timezone keys)
+    const days14Keys = buildDateRange(14);
+    const days14 = days14Keys.map(k => {
+      const d = new Date(k + 'T00:00:00');
+      return { k, count: state.activity[k] || 0, label: d.toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 3) };
+    });
     const maxAct = Math.max(1, ...days14.map(d => d.count));
 
     // Focus stats
@@ -5170,9 +5238,10 @@
     const todaySessions = state.focusStats.sessions[todayStr] || 0;
     const todayFocusMin = state.focusStats.minutesByDate[todayStr] || 0;
 
-    // Streak stats
+    // Streak stats (local-timezone keys)
     const bestStreak = state.streak.best || state.streak.count || 0;
-    const activeDays30 = (() => { let c = 0; for (let i = 0; i < 30; i++) { const d = new Date(today); d.setDate(d.getDate() - i); if ((state.activity[d.toISOString().slice(0,10)] || 0) > 0) c++; } return c; })();
+    const last30Keys = buildDateRange(30);
+    const activeDays30 = last30Keys.filter(k => (state.activity[k] || 0) > 0).length;
 
     // Off-day / missed-day tracking (since install date)
     const installDate30 = (state.burnout && state.burnout.installDate) || todayKey();
@@ -5180,8 +5249,7 @@
     const missedDays30 = (() => {
       let c = 0;
       for (let i = 1; i <= daysSinceInstall; i++) {
-        const d = new Date(today); d.setDate(d.getDate() - i);
-        if ((state.activity[d.toISOString().slice(0, 10)] || 0) === 0) c++;
+        if ((state.activity[addDaysISO(todayKey(), -i)] || 0) === 0) c++;
       }
       return c;
     })();
@@ -5241,10 +5309,19 @@
     }
     const topicTotal = topicDone + topicWeak + topicRemaining || 1;
 
-    // 7-day focus trend
-    const days7 = []; const todayD = new Date(todayKey() + 'T00:00:00');
+    // 7-day focus trend — LOCAL timezone keys only, zero day-offset guarantee
     const videoMins = state.focusStats.videoMinutes || {};
-    for (let i = 6; i >= 0; i--) { const d = new Date(todayD); d.setDate(d.getDate() - i); const k = d.toISOString().slice(0, 10); days7.push({ k, min: state.focusStats.minutesByDate[k] || 0, vmin: videoMins[k] || 0, label: d.toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 3) }); }
+    const days7Keys = buildDateRange(7); // [6-days-ago … today], all local-ISO
+    const days7 = days7Keys.map(k => {
+      const d = new Date(k + 'T00:00:00');
+      return {
+        k,
+        min:      state.focusStats.minutesByDate[k] || 0,
+        vmin:     videoMins[k] || 0,
+        sessions: state.focusStats.sessions[k] || 0,
+        label:    d.toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 3)
+      };
+    });
     const maxFocus7 = Math.max(1, ...days7.map(d => d.min));
 
     // Classroom time stats
@@ -5254,9 +5331,10 @@
     const classroomFmt = m => m >= 60 ? `${Math.floor(m/60)}h ${m%60}m` : `${m}m`;
     const avgFocusMin = days7.length ? Math.round(days7.reduce((a, b) => a + b.min, 0) / days7.length) : 0;
 
-    // Best study day of week (last 60 days)
+    // Best study day of week (last 60 days) — local-timezone keys
     const dayTotals = [0,0,0,0,0,0,0]; const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-    for (let i = 0; i < 60; i++) { const d = new Date(todayD); d.setDate(d.getDate()-i); const k = d.toISOString().slice(0,10); dayTotals[d.getDay()] += (state.activity[k]||0); }
+    const last60Keys = buildDateRange(60);
+    last60Keys.forEach(k => { const dow = new Date(k + 'T00:00:00').getDay(); dayTotals[dow] += (state.activity[k] || 0); });
     const bestDayIdx = dayTotals.indexOf(Math.max(...dayTotals));
     const bestDay = dayNames[bestDayIdx];
 
@@ -5744,7 +5822,20 @@
   function initStatsCharts(days7, pieSubjects, days7cls) {
     if (!window.Chart) { setTimeout(() => initStatsCharts(days7, pieSubjects, days7cls), 300); return; }
 
-    // Weekly bar chart — data in hours, Y-axis 0–18h with 6h step marks
+    // Shared chart defaults
+    const CHART_ANIMATION = { duration: 600, easing: 'easeOutQuart' };
+    const todayIdx = 6; // days7[6] is always today by construction
+
+    // Helper: build per-bar colours with gradient-like brightness for current day
+    function focusBarColors(arr, todayColor, pastColor, emptyColor) {
+      return arr.map((d, i) => {
+        if (i === todayIdx) return todayColor;
+        const val = typeof d.min !== 'undefined' ? d.min : (d.vmin || 0);
+        return val > 0 ? pastColor : emptyColor;
+      });
+    }
+
+    // ── Weekly Focus bar chart ────────────────────────────────────────────────
     const weeklyCanvas = document.getElementById('stats-weekly-chart');
     if (weeklyCanvas) {
       const prev = Chart.getChart(weeklyCanvas); if (prev) prev.destroy();
@@ -5754,72 +5845,113 @@
           labels: days7.map(d => d.label),
           datasets: [{
             data: days7.map(d => parseFloat((d.min / 60).toFixed(2))),
-            backgroundColor: days7.map((d, i) => {
-              if (i === 6) return 'rgba(77,168,255,0.90)';   // today — bright
-              if (d.min > 0) return 'rgba(77,168,255,0.42)'; // past with data
-              return 'rgba(77,168,255,0.14)';                 // past, no data
-            }),
-            borderColor: days7.map((_, i) => i === 6 ? '#4da8ff' : 'transparent'),
-            borderWidth: days7.map((_, i) => i === 6 ? 2 : 0),
-            borderRadius: 8,
-            borderSkipped: false
+            backgroundColor: focusBarColors(days7, 'rgba(77,168,255,0.92)', 'rgba(77,168,255,0.44)', 'rgba(77,168,255,0.12)'),
+            borderColor:     days7.map((_, i) => i === todayIdx ? '#4da8ff' : 'transparent'),
+            borderWidth:     days7.map((_, i) => i === todayIdx ? 2 : 0),
+            borderRadius:    8,
+            borderSkipped:   false
           }]
         },
         options: {
           responsive: true, maintainAspectRatio: false,
+          animation: CHART_ANIMATION,
           plugins: {
             legend: { display: false },
             tooltip: {
-              backgroundColor: '#0d1b2a', borderColor: 'rgba(77,168,255,0.4)', borderWidth: 1,
-              titleColor: '#f0f6ff', bodyColor: '#94a3b8', padding: 10,
-              callbacks: { label: ctx => ` ${ctx.parsed.y.toFixed(1)} hrs` }
+              backgroundColor: '#0d1b2a', borderColor: 'rgba(77,168,255,0.5)', borderWidth: 1,
+              titleColor: '#f0f6ff', bodyColor: '#94a3b8', padding: 12,
+              callbacks: {
+                title: ctx => {
+                  const d = days7[ctx[0].dataIndex];
+                  const fullDay = new Date(d.k + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long' });
+                  return `${fullDay}  (${d.k})`;
+                },
+                label: ctx => {
+                  const d = days7[ctx.dataIndex];
+                  const hrs = (d.min / 60).toFixed(1);
+                  const s = d.sessions || 0;
+                  return ` ${hrs}h  •  ${s} session${s !== 1 ? 's' : ''}`;
+                }
+              }
             }
           },
           scales: {
-            x: { grid: { display: false }, border: { display: false }, ticks: { color: 'rgba(148,163,184,0.75)', font: { size: 11, weight: '600' } } },
+            x: {
+              grid: { display: false }, border: { display: false },
+              ticks: {
+                color: days7.map((_, i) => i === todayIdx ? '#4da8ff' : 'rgba(148,163,184,0.75)'),
+                font: { size: 11, weight: '600' }
+              }
+            },
             y: {
-              min: 0, suggestedMax: 18,
+              min: 0, suggestedMax: 6,
               grid: { color: 'rgba(255,255,255,0.05)' }, border: { display: false },
-              ticks: { color: 'rgba(148,163,184,0.6)', font: { size: 10 }, stepSize: 6, callback: v => v + 'h' }
+              ticks: { color: 'rgba(148,163,184,0.6)', font: { size: 10 }, maxTicksLimit: 5, callback: v => v + 'h' }
             }
           }
         }
       });
     }
 
-    // Classroom time 7-day bar chart (lime/green)
+    // ── Classroom Time bar chart (lime / green) ───────────────────────────────
     const classroomCanvas = document.getElementById('stats-classroom-chart');
     if (classroomCanvas && days7cls) {
       const prev = Chart.getChart(classroomCanvas); if (prev) prev.destroy();
+      // Build colours based on vmin (classroom has vmin, not min)
+      const clsColors = days7cls.map((d, i) => {
+        if (i === todayIdx)        return 'rgba(163,230,53,0.92)';
+        if ((d.vmin || 0) > 0)    return 'rgba(163,230,53,0.44)';
+        return 'rgba(163,230,53,0.12)';
+      });
       new Chart(classroomCanvas, {
         type: 'bar',
         data: {
           labels: days7cls.map(d => d.label),
           datasets: [{
             data: days7cls.map(d => parseFloat(((d.vmin || 0) / 60).toFixed(2))),
-            backgroundColor: days7cls.map((d, i) => {
-              if (i === 6) return 'rgba(163,230,53,0.90)';
-              if ((d.vmin || 0) > 0) return 'rgba(163,230,53,0.42)';
-              return 'rgba(163,230,53,0.13)';
-            }),
-            borderColor: days7cls.map((_, i) => i === 6 ? '#a3e635' : 'transparent'),
-            borderWidth: days7cls.map((_, i) => i === 6 ? 2 : 0),
-            borderRadius: 8, borderSkipped: false
+            backgroundColor: clsColors,
+            borderColor:     days7cls.map((_, i) => i === todayIdx ? '#a3e635' : 'transparent'),
+            borderWidth:     days7cls.map((_, i) => i === todayIdx ? 2 : 0),
+            borderRadius:    8, borderSkipped: false
           }]
         },
         options: {
           responsive: true, maintainAspectRatio: false,
+          animation: CHART_ANIMATION,
           plugins: {
             legend: { display: false },
             tooltip: {
-              backgroundColor: '#0d1b2a', borderColor: 'rgba(163,230,53,0.4)', borderWidth: 1,
-              titleColor: '#f0f6ff', bodyColor: '#94a3b8', padding: 10,
-              callbacks: { label: ctx => ` ${ctx.parsed.y.toFixed(1)} hrs` }
+              backgroundColor: '#0d1b2a', borderColor: 'rgba(163,230,53,0.5)', borderWidth: 1,
+              titleColor: '#f0f6ff', bodyColor: '#94a3b8', padding: 12,
+              callbacks: {
+                title: ctx => {
+                  const d = days7cls[ctx[0].dataIndex];
+                  const fullDay = new Date(d.k + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long' });
+                  return `${fullDay}  (${d.k})`;
+                },
+                label: ctx => {
+                  const d = days7cls[ctx.dataIndex];
+                  const mins = d.vmin || 0;
+                  const hrs = (mins / 60).toFixed(1);
+                  const sessions = d.sessions || 0;
+                  return ` ${hrs}h  •  ${sessions} session${sessions !== 1 ? 's' : ''}`;
+                }
+              }
             }
           },
           scales: {
-            x: { grid: { display: false }, border: { display: false }, ticks: { color: 'rgba(148,163,184,0.75)', font: { size: 11, weight: '600' } } },
-            y: { min: 0, grid: { color: 'rgba(255,255,255,0.05)' }, border: { display: false }, ticks: { color: 'rgba(148,163,184,0.6)', font: { size: 10 }, callback: v => v + 'h', maxTicksLimit: 4 }, beginAtZero: true }
+            x: {
+              grid: { display: false }, border: { display: false },
+              ticks: {
+                color: days7cls.map((_, i) => i === todayIdx ? '#a3e635' : 'rgba(148,163,184,0.75)'),
+                font: { size: 11, weight: '600' }
+              }
+            },
+            y: {
+              min: 0, beginAtZero: true,
+              grid: { color: 'rgba(255,255,255,0.05)' }, border: { display: false },
+              ticks: { color: 'rgba(148,163,184,0.6)', font: { size: 10 }, maxTicksLimit: 4, callback: v => v + 'h' }
+            }
           }
         }
       });
