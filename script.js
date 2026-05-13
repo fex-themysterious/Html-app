@@ -810,11 +810,13 @@
         xpTotal: (state.xp && state.xp.total) || 0, weeklyXP: _sWeeklyXP(),
         weeklyMinutes: _sWeeklyMinutes(),
         subjectMinutes: (state.focusStats && state.focusStats.minutesBySubject) || {},
+        focusStatsByDate: (state.focusStats && state.focusStats.minutesByDate) || {},
         focusStartedAt: status === 'focusing' ? (focusStartTime || Date.now()) : null,
         focusSubjectName: status === 'focusing' ? focusSubjectName : '',
         studyStreak: (state.streak && state.streak.count) || 0,
         avatarUrl: state.profile.avatarDataUrl || '',
         totalFocusMinutes: Object.values((state.focusStats && state.focusStats.minutesByDate) || {}).reduce((a, b) => a + b, 0),
+        totalSessions: ((state.focusStats && state.focusStats.sessions) || []).length,
         equippedItems: state.equippedItems || {},
         ...(extra || {})
       }, { merge: true });
@@ -857,6 +859,37 @@
     document.querySelectorAll('.grm-online-chip').forEach(el => {
       el.innerHTML = `<span class="grm-online-dot-sm"></span>${onlineCount} online`;
     });
+
+    // In-place stat bar + header momentum updates (skips full re-render while typing)
+    const _ipMomBar    = document.getElementById('sbar-momentum');
+    const _ipEnBar     = document.getElementById('sbar-energy');
+    const _ipHdrBar    = document.getElementById('smom-header-bar');
+    if (_ipMomBar || _ipEnBar || _ipHdrBar) {
+      const _momXP2 = members.reduce((s, m) => s + (m.weeklyXP || 0), 0);
+      const _momTgt = Math.max(500, members.length * 400);
+      const _actFoc = members.filter(m => _sStatusOf(m) === 'focusing').length;
+      const _todayM = members.reduce((s, m) => s + ((m.focusStatsByDate||{})[todayKey()]||0), 0);
+      const _avgStr = members.length ? members.reduce((s, m) => s + (m.studyStreak||0), 0) / members.length : 0;
+      const _ipMomPct = Math.min(100, Math.round(
+        Math.min(40, (_momXP2 / Math.max(1, _momTgt)) * 40) +
+        Math.min(30, (_actFoc / Math.max(1, members.length)) * 60) +
+        Math.min(20, (_todayM / Math.max(30, members.length * 20)) * 20) +
+        Math.min(10, _avgStr * 2)
+      ));
+      if (_ipMomBar) { _ipMomBar.style.width = _ipMomPct + '%'; }
+      const _ipMomPctEl = document.getElementById('sstat-mom-pct');
+      if (_ipMomPctEl) _ipMomPctEl.textContent = _ipMomPct + '%';
+      const _ipHdrPct = document.getElementById('smom-header-pct');
+      if (_ipHdrPct) _ipHdrPct.textContent = _ipMomPct + '%';
+      if (_ipHdrBar) _ipHdrBar.style.width = _ipMomPct + '%';
+      const _focBase2 = _actFoc === 0 ? 0 : _actFoc === 1 ? 28 : _actFoc === 2 ? 56 : Math.min(80, 60 + (_actFoc - 3) * 8);
+      const _enPct2   = Math.min(100, _focBase2 + Math.min(20, Math.round((_todayM / Math.max(1, members.length)) / 3)));
+      if (_ipEnBar) { _ipEnBar.style.width = _enPct2 + '%'; }
+      const _ipEnPctEl = document.getElementById('sstat-energy-pct');
+      if (_ipEnPctEl) _ipEnPctEl.textContent = _enPct2 + '%';
+      const _focCard = document.getElementById('sstat-focusing');
+      if (_focCard) _focCard.textContent = String(_actFoc);
+    }
   }
 
   // Smart re-render gate — skips full re-render while chat is focused, queues it for blur.
@@ -2095,8 +2128,15 @@
     if (!_socialRoomCode) { view.innerHTML = _renderSocialLobby(); return; }
     const _momMembers = Object.values(_socialMembers);
     const _momXP = _momMembers.reduce((s, m) => s + (m.weeklyXP || 0), 0);
-    const _momTarget = Math.max(500, _momMembers.length * 300);
-    const _momPct = Math.min(100, Math.round(_momXP / _momTarget * 100));
+    const _momTarget = Math.max(500, _momMembers.length * 400);
+    const _momActiveFocusing = _momMembers.filter(m => _sStatusOf(m) === 'focusing').length;
+    const _momTodayMins = _momMembers.reduce((s, m) => s + ((m.focusStatsByDate||{})[todayKey()]||0), 0);
+    const _momAvgStreak = _momMembers.length ? _momMembers.reduce((s, m) => s + (m.studyStreak||0), 0) / _momMembers.length : 0;
+    const _momXpScore    = Math.min(40, (_momXP / Math.max(1, _momTarget)) * 40);
+    const _momFocusScore = Math.min(30, (_momActiveFocusing / Math.max(1, _momMembers.length)) * 60);
+    const _momTodayScore = Math.min(20, (_momTodayMins / Math.max(30, _momMembers.length * 20)) * 20);
+    const _momStreakScore = Math.min(10, _momAvgStreak * 2);
+    const _momPct = Math.min(100, Math.round(_momXpScore + _momFocusScore + _momTodayScore + _momStreakScore));
     if (_momPct >= 100 && !_momentumConfettiFired) { _momentumConfettiFired = true; setTimeout(_sFireConfetti, 700); }
     if (_momPct < 90) _momentumConfettiFired = false;
     view.innerHTML = _renderSocialRoom();
@@ -2395,12 +2435,12 @@
     <div class="sroom-momentum">
       <div class="sroom-mom-top">
         <span class="sroom-mom-label">⚡ Collective Momentum</span>
-        <span class="sroom-mom-pct">${momentumPct}%</span>
+        <span class="sroom-mom-pct" id="smom-header-pct">${momentumPct}%</span>
       </div>
       <div class="sroom-mom-track">
-        <div class="sroom-mom-fill${momentumComplete ? ' sroom-mom-complete' : ''}" style="width:${momentumPct}%"></div>
+        <div class="sroom-mom-fill${momentumComplete ? ' sroom-mom-complete' : ''}" id="smom-header-bar" style="width:${momentumPct}%"></div>
       </div>
-      <div class="sroom-mom-sub">${activeFocusing > 0 ? `${activeFocusing} focusing now · ` : ''}${totalWeeklyXP.toLocaleString()} / ${momentumTarget.toLocaleString()} weekly XP${momentumComplete ? ' 🎉' : ''}</div>
+      <div class="sroom-mom-sub" id="smom-header-sub">${activeFocusing > 0 ? `${activeFocusing} focusing now · ` : ''}${totalWeeklyXP.toLocaleString()} / ${momentumTarget.toLocaleString()} XP${momentumComplete ? ' 🎉' : ''}</div>
     </div>`;
 
     // ── TAB NAV ──────────────────────────────────────────────────────
@@ -2514,46 +2554,59 @@
     const grpSorted = members.slice().sort((a, b) => (b.weeklyXP||0) - (a.weeklyXP||0));
     const grpRowsHTML = grpSorted.length ? grpSorted.map((m, i) => {
       const isMe = m.uid === _userId;
-      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : String(i+1);
-      const xpLabel = (m.weeklyXP||0) >= 1000 ? ((m.weeklyXP/1000).toFixed(1)+'k') : String(m.weeklyXP||0);
+      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="font-size:12px;color:var(--text-muted);font-weight:700">${i+1}</span>`;
+      const xpVal = m.weeklyXP||0;
+      const xpLabel = xpVal >= 1000 ? ((xpVal/1000).toFixed(1)+'k') : String(xpVal);
       const mEq = isMe ? _myEquipped() : (m.equippedItems || {});
       const borderCls = _cmkBorderClass(mEq);
       const titleHTML = _cmkTitleHTML(mEq);
+      const st = _sStatusOf(m);
+      const liveDot = st === 'focusing' ? '<span class="sroom-lb-live-dot"></span>' : '';
+      const streakBit = (m.studyStreak||0) > 1 ? `🔥${m.studyStreak}d` : '';
+      const hoursBit  = (m.weeklyMinutes||0) > 0 ? `📚${minsToHrs(m.weeklyMinutes||0)}` : '';
+      const subLine   = [streakBit, hoursBit].filter(Boolean).join(' · ');
       return `<div class="sroom-lb-row${isMe ? ' sroom-lb-me' : ''}">
         <span class="sroom-lb-rank">${medal}</span>
         <span class="sroom-lb-av${borderCls ? ' '+borderCls : ''}" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName||'S')}</span>
-        <span class="sroom-lb-name">${escapeHTML((m.displayName||'Anon').split(' ')[0])}${titleHTML}</span>
+        <div class="sroom-lb-info">
+          <span class="sroom-lb-name">${escapeHTML((m.displayName||'Anon').split(' ')[0])}${titleHTML}${liveDot}</span>
+          ${subLine ? `<span class="sroom-lb-sub">${subLine}</span>` : ''}
+        </div>
         <span class="sroom-lb-xp">⚡ ${xpLabel}</span>
-        <span class="sroom-lb-time">📚 ${minsToHrs(m.weeklyMinutes||0)}</span>
       </div>`;
-    }).join('') : '<div class="sroom-empty-txt">No ranking data yet.</div>';
+    }).join('') : `<div class="sroom-empty-txt" style="padding:18px 14px;text-align:center">No sessions yet — start focusing to earn XP and claim the top spot! 🏆</div>`;
 
     const glbRowsHTML = _globalLbData.slice(0, 15).map((m, i) => {
       const isMe = m.uid === _userId;
-      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : String(i+1);
+      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="font-size:12px;color:var(--text-muted);font-weight:700">${i+1}</span>`;
       const mEq = isMe ? _myEquipped() : (m.equippedItems || {});
       const borderCls = _cmkBorderClass(mEq);
       const titleHTML = _cmkTitleHTML(mEq);
+      const glbXp = m.weeklyXP||0;
+      const glbXpLabel = glbXp >= 1000 ? ((glbXp/1000).toFixed(1)+'k') : String(glbXp);
+      const glbHours = (m.weeklyMinutes||0) > 0 ? `📚${minsToHrs(m.weeklyMinutes||0)}` : '';
       return `<div class="sroom-lb-row${isMe ? ' sroom-lb-me' : ''}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name||'Anonymous')}">
         <span class="sroom-lb-rank">${medal}</span>
         <span class="sroom-lb-av${borderCls ? ' '+borderCls : ''}" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.name||'S')}</span>
-        <span class="sroom-lb-name">${escapeHTML((m.name||'Anon').split(' ')[0])}${titleHTML}</span>
-        <span class="sroom-lb-xp">⚡ ${(m.weeklyXP||0).toLocaleString()}</span>
-        <span class="sroom-lb-time">📚 ${minsToHrs(m.weeklyMinutes||0)}</span>
+        <div class="sroom-lb-info">
+          <span class="sroom-lb-name">${escapeHTML((m.name||'Anon').split(' ')[0])}${titleHTML}</span>
+          ${glbHours ? `<span class="sroom-lb-sub">${glbHours}</span>` : ''}
+        </div>
+        <span class="sroom-lb-xp">⚡ ${glbXpLabel}</span>
       </div>`;
     }).join('');
 
     const rankingsHTML = `
     <div class="sroom-lb-section">
-      <div class="sroom-lb-head">This Room — This Week</div>
+      <div class="sroom-lb-head">🏠 This Room · This Week</div>
       ${grpRowsHTML}
     </div>
     <div class="sroom-lb-section" style="margin-top:14px">
       <div class="sroom-lb-head-row">
-        <span class="sroom-lb-head">🌍 Global</span>
+        <span class="sroom-lb-head">🌍 Global Leaderboard</span>
         <button class="sroom-lb-refresh" data-act="social-lb-refresh" title="Refresh"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
       </div>
-      ${!_globalLbData.length ? '<div class="sroom-empty-txt" style="padding:12px 14px">No global data yet.</div>' : glbRowsHTML}
+      ${!_globalLbData.length ? '<div class="sroom-empty-txt" style="padding:18px 14px;text-align:center">Complete sessions to appear on the global board. 🌍</div>' : glbRowsHTML}
     </div>`;
 
     // ── GOALS PANE ───────────────────────────────────────────────────
@@ -2598,9 +2651,13 @@
     ${_renderVaultSection()}`;
 
     // ── STATS PANE ───────────────────────────────────────────────────
-    const totalFocusToday = members.reduce((s, m) => s + ((m.focusStatsByDate||{})[todayKey()]||0), 0);
-    const groupStreak     = members.reduce((s, m) => Math.max(s, m.studyStreak||0), 0);
-    const energyPct       = members.length ? Math.min(100, Math.round((activeFocusing/members.length)*100)) : 0;
+    const totalFocusToday   = members.reduce((s, m) => s + ((m.focusStatsByDate||{})[todayKey()]||0), 0);
+    const groupStreak       = members.reduce((s, m) => Math.max(s, m.studyStreak||0), 0);
+    const totalSessions     = members.reduce((s, m) => s + (m.totalSessions||0), 0);
+    const todayMinsPerMember = members.length ? totalFocusToday / members.length : 0;
+    const focusBase  = activeFocusing === 0 ? 0 : activeFocusing === 1 ? 28 : activeFocusing === 2 ? 56 : Math.min(80, 60 + (activeFocusing - 3) * 8);
+    const actBonus   = Math.min(20, Math.round(todayMinsPerMember / 3));
+    const energyPct  = Math.min(100, focusBase + actBonus);
 
     const subMap = {};
     members.forEach(m => Object.entries(m.subjectMinutes||{}).forEach(([sid, mins]) => {
@@ -2616,18 +2673,32 @@
 
     const masteryHTML = subRanked.length ? subRanked.map(sr => {
       const maxM = sr.top[0] ? sr.top[0].mins : 1;
+      const masterPct = Math.min(100, Math.round(sr.total / 600 * 100));
       return `<div class="sroom-mastery-card">
         <div class="sroom-mastery-head">
           <span class="sroom-mastery-badge" style="background:${sr.color}22;color:${sr.color}">${_sSubjectEmoji(sr.name)}</span>
-          <div><div class="sroom-mastery-name">${escapeHTML(sr.name)}</div>${sr.top[0]?`<div class="sroom-mastery-king">👑 ${escapeHTML(sr.top[0].name||'—')} · ${minsToHrs(sr.top[0].mins)}</div>`:''}</div>
+          <div style="flex:1;min-width:0">
+            <div class="sroom-mastery-name">${escapeHTML(sr.name)}</div>
+            <div class="sroom-mastery-king">${minsToHrs(sr.total)} total${sr.top[0] ? ` · 👑 ${escapeHTML(sr.top[0].name||'—')}` : ''}</div>
+          </div>
+          <span class="sroom-mastery-pct" style="color:${sr.color}">${masterPct}%</span>
         </div>
+        <div class="sroom-mastery-bar-wrap sroom-mastery-bar-master">
+          <div class="sroom-mastery-bar" style="width:${masterPct}%;background:linear-gradient(90deg,${sr.color}88,${sr.color})"></div>
+        </div>
+        <div class="sroom-mastery-members">
         ${sr.top.map(t => `<div class="sroom-mastery-row">
           <span class="sroom-mastery-av" style="background:${_sAvatarColor(t.uid)}">${_sInitials(t.name||'S')}</span>
-          <div class="sroom-mastery-bar-wrap"><div class="sroom-mastery-bar" style="width:${Math.round(t.mins/maxM*100)}%;background:${sr.color}"></div></div>
+          <div class="sroom-mastery-bar-wrap"><div class="sroom-mastery-bar" style="width:${Math.round(t.mins/maxM*100)}%;background:${sr.color}88"></div></div>
           <span class="sroom-mastery-time">${minsToHrs(t.mins)}</span>
         </div>`).join('')}
+        </div>
       </div>`;
-    }).join('') : '<div class="sroom-empty-txt">Complete focus sessions to see mastery data.</div>';
+    }).join('') : `<div class="sroom-mastery-empty">
+      <div class="sroom-mastery-empty-icon">📚</div>
+      <div class="sroom-mastery-empty-title">No mastery data yet</div>
+      <div class="sroom-mastery-empty-sub">Complete focus sessions with your subjects — they'll unlock mastery insights here.</div>
+    </div>`;
 
     const activeDuels = ((_socialRoomData&&_socialRoomData.duels)||[])
       .filter(d => !d.winner && d.endsAt > now && (d.challenger === _userId || d.opponent === _userId));
@@ -2659,23 +2730,44 @@
       </div>`;
     }).join('');
 
+    const weeklyXpLabel = totalWeeklyXP >= 1000 ? (totalWeeklyXP/1000).toFixed(1)+'k' : String(totalWeeklyXP);
     const statsHTML = `
     <div class="sroom-stats-grid">
-      <div class="sroom-stat-card"><div class="sroom-stat-val" style="color:${activeFocusing>0?'#4ade80':'var(--text-muted)'}">${activeFocusing}</div><div class="sroom-stat-lbl">Focusing</div></div>
-      <div class="sroom-stat-card"><div class="sroom-stat-val">${minsToHrs(totalFocusToday)}</div><div class="sroom-stat-lbl">Today</div></div>
-      <div class="sroom-stat-card"><div class="sroom-stat-val">${members.length}</div><div class="sroom-stat-lbl">Members</div></div>
-      <div class="sroom-stat-card"><div class="sroom-stat-val" style="color:#fbbf24">${totalWeeklyXP>=1000?(totalWeeklyXP/1000).toFixed(1)+'k':totalWeeklyXP}</div><div class="sroom-stat-lbl">Weekly XP</div></div>
-      <div class="sroom-stat-card"><div class="sroom-stat-val" style="color:#f97316">${groupStreak>0?'🔥':''}${groupStreak}d</div><div class="sroom-stat-lbl">Best Streak</div></div>
-      <div class="sroom-stat-card"><div class="sroom-stat-val" style="color:#a78bfa">${momentumPct}%</div><div class="sroom-stat-lbl">Momentum</div></div>
+      <div class="sroom-stat-card${activeFocusing > 0 ? ' sroom-stat-live' : ''}">
+        <div class="sroom-stat-val" id="sstat-focusing">${activeFocusing}</div>
+        <div class="sroom-stat-lbl">${activeFocusing > 0 ? '🟢 Focusing' : 'Focusing'}</div>
+      </div>
+      <div class="sroom-stat-card">
+        <div class="sroom-stat-val">${totalFocusToday > 0 ? (totalFocusToday >= 60 ? minsToHrs(totalFocusToday) : totalFocusToday+'m') : '—'}</div>
+        <div class="sroom-stat-lbl">Today</div>
+      </div>
+      <div class="sroom-stat-card">
+        <div class="sroom-stat-val">${members.length}</div>
+        <div class="sroom-stat-lbl">Members</div>
+      </div>
+      <div class="sroom-stat-card">
+        <div class="sroom-stat-val">${weeklyXpLabel}</div>
+        <div class="sroom-stat-lbl">Weekly XP</div>
+      </div>
+      <div class="sroom-stat-card">
+        <div class="sroom-stat-val">${groupStreak > 0 ? '🔥' : ''}${groupStreak}d</div>
+        <div class="sroom-stat-lbl">Best Streak</div>
+      </div>
+      <div class="sroom-stat-card">
+        <div class="sroom-stat-val">${totalSessions > 0 ? totalSessions : '—'}</div>
+        <div class="sroom-stat-lbl">Sessions</div>
+      </div>
     </div>
     <div class="sroom-bars">
       <div class="sroom-bar-row">
-        <div class="sroom-bar-meta"><span>⚡ Momentum</span><span>${momentumPct}%</span></div>
-        <div class="sroom-bar-track"><div class="sroom-bar-fill sroom-bar-momentum${momentumComplete?' sroom-bar-complete':''}" style="width:${momentumPct}%"></div></div>
+        <div class="sroom-bar-meta"><span>⚡ Momentum</span><span id="sstat-mom-pct">${momentumPct}%</span></div>
+        <div class="sroom-bar-track"><div class="sroom-bar-fill sroom-bar-momentum${momentumComplete?' sroom-bar-complete':''}" id="sbar-momentum" style="width:${momentumPct}%"></div></div>
+        <div class="sroom-bar-sub">${totalWeeklyXP.toLocaleString()} / ${momentumTarget.toLocaleString()} XP · ${activeFocusing > 0 ? activeFocusing+' focusing now' : 'no active sessions'}</div>
       </div>
       <div class="sroom-bar-row">
-        <div class="sroom-bar-meta"><span>🔥 Room Energy</span><span>${energyPct}%</span></div>
-        <div class="sroom-bar-track"><div class="sroom-bar-fill sroom-bar-energy" style="width:${energyPct}%"></div></div>
+        <div class="sroom-bar-meta"><span>🔥 Room Energy</span><span id="sstat-energy-pct">${energyPct}%</span></div>
+        <div class="sroom-bar-track${activeFocusing > 0 ? ' sroom-bar-track-live' : ''}"><div class="sroom-bar-fill sroom-bar-energy${energyPct >= 70 ? ' sroom-bar-energy-high' : ''}" id="sbar-energy" style="width:${energyPct}%"></div></div>
+        <div class="sroom-bar-sub">${activeFocusing > 0 ? activeFocusing+' member'+(activeFocusing>1?'s':'')+' actively focusing' : totalFocusToday > 0 ? minsToHrs(totalFocusToday)+' studied today' : 'Start a session to build energy'}</div>
       </div>
     </div>
     ${duelsHTML ? `<div class="sroom-sec-head" style="margin-top:16px">⚔️ Active Duels</div>${duelsHTML}` : ''}

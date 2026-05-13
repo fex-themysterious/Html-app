@@ -5671,6 +5671,32 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
   background: linear-gradient(90deg, #f97316, #fbbf24);
   box-shadow: 0 0 8px rgba(249,115,22,0.4);
 }
+.sroom-bar-energy-high {
+  background: linear-gradient(90deg, #ef4444, #f97316) !important;
+  box-shadow: 0 0 14px rgba(249,115,22,0.6) !important;
+}
+@keyframes sroom-energy-pulse { 0%,100% { box-shadow: 0 0 8px rgba(249,115,22,0.4); } 50% { box-shadow: 0 0 18px rgba(249,115,22,0.75); } }
+.sroom-bar-track-live .sroom-bar-fill { animation: sroom-energy-pulse 2s ease-in-out infinite; }
+.sroom-bar-sub { font-size: 10px; color: rgba(244,247,255,0.35); font-weight: 500; margin-top: 3px; line-height: 1.4; }
+
+/* Live "Focusing" stat card */
+.sroom-stat-live { border-color: rgba(74,222,128,0.35) !important; }
+.sroom-stat-live .sroom-stat-val { animation: sroom-mc-glow 2.5s ease-in-out infinite; }
+
+/* Rankings info column */
+.sroom-lb-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+.sroom-lb-info .sroom-lb-name { flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sroom-lb-sub { font-size: 10px; color: rgba(244,247,255,0.32); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sroom-lb-live-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #4ade80; margin-left: 5px; box-shadow: 0 0 6px rgba(74,222,128,0.8); vertical-align: middle; animation: sroom-pulse 2s infinite; }
+
+/* Mastery master bar + empty state */
+.sroom-mastery-bar-master { height: 6px !important; margin-bottom: 10px; }
+.sroom-mastery-pct { font-size: 13px; font-weight: 800; flex-shrink: 0; }
+.sroom-mastery-members { display: flex; flex-direction: column; gap: 0; }
+.sroom-mastery-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 28px 16px; text-align: center; }
+.sroom-mastery-empty-icon { font-size: 38px; }
+.sroom-mastery-empty-title { font-size: 14px; font-weight: 700; color: var(--text-muted); }
+.sroom-mastery-empty-sub { font-size: 12px; color: rgba(244,247,255,0.3); line-height: 1.5; max-width: 240px; }
 
 /* Subject Mastery */
 .sroom-mastery-list  { display: flex; flex-direction: column; gap: 10px; }
