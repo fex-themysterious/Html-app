@@ -739,6 +739,7 @@
   let _socialUnsubChat    = null;
   let _chatScrollAtBottom = true;
   let _chatTypingTimeout  = null;
+  let _chatReplyTarget    = null; // { id, name, text }
   let _pendingRenderSocial = false;  // deferred full re-render when chat input is focused
   let _voiceRemoteAudios = {};
 
@@ -1058,41 +1059,71 @@
     }
   }
 
-  const _REACT_EMOJIS = ['👍','🔥','💯','😂','❤️','🎯'];
-
   function _buildChatMessagesHTML() {
     if (!_chatMessages.length) {
-      return `<div class="chat-empty"><div class="chat-empty-icon">💬</div><div class="chat-empty-title">No messages yet</div><div class="chat-empty-sub">Start the group conversation</div></div>`;
+      return `<div class="chat-empty"><div class="chat-empty-icon">💬</div><div class="chat-empty-title">No messages yet</div><div class="chat-empty-sub">Be the first to say something!</div></div>`;
     }
     let html = '';
-    let prevUid = null, prevTime = 0;
+    let prevUid = null, prevTime = 0, prevDateStr = null;
+    const nowDate = new Date();
+    const yesterDate = new Date(Date.now() - 86400000);
     _chatMessages.forEach(msg => {
+      const isDeleted = !!msg.deletedAt;
       const isMe = msg.uid === _userId;
-      const showHead = msg.uid !== prevUid || (msg.sentAt - prevTime) > 5 * 60 * 1000;
+      const msgDate = new Date(msg.sentAt);
+      const dateStr = msgDate.toDateString();
+      // Date separator
+      if (dateStr !== prevDateStr) {
+        let label;
+        if (dateStr === nowDate.toDateString()) label = 'Today';
+        else if (dateStr === yesterDate.toDateString()) label = 'Yesterday';
+        else label = msgDate.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+        html += `<div class="chat-date-sep"><span class="chat-date-sep-txt">${label}</span></div>`;
+        prevDateStr = dateStr;
+        prevUid = null;
+      }
+      const timeDiff = msg.sentAt - prevTime;
+      const showHead = msg.uid !== prevUid || timeDiff > 5 * 60 * 1000;
+      const isGrouped = !showHead;
       const ts = _formatChatTime(msg.sentAt);
+      // Reactions
       const reactions = msg.reactions || {};
-      const chipsHTML = Object.entries(reactions).filter(([, uids]) => uids.length > 0)
+      const reactsHTML = Object.entries(reactions).filter(([, uids]) => uids.length > 0)
         .map(([e_, uids]) => {
           const mine = uids.includes(_userId);
           return `<button class="crh${mine ? ' crh-mine' : ''}" data-act="chat-react" data-msgid="${msg.id}" data-emoji="${e_}">${e_} <span class="crh-count">${uids.length}</span></button>`;
         }).join('');
-      const picker = `<div class="crp" id="crp-${msg.id}">${_REACT_EMOJIS.map(e_ => `<button class="crp-btn" data-act="chat-react" data-msgid="${msg.id}" data-emoji="${e_}">${e_}</button>`).join('')}</div>`;
-      const trigger = `<button class="crt" data-act="chat-picker-toggle" data-msgid="${msg.id}" title="React">+</button>`;
+      const reactRow = reactsHTML ? `<div class="crh-row${isMe ? ' crh-row-me' : ''}">${reactsHTML}</div>` : '';
+      // Reply quote
+      let replyHTML = '';
+      if (msg.replyTo && !isDeleted) {
+        replyHTML = `<div class="chat-reply-quote"><span class="chat-reply-quote-name">${escapeHTML(msg.replyTo.name || 'Unknown')}</span><span class="chat-reply-quote-text">${escapeHTML((msg.replyTo.text || '').slice(0, 80))}</span></div>`;
+      }
+      // Bubble content
+      let bubbleContent;
+      if (isDeleted) {
+        bubbleContent = `<span class="chat-deleted-label">Message deleted</span>`;
+      } else {
+        bubbleContent = replyHTML + escapeHTML(msg.text) + (msg.editedAt ? `<span class="chat-edited-label"> · edited</span>` : '');
+      }
+      const menuAttrs = !isDeleted ? `data-act="chat-msg-menu" data-msgid="${escapeHTML(msg.id)}" data-ismine="${isMe}"` : '';
       if (isMe) {
-        html += `<div class="chat-msg-row chat-msg-me">
-          ${showHead ? `<div class="chat-ts-label">${ts}</div>` : ''}
-          <div class="cbo cbo-me">${picker}<div class="chat-bubble chat-bubble-me">${escapeHTML(msg.text)}</div>${trigger}</div>
-          ${chipsHTML ? `<div class="crh-row crh-row-me">${chipsHTML}</div>` : ''}
+        html += `<div class="chat-msg-row chat-msg-me${isGrouped ? ' chat-grouped' : ''}">
+          ${showHead ? `<div class="chat-ts-row"><span class="chat-ts">${ts}</span></div>` : ''}
+          <div class="chat-bubble chat-bubble-me${isDeleted ? ' chat-bubble-deleted' : ''}" ${menuAttrs}>${bubbleContent}</div>
+          ${reactRow}
         </div>`;
       } else {
         const ini = _sInitials(msg.name || 'S');
         const col = _sAvatarColor(msg.uid);
-        html += `<div class="chat-msg-row chat-msg-them${showHead ? ' chat-msg-head' : ''}">
-          ${showHead ? `<div class="chat-av" style="background:${col}">${ini}</div>` : `<div class="chat-av-spacer"></div>`}
+        html += `<div class="chat-msg-row chat-msg-them${isGrouped ? ' chat-grouped' : ''}">
+          <div class="chat-msg-av-col">
+            ${showHead ? `<div class="chat-av" style="background:${col}">${ini}</div>` : `<div class="chat-av-spacer"></div>`}
+          </div>
           <div class="chat-msg-body">
-            ${showHead ? `<div class="chat-sender">${escapeHTML(msg.name || 'Anonymous')} <span class="chat-ts">${ts}</span></div>` : ''}
-            <div class="cbo">${trigger}${picker}<div class="chat-bubble chat-bubble-them">${escapeHTML(msg.text)}</div></div>
-            ${chipsHTML ? `<div class="crh-row">${chipsHTML}</div>` : ''}
+            ${showHead ? `<div class="chat-sender">${escapeHTML(msg.name || 'Anonymous')}<span class="chat-ts">${ts}</span></div>` : ''}
+            <div class="chat-bubble chat-bubble-them${isDeleted ? ' chat-bubble-deleted' : ''}" ${menuAttrs}>${bubbleContent}</div>
+            ${reactRow}
           </div>
         </div>`;
       }
@@ -1113,9 +1144,62 @@
     text = (text || '').trim();
     if (!text || !_db || !_userId || !_socialRoomCode) return;
     const msg = { id: uid(), uid: _userId, name: _sDisplayName(), text, sentAt: Date.now() };
+    if (_chatReplyTarget) {
+      msg.replyTo = { id: _chatReplyTarget.id, name: _chatReplyTarget.name, text: _chatReplyTarget.text };
+      _chatReplyTarget = null;
+      const bar = document.getElementById('chat-reply-bar');
+      if (bar) bar.style.display = 'none';
+    }
+    // Optimistic render — show instantly, revert on failure
+    _chatMessages.push(msg);
+    _renderChatOnly();
     try {
       await _db.collection('groups').doc(_socialRoomCode).collection('messages').doc(msg.id).set(msg);
-    } catch(e) { toast('Failed to send', 'danger'); }
+    } catch(e) {
+      toast('Failed to send', 'danger');
+      _chatMessages = _chatMessages.filter(m => m.id !== msg.id);
+      _renderChatOnly();
+    }
+  }
+
+  async function _sChatDeleteMessage(msgId, everyone) {
+    if (!_db || !_socialRoomCode || !msgId) return;
+    const msgRef = _db.collection('groups').doc(_socialRoomCode).collection('messages').doc(msgId);
+    try {
+      if (everyone) {
+        await msgRef.update({ deletedAt: Date.now(), text: '' });
+      } else {
+        _chatMessages = _chatMessages.filter(m => m.id !== msgId);
+        _renderChatOnly();
+      }
+    } catch(e) { toast('Could not delete', 'danger'); }
+  }
+
+  async function _sChatEditMessage(msgId, newText) {
+    newText = (newText || '').trim();
+    if (!_db || !_socialRoomCode || !msgId || !newText) return;
+    const msgRef = _db.collection('groups').doc(_socialRoomCode).collection('messages').doc(msgId);
+    try {
+      await msgRef.update({ text: newText, editedAt: Date.now() });
+    } catch(e) { toast('Could not edit', 'danger'); }
+  }
+
+  function _showChatMsgMenu(msgId, isMe) {
+    const msg = _chatMessages.find(m => m.id === msgId);
+    if (!msg || msg.deletedAt) return;
+    const preview = (msg.text || '').slice(0, 60);
+    const MENU_EMOJIS = ['👍','🔥','💯','😂','❤️','🎯','😮','🙌'];
+    openModal(`<div class="chat-menu-sheet">
+      <div class="chat-menu-preview">${escapeHTML(preview)}</div>
+      <div class="chat-menu-reacts">${MENU_EMOJIS.map(e => `<button class="chat-menu-react-btn" data-act="chat-menu-react" data-msgid="${msgId}" data-emoji="${e}">${e}</button>`).join('')}</div>
+      <div class="chat-menu-actions">
+        <button class="chat-menu-item" data-act="chat-menu-reply" data-msgid="${msgId}" data-mname="${escapeHTML(msg.name||'Unknown')}" data-mtext="${escapeHTML(preview)}"><span class="chat-menu-item-icon">↩️</span> Reply</button>
+        ${isMe ? `
+        <button class="chat-menu-item" data-act="chat-menu-edit" data-msgid="${msgId}" data-mtext="${escapeHTML(msg.text||'')}"><span class="chat-menu-item-icon">✏️</span> Edit Message</button>
+        <button class="chat-menu-item chat-menu-danger" data-act="chat-menu-delete-all" data-msgid="${msgId}"><span class="chat-menu-item-icon">🗑</span> Delete for Everyone</button>` : ''}
+      </div>
+      <button class="chat-menu-cancel" data-close>Cancel</button>
+    </div>`);
   }
 
   async function _sChatReact(msgId, emoji) {
@@ -2082,14 +2166,21 @@
       : typingNow.length > 1 ? `${typingNow.length} people are typing…` : '';
     const chatHTML = `
     <div class="grm2-chat-wrap">
-      <div class="grm2-chat-topbar">
-        <span class="grm2-chat-title">Group Chat</span>
-        <span class="grm-chat-online grm2-chat-online-pill"><span class="grm2-live-dot"></span>${onlineCount} online</span>
-      </div>
-      ${typingText ? `<div class="grm-typing-row grm2-typing-bar"><span class="grm-typing-dots"><span></span><span></span><span></span></span><span class="grm-typing-txt">${typingText}</span></div>` : '<div class="grm-typing-row grm2-typing-bar" style="display:none"></div>'}
+      ${typingText ? `<div class="grm2-typing-bar grm-typing-row"><span class="grm-typing-dots"><span></span><span></span><span></span></span><span class="grm-typing-txt">${typingText}</span></div>` : ''}
       <div class="grm2-chat-messages" id="chat-messages">${_buildChatMessagesHTML()}</div>
       <div class="grm2-chat-new-pill" id="chat-new-pill" style="display:none" data-act="chat-scroll-bottom">↓ New messages</div>
+      <div class="grm2-reply-bar" id="chat-reply-bar" style="display:none">
+        <div class="grm2-reply-bar-inner">
+          <div class="grm2-reply-bar-name" id="chat-reply-bar-name">Replying to</div>
+          <div class="grm2-reply-bar-text" id="chat-reply-bar-text"></div>
+        </div>
+        <button class="grm2-reply-bar-close" data-act="chat-reply-cancel">✕</button>
+      </div>
+      <div class="grm2-emoji-picker" id="chat-emoji-picker">
+        ${'😊 😂 ❤️ 🔥 👍 👎 😮 😢 🎉 🤔 💯 🙏 ✨ 🚀 💪 🎯 🏆 ⚡ 🌟 😎 🤣 💀 🤦 🙌 👏 🫡 😍 🤩 😏 🥹'.split(' ').map(e => `<button class="grm2-emoji-key" data-act="chat-emoji-insert" data-emoji="${e}">${e}</button>`).join('')}
+      </div>
       <div class="grm2-chat-composer" id="grm-chat-composer">
+        <button class="grm2-emoji-btn" data-act="chat-emoji-toggle" aria-label="Emoji">😊</button>
         <textarea
           class="grm2-chat-input"
           id="chat-text-input"
@@ -8271,19 +8362,75 @@
     if (act === 'social-join')   { const inp = document.getElementById('social-join-input'); _sJoinRoom(inp ? inp.value.trim().toUpperCase() : '').catch(() => {}); return; }
     if (act === 'social-leave')  { _sLeaveRoom(); return; }
     if (act === 'social-rejoin') { _sJoinRoom(el.dataset.code).catch(() => {}); return; }
-    if (act === 'chat-picker-toggle') {
-      const msgId = el.dataset.msgid;
-      document.querySelectorAll('.crp.crp-open').forEach(p => { if (p.id !== `crp-${msgId}`) p.classList.remove('crp-open'); });
-      const picker = document.getElementById(`crp-${msgId}`);
-      if (picker) picker.classList.toggle('crp-open');
+    if (act === 'chat-react') {
+      const msgId = el.dataset.msgid, emoji = el.dataset.emoji;
+      if (msgId && emoji) _sChatReact(msgId, emoji).catch(() => {});
       return;
     }
-    if (act === 'chat-react') {
-      const msgId = el.dataset.msgid;
-      const emoji = el.dataset.emoji;
+    if (act === 'chat-msg-menu') {
+      const msgId = el.dataset.msgid, isMe = el.dataset.ismine === 'true';
+      _showChatMsgMenu(msgId, isMe);
+      return;
+    }
+    if (act === 'chat-menu-react') {
+      const msgId = el.dataset.msgid, emoji = el.dataset.emoji;
+      closeModal();
       if (msgId && emoji) _sChatReact(msgId, emoji).catch(() => {});
-      const picker = document.getElementById(`crp-${msgId}`);
-      if (picker) picker.classList.remove('crp-open');
+      return;
+    }
+    if (act === 'chat-menu-reply') {
+      closeModal();
+      _chatReplyTarget = { id: el.dataset.msgid, name: el.dataset.mname, text: el.dataset.mtext };
+      const bar = document.getElementById('chat-reply-bar');
+      const barName = document.getElementById('chat-reply-bar-name');
+      const barText = document.getElementById('chat-reply-bar-text');
+      if (bar) bar.style.display = 'flex';
+      if (barName) barName.textContent = `Replying to ${el.dataset.mname || 'Unknown'}`;
+      if (barText) barText.textContent = el.dataset.mtext || '';
+      setTimeout(() => { const inp = document.getElementById('chat-text-input'); if (inp) inp.focus(); }, 100);
+      return;
+    }
+    if (act === 'chat-reply-cancel') {
+      _chatReplyTarget = null;
+      const bar = document.getElementById('chat-reply-bar');
+      if (bar) bar.style.display = 'none';
+      return;
+    }
+    if (act === 'chat-menu-edit') {
+      const msgId = el.dataset.msgid, origText = el.dataset.mtext || '';
+      closeModal();
+      openModal(`<h3>Edit Message</h3>
+        <textarea id="chat-edit-inp" style="width:100%;box-sizing:border-box;min-height:80px;padding:10px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px;resize:none;outline:none">${escapeHTML(origText)}</textarea>
+        <div class="actions" style="margin-top:12px"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn" id="chat-edit-save">Save</button></div>`,
+        root => {
+          const inp = root.querySelector('#chat-edit-inp');
+          if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+          root.querySelector('#chat-edit-save').onclick = () => { const val = inp ? inp.value : ''; closeModal(); _sChatEditMessage(msgId, val).catch(() => {}); };
+        });
+      return;
+    }
+    if (act === 'chat-menu-delete-all') {
+      const msgId = el.dataset.msgid;
+      closeModal();
+      confirmModal('Delete this message for everyone?', () => _sChatDeleteMessage(msgId, true).catch(() => {}), { title: 'Delete Message', yesLabel: 'Delete', yesClass: 'btn btn-danger', noLabel: 'Cancel' });
+      return;
+    }
+    if (act === 'chat-emoji-toggle') {
+      const picker = document.getElementById('chat-emoji-picker');
+      if (picker) picker.classList.toggle('grm2-emoji-open');
+      return;
+    }
+    if (act === 'chat-emoji-insert') {
+      const inp = document.getElementById('chat-text-input');
+      if (inp) {
+        const s = inp.selectionStart, e2 = inp.selectionEnd;
+        inp.value = inp.value.slice(0, s) + el.dataset.emoji + inp.value.slice(e2);
+        inp.selectionStart = inp.selectionEnd = s + (el.dataset.emoji || '').length;
+        inp.focus();
+        inp.dispatchEvent(new Event('input'));
+      }
+      const picker = document.getElementById('chat-emoji-picker');
+      if (picker) picker.classList.remove('grm2-emoji-open');
       return;
     }
     if (act === 'chat-send') {
@@ -8840,6 +8987,23 @@
     if (tab === 'focus') renderFocus();
     else renderAll();
   });
+
+  // Long-press on chat bubbles → action sheet
+  let _lp = null;
+  document.addEventListener('touchstart', e => {
+    const bubble = e.target.closest('.chat-bubble[data-act="chat-msg-menu"]');
+    if (!bubble) return;
+    _lp = setTimeout(() => {
+      _lp = null;
+      const msgId = bubble.dataset.msgid;
+      const isMe = bubble.dataset.ismine === 'true';
+      if (navigator.vibrate) navigator.vibrate(30);
+      _showChatMsgMenu(msgId, isMe);
+    }, 480);
+  }, { passive: true });
+  document.addEventListener('touchend',   () => { if (_lp) { clearTimeout(_lp); _lp = null; } }, { passive: true });
+  document.addEventListener('touchmove',  () => { if (_lp) { clearTimeout(_lp); _lp = null; } }, { passive: true });
+  document.addEventListener('touchcancel',() => { if (_lp) { clearTimeout(_lp); _lp = null; } }, { passive: true });
 
   // Keyboard
   document.addEventListener('keydown', e => {
