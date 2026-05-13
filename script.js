@@ -818,14 +818,19 @@
       } catch (_) {}
     }
     try {
+      // Use Date.now() — NOT serverTimestamp() — so the value is immediately
+      // available in the local Firestore cache without a pending-null phase.
+      // serverTimestamp() causes an instant re-fire where lastSeen === null,
+      // making _sStatusOf() return 'offline' for every member including yourself.
+      const nowMs = Date.now();
       await _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId).set({
         uid: _userId, displayName: _sDisplayName(), email: (u && u.email) || '',
-        status, lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
+        status, lastSeen: nowMs,
         xpTotal: (state.xp && state.xp.total) || 0, weeklyXP: _sWeeklyXP(),
         weeklyMinutes: _sWeeklyMinutes(),
         subjectMinutes: (state.focusStats && state.focusStats.minutesBySubject) || {},
         focusStatsByDate: (state.focusStats && state.focusStats.minutesByDate) || {},
-        focusStartedAt: status === 'focusing' ? (focusStartTime || Date.now()) : null,
+        focusStartedAt: status === 'focusing' ? (focusStartTime || nowMs) : null,
         focusSubjectName: status === 'focusing' ? focusSubjectName : '',
         studyStreak: (state.streak && state.streak.count) || 0,
         avatarUrl: state.profile.avatarDataUrl || '',
@@ -942,15 +947,20 @@
   }
 
   // ── Heartbeat rate controller ─────────────────────────────────────────────
+  let _sHeartbeatTick = 0; // count beats to throttle global-LB syncs
   function _sSetHeartbeatRate(ms) {
     if (_socialHeartbeatMs === ms && _socialHeartbeatId) return;
     _socialHeartbeatMs = ms;
     if (_socialHeartbeatId) { clearInterval(_socialHeartbeatId); _socialHeartbeatId = null; }
     if (!_db || !_socialRoomCode) return;
     _socialHeartbeatId = setInterval(() => {
+      _sHeartbeatTick++;
       const isIdle = Date.now() - _socialLastInputAt > SOCIAL_IDLE_INPUT_MS;
       const status = (focusRunning && focusMode === 'work') ? 'focusing' : (isIdle ? 'idle' : 'break');
       _sUpdatePresence(status, { lastInput: _socialLastInputAt });
+      // Sync global LB every ~5 beats so the leaderboard tab stays in step
+      // with the room member XP without flooding Firestore writes.
+      if (_sHeartbeatTick % 5 === 0) _updateGlobalLb();
     }, _socialHeartbeatMs);
   }
 
@@ -980,10 +990,27 @@
         _socialReconnectAttempts = 0;
         _socialReconnectToast    = false;
         snap.docChanges().forEach(change => {
-          if (change.type === 'removed') { delete _socialMembers[change.doc.id]; return; }
+          if (change.type === 'removed') {
+            // Clean up under both possible keys (doc.id and stored uid) to prevent ghost entries
+            delete _socialMembers[change.doc.id];
+            return;
+          }
           const data = { ...change.doc.data() };
-          if (data.lastSeen && typeof data.lastSeen.toMillis === 'function') data.lastSeen = data.lastSeen.toMillis();
-          _socialMembers[data.uid] = data;
+          // Normalise lastSeen to a plain millisecond integer.
+          // Old docs written with serverTimestamp() carry a Firestore Timestamp object;
+          // new docs (and any pending-write snapshots) carry a number or null.
+          if (data.lastSeen && typeof data.lastSeen.toMillis === 'function') {
+            data.lastSeen = data.lastSeen.toMillis();
+          } else if (!data.lastSeen || typeof data.lastSeen !== 'number') {
+            // Pending-write snapshot — server hasn't confirmed yet; treat as "just now"
+            // so the member appears online immediately rather than flickering offline.
+            data.lastSeen = Date.now();
+          }
+          // Use doc.id as the canonical key (equals _userId for the writing user).
+          // Fall back to data.uid in case of legacy data.
+          const key = data.uid || change.doc.id;
+          if (!data.uid) data.uid = change.doc.id; // back-fill missing uid field
+          _socialMembers[key] = data;
           // Real-time toast: detect when a teammate starts focusing
           if (data.uid !== _userId && data.status === 'focusing') {
             const prev = _socialPrevStatuses[data.uid];
@@ -1164,7 +1191,7 @@
     _chatScrollAtBottom = true;
     if (_db && _userId && _socialRoomCode) {
       _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId)
-        .set({ status: 'offline', lastSeen: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }).catch(() => {});
+        .set({ status: 'offline', lastSeen: Date.now() }, { merge: true }).catch(() => {});
     }
     _socialRoomCode = null; _socialMembers = {}; _socialRoomData = null;
     _socialLobbyCode = null;
@@ -3218,13 +3245,16 @@
       }, { merge: true }).catch(() => {});
     } catch(_) {}
   }
-  async function _loadGlobalLeaderboard() {
+  function _loadGlobalLeaderboard() {
     if (!_db) return;
-    try {
-      const snap = await _db.collection('global_lb').orderBy('weeklyXP', 'desc').limit(50).get();
-      _globalLbData = snap.docs.map(d => d.data());
-      if (_currentTab === 'social') renderSocial();
-    } catch(e) { console.warn('[Global LB]', e.message); }
+    // Replace one-shot .get() with a real-time listener so the global LB tab
+    // auto-updates whenever any user writes a new XP entry — no page refresh needed.
+    if (_globalLbUnsub) { _globalLbUnsub(); _globalLbUnsub = null; }
+    _globalLbUnsub = _db.collection('global_lb').orderBy('weeklyXP', 'desc').limit(50)
+      .onSnapshot(snap => {
+        _globalLbData = snap.docs.map(d => d.data());
+        if (_currentTab === 'social') renderSocial();
+      }, e => { console.warn('[Global LB]', e.message); });
   }
 
   // ── Social Profile Modal ──────────────────────────────────────────────────
@@ -9844,7 +9874,7 @@
       // Background: write a final "last seen" timestamp and throttle heartbeat to 30 s
       if (_db && _userId && _socialRoomCode) {
         _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId)
-          .set({ lastSeen: firebase.firestore.FieldValue.serverTimestamp(), status: 'break' }, { merge: true })
+          .set({ lastSeen: Date.now(), status: 'break' }, { merge: true })
           .catch(() => {});
         _sSetHeartbeatRate(SOCIAL_HEARTBEAT_SLOW_MS);
       }
