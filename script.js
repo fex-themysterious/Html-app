@@ -2270,33 +2270,49 @@
     if (!_socialLobbyCode) _socialLobbyCode = _sGenerateCode();
     const code = _socialLobbyCode;
 
-    // ── Global Leaderboard: featured #1 card ──
-    const top1 = _globalLbData[0] || null;
-    const restRows = _globalLbData.slice(1, 20).map((m, i) => {
+    // ── Global Leaderboard: podium top-3 + ranked list ──
+    const maxXP = _globalLbData[0] ? Math.max(_globalLbData[0].weeklyXP || 1, 1) : 1;
+
+    // Podium: silver(left) gold(center) bronze(right)
+    const _podSlots = [_globalLbData[1], _globalLbData[0], _globalLbData[2]];
+    const _podMedals = ['🥈', '🥇', '🥉'];
+    const _podCls    = ['slob-pod-2', 'slob-pod-1', 'slob-pod-3'];
+    const _podRanks  = [2, 1, 3];
+    const podiumHTML = _globalLbData.length ? `
+      <div class="slob-lb-podium">
+        ${_podSlots.map((m, pi) => {
+          if (!m) return `<div class="slob-lb-pod ${_podCls[pi]} slob-pod-empty"></div>`;
+          const isMe = m.uid === _userId;
+          const mEq  = isMe ? _myEquipped() : (m.equippedItems || {});
+          return `<div class="slob-lb-pod ${_podCls[pi]}${isMe?' slob-pod-me':''}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name||'Anonymous')}">
+            <div class="slob-pod-medal">${_podMedals[pi]}</div>
+            <div class="slob-pod-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.name||'S')}</div>
+            <div class="slob-pod-rank">${_podRanks[pi]}</div>
+            <div class="slob-pod-name">${escapeHTML((m.name||'Anonymous').split(' ')[0])}</div>
+            <div class="slob-pod-val">⚡ ${(m.weeklyXP||0).toLocaleString()}</div>
+            <div class="slob-pod-time">📚 ${minsToHrs(m.weeklyMinutes||0)}</div>
+          </div>`;
+        }).join('')}
+      </div>` : `<div class="slob-lb-empty">Complete a focus session to appear here!</div>`;
+
+    const listRowsHTML = _globalLbData.slice(3, 50).map((m, i) => {
       const isMe = m.uid === _userId;
-      const streak = (m.studyStreak || 0) >= 3 ? `<span class="slob-lb-streak">🔥${m.studyStreak}</span>` : '';
-      const mEq = isMe ? _myEquipped() : (m.equippedItems || {});
-      const borderCls = _cmkBorderClass(mEq);
-      const titleHTML = _cmkTitleHTML(mEq);
-      return `<div class="slob-lb-row${isMe ? ' slob-lb-me' : ''}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name || 'Anonymous')}">
-        <span class="slob-lb-rank">${i + 2}</span>
-        <span class="slob-lb-av${borderCls ? ' '+borderCls : ''}" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.name || 'S')}</span>
-        <span class="slob-lb-name">${escapeHTML(m.name || 'Anonymous')}${streak}${titleHTML}</span>
-        <span class="slob-lb-xp">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span>
-        <span class="slob-lb-time">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span>
+      const rank = i + 4;
+      const pct  = Math.round(((m.weeklyXP || 0) / maxXP) * 100);
+      const streak = (m.studyStreak || 0) >= 3 ? ` 🔥${m.studyStreak}` : '';
+      return `<div class="slob-lb-row2${isMe?' slob-lb-me':''}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name||'Anonymous')}">
+        <div class="slob-lb-rank2${rank<=10?' slob-rank2-top':''}">${rank}</div>
+        <div class="slob-lb-av2" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.name||'S')}</div>
+        <div class="slob-lb-row2-mid">
+          <div class="slob-lb-row2-name">${escapeHTML((m.name||'Anonymous'))}${streak}</div>
+          <div class="slob-lb-bar-wrap"><div class="slob-lb-bar-fill" style="width:${pct}%"></div></div>
+        </div>
+        <div class="slob-lb-row2-right">
+          <div class="slob-lb-row2-xp">⚡ ${(m.weeklyXP||0).toLocaleString()}</div>
+          <div class="slob-lb-row2-time">📚 ${minsToHrs(m.weeklyMinutes||0)}</div>
+        </div>
       </div>`;
     }).join('');
-
-    const top1Eq = top1 ? (top1.uid === _userId ? _myEquipped() : (top1.equippedItems || {})) : {};
-    const featuredCard = top1 ? `
-      <div class="slob-lb-featured${_cmkAuraClass(top1Eq) ? ' '+_cmkAuraClass(top1Eq) : ''}" data-act="view-profile-global" data-uid="${top1.uid}" data-name="${escapeHTML(top1.name || 'Anonymous')}">
-        <div class="slob-lb-featured-crown">👑</div>
-        <div class="slob-lb-featured-av${_cmkBorderClass(top1Eq) ? ' '+_cmkBorderClass(top1Eq) : ''}" style="background:${_sAvatarColor(top1.uid)}">${_sInitials(top1.name || 'S')}</div>
-        <div class="slob-lb-featured-name">${escapeHTML((top1.name || 'Anonymous').split(' ')[0])}</div>
-        ${_cmkTitleHTML(top1Eq) ? `<div class="slob-lb-featured-title">${_cmkTitleHTML(top1Eq)}</div>` : ''}
-        <div class="slob-lb-featured-xp">⚡ ${(top1.weeklyXP || 0).toLocaleString()}</div>
-        <div class="slob-lb-featured-time">📚 ${minsToHrs(top1.weeklyMinutes || 0)}</div>
-      </div>` : `<div class="slob-lb-empty">Complete a focus session to appear here!</div>`;
 
     const lbSection = `
       <div class="slob-section">
@@ -2309,8 +2325,8 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
           </button>
         </div>
-        ${featuredCard}
-        ${restRows ? `<div class="slob-lb-rest">${restRows}</div>` : ''}
+        ${podiumHTML}
+        ${listRowsHTML ? `<div class="slob-lb-list">${listRowsHTML}</div>` : ''}
       </div>
     `;
 
