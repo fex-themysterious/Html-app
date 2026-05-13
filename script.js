@@ -2810,7 +2810,7 @@
   // ── Admin Settings Modal (bottom-sheet) ──────────────────────────────────
   function _openAdminSettings() {
     if (!_db || !_userId || !_socialRoomCode || !_socialRoomData) { toast('Not available', 'warn'); return; }
-    if (_userId !== _socialRoomData.createdBy) { toast('Only the room creator can access Admin Settings', 'warn'); return; }
+    if (_userId !== _socialRoomData.createdBy) { toast('Only the room admin can access these settings', 'warn'); return; }
     const members = Object.values(_socialMembers);
     const isPrivate = !!(_socialRoomData && _socialRoomData.private);
     const notifOn = !!(state.socialNotif !== false);
@@ -2820,7 +2820,7 @@
       const isMe = m.uid === _userId;
       const st = _sStatusOf(m);
       const dotCol = st === 'focusing' ? '#5badff' : st !== 'offline' ? '#22c55e' : '#566e8a';
-      const statusTxt = isMe ? '👑 Creator · You' : st === 'focusing' ? '🔵 In Focus' : st !== 'offline' ? '🟢 Online' : '⚪ Offline';
+      const statusTxt = isMe ? '👑 Admin · You' : st === 'focusing' ? '🔵 Focusing' : st !== 'offline' ? '🟢 Online' : '⚪ Offline';
       return `<div class="adm-member-row">
         <div class="adm-member-av-wrap">
           <div class="adm-member-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName || 'S')}</div>
@@ -2841,7 +2841,10 @@
           <div class="adm-sheet-title">⚙️ Room Settings</div>
           <div class="adm-sheet-subtitle">${escapeHTML(roomName)}</div>
         </div>
-        <div class="adm-sheet-code">${_socialRoomCode}</div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
+          <span class="adm-admin-badge">👑 Admin</span>
+          <div class="adm-sheet-code">${_socialRoomCode}</div>
+        </div>
       </div>
 
       <div class="adm-group">
@@ -2850,6 +2853,11 @@
           <div class="adm-row-ico">🔑</div>
           <div class="adm-row-body"><div class="adm-row-title">Room Code</div><div class="adm-row-sub adm-mono">${_socialRoomCode}</div></div>
           <button class="adm-row-btn" data-act="social-copy-code">Copy</button>
+        </div>
+        <div class="adm-row" data-act="social-copy-code" style="cursor:pointer">
+          <div class="adm-row-ico">🔗</div>
+          <div class="adm-row-body"><div class="adm-row-title">Share Invite</div><div class="adm-row-sub">Copy code to invite friends to join</div></div>
+          <div class="adm-row-chev">›</div>
         </div>
       </div>
 
@@ -2871,15 +2879,6 @@
       </div>
 
       <div class="adm-group">
-        <div class="adm-group-label">INVITE</div>
-        <div class="adm-row" data-act="social-copy-code" style="cursor:pointer">
-          <div class="adm-row-ico">🔗</div>
-          <div class="adm-row-body"><div class="adm-row-title">Share Room Code</div><div class="adm-row-sub">Copy code and invite friends</div></div>
-          <div class="adm-row-chev">›</div>
-        </div>
-      </div>
-
-      <div class="adm-group">
         <div class="adm-group-label">NOTIFICATIONS</div>
         <div class="adm-row">
           <div class="adm-row-ico">🔔</div>
@@ -2898,7 +2897,7 @@
       </div>
 
       <div class="adm-group">
-        <div class="adm-group-label">TOOLS</div>
+        <div class="adm-group-label">ADMIN TOOLS</div>
         <div class="adm-row" data-act="admin-send-announcement" style="cursor:pointer">
           <div class="adm-row-ico">📢</div>
           <div class="adm-row-body"><div class="adm-row-title">Send Announcement</div><div class="adm-row-sub">Broadcast a highlighted message to all members</div></div>
@@ -2912,7 +2911,7 @@
       </div>
 
       <div class="adm-group adm-danger-group">
-        <div class="adm-group-label adm-danger-label">DANGER ZONE</div>
+        <div class="adm-group-label adm-danger-label">⚠ DANGER ZONE</div>
         <button class="adm-delete-btn adm-clear-msgs-btn" data-act="admin-clear-messages">
           <span class="adm-delete-ico">🧹</span>
           <div class="adm-delete-body">
@@ -2930,7 +2929,7 @@
       </div>
 
       <div class="adm-sheet-footer">
-        <button class="adm-close-btn" data-close>Done</button>
+        <button class="adm-close-btn btn" data-close>Done</button>
       </div>
     </div>`);
   }
@@ -2940,17 +2939,37 @@
     if (!_socialRoomData) { toast('Not in a room', 'warn'); return; }
     const creatorUid = _socialRoomData.createdBy;
     const creatorMember = _socialMembers[creatorUid];
-    const creatorName = creatorMember ? (creatorMember.displayName || 'Room Creator') : 'Room Creator';
+    const creatorName = creatorMember ? (creatorMember.displayName || 'Room Admin') : 'Room Admin';
     const notifOn = !!(state.socialNotif !== false);
     const roomName = (_socialRoomData && _socialRoomData.roomName) || `Room ${_socialRoomCode}`;
     const isPrivate = !!(_socialRoomData && _socialRoomData.private);
+    const members = Object.values(_socialMembers);
+
+    const memberRows = members.map(m => {
+      const isMe = m.uid === _userId;
+      const isOwner = m.uid === creatorUid;
+      const st = _sStatusOf(m);
+      const dotCol = st === 'focusing' ? '#5badff' : st !== 'offline' ? '#22c55e' : '#566e8a';
+      const statusTxt = isOwner ? '👑 Admin' : st === 'focusing' ? '🔵 Focusing' : st !== 'offline' ? '🟢 Online' : '⚪ Offline';
+      return `<div class="adm-member-row">
+        <div class="adm-member-av-wrap">
+          <div class="adm-member-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName || 'S')}</div>
+          <div class="adm-member-dot" style="background:${dotCol}"></div>
+        </div>
+        <div class="adm-member-info">
+          <div class="adm-member-name">${escapeHTML(m.displayName || 'Anonymous')}${isMe ? ' <span class="adm-you-tag">(you)</span>' : ''}</div>
+          <div class="adm-member-sub">${statusTxt}</div>
+        </div>
+        ${isOwner ? '<span class="adm-crown-badge">👑</span>' : ''}
+      </div>`;
+    }).join('') || '<div class="adm-empty">No members yet.</div>';
 
     openModal(`<div class="adm-sheet">
       <div class="adm-sheet-handle"></div>
       <div class="adm-sheet-hdr">
         <div>
           <div class="adm-sheet-title">${escapeHTML(roomName)}</div>
-          <div class="adm-sheet-subtitle">${isPrivate ? '🔒 Private' : '🌐 Public'} Room</div>
+          <div class="adm-sheet-subtitle">${isPrivate ? '🔒 Private' : '🌐 Public'} · ${members.length} member${members.length !== 1 ? 's' : ''}</div>
         </div>
         <div class="adm-sheet-code">${_socialRoomCode}</div>
       </div>
@@ -2962,10 +2981,20 @@
           <div class="adm-row-body"><div class="adm-row-title">Room Code</div><div class="adm-row-sub adm-mono">${_socialRoomCode}</div></div>
           <button class="adm-row-btn" data-act="social-copy-code">Copy</button>
         </div>
+        <div class="adm-row" data-act="social-copy-code" style="cursor:pointer">
+          <div class="adm-row-ico">🔗</div>
+          <div class="adm-row-body"><div class="adm-row-title">Share Room Code</div><div class="adm-row-sub">Copy and invite a friend to join</div></div>
+          <div class="adm-row-chev">›</div>
+        </div>
         <div class="adm-row">
           <div class="adm-row-ico">👑</div>
-          <div class="adm-row-body"><div class="adm-row-title">Room Creator</div><div class="adm-row-sub">${escapeHTML(creatorName)}</div></div>
+          <div class="adm-row-body"><div class="adm-row-title">Room Admin</div><div class="adm-row-sub">${escapeHTML(creatorName)}</div></div>
         </div>
+      </div>
+
+      <div class="adm-group">
+        <div class="adm-group-label">MEMBERS (${members.length})</div>
+        <div class="adm-members-list">${memberRows}</div>
       </div>
 
       <div class="adm-group">
@@ -2996,7 +3025,7 @@
       </div>
 
       <div class="adm-sheet-footer">
-        <button class="adm-close-btn" data-close>Done</button>
+        <button class="adm-close-btn btn" data-close>Done</button>
       </div>
     </div>`);
   }
@@ -9029,6 +9058,7 @@
     }
     if (act === 'admin-toggle-privacy') {
       if (!_db || !_socialRoomCode) return;
+      if (_userId !== (_socialRoomData && _socialRoomData.createdBy)) { toast('Only the room admin can change privacy', 'warn'); return; }
       const newPriv = !(_socialRoomData && _socialRoomData.private);
       _db.collection('groups').doc(_socialRoomCode).update({ private: newPriv })
         .then(() => { toast(newPriv ? '🔒 Room is now private' : '🌐 Room is now public', 'success'); closeModal(); })
@@ -9042,8 +9072,14 @@
       toast(state.socialNotif ? '🔔 Notifications on' : '🔕 Notifications off', 'info');
       return;
     }
-    if (act === 'admin-send-announcement') { closeModal(); _openAnnouncementModal(); return; }
-    if (act === 'admin-create-poll')       { closeModal(); _openCreatePollModal(); return; }
+    if (act === 'admin-send-announcement') {
+      if (_userId !== (_socialRoomData && _socialRoomData.createdBy)) { toast('Only the room admin can send announcements', 'warn'); return; }
+      closeModal(); _openAnnouncementModal(); return;
+    }
+    if (act === 'admin-create-poll') {
+      if (_userId !== (_socialRoomData && _socialRoomData.createdBy)) { toast('Only the room admin can create polls', 'warn'); return; }
+      closeModal(); _openCreatePollModal(); return;
+    }
     if (act === 'announcement-send') {
       const text = (document.getElementById('ann-text-input')?.value || '').trim();
       if (!text) { toast('Please enter announcement text', 'warn'); return; }
@@ -9076,9 +9112,19 @@
       if (msgId && !isNaN(idx)) _sPollVote(msgId, idx).catch(() => {});
       return;
     }
-    if (act === 'admin-kick')    { const uid_ = el.dataset.uid, name = el.dataset.name; confirmModal(`Kick ${name} from the room?`, () => _adminKickMember(uid_, name), { title: 'Kick Member?', yesLabel: 'Kick', yesClass: 'btn btn-danger', noLabel: 'Cancel' }); return; }
-    if (act === 'admin-clear-messages') { confirmModal('Delete all messages in this chat for everyone? This cannot be undone.', () => _adminClearAllMessages().catch(() => {}), { title: 'Clear All Messages?', yesLabel: 'Clear Chat', yesClass: 'btn btn-danger', noLabel: 'Cancel' }); return; }
-    if (act === 'admin-close-room') { confirmModal('Close and delete this room? All members will be sent back to the lobby.', () => _adminCloseRoom(), { title: 'Close Room?', yesLabel: 'Close Room', yesClass: 'btn btn-danger', noLabel: 'Cancel' }); return; }
+    if (act === 'admin-kick') {
+      if (_userId !== (_socialRoomData && _socialRoomData.createdBy)) { toast('Only the room admin can kick members', 'warn'); return; }
+      const uid_ = el.dataset.uid, name = el.dataset.name;
+      confirmModal(`Kick ${name} from the room?`, () => _adminKickMember(uid_, name), { title: 'Kick Member?', yesLabel: 'Kick', yesClass: 'btn btn-danger', noLabel: 'Cancel' }); return;
+    }
+    if (act === 'admin-clear-messages') {
+      if (_userId !== (_socialRoomData && _socialRoomData.createdBy)) { toast('Only the room admin can clear messages', 'warn'); return; }
+      confirmModal('Delete all messages in this chat for everyone? This cannot be undone.', () => _adminClearAllMessages().catch(() => {}), { title: 'Clear All Messages?', yesLabel: 'Clear Chat', yesClass: 'btn btn-danger', noLabel: 'Cancel' }); return;
+    }
+    if (act === 'admin-close-room') {
+      if (_userId !== (_socialRoomData && _socialRoomData.createdBy)) { toast('Only the room admin can close the room', 'warn'); return; }
+      confirmModal('Close and delete this room? All members will be sent back to the lobby.', () => _adminCloseRoom(), { title: 'Close Room?', yesLabel: 'Close Room', yesClass: 'btn btn-danger', noLabel: 'Cancel' }); return;
+    }
     if (act === 'voice-join')    { _voiceJoin(); return; }
     if (act === 'voice-leave')   { _voiceLeave(false); return; }
     if (act === 'voice-mute')    { _voiceMuteToggle(); return; }

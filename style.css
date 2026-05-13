@@ -5791,12 +5791,23 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
 /* ── Admin / Settings Sheet ──────────────────────────────────── */
 .adm-sheet {
   display: flex; flex-direction: column; max-height: 85vh; overflow-y: auto;
+  scrollbar-width: none; -ms-overflow-style: none;
 }
+.adm-sheet::-webkit-scrollbar { display: none; }
 .adm-sheet-handle {
   width: 40px; height: 4px; border-radius: 99px;
   background: rgba(255,255,255,0.12);
   margin: 0 auto 18px; flex-shrink: 0;
 }
+.adm-admin-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.04em;
+  color: #fbbf24; background: rgba(251,191,36,0.1);
+  border: 1px solid rgba(251,191,36,0.25);
+  border-radius: 8px; padding: 3px 8px;
+  text-transform: uppercase;
+}
+.adm-you-tag { font-size: 10px; color: var(--text-dim); font-weight: 500; }
 .adm-sheet-hdr {
   display: flex; align-items: flex-start; justify-content: space-between;
   padding: 0 0 18px; border-bottom: 1px solid rgba(255,255,255,0.07);
@@ -5810,8 +5821,8 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
   padding: 4px 10px; border-radius: 8px; flex-shrink: 0;
 }
 .adm-group {
-  padding: 16px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
-  display: flex; flex-direction: column;
+  padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,0.05);
+  display: flex; flex-direction: column; gap: 2px;
 }
 .adm-group:last-child { border-bottom: none; }
 .adm-group-label {
@@ -5819,10 +5830,10 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
   text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 12px;
 }
 .adm-row {
-  display: flex; align-items: center; gap: 12px; padding: 8px 10px;
-  min-height: 58px;
-  border-radius: 12px; transition: all 320ms cubic-bezier(0.22,1,0.36,1); cursor: default;
-  background: rgba(255,255,255,0.03);
+  display: flex; align-items: center; gap: 12px; padding: 7px 10px;
+  min-height: 52px;
+  border-radius: 12px; transition: all 260ms cubic-bezier(0.22,1,0.36,1); cursor: default;
+  background: rgba(255,255,255,0.025);
 }
 .adm-row:hover { background: rgba(91,168,255,0.08); }
 .adm-row-ico   { font-size: 18px; flex-shrink: 0; width: 32px; text-align: center; }
