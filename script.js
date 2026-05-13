@@ -1609,7 +1609,8 @@
     _stopSocialLiveTimers();
     _socialLiveTimerId = setInterval(() => {
       const now = Date.now();
-      document.querySelectorAll('.sm-elapsed[data-focusat]').forEach(el => {
+      // Support both old (.sm-elapsed) and new (.grm-elapsed) class names
+      document.querySelectorAll('.sm-elapsed[data-focusat], .grm-elapsed[data-focusat]').forEach(el => {
         const start = parseInt(el.dataset.focusat, 10);
         if (!start || isNaN(start)) return;
         const s = Math.floor((now - start) / 1000);
@@ -1660,23 +1661,20 @@
       view.innerHTML = `<div class="social-gate"><div class="social-gate-icon">👥</div><h2 class="social-gate-title">Social Study Rooms</h2><p class="social-gate-sub">Sign in to join a room and study with friends, compete in duels, and hit group goals together.</p><button class="btn" data-act="auth-show-modal">Sign In to Continue</button></div>`;
       return;
     }
-    // Always keep global leaderboard fresh when social tab is open
     if (!_socialRoomCode && (!_globalLbData || !_globalLbData.length)) {
       _loadGlobalLeaderboard().catch(() => {});
     }
     if (!_socialRoomCode) { view.innerHTML = _renderSocialLobby(); return; }
-    // Confetti check for momentum bar
     const _momMembers = Object.values(_socialMembers);
     const _momXP = _momMembers.reduce((s, m) => s + (m.weeklyXP || 0), 0);
     const _momTarget = Math.max(500, _momMembers.length * 300);
     const _momPct = Math.min(100, Math.round(_momXP / _momTarget * 100));
-    if (_momPct >= 100 && !_momentumConfettiFired) {
-      _momentumConfettiFired = true;
-      setTimeout(_sFireConfetti, 700);
-    }
+    if (_momPct >= 100 && !_momentumConfettiFired) { _momentumConfettiFired = true; setTimeout(_sFireConfetti, 700); }
     if (_momPct < 90) _momentumConfettiFired = false;
     view.innerHTML = _renderSocialRoom();
     _startSocialLiveTimers();
+
+    // ── Chat scroll & listeners ──
     const _chatEl = document.getElementById('chat-messages');
     if (_chatEl) {
       if (_chatScrollAtBottom) _chatEl.scrollTop = _chatEl.scrollHeight;
@@ -1686,6 +1684,8 @@
         if (pill) pill.style.display = _chatScrollAtBottom ? 'none' : 'flex';
       }, { passive: true });
     }
+
+    // ── Chat input: auto-grow + typing + Enter to send ──
     const _chatInp = document.getElementById('chat-text-input');
     if (_chatInp) {
       _chatInp.oninput = function() {
@@ -1693,6 +1693,43 @@
         this.style.height = Math.min(this.scrollHeight, 120) + 'px';
         _sChatTyping();
       };
+      _chatInp.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          if (this.value.trim()) { _sSendMessage(this.value).catch(() => {}); this.value = ''; this.style.height = 'auto'; }
+        }
+      });
+      // Focus: scroll messages to bottom so composer is visible
+      _chatInp.addEventListener('focus', () => {
+        setTimeout(() => {
+          if (_chatEl) _chatEl.scrollTop = _chatEl.scrollHeight;
+          _chatInp.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }, 200);
+      });
+    }
+
+    // ── Keyboard / visualViewport fix for mobile ──
+    const _composer = document.getElementById('grm-chat-composer');
+    if (_composer && window.visualViewport) {
+      const _vpHandler = () => {
+        const vp = window.visualViewport;
+        const offsetBottom = Math.max(0, window.innerHeight - vp.height - vp.offsetTop);
+        _composer.style.setProperty('--kb-offset', offsetBottom + 'px');
+        if (_chatEl && _chatScrollAtBottom) {
+          requestAnimationFrame(() => { _chatEl.scrollTop = _chatEl.scrollHeight; });
+        }
+      };
+      window.visualViewport.addEventListener('resize', _vpHandler, { passive: true });
+      window.visualViewport.addEventListener('scroll', _vpHandler, { passive: true });
+    }
+
+    // ── Inline room name edit setup ──
+    const _nameInp = document.getElementById('grm-name-input');
+    if (_nameInp) {
+      _nameInp.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); document.querySelector('[data-act="grm-name-inline-save"]')?.click(); }
+        if (e.key === 'Escape') { document.querySelector('[data-act="grm-name-inline-cancel"]')?.click(); }
+      });
     }
   }
 
@@ -1864,103 +1901,170 @@
       return sRank[_sStatusOf(a)] - sRank[_sStatusOf(b)];
     });
 
-    // ── Collective Momentum Bar ──
-    const totalWeeklyXP = members.reduce((s, m) => s + (m.weeklyXP || 0), 0);
-    const momentumTarget = Math.max(500, members.length * 300);
-    const momentumPct = Math.min(100, Math.round(totalWeeklyXP / momentumTarget * 100));
-    const momentumComplete = momentumPct >= 100;
-    const momentumHTML = `<div class="social-momentum">
-      <div class="momentum-top">
-        <div class="momentum-label"><span class="momentum-label-icon">⚡</span>Collective Momentum</div>
-        <span class="momentum-pct">${momentumPct}%</span>
-      </div>
-      <div class="momentum-track"><div class="momentum-fill${momentumComplete ? ' momentum-complete' : ''}" style="width:${momentumPct}%"></div></div>
-      <div class="momentum-sub">${totalWeeklyXP.toLocaleString()} / ${momentumTarget.toLocaleString()} XP this week${momentumComplete ? ' 🎉 Goal smashed!' : ` · ${members.length} member${members.length !== 1 ? 's' : ''}`}</div>
-    </div>`;
-
-    // ── Room Stats Strip ──
     const activeFocusing = members.filter(m => _sStatusOf(m) === 'focusing').length;
-    const todayKey_ = todayKey();
-    const totalFocusToday = members.reduce((s, m) => {
-      const byDate = (m.focusStatsByDate) || {};
-      return s + (byDate[todayKey_] || 0);
-    }, 0);
-    const energyPct = members.length ? Math.min(100, Math.round((activeFocusing / members.length) * 100)) : 0;
-    const roomStatsHTML = `<div class="room-stats-strip">
-      <div class="rss-item"><span class="rss-val" style="color:${activeFocusing > 0 ? '#4ade80' : 'var(--text-muted)'}">${activeFocusing}</span><span class="rss-lbl">Focusing</span></div>
-      <div class="rss-sep"></div>
-      <div class="rss-item"><span class="rss-val">${minsToHrs(totalFocusToday)}</span><span class="rss-lbl">Group Today</span></div>
-      <div class="rss-sep"></div>
-      <div class="rss-item"><span class="rss-val">${members.length}</span><span class="rss-lbl">Members</span></div>
-    </div>
-    <div class="room-energy-wrap">
-      <span class="room-energy-label">⚡ Room Energy</span>
-      <div class="room-energy-track"><div class="room-energy-fill" style="width:${energyPct}%"></div></div>
-      <span class="room-energy-pct">${energyPct}%</span>
+    const onlineCount    = members.filter(m => _sStatusOf(m) !== 'offline').length;
+    const todayKey_      = todayKey();
+    const totalFocusToday = members.reduce((s, m) => s + ((m.focusStatsByDate || {})[todayKey_] || 0), 0);
+    const totalWeeklyXP   = members.reduce((s, m) => s + (m.weeklyXP || 0), 0);
+    const momentumTarget  = Math.max(500, members.length * 300);
+    const momentumPct     = Math.min(100, Math.round(totalWeeklyXP / momentumTarget * 100));
+    const momentumComplete = momentumPct >= 100;
+    const energyPct       = members.length ? Math.min(100, Math.round((activeFocusing / members.length) * 100)) : 0;
+    const groupStreak     = members.reduce((s, m) => Math.max(s, m.studyStreak || 0), 0);
+    const isCreator       = _userId === (_socialRoomData && _socialRoomData.createdBy);
+    const roomName        = (_socialRoomData && _socialRoomData.roomName) || `Room ${_socialRoomCode}`;
+    const isPrivate       = !!(_socialRoomData && _socialRoomData.private);
+
+    // ── 1. Group Header ──────────────────────────────────────────────────────
+    const headerHTML = `
+    <div class="grm-header">
+      <div class="grm-header-inner">
+        <button class="grm-back-btn" data-act="social-leave" title="Back to Lobby">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div class="grm-av" style="background:${_sAvatarColor(_socialRoomCode)}">${_sInitials(roomName)}</div>
+        <div class="grm-title-block">
+          <div class="grm-name-display" id="grm-name-display">
+            <span class="grm-room-name">${escapeHTML(roomName)}</span>
+            ${isCreator ? `<button class="grm-edit-name-btn" data-act="grm-name-inline-edit" title="Rename room">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>` : ''}
+          </div>
+          <div class="grm-name-edit-form" id="grm-name-edit-form">
+            <input id="grm-name-input" class="grm-name-input" type="text" value="${escapeHTML(roomName)}" maxlength="40" autocomplete="off" spellcheck="false"/>
+            <button class="grm-name-save-btn" data-act="grm-name-inline-save">✓</button>
+            <button class="grm-name-cancel-btn" data-act="grm-name-inline-cancel">✕</button>
+          </div>
+          <div class="grm-header-meta">
+            <button class="grm-code-chip" data-act="social-copy-code" title="Tap to copy code">
+              <span class="grm-code-mono">${_socialRoomCode}</span>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+            <span class="grm-online-chip"><span class="grm-online-dot-sm"></span>${onlineCount} online</span>
+            <span class="grm-privacy-chip${isPrivate ? ' grm-privacy-private' : ''}">${isPrivate ? '🔒' : '🌐'}</span>
+          </div>
+        </div>
+        <button class="grm-settings-btn" data-act="social-room-settings" title="Room Settings">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </div>
     </div>`;
 
-    // ── Member Cards (animated presence + live elapsed timer + particles) ──
-    const memberCards = sorted.map(m => {
+    // ── 2. Live Stats ────────────────────────────────────────────────────────
+    const statsHTML = `
+    <div class="grm-section grm-stats-section">
+      <div class="grm-section-label">📊 Live Stats</div>
+      <div class="grm-stats-grid">
+        <div class="grm-stat-card"><div class="grm-stat-val" style="color:${activeFocusing > 0 ? '#4ade80' : 'var(--text-muted)'}">${activeFocusing}</div><div class="grm-stat-lbl">Focusing</div></div>
+        <div class="grm-stat-card"><div class="grm-stat-val">${minsToHrs(totalFocusToday)}</div><div class="grm-stat-lbl">Today</div></div>
+        <div class="grm-stat-card"><div class="grm-stat-val">${members.length}</div><div class="grm-stat-lbl">Members</div></div>
+        <div class="grm-stat-card"><div class="grm-stat-val" style="color:#fbbf24">${totalWeeklyXP >= 1000 ? (totalWeeklyXP/1000).toFixed(1)+'k' : totalWeeklyXP}</div><div class="grm-stat-lbl">Weekly XP</div></div>
+        <div class="grm-stat-card"><div class="grm-stat-val" style="color:#f97316">${groupStreak > 0 ? '🔥' : ''}${groupStreak}d</div><div class="grm-stat-lbl">Best Streak</div></div>
+        <div class="grm-stat-card"><div class="grm-stat-val" style="color:#a78bfa">${momentumPct}%</div><div class="grm-stat-lbl">Momentum</div></div>
+      </div>
+      <div class="grm-bars">
+        <div class="grm-bar-row">
+          <div class="grm-bar-meta"><span class="grm-bar-lbl">⚡ Collective Momentum</span><span class="grm-bar-pct">${momentumPct}%</span></div>
+          <div class="grm-bar-track"><div class="grm-bar-fill grm-bar-momentum${momentumComplete ? ' grm-bar-complete' : ''}" style="width:${momentumPct}%"></div></div>
+          <div class="grm-bar-sub">${totalWeeklyXP.toLocaleString()} / ${momentumTarget.toLocaleString()} XP this week${momentumComplete ? ' 🎉' : ''}</div>
+        </div>
+        <div class="grm-bar-row">
+          <div class="grm-bar-meta"><span class="grm-bar-lbl">🔥 Room Energy</span><span class="grm-bar-pct">${energyPct}%</span></div>
+          <div class="grm-bar-track"><div class="grm-bar-fill grm-bar-energy" style="width:${energyPct}%"></div></div>
+          <div class="grm-bar-sub">${activeFocusing} of ${members.length} focusing now</div>
+        </div>
+      </div>
+    </div>`;
+
+    // ── 3. Messenger Chat ────────────────────────────────────────────────────
+    const typingNow = members.filter(m => m.uid !== _userId && m.typing && (now - m.typing) < 5000);
+    const typingText = typingNow.length === 1
+      ? `${escapeHTML(typingNow[0].displayName || 'Someone')} is typing…`
+      : typingNow.length > 1 ? `${typingNow.length} people are typing…` : '';
+    const chatHTML = `
+    <div class="grm-section grm-chat-section">
+      <div class="grm-chat-header">
+        <div class="grm-chat-title-row">
+          <span class="grm-chat-title">💬 Group Chat</span>
+          <span class="grm-chat-online"><span class="grm-online-dot-sm"></span>${onlineCount} online</span>
+        </div>
+        ${typingText ? `<div class="grm-typing-row"><span class="grm-typing-dots"><span></span><span></span><span></span></span><span class="grm-typing-txt">${typingText}</span></div>` : ''}
+      </div>
+      <div class="grm-chat-body">
+        <div class="grm-chat-messages" id="chat-messages">${_buildChatMessagesHTML()}</div>
+        <div class="grm-chat-new-pill" id="chat-new-pill" style="display:none" data-act="chat-scroll-bottom">↓ New messages</div>
+      </div>
+      <div class="grm-chat-composer" id="grm-chat-composer">
+        <div class="grm-composer-row">
+          <textarea
+            class="grm-chat-input"
+            id="chat-text-input"
+            placeholder="Message the group…"
+            rows="1"
+            maxlength="500"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="sentences"
+            spellcheck="true"
+            inputmode="text"
+            enterkeyhint="send"
+          ></textarea>
+          <button class="grm-send-btn" data-act="chat-send" title="Send">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>`;
+
+    // ── 4. Active Members ────────────────────────────────────────────────────
+    const memberCardsHTML = sorted.map(m => {
       const st = _sStatusOf(m);
       const isMe = m.uid === _userId;
       const ini = _sInitials(m.displayName || 'S');
       const isFocusing = st === 'focusing';
       const isOnline = st !== 'offline';
-      let cardClass = 'social-member-card';
-      if (isFocusing) cardClass += ' sm-focusing';
-      else if (isOnline) cardClass += ' sm-online';
-      else cardClass += ' sm-offline';
-
-      // Live elapsed timer chip (data-focusat drives the 1s interval patcher)
+      const isOwner = m.uid === (_socialRoomData && _socialRoomData.createdBy);
       let elapsedChip = '';
       if (isFocusing && m.focusStartedAt) {
         const s = Math.floor((now - m.focusStartedAt) / 1000);
         const h = Math.floor(s / 3600), mn = Math.floor((s % 3600) / 60), sc = s % 60;
         const initTxt = h > 0 ? `${h}h ${mn}m` : mn > 0 ? `${mn}m ${String(sc).padStart(2,'0')}s` : `${sc}s`;
-        elapsedChip = `<span class="sm-elapsed" data-focusat="${m.focusStartedAt}">${initTxt}</span>`;
+        elapsedChip = `<span class="grm-elapsed" data-focusat="${m.focusStartedAt}">${initTxt}</span>`;
       }
-
-      const dot = isFocusing ? '🔵' : isOnline ? '🟢' : '⚪';
-      const stTxt = isFocusing ? 'In Focus' : isOnline ? 'Online' : 'Offline';
-      const subPill = isFocusing && m.focusSubjectName
-        ? `<div class="sm-subject-pill">${_sSubjectEmoji(m.focusSubjectName)} ${escapeHTML(m.focusSubjectName)}</div>` : '';
+      const statusKey = isFocusing ? 'focusing' : isOnline ? 'online' : 'offline';
+      const statusTxt = isFocusing ? 'In Focus' : isOnline ? 'Online' : 'Offline';
       const streakN = m.studyStreak || 0;
-      const streakBadge = streakN >= 2 ? `<span class="sm-streak">🔥 ${streakN}d</span>` : '';
-
-      // Double animated ring: outer slow glow + inner pulse (only when online/focusing)
-      const outerRing = isOnline ? `<div class="sm-outer-ring${isFocusing ? '' : ' sm-outer-ring-green'}"></div>` : '';
-      const innerRing = isOnline ? `<div class="sm-focus-ring${isFocusing ? ' ring-blue' : ''}"></div>` : '';
-
-      // Floating particles for focusing members
-      const particles = isFocusing ? `<div class="sm-focus-particles"><div class="sm-particle"></div><div class="sm-particle"></div><div class="sm-particle"></div><div class="sm-particle"></div><div class="sm-particle"></div></div>` : '';
-
-      // Mic indicator: show when user is in voice room
+      const subPill = isFocusing && m.focusSubjectName
+        ? `<span class="grm-subject-pill">${_sSubjectEmoji(m.focusSubjectName)} ${escapeHTML(m.focusSubjectName)}</span>` : '';
       const inVoiceNow = !!(isMe ? _inVoice : _voiceMembers[m.uid]);
-      const micBadge = inVoiceNow ? `<span class="sm-mic-badge${isMe && _voiceMuted ? ' sm-mic-muted' : ''}">${isMe && _voiceMuted ? '🔇' : '🎙'}</span>` : '';
-
-      let acts = '';
-      if (!isMe) {
-        const nudgeBtn = `<button class="btn btn-sm btn-ghost" data-act="social-nudge" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName || '')}">👋 Poke</button>`;
-        const duelBtn = isOnline ? `<button class="btn btn-sm" data-act="social-duel" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName || '')}">⚔️ Duel</button>` : '';
-        acts = `<div class="sm-actions">${nudgeBtn}${duelBtn}</div>`;
-      }
-      const youB = isMe ? '<span class="sm-you-badge">You</span>' : '';
-      const avatarContent = m.avatarUrl
-        ? `<img src="${escapeHTML(m.avatarUrl)}" class="sm-avatar-img" alt=""/>`
-        : ini;
-      const profileAct = !isMe ? ` data-act="view-profile" data-uid="${m.uid}" title="View profile" style="cursor:pointer"` : '';
-      return `<div class="${cardClass}">${particles}
-        <div class="sm-ring-wrap">${outerRing}${innerRing}<div class="sm-avatar" style="background:${_sAvatarColor(m.uid)}"${profileAct}>${avatarContent}${micBadge}</div></div>
-        <div class="sm-info">
-          <div class="sm-name-row"><span class="sm-name">${escapeHTML(m.displayName || 'Anonymous')}</span>${youB}${streakBadge}</div>
-          <div class="sm-status">${dot} ${stTxt}${elapsedChip}</div>
-          ${subPill}
-          <div class="sm-xp">⚡ ${(m.xpTotal || 0).toLocaleString()} XP · 📚 ${minsToHrs(m.weeklyMinutes || 0)} this week</div>
-        </div>${acts}
+      const micBadge = inVoiceNow ? `<span class="grm-mic-badge${isMe && _voiceMuted ? ' grm-mic-muted' : ''}">${isMe && _voiceMuted ? '🔇' : '🎙'}</span>` : '';
+      const avatarContent = m.avatarUrl ? `<img src="${escapeHTML(m.avatarUrl)}" class="grm-member-avatar-img" alt=""/>` : ini;
+      const profileAct = !isMe ? ` data-act="view-profile" data-uid="${m.uid}" title="View profile"` : '';
+      const actBtns = !isMe
+        ? `<div class="grm-member-acts">
+            <button class="grm-act-btn" data-act="social-nudge" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName || '')}" title="Poke">👋</button>
+            ${isOnline ? `<button class="grm-act-btn grm-duel-btn" data-act="social-duel" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName || '')}" title="Challenge to duel">⚔️</button>` : ''}
+          </div>`
+        : `<span class="grm-you-badge">You</span>`;
+      return `<div class="grm-member-card grm-mc-${statusKey}">
+        <div class="grm-mc-av-wrap">
+          <div class="grm-mc-avatar" style="background:${_sAvatarColor(m.uid)}"${profileAct}>${avatarContent}${micBadge}</div>
+          <div class="grm-mc-status-dot grm-dot-${statusKey}"></div>
+          ${isOwner ? '<div class="grm-mc-crown">👑</div>' : ''}
+        </div>
+        <div class="grm-mc-info">
+          <div class="grm-mc-name-row">
+            <span class="grm-mc-name">${escapeHTML(m.displayName || 'Anonymous')}</span>
+            ${streakN >= 2 ? `<span class="grm-mc-streak">🔥${streakN}d</span>` : ''}
+          </div>
+          <div class="grm-mc-status">${statusTxt}${elapsedChip}${subPill}</div>
+          <div class="grm-mc-xp">⚡ ${(m.xpTotal || 0).toLocaleString()} XP · 📚 ${minsToHrs(m.weeklyMinutes || 0)}/wk</div>
+        </div>
+        ${actBtns}
       </div>`;
-    }).join('') || '<div class="empty" style="padding:16px">No one here yet — share the code!</div>';
+    }).join('') || '<div class="grm-empty-state">No one here yet — share the code!</div>';
 
-    // ── Leaderboard with rank movement, crown glow & reset countdown ──
+    // ── 5. Leaderboard ───────────────────────────────────────────────────────
     const lb = [...members].sort((a, b) => (b.weeklyXP || 0) - (a.weeklyXP || 0));
     const lbNow = new Date();
     const daysToMon = (8 - lbNow.getDay()) % 7 || 7;
@@ -1968,44 +2072,95 @@
     const secsLeft = Math.max(0, Math.floor((nextMon - lbNow) / 1000));
     const hLeft = Math.floor(secsLeft / 3600), mLeft = Math.floor((secsLeft % 3600) / 60);
     const countdownTxt = secsLeft > 86400 ? `${daysToMon}d ${hLeft % 24}h left` : `${hLeft}h ${mLeft}m left`;
-    const lbToggleHTML = `<div class="lb-toggle-row">
-      <button class="lb-toggle-btn${_lbView === 'group' ? ' active' : ''}" data-act="lb-view" data-v="group">👥 Group</button>
-      <button class="lb-toggle-btn${_lbView === 'global' ? ' active' : ''}" data-act="lb-view" data-v="global">🌍 Global</button>
-    </div>`;
     let lbRows;
     if (_lbView === 'global') {
       lbRows = _globalLbData.slice(0, 30).map((m, i) => {
         const isMe = m.uid === _userId;
-        const topGlow = i === 0 ? ' lb-row-gold' : i === 1 ? ' lb-row-silver' : i === 2 ? ' lb-row-bronze' : '';
-        const med = i === 0 ? '<span class="lb-crown">👑</span>' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="color:var(--text-muted)">${i + 1}.</span>`;
-        return `<div class="lb-row${isMe ? ' lb-me' : ''}${topGlow}"><span class="lb-rank">${med}</span><span class="lb-av lb-av-click" style="background:${_sAvatarColor(m.uid)}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name || 'Anonymous')}">${_sInitials(m.name || 'S')}</span><span class="lb-name">${escapeHTML(m.name || 'Anonymous')}</span><span class="lb-val">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span><span class="lb-val2">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span></div>`;
-      }).join('') || '<div class="empty" style="padding:8px 0">Loading global rankings…</div>';
+        const topClass = i === 0 ? ' grm-lb-gold' : i === 1 ? ' grm-lb-silver' : i === 2 ? ' grm-lb-bronze' : '';
+        const med = i === 0 ? '👑' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="color:var(--text-muted);font-size:12px">${i + 1}</span>`;
+        return `<div class="grm-lb-row${isMe ? ' grm-lb-me' : ''}${topClass}">
+          <span class="grm-lb-rank">${med}</span>
+          <span class="grm-lb-av" style="background:${_sAvatarColor(m.uid)}" data-act="view-profile-global" data-uid="${m.uid}" data-name="${escapeHTML(m.name || 'Anonymous')}">${_sInitials(m.name || 'S')}</span>
+          <span class="grm-lb-name">${escapeHTML(m.name || 'Anonymous')}</span>
+          <span class="grm-lb-xp">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span>
+        </div>`;
+      }).join('') || '<div class="grm-empty-state">Loading global rankings…</div>';
     } else {
       lbRows = lb.map((m, i) => {
         const isMe = m.uid === _userId;
         const prevRank = _socialPrevRanks[m.uid];
         let mvIcon = '';
         if (prevRank !== undefined && prevRank !== i) {
-          if (i < prevRank)       mvIcon = `<span class="lb-mv lb-mv-up">↑</span>`;
-          else if (i > prevRank)  mvIcon = `<span class="lb-mv lb-mv-dn">↓</span>`;
+          mvIcon = i < prevRank ? '<span class="grm-lb-mv-up">↑</span>' : '<span class="grm-lb-mv-dn">↓</span>';
         } else if (prevRank !== undefined) {
-          mvIcon = `<span class="lb-mv lb-mv-eq">—</span>`;
+          mvIcon = '<span class="grm-lb-mv-eq">—</span>';
         }
         _socialPrevRanks[m.uid] = i;
-        const streak = (m.studyStreak || 0) >= 2 ? `<span class="lb-streak">🔥${m.studyStreak}</span>` : '';
-        const topGlow = i === 0 ? ' lb-row-gold' : i === 1 ? ' lb-row-silver' : i === 2 ? ' lb-row-bronze' : '';
-        const med = i === 0 ? '<span class="lb-crown">👑</span>' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="color:var(--text-muted)">${i + 1}.</span>`;
-        return `<div class="lb-row${isMe ? ' lb-me' : ''}${topGlow}">${mvIcon}<span class="lb-rank">${med}</span><span class="lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName || 'S')}</span><span class="lb-name">${escapeHTML(m.displayName || 'Anonymous')}${streak}</span><span class="lb-val">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span><span class="lb-val2">📚 ${minsToHrs(m.weeklyMinutes || 0)}</span></div>`;
-      }).join('') || '<div class="empty" style="padding:8px 0">No data yet</div>';
+        const topClass = i === 0 ? ' grm-lb-gold' : i === 1 ? ' grm-lb-silver' : i === 2 ? ' grm-lb-bronze' : '';
+        const med = i === 0 ? '👑' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="color:var(--text-muted);font-size:12px">${i + 1}</span>`;
+        const streak = (m.studyStreak || 0) >= 2 ? `<span class="grm-lb-streak">🔥${m.studyStreak}</span>` : '';
+        return `<div class="grm-lb-row${isMe ? ' grm-lb-me' : ''}${topClass}">
+          ${mvIcon}<span class="grm-lb-rank">${med}</span>
+          <span class="grm-lb-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName || 'S')}</span>
+          <span class="grm-lb-name">${escapeHTML(m.displayName || 'Anonymous')}${streak}</span>
+          <span class="grm-lb-xp">⚡ ${(m.weeklyXP || 0).toLocaleString()}</span>
+        </div>`;
+      }).join('') || '<div class="grm-empty-state">No data yet</div>';
     }
-    const lbFooter = `<div class="lb-reset-row">🔄 Resets in <strong>${countdownTxt}</strong></div>`;
+    const leaderboardHTML = `
+    <div class="grm-section grm-lb-section">
+      <div class="grm-section-label">🏆 Leaderboard</div>
+      <div class="grm-lb-tabs">
+        <button class="grm-lb-tab${_lbView === 'group' ? ' grm-lb-tab-active' : ''}" data-act="lb-view" data-v="group">👥 Group</button>
+        <button class="grm-lb-tab${_lbView === 'global' ? ' grm-lb-tab-active' : ''}" data-act="lb-view" data-v="global">🌍 Global</button>
+      </div>
+      <div class="grm-lb-list">${lbRows}</div>
+      ${_lbView === 'group' ? `<div class="grm-lb-reset">🔄 Resets in <strong>${countdownTxt}</strong></div>` : ''}
+    </div>`;
 
-    // ── Typing Indicators ──
-    const typingNow = members.filter(m => m.uid !== _userId && m.typing && (now - m.typing) < 5000);
-    const typingText = typingNow.length === 1 ? `${escapeHTML(typingNow[0].displayName || 'Someone')} is typing…`
-      : typingNow.length > 1 ? `${typingNow.length} people are typing…` : '';
+    // ── 6. Group XP Vault ────────────────────────────────────────────────────
+    const vaultSection = _renderVaultSection();
 
-    // ── Subject Mastery with 3D glowing badges ──
+    // ── 7. Group Goals / Challenges ──────────────────────────────────────────
+    const goals = (_socialRoomData && _socialRoomData.groupGoals) || [];
+    const goalsCardsHTML = goals.map(g => {
+      const tot = Object.values(g.contributions || {}).reduce((a, b) => a + b, 0);
+      const pct = Math.min(100, Math.round(tot / g.targetMinutes * 100));
+      const myC = (g.contributions || {})[_userId] || 0;
+      const canDel = isCreator;
+      const contribs = Object.entries(g.contributions || {}).sort(([, a], [, b]) => b - a).slice(0, 5)
+        .map(([u_, m_]) => { const mb = _socialMembers[u_]; const n = mb ? mb.displayName : u_.slice(0, 4); return `<span class="grm-goal-av" title="${escapeHTML(n)}: ${minsToHrs(m_)}" style="background:${_sAvatarColor(u_)}">${_sInitials(n)}</span>`; }).join('');
+      return `<div class="grm-goal-card${pct >= 100 ? ' grm-goal-done' : ''}">
+        <div class="grm-goal-head">
+          <span class="grm-goal-icon">${pct >= 100 ? '🏆' : '🎯'}</span>
+          <span class="grm-goal-title">${escapeHTML(g.title)}</span>
+          ${canDel ? `<button class="grm-goal-del" data-act="social-del-goal" data-gid="${g.id}">×</button>` : ''}
+        </div>
+        <div class="grm-goal-progress">
+          <div class="grm-goal-track"><div class="grm-goal-fill" style="width:${pct}%"></div></div>
+          <span class="grm-goal-pct">${pct}%</span>
+        </div>
+        <div class="grm-goal-footer">
+          <span class="grm-goal-stat">${minsToHrs(tot)} / ${minsToHrs(g.targetMinutes)} · Mine: ${minsToHrs(myC)}</span>
+          <div class="grm-goal-avs">${contribs}</div>
+        </div>
+      </div>`;
+    }).join('') || '<div class="grm-empty-state">No group goals yet — create one below!</div>';
+    const goalsHTML = `
+    <div class="grm-section grm-goals-section">
+      <div class="grm-section-label">🎯 Group Goals</div>
+      <div class="grm-goals-list">${goalsCardsHTML}</div>
+      <div class="grm-add-goal">
+        <div class="grm-add-goal-lbl">Create New Goal</div>
+        <input id="gg-title-input" class="grm-goal-input" placeholder="e.g. 50 hours of study this week" maxlength="60"/>
+        <div class="grm-add-goal-row">
+          <input id="gg-hours-input" class="grm-goal-input grm-goal-hours" type="number" min="1" max="1000" placeholder="Hours" value="50"/>
+          <button class="btn grm-add-goal-btn" data-act="social-add-goal">Set Goal</button>
+        </div>
+      </div>
+    </div>`;
+
+    // ── 8. Subject Mastery ───────────────────────────────────────────────────
     const subMap = {};
     members.forEach(m => Object.entries(m.subjectMinutes || {}).forEach(([sid, mins]) => {
       if (!subMap[sid]) subMap[sid] = [];
@@ -2017,147 +2172,66 @@
       color: (s => s ? s.color : '#5badff')(state.subjects.find(x => x.id === sid)),
       total: arr.reduce((a, b) => a + b.mins, 0), top: arr.slice().sort((a, b) => b.mins - a.mins)
     })).sort((a, b) => b.total - a.total).slice(0, 3);
-    const masteryHTML = subRanked.length ? subRanked.map(sr => {
+    const masteryCardsHTML = subRanked.length ? subRanked.map(sr => {
       const top = sr.top[0];
       const emoji = _sSubjectEmoji(sr.name);
-      return `<div class="mastery-card"><div class="mc-header"><div class="mc-badge" style="background:${sr.color}1a;color:${sr.color};border-color:${sr.color}30">${emoji}</div><div style="flex:1"><div class="mc-sub">${escapeHTML(sr.name)}</div><div class="mc-king">👑 ${escapeHTML(top ? top.name || '—' : '—')} <span class="mc-king-h">${minsToHrs(top ? top.mins : 0)}</span></div></div></div><div class="mc-members">${sr.top.map(t => `<div class="mc-m"><span class="mc-m-av" style="background:${_sAvatarColor(t.uid)}">${_sInitials(t.name || 'S')}</span><div class="mc-m-bw"><div class="mc-m-bar" style="width:${sr.total ? Math.round(t.mins / sr.top[0].mins * 100) : 0}%;background:${sr.color}"></div></div><span class="mc-m-min">${minsToHrs(t.mins)}</span></div>`).join('')}</div></div>`;
-    }).join('') : '<div class="empty" style="padding:0 16px">Complete focus sessions to populate mastery.</div>';
+      return `<div class="grm-mastery-card">
+        <div class="grm-mc-head">
+          <div class="grm-mc-badge" style="background:${sr.color}1a;color:${sr.color};border-color:${sr.color}30">${emoji}</div>
+          <div style="flex:1"><div class="grm-mc-subname">${escapeHTML(sr.name)}</div><div class="grm-mc-king">👑 ${escapeHTML(top ? top.name || '—' : '—')} <span style="color:var(--text-muted)">${minsToHrs(top ? top.mins : 0)}</span></div></div>
+        </div>
+        <div class="grm-mc-members">${sr.top.map(t => `<div class="grm-mc-m"><span class="grm-mc-av" style="background:${_sAvatarColor(t.uid)}">${_sInitials(t.name||'S')}</span><div class="grm-mc-bar-wrap"><div class="grm-mc-bar" style="width:${sr.total?Math.round(t.mins/sr.top[0].mins*100):0}%;background:${sr.color}"></div></div><span class="grm-mc-time">${minsToHrs(t.mins)}</span></div>`).join('')}</div>
+      </div>`;
+    }).join('') : '<div class="grm-empty-state">Complete focus sessions to populate mastery.</div>';
+    const masteryHTML = `
+    <div class="grm-section grm-mastery-section">
+      <div class="grm-section-label">🎓 Subject Mastery</div>
+      <div class="grm-mastery-list">${masteryCardsHTML}</div>
+    </div>`;
 
-    // ── Active Duels ──
+    // ── Active Duels ─────────────────────────────────────────────────────────
     const activeDuels = ((_socialRoomData && _socialRoomData.duels) || []).filter(d => !d.winner && d.endsAt > now && (d.challenger === _userId || d.opponent === _userId));
-    const duelsHTML = activeDuels.map(d => {
-      const iAm = d.challenger === _userId;
-      const myXPS = iAm ? d.challengerXPStart : d.opponentXPStart;
-      const myG = Math.max(0, ((state.xp && state.xp.total) || 0) - myXPS);
-      const oppUid = iAm ? d.opponent : d.challenger;
-      const oppN = iAm ? d.opponentName : d.challengerName;
-      const opp = _socialMembers[oppUid];
-      const oppXPS = iAm ? d.opponentXPStart : d.challengerXPStart;
-      const oppG = opp ? Math.max(0, (opp.xpTotal || 0) - oppXPS) : 0;
-      const rem = Math.max(0, Math.ceil((d.endsAt - now) / 60000));
-      const tl = rem >= 60 ? `${Math.floor(rem / 60)}h ${rem % 60}m` : `${rem}m`;
-      const myP = Math.max(myG, oppG) > 0 ? Math.round(myG / Math.max(myG, oppG) * 100) : 50;
-      const win = myG >= oppG;
-      return `<div class="duel-card"><div class="duel-header"><span class="duel-title">⚔️ Focus Duel</span><span class="duel-time">⏱ ${tl} left</span></div><div class="duel-combatants"><div class="duel-side${win ? ' duel-winning' : ''}"><div class="duel-av" style="background:${_sAvatarColor(_userId)}">${_sInitials(_sDisplayName())}</div><div class="duel-name">You</div><div class="duel-xp">+${myG} XP</div></div><div class="duel-vs">VS</div><div class="duel-side${!win ? ' duel-winning' : ''}"><div class="duel-av" style="background:${_sAvatarColor(oppUid)}">${_sInitials(oppN || 'S')}</div><div class="duel-name">${escapeHTML(oppN || 'Opponent')}</div><div class="duel-xp">+${oppG} XP</div></div></div><div class="duel-bar-wrap"><div class="duel-bar-fill" style="width:${myP}%;background:${win ? '#22c55e' : '#f87171'}"></div></div></div>`;
-    }).join('');
-
-    const pastDuels = ((_socialRoomData && _socialRoomData.duels) || []).filter(d => d.winner && (d.challenger === _userId || d.opponent === _userId)).slice(-3).reverse();
-    const pastHTML = pastDuels.map(d => {
-      const won = d.winner === _userId;
-      const oN = d.challenger === _userId ? d.opponentName : d.challengerName;
-      return `<div class="past-duel${won ? ' past-duel-won' : ' past-duel-lost'}"><span>${won ? '🏆 Won' : '💀 Lost'}</span><span>vs ${escapeHTML(oN || '?')}</span><span>${won ? 'Victor!' : 'Rematch?'}</span></div>`;
-    }).join('');
-
-    // ── Group XP Vault ──
-    const vaultSection = _renderVaultSection();
-
-    // ── Group Goals ──
-    const goals = (_socialRoomData && _socialRoomData.groupGoals) || [];
-    const goalsHTML = goals.map(g => {
-      const tot = Object.values(g.contributions || {}).reduce((a, b) => a + b, 0);
-      const pct = Math.min(100, Math.round(tot / g.targetMinutes * 100));
-      const myC = (g.contributions || {})[_userId] || 0;
-      const cs = Object.entries(g.contributions || {}).sort(([, a], [, b]) => b - a)
-        .map(([u_, m_]) => { const mb = _socialMembers[u_]; const n = mb ? mb.displayName : u_.slice(0, 4); return `<span class="gg-av" title="${escapeHTML(n)}: ${minsToHrs(m_)}" style="background:${_sAvatarColor(u_)}">${_sInitials(n)}</span>`; }).join('');
-      const canDel = _userId === (_socialRoomData && _socialRoomData.createdBy);
-      return `<div class="group-goal-card${pct >= 100 ? ' gg-complete' : ''}"><div class="gg-header"><span class="gg-title">${pct >= 100 ? '🏆 ' : '🎯 '}${escapeHTML(g.title)}</span>${canDel ? `<button class="gg-del" data-act="social-del-goal" data-gid="${g.id}">×</button>` : ''}</div><div class="gg-bar-row"><div class="gg-bar-track"><div class="gg-bar-fill" style="width:${pct}%"></div></div><span class="gg-pct">${pct}%</span></div><div class="gg-stats"><span>${minsToHrs(tot)} / ${minsToHrs(g.targetMinutes)} · Mine: ${minsToHrs(myC)}</span><div class="gg-contribs">${cs}</div></div></div>`;
-    }).join('') || '<div class="empty" style="padding:0 16px">No group goals yet — create one below!</div>';
-
-    const onlineCount = members.filter(m => _sStatusOf(m) !== 'offline').length;
-    return `<div class="social-room">
-
-      <!-- ── Sticky Header ── -->
-      <div class="social-room-header">
-        <div class="srh-left">
-          <button class="srh-back-btn" data-act="social-leave" title="Back to Lobby">←</button>
-          <div class="srh-code-wrap">
-            <span class="srh-label">ROOM</span>
-            <span class="srh-code">${_socialRoomCode}</span>
-            <button class="srh-copy-btn" data-act="social-copy-code" title="Copy room code">⧉</button>
+    const duelsHTML = activeDuels.length ? `
+    <div class="grm-section grm-duels-section">
+      <div class="grm-section-label">⚔️ Active Duel</div>
+      ${activeDuels.map(d => {
+        const iAm = d.challenger === _userId;
+        const myG = Math.max(0, ((state.xp && state.xp.total) || 0) - (iAm ? d.challengerXPStart : d.opponentXPStart));
+        const oppUid = iAm ? d.opponent : d.challenger;
+        const oppN = iAm ? d.opponentName : d.challengerName;
+        const opp = _socialMembers[oppUid];
+        const oppG = opp ? Math.max(0, (opp.xpTotal || 0) - (iAm ? d.opponentXPStart : d.challengerXPStart)) : 0;
+        const rem = Math.max(0, Math.ceil((d.endsAt - now) / 60000));
+        const tl = rem >= 60 ? `${Math.floor(rem/60)}h ${rem%60}m` : `${rem}m`;
+        const myP = Math.max(myG, oppG) > 0 ? Math.round(myG / Math.max(myG, oppG) * 100) : 50;
+        const win = myG >= oppG;
+        return `<div class="grm-duel-card">
+          <div class="grm-duel-head"><span>⚔️ Focus Duel</span><span class="grm-duel-timer">⏱ ${tl} left</span></div>
+          <div class="grm-duel-fighters">
+            <div class="grm-duel-side${win?' grm-duel-winning':''}"><div class="grm-duel-av" style="background:${_sAvatarColor(_userId)}">${_sInitials(_sDisplayName())}</div><div class="grm-duel-name">You</div><div class="grm-duel-xp">+${myG} XP</div></div>
+            <div class="grm-duel-vs">VS</div>
+            <div class="grm-duel-side${!win?' grm-duel-winning':''}"><div class="grm-duel-av" style="background:${_sAvatarColor(oppUid)}">${_sInitials(oppN||'S')}</div><div class="grm-duel-name">${escapeHTML(oppN||'Opp')}</div><div class="grm-duel-xp">+${oppG} XP</div></div>
           </div>
+          <div class="grm-duel-bar-track"><div class="grm-duel-bar-fill" style="width:${myP}%;background:${win?'#22c55e':'#f87171'}"></div></div>
+        </div>`;
+      }).join('')}
+    </div>` : '';
+
+    return `<div class="grm-room">
+      ${headerHTML}
+      <div class="grm-body">
+        ${statsHTML}
+        ${chatHTML}
+        <div class="grm-section grm-members-section">
+          <div class="grm-section-label">👥 Active Members <span class="grm-section-count">${members.length}</span></div>
+          <div class="grm-members-list">${memberCardsHTML}</div>
         </div>
-        <div class="srh-right">
-          <button class="srh-settings-btn" data-act="social-room-settings" title="Room Settings">⚙</button>
-        </div>
+        ${duelsHTML}
+        ${leaderboardHTML}
+        ${vaultSection}
+        ${goalsHTML}
+        ${masteryHTML}
       </div>
-
-      <!-- ── Stats Row ── -->
-      <div class="room-stats-row">
-        <div class="rsr-card">
-          <span class="rsr-val" style="color:${activeFocusing > 0 ? '#4ade80' : 'var(--text-muted)'}">${activeFocusing}</span>
-          <span class="rsr-lbl">Focusing</span>
-        </div>
-        <div class="rsr-divider"></div>
-        <div class="rsr-card">
-          <span class="rsr-val">${minsToHrs(totalFocusToday)}</span>
-          <span class="rsr-lbl">Group Today</span>
-        </div>
-        <div class="rsr-divider"></div>
-        <div class="rsr-card">
-          <span class="rsr-val">${members.length}</span>
-          <span class="rsr-lbl">Members</span>
-        </div>
-      </div>
-
-      <!-- ── Momentum + Energy ── -->
-      <div class="room-bars-row">
-        <div class="room-bar-card">
-          <div class="rbc-head"><span class="rbc-label">⚡ Momentum</span><span class="rbc-pct">${momentumPct}%</span></div>
-          <div class="rbc-track"><div class="rbc-fill rbc-fill-momentum${momentumComplete ? ' rbc-fill-complete' : ''}" style="width:${momentumPct}%"></div></div>
-          <div class="rbc-sub">${totalWeeklyXP.toLocaleString()} / ${momentumTarget.toLocaleString()} XP this week</div>
-        </div>
-        <div class="room-bar-card">
-          <div class="rbc-head"><span class="rbc-label">🔥 Energy</span><span class="rbc-pct">${energyPct}%</span></div>
-          <div class="rbc-track"><div class="rbc-fill rbc-fill-energy" style="width:${energyPct}%"></div></div>
-          <div class="rbc-sub">${activeFocusing} of ${members.length} focusing now</div>
-        </div>
-      </div>
-
-      <!-- ── Group Chat ── -->
-      <div class="room-chat-section">
-        <div class="chat-header">
-          <div class="chat-header-left">
-            <span class="chat-header-title">💬 Group Chat</span>
-            <span class="chat-online-dot"></span>
-            <span class="chat-online-count">${onlineCount} online</span>
-          </div>
-          ${typingText ? `<div class="chat-typing-row"><span class="chat-typing-dots"><span></span><span></span><span></span></span><span class="chat-typing-text">${typingText}</span></div>` : ''}
-        </div>
-        <div class="chat-messages-wrap">
-          <div class="chat-messages" id="chat-messages">${_buildChatMessagesHTML()}</div>
-          <div class="chat-new-pill" id="chat-new-pill" style="display:none" data-act="chat-scroll-bottom">↓ New messages</div>
-        </div>
-        <div class="chat-composer">
-          <textarea class="chat-input" id="chat-text-input" placeholder="Message the group…" rows="1" maxlength="500"></textarea>
-          <button class="chat-send-btn" data-act="chat-send" title="Send">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-          </button>
-        </div>
-      </div>
-
-      <!-- ── Active Members ── -->
-      <h2 class="social-section-head">Active Members</h2>
-      <div class="social-members">${memberCards}</div>
-
-      <!-- ── Active Duel ── -->
-      ${duelsHTML ? `<h2 class="social-section-head">Active Duel</h2><div class="social-duels">${duelsHTML}</div>` : ''}
-      ${pastHTML ? `<div class="past-duels">${pastHTML}</div>` : ''}
-
-      <!-- ── Leaderboard ── -->
-      <h2 class="social-section-head">Leaderboard</h2>
-      ${lbToggleHTML}
-      <div class="social-lb">${lbRows}${_lbView === 'group' ? lbFooter : ''}</div>
-
-      <!-- ── Subject Mastery ── -->
-      <h2 class="social-section-head">Subject Mastery</h2>
-      <div class="social-mastery">${masteryHTML}</div>
-
-      ${vaultSection}
-
-      <!-- ── Group Challenges ── -->
-      <h2 class="social-section-head">Group Challenges</h2>
-      <div class="social-goals">${goalsHTML}</div>
-      <div class="social-add-goal"><div class="sag-title">Create Group Goal</div><input id="gg-title-input" class="auth-input" placeholder="e.g. 50 hours of study this week" maxlength="60" style="margin:8px 0"/><div class="gg-add-row"><input id="gg-hours-input" class="auth-input gg-hours-input" type="number" min="1" max="1000" placeholder="Hours" value="50"/><button class="btn" data-act="social-add-goal">Set Goal</button></div></div>
     </div>`;
   }
 
@@ -2180,7 +2254,8 @@
     const memberRows = members.map(m => {
       const isMe = m.uid === _userId;
       const st = _sStatusOf(m);
-      const dotCol = st === 'focusing' ? '#5badff' : st === 'online' ? '#22c55e' : '#566e8a';
+      const dotCol = st === 'focusing' ? '#5badff' : st !== 'offline' ? '#22c55e' : '#566e8a';
+      const statusTxt = isMe ? '👑 Creator · You' : st === 'focusing' ? '🔵 In Focus' : st !== 'offline' ? '🟢 Online' : '⚪ Offline';
       return `<div class="adm-member-row">
         <div class="adm-member-av-wrap">
           <div class="adm-member-av" style="background:${_sAvatarColor(m.uid)}">${_sInitials(m.displayName || 'S')}</div>
@@ -2188,7 +2263,7 @@
         </div>
         <div class="adm-member-info">
           <div class="adm-member-name">${escapeHTML(m.displayName || 'Anonymous')}</div>
-          <div class="adm-member-sub">${isMe ? '👑 Creator · You' : st === 'focusing' ? '🔵 In Focus' : st === 'online' ? '🟢 Online' : '⚪ Offline'}</div>
+          <div class="adm-member-sub">${statusTxt}</div>
         </div>
         ${!isMe ? `<button class="adm-kick-btn" data-act="admin-kick" data-uid="${m.uid}" data-name="${escapeHTML(m.displayName || 'Member')}">Kick</button>` : '<span class="adm-crown-badge">👑</span>'}
       </div>`;
@@ -2197,7 +2272,10 @@
     openModal(`<div class="adm-sheet">
       <div class="adm-sheet-handle"></div>
       <div class="adm-sheet-hdr">
-        <div class="adm-sheet-title">⚙️ Room Settings</div>
+        <div>
+          <div class="adm-sheet-title">⚙️ Room Settings</div>
+          <div class="adm-sheet-subtitle">${escapeHTML(roomName)}</div>
+        </div>
         <div class="adm-sheet-code">${_socialRoomCode}</div>
       </div>
 
@@ -2207,11 +2285,6 @@
           <div class="adm-row-ico">🔑</div>
           <div class="adm-row-body"><div class="adm-row-title">Room Code</div><div class="adm-row-sub adm-mono">${_socialRoomCode}</div></div>
           <button class="adm-row-btn" data-act="social-copy-code">Copy</button>
-        </div>
-        <div class="adm-row" data-act="admin-rename-room" style="cursor:pointer">
-          <div class="adm-row-ico">✏️</div>
-          <div class="adm-row-body"><div class="adm-row-title">Room Name</div><div class="adm-row-sub">${escapeHTML(roomName)}</div></div>
-          <div class="adm-row-chev">›</div>
         </div>
       </div>
 
@@ -2233,10 +2306,10 @@
       </div>
 
       <div class="adm-group">
-        <div class="adm-group-label">APPEARANCE</div>
-        <div class="adm-row" data-act="theme-gallery" data-close style="cursor:pointer">
-          <div class="adm-row-ico">🎨</div>
-          <div class="adm-row-body"><div class="adm-row-title">Theme Gallery</div><div class="adm-row-sub">Customise the app's look &amp; feel</div></div>
+        <div class="adm-group-label">INVITE</div>
+        <div class="adm-row" data-act="social-copy-code" style="cursor:pointer">
+          <div class="adm-row-ico">🔗</div>
+          <div class="adm-row-body"><div class="adm-row-title">Share Room Code</div><div class="adm-row-sub">Copy code and invite friends</div></div>
           <div class="adm-row-chev">›</div>
         </div>
       </div>
@@ -2245,21 +2318,16 @@
         <div class="adm-group-label">NOTIFICATIONS</div>
         <div class="adm-row">
           <div class="adm-row-ico">🔔</div>
-          <div class="adm-row-body"><div class="adm-row-title">Focus Alerts</div><div class="adm-row-sub">When members start a focus session</div></div>
+          <div class="adm-row-body"><div class="adm-row-title">Focus Alerts</div><div class="adm-row-sub">Notify when members start a focus session</div></div>
           <button class="adm-toggle${notifOn ? ' adm-toggle-on' : ''}" data-act="member-notif-toggle"><span class="adm-toggle-knob"></span></button>
         </div>
       </div>
 
       <div class="adm-group">
-        <div class="adm-group-label">GROUP MANAGEMENT</div>
-        <div class="adm-row" data-act="social-copy-code" style="cursor:pointer">
-          <div class="adm-row-ico">🔗</div>
-          <div class="adm-row-body"><div class="adm-row-title">Share Room Link</div><div class="adm-row-sub">Copy code &amp; invite friends</div></div>
-          <div class="adm-row-chev">›</div>
-        </div>
-        <div class="adm-row" data-act="admin-rename-room" style="cursor:pointer">
-          <div class="adm-row-ico">✏️</div>
-          <div class="adm-row-body"><div class="adm-row-title">Rename Group</div><div class="adm-row-sub">Change the room display name</div></div>
+        <div class="adm-group-label">APPEARANCE</div>
+        <div class="adm-row" data-act="theme-gallery" data-close style="cursor:pointer">
+          <div class="adm-row-ico">🎨</div>
+          <div class="adm-row-body"><div class="adm-row-title">Theme Gallery</div><div class="adm-row-sub">Customise the app's look &amp; feel</div></div>
           <div class="adm-row-chev">›</div>
         </div>
       </div>
@@ -2289,11 +2357,15 @@
     const creatorName = creatorMember ? (creatorMember.displayName || 'Room Creator') : 'Room Creator';
     const notifOn = !!(state.socialNotif !== false);
     const roomName = (_socialRoomData && _socialRoomData.roomName) || `Room ${_socialRoomCode}`;
+    const isPrivate = !!(_socialRoomData && _socialRoomData.private);
 
     openModal(`<div class="adm-sheet">
       <div class="adm-sheet-handle"></div>
       <div class="adm-sheet-hdr">
-        <div class="adm-sheet-title">${escapeHTML(roomName)}</div>
+        <div>
+          <div class="adm-sheet-title">${escapeHTML(roomName)}</div>
+          <div class="adm-sheet-subtitle">${isPrivate ? '🔒 Private' : '🌐 Public'} Room</div>
+        </div>
         <div class="adm-sheet-code">${_socialRoomCode}</div>
       </div>
 
@@ -2314,7 +2386,7 @@
         <div class="adm-group-label">NOTIFICATIONS</div>
         <div class="adm-row">
           <div class="adm-row-ico">🔔</div>
-          <div class="adm-row-body"><div class="adm-row-title">Focus Alerts</div><div class="adm-row-sub">When members start a focus session</div></div>
+          <div class="adm-row-body"><div class="adm-row-title">Focus Alerts</div><div class="adm-row-sub">Notify when members start a focus session</div></div>
           <button class="adm-toggle${notifOn ? ' adm-toggle-on' : ''}" data-act="member-notif-toggle"><span class="adm-toggle-knob"></span></button>
         </div>
       </div>
@@ -2323,7 +2395,7 @@
         <div class="adm-group-label">APPEARANCE</div>
         <div class="adm-row" data-act="theme-gallery" data-close style="cursor:pointer">
           <div class="adm-row-ico">🎨</div>
-          <div class="adm-row-body"><div class="adm-row-title">Theme Gallery</div><div class="adm-row-sub">Customise the app's look</div></div>
+          <div class="adm-row-body"><div class="adm-row-title">Theme Gallery</div><div class="adm-row-sub">Customise the app's look &amp; feel</div></div>
           <div class="adm-row-chev">›</div>
         </div>
       </div>
@@ -7972,6 +8044,32 @@
           .then(() => { toast('Room renamed!', 'success'); closeModal(); })
           .catch(() => toast('Failed to rename', 'danger'));
       }
+      return;
+    }
+    if (act === 'grm-name-inline-edit') {
+      const display = document.getElementById('grm-name-display');
+      const form    = document.getElementById('grm-name-edit-form');
+      const inp     = document.getElementById('grm-name-input');
+      if (display) display.style.display = 'none';
+      if (form)    form.style.display = 'flex';
+      if (inp)     { inp.focus(); inp.select(); }
+      return;
+    }
+    if (act === 'grm-name-inline-save') {
+      const inp = document.getElementById('grm-name-input');
+      const newName = (inp ? inp.value : '').trim();
+      if (!newName) { toast('Enter a room name', 'warn'); return; }
+      if (!_db || !_socialRoomCode) return;
+      _db.collection('groups').doc(_socialRoomCode).update({ roomName: newName })
+        .then(() => { toast('Room renamed!', 'success'); renderSocial(); })
+        .catch(() => toast('Failed to rename', 'danger'));
+      return;
+    }
+    if (act === 'grm-name-inline-cancel') {
+      const display = document.getElementById('grm-name-display');
+      const form    = document.getElementById('grm-name-edit-form');
+      if (display) display.style.display = '';
+      if (form)    form.style.display = 'none';
       return;
     }
     if (act === 'social-copy-code') {
