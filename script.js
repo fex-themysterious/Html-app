@@ -539,6 +539,9 @@
       }
     } else {
       _userId = null;
+      // Leave room and clean up all social listeners on sign-out
+      if (_socialRoomCode) _sLeaveRoom();
+      if (_globalLbUnsub) { _globalLbUnsub(); _globalLbUnsub = null; }
       // Reset social group state on sign-out so next sign-in loads fresh from Firestore
       _myGroupCodes = [];
       _myGroupRoomMeta = {};
@@ -946,6 +949,9 @@
   let _chatReplyTarget    = null; // { id, name, text }
   let _pendingRenderSocial = false;  // deferred full re-render when chat input is focused
   let _voiceRemoteAudios = {};
+  let _processedDuelIds  = new Set(); // guard: don't toast/write the same completed duel twice
+  let _socialIdleBump    = null;      // stored ref so we can removeEventListener on leave
+  let _vpResizeHandler   = null;      // stored visualViewport handler for removal on re-render
 
   // Debounced sync: disabled while SOCIAL_DISABLED is true
   let _socialSyncTimer = null;
@@ -1196,9 +1202,10 @@
   // ── Idle input tracker ────────────────────────────────────────────────────
   function _sInitIdleTracker() {
     if (_socialIdleCheckId) return;
-    const bump = () => { _socialLastInputAt = Date.now(); };
+    // Store bump reference so it can be removed on leave
+    if (!_socialIdleBump) _socialIdleBump = () => { _socialLastInputAt = Date.now(); };
     ['mousedown','keydown','touchstart','scroll','pointermove'].forEach(ev =>
-      document.addEventListener(ev, bump, { passive: true }));
+      document.addEventListener(ev, _socialIdleBump, { passive: true }));
     // Every 30 s re-evaluate rate: fast when active, slow when idle or bg
     _socialIdleCheckId = setInterval(() => {
       if (!_socialRoomCode) return;
@@ -1387,6 +1394,9 @@
       // Skip already completed or still running duels
       if (duel.winner || duel.duelState === 'COMPLETED' || duel.endsAt > now) return;
       if (duel.challenger !== _userId && duel.opponent !== _userId) return;
+      // Dedup guard: don't process the same expired duel twice (fires on every room snapshot)
+      if (_processedDuelIds.has(duel.id)) return;
+      _processedDuelIds.add(duel.id);
       const iAm = duel.challenger === _userId;
       const myXPS = iAm ? duel.challengerXPStart : duel.opponentXPStart;
       const oppUid = iAm ? duel.opponent : duel.challenger;
@@ -1416,6 +1426,8 @@
   async function _sJoinRoom(code, _joinPwOverride) {
     if (!_db || !_userId) { toast('Sign in to use Social Study', 'warn'); return false; }
     code = (code || '').toString().trim().toUpperCase();
+    // Leave current room cleanly before joining a different one to prevent listener leaks
+    if (_socialRoomCode && _socialRoomCode !== code) _sLeaveRoom();
     if (!code || code.length !== 6 || !/^[A-Z0-9]{6}$/.test(code)) { toast('Enter a valid 6-character room code', 'warn'); return false; }
     try {
       const ref = _db.collection('groups').doc(code);
@@ -1524,10 +1536,28 @@
     if (_socialUnsubChat)     { _socialUnsubChat();     _socialUnsubChat = null; }
     if (_socialHeartbeatId)   { clearInterval(_socialHeartbeatId); _socialHeartbeatId = null; }
     if (_socialReconnectTimer){ clearTimeout(_socialReconnectTimer); _socialReconnectTimer = null; }
+    // Clear idle tracker interval and remove document event listeners
+    if (_socialIdleCheckId)   { clearInterval(_socialIdleCheckId); _socialIdleCheckId = null; }
+    if (_socialIdleBump) {
+      ['mousedown','keydown','touchstart','scroll','pointermove'].forEach(ev =>
+        document.removeEventListener(ev, _socialIdleBump));
+      _socialIdleBump = null;
+    }
+    // Clear debounce timer and pending render flag
+    if (_renderSocialDebounceTimer) { clearTimeout(_renderSocialDebounceTimer); _renderSocialDebounceTimer = null; }
+    _pendingRenderSocial = false;
+    // Remove accumulated visualViewport listener
+    if (_vpResizeHandler && window.visualViewport) {
+      window.visualViewport.removeEventListener('resize', _vpResizeHandler);
+      window.visualViewport.removeEventListener('scroll', _vpResizeHandler);
+      _vpResizeHandler = null;
+    }
     _socialReconnectAttempts = 0; _socialReconnectToast = false; _socialHeartbeatMs = SOCIAL_HEARTBEAT_FAST_MS;
     clearTimeout(_chatTypingTimeout);
     _chatMessages = [];
     _chatScrollAtBottom = true;
+    // Reset processed-duel dedup set for the new room session
+    _processedDuelIds = new Set();
     if (_db && _userId && _socialRoomCode) {
       _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId)
         .set({ status: 'offline', lastSeen: Date.now() }, { merge: true }).catch(() => {});
@@ -2729,8 +2759,13 @@
     }
 
     // ── visualViewport: zero-gap keyboard fix + scroll to bottom ──
+    // Remove previous handler before adding a new one to prevent accumulation across re-renders
     if (window.visualViewport) {
-      const _vpHandler = () => {
+      if (_vpResizeHandler) {
+        window.visualViewport.removeEventListener('resize', _vpResizeHandler);
+        window.visualViewport.removeEventListener('scroll', _vpResizeHandler);
+      }
+      _vpResizeHandler = () => {
         const vv = window.visualViewport;
         const room = document.querySelector('.grm2-room');
         if (room) {
@@ -2742,8 +2777,8 @@
           requestAnimationFrame(() => { _chatEl.scrollTop = _chatEl.scrollHeight; });
         }
       };
-      window.visualViewport.addEventListener('resize', _vpHandler, { passive: true });
-      window.visualViewport.addEventListener('scroll', _vpHandler, { passive: true });
+      window.visualViewport.addEventListener('resize', _vpResizeHandler, { passive: true });
+      window.visualViewport.addEventListener('scroll', _vpResizeHandler, { passive: true });
     }
 
     // ── Inline room name edit setup ──
