@@ -1117,6 +1117,13 @@
           setTimeout(() => _sLeaveRoom(), 300);
           return;
         }
+        // If the current user has been kicked, auto-leave
+        const _kickedList = (_socialRoomData && _socialRoomData.kickedMembers) || [];
+        if (_kickedList.includes(_userId)) {
+          toast('You have been removed from the room by the admin.', 'warn', 5000);
+          setTimeout(() => _sLeaveRoom(), 300);
+          return;
+        }
         _sCheckDuelResults();
         // Theme unlock detection
         if (_socialRoomData && _socialRoomData.vaultThemeUnlocked) {
@@ -3378,12 +3385,22 @@
     if (!_db || !_socialRoomCode) return;
     try {
       const groupRef = _db.collection('groups').doc(_socialRoomCode);
-      await groupRef.collection('presence').doc(uid_).update({ status: 'kicked' });
+      // Primary: write to group doc (admin-owned) so the kicked user detects it via room onSnapshot
+      await groupRef.update({ kickedMembers: firebase.firestore.FieldValue.arrayUnion(uid_) });
+      // Secondary: also try setting presence status (may be blocked by security rules, so catch silently)
+      groupRef.collection('presence').doc(uid_).update({ status: 'kicked' }).catch(() => {});
+      // Remove from members list so they can't rejoin without the code
       await groupRef.collection('members').doc(uid_).delete().catch(() => {});
+      // Clean up local state immediately so the kicked member disappears from admin's view
       delete _socialRoomMembersList[uid_];
+      delete _socialMembers[uid_];
       toast(`Removed ${name} from the room`, 'info');
       closeModal();
       if (_currentTab === 'social') renderSocial();
+      // Clean up kickedMembers from the group doc after 10 s so they can be re-invited later
+      setTimeout(() => {
+        groupRef.update({ kickedMembers: firebase.firestore.FieldValue.arrayRemove(uid_) }).catch(() => {});
+      }, 10000);
     } catch(e) { toast('Failed to remove member', 'danger'); }
   }
 
