@@ -702,10 +702,10 @@
   // ======================================================================
   // ========== Social Study System =======================================
   // ======================================================================
-  const SOCIAL_OFFLINE_MS        = 30 * 1000;   // 30 s — ghost turns grey within 30 s
+  const SOCIAL_OFFLINE_MS        = 90 * 1000;   // 90 s — 3x slow heartbeat buffer for mobile throttling
   const SOCIAL_IDLE_INPUT_MS     = 5 * 60 * 1000; // 5 min no input → idle
   const SOCIAL_HEARTBEAT_FAST_MS = 7000;          // active heartbeat interval
-  const SOCIAL_HEARTBEAT_SLOW_MS = 30000;         // background/idle heartbeat
+  const SOCIAL_HEARTBEAT_SLOW_MS = 25000;         // background/idle heartbeat (well under 90s threshold)
   const SOCIAL_RECONNECT_MAX     = 8;             // max reconnect attempts
   const SOCIAL_BOUNTY_XP         = 50;
   let _socialRoomCode        = null;
@@ -10074,10 +10074,11 @@
       }
     } else {
       _socialIsBg = true;
-      // Background: write a final "last seen" timestamp and throttle heartbeat to 30 s
+      // Background: write a final "last seen" timestamp and throttle heartbeat to slow rate
       if (_db && _userId && _socialRoomCode) {
+        const _bgStatus = (focusRunning && focusMode === 'work') ? 'focusing' : 'break';
         _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId)
-          .set({ lastSeen: Date.now(), status: 'break' }, { merge: true })
+          .set({ lastSeen: Date.now(), status: _bgStatus }, { merge: true })
           .catch(() => {});
         _sSetHeartbeatRate(SOCIAL_HEARTBEAT_SLOW_MS);
       }
