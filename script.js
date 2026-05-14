@@ -10321,7 +10321,7 @@
       if (focusRunning) {
         // Partial-credit: save elapsed minutes for work sessions stopped early
         if (focusMode === 'work' && focusStartTime !== null) {
-          const elapsedMin = Math.floor((Date.now() - focusStartTime) / 1000 / 60);
+          const elapsedMin = Math.round((Date.now() - focusStartTime) / 1000 / 60);
           if (elapsedMin > 0) {
             const todayStr = todayKey();
             state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + elapsedMin;
@@ -10367,7 +10367,7 @@
     if (act === 'focus-reset') {
       // Save any elapsed time before wiping the timer
       if (focusMode === 'work' && focusRunning && focusStartTime !== null) {
-        const elapsedMin = Math.floor((Date.now() - focusStartTime) / 1000 / 60);
+        const elapsedMin = Math.round((Date.now() - focusStartTime) / 1000 / 60);
         if (elapsedMin > 0) {
           const todayStr = todayKey();
           state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + elapsedMin;
@@ -10400,7 +10400,7 @@
       if (focusRunning) {
         // Partial-credit: save elapsed minutes for work sessions stopped early
         if (focusMode === 'work' && focusStartTime !== null) {
-          const elapsedMin = Math.floor((Date.now() - focusStartTime) / 1000 / 60);
+          const elapsedMin = Math.round((Date.now() - focusStartTime) / 1000 / 60);
           if (elapsedMin > 0) {
             const todayStr = todayKey();
             state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + elapsedMin;
