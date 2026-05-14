@@ -1680,9 +1680,10 @@
     menu.style.minWidth = menuW + 'px';
   }
 
-  function _showChatMsgMenu(msgId, isMe) {
+  function _showChatMsgMenu(msgId) {
     const msg = _chatMessages.find(m => m.id === msgId);
     if (!msg || msg.deletedAt) return;
+    const isMe = !!_userId && msg.uid === _userId;
     const preview = (msg.text || '').slice(0, 60);
     const MENU_EMOJIS = ['👍','🔥','💯','😂','❤️','🎯','😮','🙌'];
     openModal(`<div class="chat-menu-sheet">
@@ -9217,8 +9218,8 @@
       return;
     }
     if (act === 'chat-msg-menu') {
-      const msgId = el.dataset.msgid, isMe = el.dataset.ismine === 'true';
-      _showChatMsgMenu(msgId, isMe);
+      const msgId = el.dataset.msgid;
+      _showChatMsgMenu(msgId);
       return;
     }
     if (act === 'chat-menu-react') {
@@ -9246,7 +9247,9 @@
       return;
     }
     if (act === 'chat-menu-edit') {
-      const msgId = el.dataset.msgid, origText = el.dataset.mtext || '';
+      const msgId = el.dataset.msgid;
+      const origMsg = _chatMessages.find(m => m.id === msgId);
+      const origText = (origMsg && origMsg.text) || '';
       closeModal();
       openModal(`<h3>Edit Message</h3>
         <textarea id="chat-edit-inp" style="width:100%;box-sizing:border-box;min-height:80px;padding:10px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px;resize:none;outline:none">${escapeHTML(origText)}</textarea>
@@ -9940,9 +9943,8 @@
       _lp = null;
       _lpFired = true; // prevent the imminent touchend→click from re-opening the menu
       const msgId = bubble.dataset.msgid;
-      const isMe = bubble.dataset.ismine === 'true';
       if (navigator.vibrate) navigator.vibrate(30);
-      _showChatMsgMenu(msgId, isMe);
+      _showChatMsgMenu(msgId);
     }, 480);
   }, { passive: true });
   document.addEventListener('touchend',   () => { if (_lp) { clearTimeout(_lp); _lp = null; } }, { passive: true });
