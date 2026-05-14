@@ -1019,6 +1019,12 @@
           // Fall back to data.uid in case of legacy data.
           const key = data.uid || change.doc.id;
           if (!data.uid) data.uid = change.doc.id; // back-fill missing uid field
+          // If own presence was set to 'kicked' by admin, auto-leave the room
+          if (key === _userId && data.status === 'kicked') {
+            toast('You have been removed from the room by the admin.', 'warn', 5000);
+            setTimeout(() => _sLeaveRoom(), 300);
+            return;
+          }
           _socialMembers[key] = data;
           // Real-time toast: detect when a teammate starts focusing
           if (data.uid !== _userId && data.status === 'focusing') {
@@ -1102,6 +1108,12 @@
         _socialReconnectAttempts = 0;
         _socialReconnectToast    = false;
         _socialRoomData = snap.exists ? snap.data() : null;
+        // If the admin closed the room, send all other members back to the lobby
+        if (_socialRoomData && _socialRoomData.closed && _userId !== _socialRoomData.createdBy) {
+          toast('This room has been closed by the admin.', 'warn', 5000);
+          setTimeout(() => _sLeaveRoom(), 300);
+          return;
+        }
         _sCheckDuelResults();
         // Theme unlock detection
         if (_socialRoomData && _socialRoomData.vaultThemeUnlocked) {
@@ -3161,7 +3173,7 @@
     const notifOn = !!(state.socialNotif !== false);
     const roomName = (_socialRoomData && _socialRoomData.roomName) || `Room ${_socialRoomCode}`;
     const isPrivate = !!(_socialRoomData && _socialRoomData.private);
-    const members = Object.values(_socialMembers);
+    const members = _mergedMembers();
 
     const memberRows = members.map(m => {
       const isMe = m.uid === _userId;
@@ -3251,9 +3263,13 @@
   async function _adminKickMember(uid_, name) {
     if (!_db || !_socialRoomCode) return;
     try {
-      await _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(uid_).update({ status: 'kicked' });
+      const groupRef = _db.collection('groups').doc(_socialRoomCode);
+      await groupRef.collection('presence').doc(uid_).update({ status: 'kicked' });
+      await groupRef.collection('members').doc(uid_).delete().catch(() => {});
+      delete _socialRoomMembersList[uid_];
       toast(`Removed ${name} from the room`, 'info');
       closeModal();
+      if (_currentTab === 'social') renderSocial();
     } catch(e) { toast('Failed to remove member', 'danger'); }
   }
 
