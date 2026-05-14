@@ -6245,10 +6245,69 @@
   }
 
   // ========== Sound Track Catalogue ==========
+  // Free ambient tracks use Web Audio API synthesis (no network needed, always work)
+  // Premium tracks (cat:'music', premium:true) require Focus Music Pack purchase
   const SOUNDS = [
-    { id: 'none', label: '🔇 Off', src: null, cat: null },
+    { id: 'none',       label: '🔇 Off',          src: null, cat: null },
+    // ── Free synthesized ambient ─────────────────────────────────────────
+    { id: 'rain',       label: '🌧️ Rain',          src: null, noiseType: 'pink',  cat: 'ambient' },
+    { id: 'white',      label: '🤍 White Noise',   src: null, noiseType: 'white', cat: 'ambient' },
+    { id: 'brown',      label: '🟤 Brown Noise',   src: null, noiseType: 'brown', cat: 'ambient' },
+    // ── Premium music tracks (Focus Music Pack) ──────────────────────────
+    { id: 'lofi',       label: '🎵 Lo-fi Beats',   src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-17.mp3', cat: 'music', premium: true },
+    { id: 'ambient_fl', label: '✨ Ambient Flow',   src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-11.mp3', cat: 'music', premium: true },
+    { id: 'rain_study', label: '☔ Rain Study',     src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3',  cat: 'music', premium: true },
+    { id: 'deep_focus', label: '🔮 Deep Focus',     src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3',  cat: 'music', premium: true },
   ];
   function soundById(id) { return SOUNDS.find(s => s.id === id) || SOUNDS[0]; }
+
+  // ── Web Audio noise synthesis — used for rain / white / brown noise ───
+  function _createNoiseAmbient(noiseType) {
+    const ctx = getAudioContext();
+    if (!ctx) return null;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const sr = ctx.sampleRate;
+    const buf = ctx.createBuffer(1, sr * 2, sr);
+    const d   = buf.getChannelData(0);
+    if (noiseType === 'white') {
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    } else if (noiseType === 'brown') {
+      let last = 0;
+      for (let i = 0; i < d.length; i++) {
+        const w = (Math.random() * 2 - 1) * 0.02;
+        last = Math.max(-0.97, Math.min(0.97, last + w));
+        d[i] = last * 3.0;
+      }
+    } else { // pink — approximates gentle rain
+      let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
+      for (let i = 0; i < d.length; i++) {
+        const w = Math.random() * 2 - 1;
+        b0=0.99886*b0+w*0.0555179; b1=0.99332*b1+w*0.0750759;
+        b2=0.96900*b2+w*0.1538520; b3=0.86650*b3+w*0.3104856;
+        b4=0.55000*b4+w*0.5329522; b5=-0.7616*b5-w*0.0168980;
+        d[i] = (b0+b1+b2+b3+b4+b5+b6+w*0.5362) * 0.11;
+        b6 = w * 0.115926;
+      }
+    }
+    const src  = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+    const gain = ctx.createGain(); gain.gain.value = ambientVolume;
+    if (noiseType === 'pink') {
+      // gentle low-shelf cut to soften highs → more rain-like
+      const flt = ctx.createBiquadFilter(); flt.type = 'lowshelf'; flt.frequency.value = 3500; flt.gain.value = -10;
+      src.connect(flt); flt.connect(gain);
+    } else { src.connect(gain); }
+    gain.connect(ctx.destination); src.start();
+    let _paused = false, _vol = ambientVolume;
+    return {
+      _isNoise: true,
+      get paused()      { return _paused; },
+      get currentTime() { return 0; },
+      set currentTime(_) {},
+      get volume()      { return _vol; },
+      set volume(v)     { _vol = v; gain.gain.value = v; },
+      pause() { if (!_paused) { gain.gain.setTargetAtTime(0, ctx.currentTime, 0.05); setTimeout(() => { try { src.stop(); } catch(e) {} }, 200); _paused = true; } },
+    };
+  }
 
   // ── Focus Timer Motivational Quotes ─────────────────────────────
   let _currentQuote = null;
@@ -6371,7 +6430,16 @@
     resumeAudioContext();
 
     const sound = soundById(mode);
-    if (!sound || !sound.src) return;
+    if (!sound) return;
+
+    // ── Web Audio noise synthesis (rain / white / brown) ──────────────────
+    if (sound.noiseType) {
+      const noiseObj = _createNoiseAmbient(sound.noiseType);
+      if (noiseObj) { ambientAudio = noiseObj; }
+      return;
+    }
+
+    if (!sound.src) return;
 
     const audio = new Audio();
     audio.loop = true;          // Primary gapless loop mechanism
@@ -6644,11 +6712,18 @@
     const profName    = state.profile.name    || '';
     const profTagline = state.profile.tagline || '';
     const profInitial = profName ? profName.trim().charAt(0).toUpperCase() : '?';
-    const profAvatarHTML = state.profile.avatarDataUrl
-      ? `<img src="${escapeHTML(state.profile.avatarDataUrl)}" class="home-profile-avatar home-profile-avatar--img" alt="Avatar"/>`
-      : `<div class="home-profile-avatar">${profInitial}</div>`;
+    const _eq = _myEquipped();
+    const _borderClass = _cmkBorderClass(_eq);
+    const _auraClass   = _cmkAuraClass(_eq);
+    const _titleHTML   = _cmkTitleHTML(_eq);
+    const _profAvatarEl = state.profile.avatarDataUrl
+      ? `<img src="${escapeHTML(state.profile.avatarDataUrl)}" class="home-profile-avatar home-profile-avatar--img${_borderClass ? ' ' + _borderClass : ''}" alt="Avatar"/>`
+      : `<div class="home-profile-avatar${_borderClass ? ' ' + _borderClass : ''}">${profInitial}</div>`;
+    const profAvatarHTML = _auraClass
+      ? `<div class="${_auraClass}">${_profAvatarEl}</div>`
+      : _profAvatarEl;
     const nameHtml    = profName
-      ? `<div class="home-profile-name">${escapeHTML(profName)}</div>`
+      ? `<div class="home-profile-name">${escapeHTML(profName)}${_titleHTML ? ' ' + _titleHTML : ''}</div>`
       : `<div class="home-profile-name home-profile-name--empty" style="opacity:.55;font-style:italic;font-size:14px">Tap to set name</div>`;
     const taglineHtml = profTagline
       ? `<div class="home-profile-sub">${escapeHTML(profTagline)}</div>`
@@ -7223,6 +7298,27 @@
             </div>
           </div>
         </div>
+        ${(()=>{
+          const freeSounds   = SOUNDS.filter(s => !s.premium);
+          const premSounds   = SOUNDS.filter(s => s.premium);
+          const hasMusic     = state.focusMusicUnlocked;
+          const unlockedPrem = hasMusic ? premSounds : [];
+          const lockedPrem   = hasMusic ? [] : premSounds;
+          const visibleSounds = [...freeSounds, ...unlockedPrem];
+          const lockedBtns = lockedPrem.map(s =>
+            `<button class="ambient-btn ambient-btn--locked" disabled title="Requires Focus Music Pack">🔒 ${s.label}</button>`
+          ).join('');
+          const freeBtns = visibleSounds.map(s =>
+            `<button class="ambient-btn${ambientMode === s.id ? ' active' : ''}" data-act="ambient-select" data-amode="${s.id}">${s.label}</button>`
+          ).join('');
+          const volRow = ambientMode !== 'none'
+            ? `<div class="fac-vol-row"><span>🔊</span><input type="range" id="ambient-vol-slider" min="0" max="1" step="0.05" value="${ambientVolume}" class="bb-vol-slider"/></div>`
+            : '';
+          const shopHint = !hasMusic && lockedPrem.length
+            ? `<div class="fac-premium-hint">🔒 ${lockedPrem.length} premium tracks — <button class="btn-link" data-act="open-shop">unlock with Focus Music Pack ⚡500 XP</button></div>`
+            : '';
+          return `<div class="focus-ambient-card"><div class="fac-title">🎵 Ambient Sound</div><div class="ambient-grid">${freeBtns}${lockedBtns}</div>${volRow}${shopHint}</div>`;
+        })()}
         <button class="btn fs-enter-btn" data-act="enter-full-session">🚀 Enter Full Focus Mode</button>
       </div>
     </div>`;
