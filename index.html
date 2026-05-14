@@ -102,25 +102,35 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script src="./script.js?v=148"></script>
   <script>
-    /* ── Service Worker ── */
+    /* ── Service Worker + Auto-Update ── */
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
+        // Guard: only reload once per update cycle (prevents double-reload)
+        let _swUpdating = false;
+
         navigator.serviceWorker.register('/sw.js').then(reg => {
-          // Force check for SW updates on every load
+          // Force-check for a new SW version on every page load
           reg.update().catch(() => {});
-          // When a new SW takes over, reload to get fresh files
+
+          // When a new SW is found installing, watch it activate
           reg.addEventListener('updatefound', () => {
             const newWorker = reg.installing;
             if (!newWorker) return;
             newWorker.addEventListener('statechange', () => {
-              if (newWorker.state === 'activated') {
-                window.location.reload();
+              // 'installed' = new SW ready, existing controller = real update (not first install)
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                // SW has skipWaiting() so it will activate immediately — nothing to do here;
+                // controllerchange below will handle the reload
               }
             });
           });
         }).catch(() => {});
-        // Also reload when a new SW claims this client
+
+        // Primary reload trigger: fires when the new SW claims this page
+        // This is the most reliable signal that fresh files are now active
         navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (_swUpdating) return;   // already reloading — ignore duplicate events
+          _swUpdating = true;
           window.location.reload();
         });
       });
