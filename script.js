@@ -3537,16 +3537,6 @@
         </div>
       </div>
 
-      <!-- ── APPEARANCE ── -->
-      <div class="adm-group">
-        <div class="adm-group-label">APPEARANCE</div>
-        <div class="adm-row" data-act="theme-gallery" data-close style="cursor:pointer">
-          <div class="adm-row-ico">🎨</div>
-          <div class="adm-row-body"><div class="adm-row-title">Theme Gallery</div><div class="adm-row-sub">Customise the app's look &amp; feel</div></div>
-          <div class="adm-row-chev">›</div>
-        </div>
-      </div>
-
       <!-- ── DANGER ZONE ── -->
       <div class="adm-group adm-danger-group">
         <div class="adm-group-label adm-danger-label">⚠ DANGER ZONE</div>
@@ -3649,18 +3639,9 @@
         </div>
       </div>
 
-      <div class="adm-group">
-        <div class="adm-group-label">APPEARANCE</div>
-        <div class="adm-row" data-act="theme-gallery" data-close style="cursor:pointer">
-          <div class="adm-row-ico">🎨</div>
-          <div class="adm-row-body"><div class="adm-row-title">Theme Gallery</div><div class="adm-row-sub">Customise the app's look &amp; feel</div></div>
-          <div class="adm-row-chev">›</div>
-        </div>
-      </div>
-
       <div class="adm-group adm-danger-group">
         <div class="adm-group-label adm-danger-label">LEAVE</div>
-        <div class="adm-row adm-leave-row" data-act="social-leave" data-close style="cursor:pointer">
+        <div class="adm-row adm-leave-row" data-act="social-leave" style="cursor:pointer">
           <div class="adm-row-ico">🚪</div>
           <div class="adm-row-body"><div class="adm-row-title adm-leave-title">Leave Room</div><div class="adm-row-sub">You can rejoin later with the same code</div></div>
           <div class="adm-row-chev adm-leave-chev">›</div>
@@ -9632,7 +9613,7 @@
     // ── Social Study System ──────────────────────────────────────────────
     if (act === 'social-create') { _sJoinRoom(el.dataset.code).catch(() => {}); return; }
     if (act === 'social-join')   { const inp = document.getElementById('social-join-input'); _sJoinRoom(inp ? inp.value.trim().toUpperCase() : '').catch(() => {}); return; }
-    if (act === 'social-leave')  { _sLeaveRoom(); return; }
+    if (act === 'social-leave')  { closeModal(); _sLeaveRoom(); return; }
     if (act === 'social-rejoin') { _sJoinRoom(el.dataset.code).catch(() => {}); return; }
     if (act === 'chat-react') {
       const msgId = el.dataset.msgid, emoji = el.dataset.emoji;
