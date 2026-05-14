@@ -1,0 +1,624 @@
+/* ═══════════════════════════════════════════════════════
+   Live Study Mode — Anime/Wuxia Premium Focus Screen
+   Self-contained overlay alongside existing Pomodoro timer
+   ═══════════════════════════════════════════════════════ */
+
+/* ── Design tokens ── */
+:root {
+  --lsm-accent:     #ff7a1a;
+  --lsm-accent-dim: rgba(255,122,26,0.18);
+  --lsm-glow:       rgba(255,122,26,0.55);
+  --lsm-bg:         #000000;
+  --lsm-text:       #ffffff;
+  --lsm-muted:      rgba(255,255,255,0.45);
+  --lsm-card:       rgba(255,255,255,0.05);
+}
+
+/* ══════════════════════════════════════
+   MODE SWITCHER — injected into Focus header
+══════════════════════════════════════ */
+.lsm-mode-switcher {
+  display: flex;
+  align-items: center;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 14px;
+  padding: 4px;
+  gap: 0;
+  margin: 0 0 14px 0;
+  position: relative;
+  width: 100%;
+  max-width: 340px;
+  align-self: center;
+}
+.lsm-mode-btn {
+  flex: 1;
+  padding: 9px 14px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(255,255,255,0.5);
+  font: 600 13px 'Inter', sans-serif;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4,0,0.2,1);
+  position: relative;
+  z-index: 1;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+.lsm-mode-btn.active {
+  color: #fff;
+  background: var(--lsm-accent);
+  box-shadow: 0 2px 16px var(--lsm-glow), 0 1px 0 rgba(255,255,255,0.15) inset;
+}
+.lsm-mode-btn:not(.active):hover {
+  color: rgba(255,255,255,0.8);
+  background: rgba(255,255,255,0.08);
+}
+
+/* ══════════════════════════════════════
+   FULL-SCREEN OVERLAY
+══════════════════════════════════════ */
+#lsm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  background: var(--lsm-bg);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+#lsm-overlay.lsm-active {
+  display: flex;
+}
+
+/* Ambient background glow */
+#lsm-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 70% 50% at 50% 20%, rgba(255,122,26,0.07) 0%, transparent 65%),
+    radial-gradient(ellipse 50% 60% at 20% 80%, rgba(120,40,200,0.05) 0%, transparent 60%);
+  pointer-events: none;
+  animation: lsmBgPulse 8s ease-in-out infinite alternate;
+}
+@keyframes lsmBgPulse {
+  0%   { opacity: 0.6; }
+  100% { opacity: 1; }
+}
+
+/* ── Particle Canvas ── */
+#lsm-particles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Inner layout (above particles) ── */
+.lsm-inner {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: 480px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 20px;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* ══════════════════════════════════════
+   TOP BAR
+══════════════════════════════════════ */
+.lsm-top-bar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 0 10px;
+  flex-shrink: 0;
+}
+.lsm-dday-badge {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.lsm-dday-badge:hover {
+  background: rgba(255,255,255,0.13);
+}
+.lsm-dday-badge .lsm-dday-count {
+  color: var(--lsm-accent);
+  font-size: 15px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+.lsm-top-actions {
+  display: flex;
+  gap: 10px;
+}
+.lsm-icon-btn {
+  width: 38px; height: 38px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.7);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 16px;
+}
+.lsm-icon-btn:hover {
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+}
+
+/* ══════════════════════════════════════
+   STATUS + TIMER
+══════════════════════════════════════ */
+.lsm-status-area {
+  flex-shrink: 0;
+  text-align: center;
+  margin-top: 8px;
+}
+.lsm-status-text {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--lsm-muted);
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+  transition: color 0.5s;
+}
+.lsm-status-text.lsm-running {
+  color: rgba(255,255,255,0.75);
+}
+.lsm-timer {
+  font-size: clamp(52px, 14vw, 76px);
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  letter-spacing: -3px;
+  line-height: 1;
+  text-shadow: 0 0 60px var(--lsm-glow), 0 0 25px var(--lsm-accent-dim);
+  transition: text-shadow 0.6s ease;
+  animation: lsmTimerPulse 3s ease-in-out infinite;
+}
+.lsm-timer.lsm-paused {
+  color: rgba(255,255,255,0.55);
+  text-shadow: none;
+  animation: none;
+}
+@keyframes lsmTimerPulse {
+  0%,100% { text-shadow: 0 0 50px var(--lsm-glow), 0 0 20px var(--lsm-accent-dim); }
+  50%     { text-shadow: 0 0 80px var(--lsm-glow), 0 0 40px var(--lsm-accent-dim), 0 0 120px rgba(255,122,26,0.12); }
+}
+
+/* ── Study stats row ── */
+.lsm-stats-row {
+  display: flex;
+  gap: 28px;
+  margin-top: 14px;
+  align-items: flex-start;
+}
+.lsm-stat-item {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.lsm-stat-label {
+  font-size: 11px;
+  color: var(--lsm-muted);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 90px;
+}
+.lsm-stat-value {
+  font-size: 17px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.7);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.5px;
+}
+.lsm-stat-divider {
+  width: 1px;
+  height: 32px;
+  background: rgba(255,255,255,0.1);
+  align-self: center;
+}
+
+/* ── XP HUD pill ── */
+.lsm-xp-hud {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 10px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 99px;
+  padding: 6px 18px;
+  flex-shrink: 0;
+}
+.lsm-xp-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.65);
+}
+.lsm-xp-item .lsm-xp-icon { font-size: 13px; }
+.lsm-xp-item .lsm-xp-val {
+  color: var(--lsm-accent);
+  font-size: 13px;
+}
+.lsm-xp-divider {
+  width: 1px;
+  height: 14px;
+  background: rgba(255,255,255,0.12);
+}
+/* XP floating popup */
+.lsm-xp-popup {
+  position: fixed;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--lsm-accent);
+  pointer-events: none;
+  z-index: 999;
+  text-shadow: 0 0 12px var(--lsm-glow);
+  animation: lsmXpFloat 1.5s ease-out forwards;
+}
+@keyframes lsmXpFloat {
+  0%   { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-60px) scale(0.7); }
+}
+
+/* ══════════════════════════════════════
+   CHARACTER SECTION
+══════════════════════════════════════ */
+.lsm-character-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 100%;
+  min-height: 160px;
+  max-height: 260px;
+}
+.lsm-aura {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 180px; height: 160px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, var(--lsm-accent-dim) 0%, transparent 70%);
+  animation: lsmAuraPulse 3s ease-in-out infinite;
+  pointer-events: none;
+  transition: opacity 0.6s;
+}
+.lsm-aura.lsm-dim { opacity: 0.25; }
+@keyframes lsmAuraPulse {
+  0%,100% { transform: translate(-50%,-50%) scale(0.92); opacity: 0.6; }
+  50%     { transform: translate(-50%,-50%) scale(1.08); opacity: 1; }
+}
+
+/* SVG character */
+.lsm-character-svg {
+  width: 200px;
+  height: 170px;
+  animation: lsmCharFloat 4.5s ease-in-out infinite;
+  filter: drop-shadow(0 0 18px var(--lsm-glow)) drop-shadow(0 0 6px rgba(255,122,26,0.4));
+  transition: filter 0.6s;
+  overflow: visible;
+}
+.lsm-character-svg.lsm-paused {
+  filter: drop-shadow(0 0 6px rgba(255,122,26,0.2));
+  animation-play-state: paused;
+}
+@keyframes lsmCharFloat {
+  0%,100% { transform: translateY(0px) rotate(-0.5deg); }
+  50%     { transform: translateY(-10px) rotate(0.5deg); }
+}
+
+/* Head subtle bob */
+.lsm-char-head {
+  animation: lsmHeadBob 3s ease-in-out infinite;
+  transform-origin: 92px 72px;
+}
+@keyframes lsmHeadBob {
+  0%,100% { transform: rotate(-1deg); }
+  40%     { transform: rotate(1.5deg); }
+  70%     { transform: rotate(-0.5deg); }
+}
+
+/* Floating thought dots */
+.lsm-dot {
+  animation: lsmDotFloat 2.5s ease-in-out infinite;
+  transform-origin: center;
+}
+.lsm-dot:nth-child(1) { animation-duration: 2.2s; animation-delay: 0s; }
+.lsm-dot:nth-child(2) { animation-duration: 2.8s; animation-delay: 0.3s; }
+.lsm-dot:nth-child(3) { animation-duration: 2.5s; animation-delay: 0.6s; }
+@keyframes lsmDotFloat {
+  0%,100% { transform: translateY(0) scale(1); opacity: 0.8; }
+  50%     { transform: translateY(-5px) scale(1.1); opacity: 1; }
+}
+
+/* Lamp glow */
+.lsm-lamp-glow {
+  animation: lsmLampGlow 2.5s ease-in-out infinite;
+}
+@keyframes lsmLampGlow {
+  0%,100% { opacity: 0.35; }
+  50%     { opacity: 0.7; }
+}
+
+/* Arms typing animation */
+.lsm-arm-r {
+  animation: lsmArmWrite 1.2s ease-in-out infinite;
+  transform-origin: 90px 105px;
+}
+@keyframes lsmArmWrite {
+  0%,100% { transform: rotate(-4deg); }
+  50%     { transform: rotate(4deg); }
+}
+
+/* ══════════════════════════════════════
+   CONTROLS SECTION
+══════════════════════════════════════ */
+.lsm-controls {
+  width: 100%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 0 24px;
+  flex-shrink: 0;
+}
+.lsm-allowed-btn {
+  position: absolute;
+  right: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--lsm-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: color 0.2s;
+  padding: 8px 0;
+}
+.lsm-allowed-btn:hover { color: rgba(255,255,255,0.85); }
+
+.lsm-pause-btn {
+  width: 68px; height: 68px;
+  border-radius: 50%;
+  border: none;
+  background: #fff;
+  color: #000;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 32px rgba(255,255,255,0.18), 0 2px 12px rgba(0,0,0,0.4);
+  transition: transform 0.15s cubic-bezier(0.4,0,0.2,1), box-shadow 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+.lsm-pause-btn:active {
+  transform: scale(0.92);
+  box-shadow: 0 2px 16px rgba(255,255,255,0.1);
+}
+.lsm-pause-btn svg {
+  width: 26px; height: 26px;
+  transition: transform 0.2s;
+}
+.lsm-pause-btn.lsm-is-running {
+  background: var(--lsm-accent);
+  color: #fff;
+  box-shadow: 0 4px 32px var(--lsm-glow), 0 2px 12px rgba(0,0,0,0.3);
+}
+/* Ripple */
+.lsm-ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.4);
+  transform: scale(0);
+  animation: lsmRipple 0.5s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes lsmRipple {
+  to { transform: scale(3.5); opacity: 0; }
+}
+
+/* ══════════════════════════════════════
+   SUBJECT PICKER MODAL
+══════════════════════════════════════ */
+.lsm-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 600;
+  background: rgba(0,0,0,0.75);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: lsmFadeIn 0.2s ease;
+}
+@keyframes lsmFadeIn { from { opacity: 0; } to { opacity: 1; } }
+.lsm-modal {
+  width: 100%;
+  max-width: 480px;
+  background: #111;
+  border-radius: 24px 24px 0 0;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-bottom: none;
+  padding: 20px 20px 32px;
+  animation: lsmSlideUp 0.3s cubic-bezier(0.4,0,0.2,1);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+@keyframes lsmSlideUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+.lsm-modal-handle {
+  width: 40px; height: 4px;
+  background: rgba(255,255,255,0.15);
+  border-radius: 99px;
+  margin: 0 auto 18px;
+}
+.lsm-modal-title {
+  font-size: 17px;
+  font-weight: 800;
+  color: #fff;
+  margin-bottom: 16px;
+}
+.lsm-modal-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.05);
+  margin-bottom: 8px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.18s;
+}
+.lsm-modal-row:hover  { background: rgba(255,255,255,0.09); }
+.lsm-modal-row.active { border-color: var(--lsm-accent); background: var(--lsm-accent-dim); }
+.lsm-modal-row-icon   { font-size: 20px; }
+.lsm-modal-row-body   { flex: 1; }
+.lsm-modal-row-title  { font-size: 14px; font-weight: 700; color: #fff; }
+.lsm-modal-row-sub    { font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 1px; }
+.lsm-modal-check      { font-size: 16px; color: var(--lsm-accent); opacity: 0; transition: opacity 0.15s; }
+.lsm-modal-row.active .lsm-modal-check { opacity: 1; }
+.lsm-modal-input {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.06);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  margin-bottom: 10px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.lsm-modal-input:focus { border-color: var(--lsm-accent); }
+.lsm-modal-input::placeholder { color: rgba(255,255,255,0.3); }
+.lsm-modal-btn {
+  width: 100%;
+  padding: 14px;
+  border-radius: 14px;
+  border: none;
+  background: var(--lsm-accent);
+  color: #fff;
+  font: 700 15px 'Inter', sans-serif;
+  cursor: pointer;
+  margin-top: 8px;
+  box-shadow: 0 4px 20px var(--lsm-glow);
+  transition: all 0.18s;
+}
+.lsm-modal-btn:hover { filter: brightness(1.1); }
+
+/* ══════════════════════════════════════
+   ALLOWED APPS MODAL
+══════════════════════════════════════ */
+.lsm-apps-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 12px;
+}
+.lsm-app-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 6px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.05);
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  transition: all 0.18s;
+}
+.lsm-app-item.selected { border-color: var(--lsm-accent); background: var(--lsm-accent-dim); }
+.lsm-app-item .lsm-app-icon { font-size: 24px; }
+.lsm-app-item .lsm-app-name { font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.6); text-align: center; }
+.lsm-app-item.selected .lsm-app-name { color: var(--lsm-accent); }
+
+/* ══════════════════════════════════════
+   D-DAY MODAL
+══════════════════════════════════════ */
+.lsm-dday-info {
+  font-size: 13px;
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+
+/* ══════════════════════════════════════
+   THEME-REACTIVE STATES
+══════════════════════════════════════ */
+/* Deep Work state — stronger glow */
+#lsm-overlay.lsm-deepwork .lsm-timer {
+  text-shadow: 0 0 90px var(--lsm-glow), 0 0 40px var(--lsm-accent-dim), 0 0 150px rgba(255,122,26,0.08);
+}
+#lsm-overlay.lsm-deepwork .lsm-character-svg {
+  filter: drop-shadow(0 0 28px var(--lsm-glow)) drop-shadow(0 0 12px rgba(255,122,26,0.5));
+}
+#lsm-overlay.lsm-deepwork .lsm-aura {
+  width: 220px; height: 200px;
+}
+
+/* Paused state */
+#lsm-overlay.lsm-is-paused .lsm-timer {
+  color: rgba(255,255,255,0.45);
+  text-shadow: none;
+  animation: none;
+}
+#lsm-overlay.lsm-is-paused .lsm-status-text { color: rgba(255,255,255,0.3); }
+#lsm-overlay.lsm-is-paused::before { opacity: 0.25; }
+
+/* ══════════════════════════════════════
+   RESPONSIVE
+══════════════════════════════════════ */
+@media (max-height: 700px) {
+  .lsm-character-wrap { max-height: 160px; min-height: 120px; }
+  .lsm-character-svg  { width: 150px; height: 128px; }
+  .lsm-timer          { font-size: 52px; }
+  .lsm-top-bar        { padding-top: 12px; }
+  .lsm-xp-hud        { padding: 4px 14px; }
+}
+@media (min-width: 600px) {
+  .lsm-character-svg { width: 240px; height: 200px; }
+  .lsm-timer         { font-size: 80px; }
+}
+
+/* ══════════════════════════════════════
+   SECTION LABEL in existing focus view
+══════════════════════════════════════ */
+#view-focus .lsm-mode-switcher {
+  margin: -4px 0 12px 0;
+}
