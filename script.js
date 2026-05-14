@@ -686,6 +686,77 @@
       _showAuthError(msg);
     }
   }
+  async function _authDeleteAccount() {
+    const user = _auth && _auth.currentUser;
+    if (!user) return;
+    const isEmailUser = user.providerData && user.providerData.some(p => p.providerId === 'password');
+    // Confirm intent first
+    confirmModal(
+      'This will permanently delete your account and all cloud data. Your local study data stays on this device. This cannot be undone.',
+      () => {
+        if (isEmailUser) {
+          // Need password for re-authentication
+          openModal(`<h3>Confirm Delete</h3>
+            <p style="font-size:13px;color:var(--text-muted);margin:0 0 14px">Enter your password to permanently delete your account.</p>
+            <div class="field"><label>Password</label><input id="del-pw-input" type="password" placeholder="Your password" autocomplete="current-password"/></div>
+            <div id="del-err" style="color:#ef4444;font-size:12px;margin-top:6px;display:none"></div>
+            <div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-danger" id="del-confirm-btn">Delete Account</button></div>`,
+            root => {
+              const input = root.querySelector('#del-pw-input');
+              const errEl = root.querySelector('#del-err');
+              const btn   = root.querySelector('#del-confirm-btn');
+              const doDelete = async () => {
+                const pw = input.value;
+                if (!pw) { errEl.textContent = 'Password is required.'; errEl.style.display = ''; return; }
+                btn.disabled = true; btn.textContent = 'Deleting…';
+                try {
+                  const cred = firebase.auth.EmailAuthProvider.credential(user.email, pw);
+                  await user.reauthenticateWithCredential(cred);
+                  // Wipe Firestore data
+                  if (_db && _userId) {
+                    await Promise.allSettled([
+                      _db.collection('users').doc(_userId).delete(),
+                      _db.collection('global_lb').doc(_userId).delete(),
+                    ]);
+                  }
+                  await user.delete();
+                  closeModal();
+                  toast('Account deleted.', 'info', 4000);
+                } catch(e) {
+                  btn.disabled = false; btn.textContent = 'Delete Account';
+                  errEl.textContent = e.code === 'auth/wrong-password' ? 'Incorrect password.' : (e.message || 'Failed to delete account.');
+                  errEl.style.display = '';
+                }
+              };
+              btn.onclick = doDelete;
+              input.addEventListener('keydown', e => { if (e.key === 'Enter') doDelete(); });
+            });
+        } else {
+          // Non-email provider: attempt delete directly (may need re-auth via popup, handle gracefully)
+          (async () => {
+            try {
+              if (_db && _userId) {
+                await Promise.allSettled([
+                  _db.collection('users').doc(_userId).delete(),
+                  _db.collection('global_lb').doc(_userId).delete(),
+                ]);
+              }
+              await user.delete();
+              toast('Account deleted.', 'info', 4000);
+            } catch(e) {
+              if (e.code === 'auth/requires-recent-login') {
+                toast('Please sign out and sign back in, then try deleting again.', 'warn', 5000);
+              } else {
+                toast(e.message || 'Failed to delete account.', 'danger');
+              }
+            }
+          })();
+        }
+      },
+      { title: 'Delete Account?', yesLabel: 'Continue', yesClass: 'btn btn-danger', noLabel: 'Cancel' }
+    );
+  }
+
   async function _authSignOut() {
     if (!_auth) return;
     try {
@@ -8948,6 +9019,9 @@
             ${isEmailUser ? `<button class="btn btn-ghost" style="flex:1" data-act="change-password">🔑 Change Password</button>` : ''}
             <button class="btn btn-ghost" style="flex:1;color:#ef4444;border-color:rgba(239,68,68,.25)" data-act="auth-logout">Sign Out</button>
           </div>
+          <div style="margin-top:8px">
+            <button class="btn btn-ghost btn-block" style="color:#ef4444;border-color:rgba(239,68,68,.15);font-size:12px;opacity:.7" data-act="delete-account">🗑️ Delete Account</button>
+          </div>
         </div>`
       : `<div class="settings-section settings-auth-section">
           <h4>☁️ Account</h4>
@@ -9582,6 +9656,7 @@
     if (act === 'social-nudge')  { _sNudge(el.dataset.uid, el.dataset.name).catch(() => {}); return; }
     if (act === 'social-duel')   { _sChallengeDuel(el.dataset.uid, el.dataset.name).catch(() => {}); return; }
     if (act === 'change-password') { closeModal(); _handleChangePassword(); return; }
+    if (act === 'delete-account')  { closeModal(); _authDeleteAccount(); return; }
     if (act === 'open-shop') { closeModal(); switchTab('shop'); renderShop(); return; }
     if (act === 'shop-back') { switchTab('home'); renderHome(); return; }
     if (act === 'remove-avatar') {
