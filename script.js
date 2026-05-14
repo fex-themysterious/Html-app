@@ -735,6 +735,7 @@
 
   // ── Multi-group / Global LB / Voice ──────────────────────────────────────
   let _myGroupCodes    = [];
+  let _myGroupRoomMeta = {};  // code → { roomName, memberCount } fetched from Firestore
   let _lbView          = 'group';
   let _socialRoomTab   = 'members';
   let _globalLbData    = [];
@@ -1204,6 +1205,8 @@
         try { localStorage.setItem('my_group_codes', JSON.stringify(_myGroupCodes)); } catch(_) {}
         if (_db && _userId) _db.collection('users').doc(_userId).update({ joinedRooms: _myGroupCodes }).catch(() => {});
       }
+      // Invalidate cached meta for this room so member count refreshes next time lobby shows
+      delete _myGroupRoomMeta[code];
       await _sUpdatePresence('break');
       // Write a persistent membership record so this user stays visible in
       // Settings > Members and Rankings > This Room even when offline.
@@ -2318,6 +2321,29 @@
     }
   }
 
+  // Fetch room name + member count for rooms not yet in _myGroupRoomMeta
+  function _fetchMyGroupsMeta() {
+    if (!_db || !_myGroupCodes.length) return;
+    const missing = _myGroupCodes.filter(c => !_myGroupRoomMeta[c]);
+    if (!missing.length) return;
+    // Mark as pending so we don't refetch on the next renderSocial call
+    missing.forEach(c => { _myGroupRoomMeta[c] = { _loading: true }; });
+    missing.forEach(code => {
+      const groupRef = _db.collection('groups').doc(code);
+      Promise.all([
+        groupRef.get().catch(() => null),
+        groupRef.collection('members').get().catch(() => null)
+      ]).then(([roomSnap, membersSnap]) => {
+        const existing = _myGroupRoomMeta[code] || {};
+        _myGroupRoomMeta[code] = {
+          roomName: (roomSnap && roomSnap.exists && roomSnap.data().roomName) || null,
+          memberCount: membersSnap ? membersSnap.size : (existing.memberCount || 0)
+        };
+        if (_currentTab === 'social' && !_socialRoomCode) renderSocial();
+      });
+    });
+  }
+
   function renderSocial() {
     const view = document.getElementById('view-social');
     if (!view) return;
@@ -2327,6 +2353,9 @@
     }
     if (!_socialRoomCode && (!_globalLbData || !_globalLbData.length)) {
       _loadGlobalLeaderboard().catch(() => {});
+    }
+    if (!_socialRoomCode && _myGroupCodes.length) {
+      _fetchMyGroupsMeta();
     }
     if (!_socialRoomCode) { view.innerHTML = _renderSocialLobby(); return; }
     const _momMembers = Object.values(_socialMembers);
@@ -2546,10 +2575,16 @@
         </div>
         <div class="slob-rooms-list">
           ${_myGroupCodes.map(c => {
+            const meta = _myGroupRoomMeta[c] || {};
+            const displayName = meta.roomName || `Room ${c}`;
+            const mc = meta.memberCount;
+            const memberBadge = (mc != null && !meta._loading)
+              ? `<span class="slob-room-member-badge">👥 ${mc} member${mc !== 1 ? 's' : ''}</span>`
+              : (meta._loading ? `<span class="slob-room-member-badge" style="opacity:.5">👥 …</span>` : '');
             return `
             <div class="slob-room-card">
               <div class="slob-room-card-header">
-                <div class="slob-room-card-title">Room ${c}</div>
+                <div class="slob-room-card-title">${escapeHTML(displayName)}</div>
                 <button class="slob-room-settings" data-act="social-room-settings-lobby" data-code="${c}" title="Settings">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                 </button>
@@ -2557,6 +2592,7 @@
               <div class="slob-room-code-row">
                 <span class="slob-room-code-label">Code</span>
                 <span class="slob-room-code-val">${c}</span>
+                ${memberBadge}
               </div>
               <button class="btn slob-enter-room-btn" data-act="social-rejoin" data-code="${c}">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
@@ -2642,6 +2678,7 @@
         </div>
         <div class="sroom-meta">
           <span class="sroom-online grm-online-chip"><span class="sroom-live-dot"></span>${onlineCount} online</span>
+          <span class="sroom-total-members">👥 ${members.length} member${members.length !== 1 ? 's' : ''}</span>
           <button class="sroom-code-pill" data-act="social-copy-code" title="Copy room code">${_socialRoomCode}</button>
           ${isPrivate ? '<span class="sroom-privacy">🔒</span>' : ''}
         </div>

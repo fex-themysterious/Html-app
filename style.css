@@ -4829,6 +4829,12 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   color: #5BA8FF; font-family: 'Courier New', monospace;
   text-shadow: 0 0 16px rgba(91,168,255,0.28);
 }
+.slob-room-member-badge {
+  margin-left: auto; font-size: 11px; font-weight: 700;
+  color: rgba(243,246,251,0.6);
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 6px; padding: 2px 8px; white-space: nowrap;
+}
 .slob-enter-room-btn {
   width: 100%; justify-content: center; gap: 8px;
   background: linear-gradient(135deg, #5BA8FF, #3478F6);
@@ -5039,6 +5045,11 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 }
 .sroom-code-pill:hover { background: rgba(91,173,255,0.2); box-shadow: 0 0 10px rgba(91,173,255,0.2); }
 .sroom-privacy { font-size: 12px; }
+.sroom-total-members {
+  font-size: 12px; color: rgba(243,246,251,0.55); font-weight: 600;
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 6px; padding: 2px 7px;
+}
 .sroom-settings-btn {
   width: 42px; height: 42px; display: flex; align-items: center; justify-content: center;
   background: rgba(255,255,255,0.04);
