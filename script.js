@@ -5720,19 +5720,15 @@
 
   function _startAlarmAudio() {
     _stopAlarmAudio();
-    const audio = new Audio('./sounds/alarm-wake.mp3');
-    audio.loop = true;
-    audio.volume = 0.2;
-    _alarmAudioEl = audio;
-    audio.play().catch(() => {});
-    // Ramp 0.2 → 1.0 over 10 s: 80 steps × 125 ms
-    let step = 0;
+    resumeAudioContext();
+    // Repeating chime for alarm clock: play every 4 s until dismissed
+    _playChime(0.75);
+    let _rep = 0;
     _alarmRampTimer = setInterval(() => {
-      if (!_alarmAudioEl) { clearInterval(_alarmRampTimer); return; }
-      step++;
-      try { _alarmAudioEl.volume = Math.min(1, 0.2 + 0.8 * (step / 80)); } catch (_) {}
-      if (step >= 80) { clearInterval(_alarmRampTimer); _alarmRampTimer = null; }
-    }, 125);
+      _rep++;
+      _playChime(0.75);
+      if (_rep >= 30) { clearInterval(_alarmRampTimer); _alarmRampTimer = null; } // cap at 2 min
+    }, 4000);
   }
 
   function _showAlarmOverlay(alarm) {
@@ -6227,11 +6223,7 @@
   let _binauralAudio   = null;
   let _binauralPlaying = false;
   let _binauralVolume  = 0.7;
-  const FOCUS_INTENSITY_TRACKS = [
-    { id: 'monk-mode',      label: '🧘 Monk Mode',   desc: '40 Hz Gamma Binaural',    src: './sounds/monk-mode.wav' },
-    { id: 'void',           label: '🌊 Void',          desc: 'Pink Noise · Deep Rain',  src: './sounds/void.wav' },
-    { id: 'solfeggio-528',  label: '✨ 528 Hz',        desc: 'Solfeggio Transformation', src: './sounds/solfeggio-528.wav' },
-  ];
+  const FOCUS_INTENSITY_TRACKS = [];
   let _audioCtx = null;
 
   function getAudioContext() {
@@ -6249,11 +6241,7 @@
 
   // ========== Sound Track Catalogue ==========
   const SOUNDS = [
-    { id: 'none',         label: '🔇 Off',           src: null,                           cat: null   },
-    { id: 'brown-noise',  label: '🌊 Brown Noise',    src: './sounds/void.wav',            cat: 'noise' },
-    { id: 'gamma-40hz',   label: '🧘 Monk Mode',      src: './sounds/monk-mode.wav',       cat: 'focus' },
-    { id: '528hz',        label: '✨ 528 Hz',         src: './sounds/solfeggio-528.wav',   cat: 'focus' },
-    { id: 'beta-wave',    label: '🧠 Beta Wave',      src: './sounds/focus-beta.wav',      cat: 'focus' },
+    { id: 'none', label: '🔇 Off', src: null, cat: null },
   ];
   function soundById(id) { return SOUNDS.find(s => s.id === id) || SOUNDS[0]; }
 
@@ -7213,29 +7201,6 @@
             <div class="live-focus-today-wrap"><div class="v live-focus-today">${minsToHrs(state.focusStats.minutesByDate[todayKey()] || 0)}</div><div class="k">Focus today</div></div>
           </div>
         </div>
-        <div class="ambient-panel">
-          <div class="ambient-panel-top">
-            ${ambientMode !== 'none' ? `<span class="ambient-now-label">♪ ${escapeHTML(soundById(ambientMode).label)}</span>` : '<span class="ambient-now-label muted">No sound selected</span>'}
-            <div class="ambient-vol" style="${ambientMode !== 'none' ? '' : 'visibility:hidden'}">
-              <span style="font-size:11px;color:var(--text-muted)">Vol</span>
-              <input id="ambient-vol-slider" type="range" min="0" max="1" step="0.05" value="${ambientVolume}"/>
-            </div>
-          </div>
-          <div class="ambient-track-list">
-            <button class="ambient-btn ${ambientMode === 'none' ? 'active' : ''}" data-act="ambient-select" data-amode="none">🔇 Off</button>
-            ${SOUNDS.filter(s => s.cat).map(s => '<button class="ambient-btn ' + (ambientMode === s.id ? 'active' : '') + '" data-act="ambient-select" data-amode="' + s.id + '">' + s.label + '</button>').join('')}
-          </div>
-        </div>
-        <div class="focus-intensity-panel">
-          <div class="fi-header">
-            <span class="fi-title">⚡ Focus Intensity</span>
-            ${focusIntensityMode !== 'none' ? `<span class="fi-active-pill">● ${FOCUS_INTENSITY_TRACKS.find(t => t.id === focusIntensityMode)?.label || ''}</span>` : ''}
-          </div>
-          <select class="fi-select" data-act="intensity-select">
-            <option value="none"${focusIntensityMode === 'none' ? ' selected' : ''}>🔇 Off — no deep focus track</option>
-            ${FOCUS_INTENSITY_TRACKS.map(t => `<option value="${t.id}"${focusIntensityMode === t.id ? ' selected' : ''}>${t.label} — ${t.desc}</option>`).join('')}
-          </select>
-        </div>
         <div class="binaural-card${_binauralPlaying ? ' bb-playing' : ''}" id="binaural-card">
           <div class="bb-header">
             <div class="bb-pulse-dot"></div>
@@ -7291,18 +7256,52 @@
   /* ── Alarm + Overtime helpers ─────────────────────────────── */
   function stopOvertimeAlarm() {
     if (_alarmStopTimer) { clearTimeout(_alarmStopTimer); _alarmStopTimer = null; }
-    if (_alarmAudio) { _alarmAudio.pause(); _alarmAudio.currentTime = 0; _alarmAudio = null; }
+    _alarmAudio = null;
   }
+  // Beautiful 3-bell chime via Web Audio API — no file needed
+  function _playChime(vol) {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const freqs = [523.25, 659.25, 783.99]; // C5 → E5 → G5
+    freqs.forEach((freq, i) => {
+      const t = ctx.currentTime + i * 0.38;
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      // Add a subtle harmonic overtone for richer bell timbre
+      const osc2  = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc.type  = 'sine';  osc.frequency.setValueAtTime(freq, t);
+      osc2.type = 'sine';  osc2.frequency.setValueAtTime(freq * 2.756, t);
+      const v = (vol !== undefined ? vol : 0.72);
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(v, t + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 2.8);
+      gain2.gain.setValueAtTime(0, t);
+      gain2.gain.linearRampToValueAtTime(v * 0.22, t + 0.012);
+      gain2.gain.exponentialRampToValueAtTime(0.0001, t + 1.6);
+      osc.connect(gain);   gain.connect(ctx.destination);
+      osc2.connect(gain2); gain2.connect(ctx.destination);
+      osc.start(t);  osc.stop(t + 2.8);
+      osc2.start(t); osc2.stop(t + 1.6);
+    });
+  }
+  let _chimeRepeatTimer = null;
   function playOvertimeAlarm() {
     stopOvertimeAlarm();
     resumeAudioContext();
-    const audio = new Audio('./sounds/alarm-wake.mp3');
-    audio.loop   = true;
-    audio.volume = 1.0;
-    audio.preload = 'auto';
-    audio.play().catch(e => console.warn('[OvertimeAlarm] play() failed:', e.message));
-    _alarmAudio = audio;
-    _alarmStopTimer = setTimeout(() => stopOvertimeAlarm(), 30000);
+    _playChime(0.80);
+    // Repeat the chime every 6 s for up to 30 s
+    let repeats = 0;
+    _chimeRepeatTimer = setInterval(() => {
+      repeats++;
+      _playChime(0.80);
+      if (repeats >= 4) { clearInterval(_chimeRepeatTimer); _chimeRepeatTimer = null; }
+    }, 6000);
+    _alarmStopTimer = setTimeout(() => {
+      clearInterval(_chimeRepeatTimer); _chimeRepeatTimer = null;
+      stopOvertimeAlarm();
+    }, 30000);
   }
   function startOvertimeMode() {
     focusOvertime = true; focusOvertimeSeconds = 0;
@@ -7602,9 +7601,8 @@
           </div>
         </div>
 
-        <!-- ── Vertical controls: Mute · Play · Landscape · Exit (grid-area: ctrl) ── -->
+        <!-- ── Vertical controls: Play · Landscape · Exit (grid-area: ctrl) ── -->
         <div class="fs-ctrl-col">
-          <button class="fs-ctrl-btn fs-side-btn" data-act="fs-cycle-ambient" title="Toggle sound">${ambientIcon}</button>
           <button class="fs-ctrl-btn fs-main-btn${focusOvertime ? ' fs-overtime-btn' : ''}" data-act="fs-toggle">${focusRunning ? '⏸' : (focusOvertime ? '⏹' : '▶')}</button>
           <button class="fs-ctrl-btn fs-side-btn fs-orient-btn" data-act="fs-toggle-landscape" title="Toggle landscape">${orientIcon}</button>
           <button class="fs-ctrl-btn fs-side-btn fs-exit-btn" data-act="exit-full-session" title="Exit">✕</button>
@@ -7615,7 +7613,7 @@
 
         <!-- ── Footer: swipe hint (grid-area: foot) ── -->
         <div class="fs-footer">
-          <div class="fs-hint">${('ontouchstart' in window) ? 'Swipe to exit' : 'Press Esc to exit'} · ${ambientMode !== 'none' ? '♪ ' + escapeHTML(_curSound.label) : '🔇 Sound off'}</div>
+          <div class="fs-hint">${('ontouchstart' in window) ? 'Swipe to exit' : 'Press Esc to exit'}</div>
         </div>
 
       </div>

@@ -1,17 +1,12 @@
-const CACHE_NAME = 'syllabus-tracker-v145';
+const CACHE_NAME = 'syllabus-tracker-v146';
 const STATIC = [
   '/',
   '/index.html',
   '/style.css?v=102',
-  '/script.js?v=151',
+  '/script.js?v=152',
   '/manifest.json',
   '/icon-192.png',
-  '/icon-512.png',
-  '/sounds/alarm-wake.mp3',
-  '/sounds/focus-beta.wav',
-  '/sounds/monk-mode.wav',
-  '/sounds/void.wav',
-  '/sounds/solfeggio-528.wav'
+  '/icon-512.png'
 ];
 
 self.addEventListener('install', e => {
