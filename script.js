@@ -2702,7 +2702,7 @@
     const result = [];
     for (const m of _globalLbData) {
       const key = (m.name || '').toLowerCase().trim();
-      if (!key) { result.push(m); continue; }
+      if (!key) continue; // skip ghost/nameless entries (deleted accounts)
       if (!seen.has(key)) {
         seen.set(key, result.length);
         result.push(m);
@@ -2896,7 +2896,7 @@
 
   function _renderSocialRoom() {
     const now = Date.now();
-    const members = _mergedMembers();
+    const members = _mergedMembers().filter(m => m.uid === _userId || (m.displayName && m.displayName.trim()));
     const sorted = members.slice().sort((a, b) => {
       if (a.uid === _userId) return -1; if (b.uid === _userId) return 1;
       const r = { focusing: 0, break: 1, idle: 2, offline: 3 };
@@ -3080,7 +3080,10 @@
     </div>`;
 
     // ── RANKINGS PANE ────────────────────────────────────────────────
-    const grpSorted = members.slice().sort((a, b) => (b.weeklyXP||0) - (a.weeklyXP||0));
+    // Filter out ghost entries — kicked/deleted accounts whose Firestore docs linger with no real name
+    const grpSorted = members
+      .filter(m => m.uid === _userId || (m.displayName && m.displayName.trim()))
+      .slice().sort((a, b) => (b.weeklyXP||0) - (a.weeklyXP||0));
     const grpRowsHTML = grpSorted.length ? grpSorted.map((m, i) => {
       const isMe = m.uid === _userId;
       const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="font-size:12px;color:var(--text-muted);font-weight:700">${i+1}</span>`;
@@ -3349,7 +3352,16 @@
     if (!_db || !_userId || !_socialRoomCode || !_socialRoomData) { toast('Not available', 'warn'); return; }
     if (_userId !== _socialRoomData.createdBy) { toast('Only the room admin can access these settings', 'warn'); return; }
     const d          = _socialRoomData;
-    const members    = _mergedMembers();
+    const members    = _mergedMembers().filter(m => m.uid === _userId || (m.displayName && m.displayName.trim()));
+    // Auto-clean ghost members docs from Firestore (no displayName = deleted/kicked ghost)
+    _mergedMembers().forEach(m => {
+      if (m.uid !== _userId && !(m.displayName && m.displayName.trim())) {
+        _db.collection('groups').doc(_socialRoomCode).collection('members').doc(m.uid).delete().catch(() => {});
+        _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(m.uid).delete().catch(() => {});
+        delete _socialRoomMembersList[m.uid];
+        delete _socialMembers[m.uid];
+      }
+    });
     const isPrivate  = !!(d && d.private);
     const notifOn    = !!(state.socialNotif !== false);
     const chatOn     = d.chatEnabled !== false;
@@ -3570,7 +3582,7 @@
     const roomName = (_socialRoomData && _socialRoomData.roomName) || `Room ${_socialRoomCode}`;
     const roomDesc = (_socialRoomData && _socialRoomData.description) || '';
     const isPrivate = !!(_socialRoomData && _socialRoomData.private);
-    const members = _mergedMembers();
+    const members = _mergedMembers().filter(m => m.uid === _userId || (m.displayName && m.displayName.trim()));
 
     const memberRows = members.map(m => {
       const isMe = m.uid === _userId;
