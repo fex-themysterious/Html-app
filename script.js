@@ -913,6 +913,7 @@
         totalFocusMinutes: Object.values((state.focusStats && state.focusStats.minutesByDate) || {}).reduce((a, b) => a + b, 0),
         totalSessions: ((state.focusStats && state.focusStats.sessions) || []).length,
         equippedItems: state.equippedItems || {},
+        earnedBadges: Object.keys(state.badges || {}),
         ...(extra || {})
       };
       // Pre-seed own entry in _socialMembers immediately so onlineCount is correct
@@ -3517,6 +3518,10 @@
         weeklyXP:      _sWeeklyXP(),
         weeklyMinutes: _sWeeklyMinutes(),
         equippedItems: state.equippedItems || {},
+        earnedBadges:  Object.keys(state.badges || {}),
+        xpTotal:       (state.xp && state.xp.total) || 0,
+        studyStreak:   (state.streak && state.streak.count) || 0,
+        totalFocusMinutes: Object.values((state.focusStats && state.focusStats.minutesByDate) || {}).reduce((a, b) => a + b, 0),
         updatedAt:     firebase.firestore.FieldValue.serverTimestamp()
       }, { merge: true }).catch(() => {});
     } catch(_) {}
@@ -3563,39 +3568,86 @@
   }
 
   // ── Social Profile Modal ──────────────────────────────────────────────────
-  function _buildProfileModal(uid_, name, xpTotal, weeklyMinutes, totalFocusMinutes, studyStreak, email, avatarUrl) {
-    const ini    = _sInitials(name);
-    const lvInfo = gamificationManager.calculateLevel(xpTotal || 0);
-    const focusHrs = minsToHrs((totalFocusMinutes || 0));
+  function _levelTitle(level) {
+    if (level >= 50) return 'Legendary';
+    if (level >= 30) return 'Grand Master';
+    if (level >= 20) return 'Master';
+    if (level >= 15) return 'Expert';
+    if (level >= 10) return 'Adept';
+    if (level >= 6)  return 'Scholar';
+    if (level >= 3)  return 'Apprentice';
+    return 'Seeker';
+  }
+
+  function _buildProfileModal(uid_, name, xpTotal, weeklyMinutes, totalFocusMinutes, studyStreak, email, avatarUrl, earnedBadges) {
+    const ini      = _sInitials(name);
+    const lvInfo   = gamificationManager.calculateLevel(xpTotal || 0);
+    const title    = _levelTitle(lvInfo.level);
+    const focusHrs = minsToHrs(totalFocusMinutes || 0);
     const streak   = studyStreak || 0;
+    const wkMins   = weeklyMinutes || 0;
+
     const avatarHTML = avatarUrl
-      ? `<img src="${escapeHTML(avatarUrl)}" style="width:72px;height:72px;border-radius:50%;object-fit:cover" alt=""/>`
-      : `<div class="sm-avatar" style="width:72px;height:72px;border-radius:50%;background:${_sAvatarColor(uid_)};display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;color:#fff">${ini}</div>`;
-    openModal(`<h3 style="text-align:center">Profile Card</h3>
-      <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:8px 0 16px">
+      ? `<img src="${escapeHTML(avatarUrl)}" style="width:76px;height:76px;border-radius:50%;object-fit:cover;border:3px solid var(--primary)" alt=""/>`
+      : `<div style="width:76px;height:76px;border-radius:50%;background:${_sAvatarColor(uid_)};display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:800;color:#fff;border:3px solid var(--primary)">${ini}</div>`;
+
+    // XP progress bar
+    const xpPct = lvInfo.percent || 0;
+    const xpBar = `<div style="width:100%;background:rgba(255,255,255,0.08);border-radius:99px;height:6px;margin-top:8px;overflow:hidden">
+      <div style="height:100%;width:${xpPct}%;background:var(--primary);border-radius:99px;transition:width .4s"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-top:3px">
+      <span>${(lvInfo.currentLevelXP || 0).toLocaleString()} XP</span>
+      <span>${(lvInfo.nextLevelXP || 0).toLocaleString()} XP needed</span>
+    </div>`;
+
+    // Stats chips
+    const chips = [
+      { val: `⚡ ${(xpTotal || 0).toLocaleString()}`, label: 'Total XP',    color: 'var(--primary)' },
+      { val: focusHrs,                                  label: 'Focus Time',  color: '#34d399' },
+      ...(streak >= 1 ? [{ val: `🔥 ${streak}`,        label: 'Day Streak',  color: '#f97316' }] : []),
+      ...(wkMins  >= 1 ? [{ val: minsToHrs(wkMins),    label: 'This Week',   color: '#38bdf8' }] : []),
+    ];
+    const chipsHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;width:100%">
+      ${chips.map(c => `<div style="text-align:center;background:rgba(255,255,255,0.04);padding:8px 14px;border-radius:12px;flex:1;min-width:64px">
+        <div style="font-size:16px;font-weight:900;color:${c.color}">${c.val}</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px">${c.label}</div>
+      </div>`).join('')}
+    </div>`;
+
+    // Achievements section
+    const tierColor = { easy: '#22c55e', medium: '#38bdf8', hard: '#f59e0b' };
+    const tierLabel = { easy: 'Bronze', medium: 'Silver', hard: 'Gold' };
+    const earned = Array.isArray(earnedBadges) ? earnedBadges : [];
+    const earnedAchs = ACHIEVEMENTS.filter(a => earned.includes(a.id));
+    const achHTML = earnedAchs.length
+      ? `<div style="width:100%">
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">🏅 Achievements (${earnedAchs.length}/${ACHIEVEMENTS.length})</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px">
+            ${earnedAchs.map(a => `<div style="background:rgba(255,255,255,0.04);border:1px solid ${tierColor[a.tier]}33;border-radius:10px;padding:8px;display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center">
+              <div style="font-size:22px;filter:drop-shadow(0 0 6px ${tierColor[a.tier]}88)">${a.icon}</div>
+              <div style="font-size:11px;font-weight:700;color:var(--text);line-height:1.2">${escapeHTML(a.name)}</div>
+              <div style="font-size:9px;color:${tierColor[a.tier]};font-weight:600;letter-spacing:.05em">${tierLabel[a.tier] || ''}</div>
+            </div>`).join('')}
+          </div>
+        </div>`
+      : `<div style="width:100%;text-align:center;padding:12px;background:rgba(255,255,255,0.03);border-radius:10px;font-size:12px;color:var(--text-muted)">No achievements yet</div>`;
+
+    openModal(`<h3 style="text-align:center;margin-bottom:4px">Profile Card</h3>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:6px 0 12px">
         ${avatarHTML}
         <div style="text-align:center">
-          <div style="font-size:18px;font-weight:800;color:var(--text)">${escapeHTML(name)}</div>
-          ${email ? `<div style="font-size:12px;color:var(--text-muted);margin-top:2px">${escapeHTML(email)}</div>` : ''}
+          <div style="font-size:19px;font-weight:800;color:var(--text)">${escapeHTML(name)}</div>
+          ${email ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px">${escapeHTML(email)}</div>` : ''}
+          <div style="display:inline-flex;align-items:center;gap:6px;margin-top:6px;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);padding:4px 12px;border-radius:99px">
+            <span style="font-size:13px;font-weight:900;color:var(--accent)">Lv ${lvInfo.level}</span>
+            <span style="font-size:11px;color:var(--text-muted)">·</span>
+            <span style="font-size:12px;font-weight:600;color:var(--primary)">${title}</span>
+          </div>
+          ${xpBar}
         </div>
-        <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center">
-          <div style="text-align:center;background:rgba(255,255,255,0.04);padding:10px 16px;border-radius:12px;min-width:70px">
-            <div style="font-size:20px;font-weight:900;color:var(--accent)">${lvInfo.level}</div>
-            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Level</div>
-          </div>
-          <div style="text-align:center;background:rgba(255,255,255,0.04);padding:10px 16px;border-radius:12px;min-width:70px">
-            <div style="font-size:20px;font-weight:900;color:var(--primary)">⚡ ${(xpTotal || 0).toLocaleString()}</div>
-            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Total XP</div>
-          </div>
-          <div style="text-align:center;background:rgba(255,255,255,0.04);padding:10px 16px;border-radius:12px;min-width:70px">
-            <div style="font-size:20px;font-weight:900;color:#34d399">${focusHrs}</div>
-            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Focus Time</div>
-          </div>
-          ${streak >= 2 ? `<div style="text-align:center;background:rgba(255,255,255,0.04);padding:10px 16px;border-radius:12px;min-width:70px">
-            <div style="font-size:20px;font-weight:900;color:#f97316">🔥 ${streak}</div>
-            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Day Streak</div>
-          </div>` : ''}
-        </div>
+        ${chipsHTML}
+        ${achHTML}
       </div>
       <div class="actions"><button class="btn btn-ghost" data-close>Close</button></div>`);
   }
@@ -3603,7 +3655,7 @@
   function _viewMemberProfile(uid_) {
     const m = _socialMembers[uid_];
     if (!m) { toast('Profile not available', 'warn'); return; }
-    _buildProfileModal(uid_, m.displayName || 'Anonymous', m.xpTotal, m.weeklyMinutes, m.totalFocusMinutes, m.studyStreak, m.email, m.avatarUrl);
+    _buildProfileModal(uid_, m.displayName || 'Anonymous', m.xpTotal, m.weeklyMinutes, m.totalFocusMinutes, m.studyStreak, m.email, m.avatarUrl, m.earnedBadges);
   }
 
   async function _viewGlobalProfile(uid_, fallbackName) {
@@ -3613,7 +3665,7 @@
     // Fall back to global_lb data
     const cached = _globalLbData.find(x => x.uid === uid_);
     if (cached) {
-      _buildProfileModal(uid_, cached.name || fallbackName || 'Anonymous', cached.weeklyXP, cached.weeklyMinutes, null, null, null, null);
+      _buildProfileModal(uid_, cached.name || fallbackName || 'Anonymous', cached.xpTotal || cached.weeklyXP, cached.weeklyMinutes, cached.totalFocusMinutes, cached.studyStreak, null, null, cached.earnedBadges);
       return;
     }
     // Fetch from Firestore
@@ -3622,7 +3674,7 @@
       const snap = await _db.collection('global_lb').doc(uid_).get();
       if (snap.exists) {
         const d = snap.data();
-        _buildProfileModal(uid_, d.name || fallbackName || 'Anonymous', d.weeklyXP, d.weeklyMinutes, null, null, null, null);
+        _buildProfileModal(uid_, d.name || fallbackName || 'Anonymous', d.xpTotal || d.weeklyXP, d.weeklyMinutes, d.totalFocusMinutes, d.studyStreak, null, null, d.earnedBadges);
       } else {
         toast('Profile not found', 'warn');
       }
