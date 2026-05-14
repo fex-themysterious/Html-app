@@ -7161,7 +7161,7 @@
   function renderFocusTimer() {
     if (!_currentQuote) pickNewQuote();
     const total = customDurations[focusMode] * 60;
-    const r = 96, c = 2 * Math.PI * r, off = c * (1 - Math.max(0, Math.min(1, focusSeconds / total)));
+    const r = 96, c = 2 * Math.PI * r, off = c * (1 - _ringFillPct(focusSeconds, total));
     const isBreak = focusMode !== 'work';
     const tasks = getActivePlanTasks().filter(t => !t.done);
     const taskOptions = tasks.map(t => `<option value="${t.key}" ${focusCurrentTaskKey === t.key ? 'selected' : ''}>${escapeHTML(t.text)}</option>`).join('');
@@ -7184,7 +7184,7 @@
             <circle class="focus-ring-fill ${isBreak ? 'break-mode' : ''}${focusOvertime ? ' overtime-mode' : ''}" id="focus-ring-circle" cx="110" cy="110" r="${r}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${focusOvertime ? c.toFixed(2) : off.toFixed(2)}"/>
           </svg>
           <div class="focus-ring-center">
-            <div class="focus-ring-time${focusOvertime ? ' fs-overtime-text' : ''}" id="focus-time-display">${focusOvertime ? `+${String(Math.floor(focusOvertimeSeconds/60)).padStart(2,'0')}:${String(focusOvertimeSeconds%60).padStart(2,'0')}` : formatFocusTime(focusSeconds)}</div>
+            <div class="focus-ring-time${focusOvertime ? ' fs-overtime-text' : _timeSizeClass(formatFocusTime(focusSeconds))}" id="focus-time-display">${focusOvertime ? `+${String(Math.floor(focusOvertimeSeconds/60)).padStart(2,'0')}:${String(focusOvertimeSeconds%60).padStart(2,'0')}` : formatFocusTime(focusSeconds)}</div>
             <div class="focus-ring-mode">${focusOvertime ? '⚠ Overtime' : focusMode === 'work' ? 'Focus Time' : focusMode === 'short' ? 'Short Break' : 'Long Break'}</div>
           </div>
         </div>
@@ -7259,6 +7259,22 @@
   }
 
   function formatFocusTime(sec) { const m = Math.floor(sec / 60), s = sec % 60; return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; }
+
+  // For long sessions (> 60 min) the ring cycles per hour so progress stays visible.
+  // Returns the fill fraction (0–1) to use for strokeDashoffset.
+  function _ringFillPct(sec, total) {
+    if (total <= 3600) return Math.max(0, Math.min(1, sec / total));
+    const elapsed = Math.max(0, total - sec);
+    return 1 - (elapsed % 3600) / 3600;
+  }
+
+  // Returns an extra CSS class for the time display based on character count.
+  function _timeSizeClass(str) {
+    if (str.length >= 8) return ' frt-xxs';
+    if (str.length >= 7) return ' frt-xs';
+    if (str.length >= 6) return ' frt-sm';
+    return '';
+  }
 
   // ========== Mini Floating Timer Bubble ==========
   function initMiniTimer() {
@@ -7360,13 +7376,19 @@
     const m = Math.floor(focusSeconds / 60), s = focusSeconds % 60;
     document.title = focusRunning ? `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')} — Focus` : 'Syllabus Tracker';
     const el = document.getElementById('focus-time-display');
-    if (el) { el.textContent = formatted; el.classList.remove('fs-overtime-text'); }
+    if (el) {
+      el.textContent = formatted;
+      el.className = 'focus-ring-time' + _timeSizeClass(formatted);
+    }
     const ring = document.getElementById('focus-ring-circle');
-    if (ring) { const r = 96, c = 2 * Math.PI * r; ring.style.strokeDashoffset = (c * (1 - Math.max(0, Math.min(1, focusSeconds / total)))).toFixed(2); }
+    if (ring) { const r = 96, c = 2 * Math.PI * r; ring.style.strokeDashoffset = (c * (1 - _ringFillPct(focusSeconds, total))).toFixed(2); }
     const fsEl = document.getElementById('fs-time-display');
-    if (fsEl) { fsEl.textContent = formatted; fsEl.classList.remove('fs-overtime-text'); }
+    if (fsEl) {
+      fsEl.textContent = formatted;
+      el.className = 'fs-time' + _timeSizeClass(formatted);
+    }
     const fsRing = document.getElementById('fs-ring-circle');
-    if (fsRing) { const rr = 120, cc = 2 * Math.PI * rr; fsRing.style.strokeDashoffset = (cc * (1 - Math.max(0, Math.min(1, focusSeconds / total)))).toFixed(2); }
+    if (fsRing) { const rr = 120, cc = 2 * Math.PI * rr; fsRing.style.strokeDashoffset = (cc * (1 - _ringFillPct(focusSeconds, total))).toFixed(2); }
     if (overlay) { overlay.classList.toggle('fs-is-running', focusRunning); overlay.classList.remove('fs-overtime'); }
   }
 
@@ -7539,7 +7561,7 @@
   function renderFullSession() {
     const overlay = document.getElementById('fs-overlay'); if (!overlay) return;
     const total = customDurations[focusMode] * 60;
-    const r = 120, c = 2 * Math.PI * r, off = c * (1 - Math.max(0, Math.min(1, focusSeconds / total)));
+    const r = 120, c = 2 * Math.PI * r, off = c * (1 - _ringFillPct(focusSeconds, total));
     const isBreak = focusMode !== 'work';
     const tasks = getActivePlanTasks().filter(t => !t.done);
     const currentTask = focusCurrentTaskKey ? tasks.find(t => t.key === focusCurrentTaskKey) : null;
@@ -7575,7 +7597,7 @@
             <circle class="fs-ring-fill" id="fs-ring-circle" cx="145" cy="145" r="${r}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/>
           </svg>
           <div class="fs-ring-center">
-            <div class="fs-time${focusOvertime ? ' fs-overtime-text' : ''}" id="fs-time-display">${_fsTimeStr}</div>
+            <div class="fs-time${focusOvertime ? ' fs-overtime-text' : _timeSizeClass(_fsTimeStr)}" id="fs-time-display">${_fsTimeStr}</div>
             <div class="fs-ring-sub">${_fsRingSub}</div>
           </div>
         </div>

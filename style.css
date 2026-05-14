@@ -1358,6 +1358,12 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   letter-spacing: 0.02em; padding-left: 2px;
 }
 .focus-ring-time { font-size: 58px; font-weight: 900; font-variant-numeric: tabular-nums; color: var(--text); letter-spacing: -3px; line-height: 1; text-shadow: 0 0 40px rgba(91,173,255,0.25); }
+.focus-ring-time.frt-sm  { font-size: 44px; letter-spacing: -2px; }
+.focus-ring-time.frt-xs  { font-size: 34px; letter-spacing: -1px; }
+.focus-ring-time.frt-xxs { font-size: 28px; letter-spacing: -0.5px; }
+.fs-time.frt-sm  { font-size: 54px !important; }
+.fs-time.frt-xs  { font-size: 42px !important; }
+.fs-time.frt-xxs { font-size: 34px !important; }
 .focus-ring-mode { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700; margin-top: 5px; }
 
 .focus-mode-edit { display: flex; align-items: center; gap: 5px; justify-content: center; margin-bottom: 14px; flex-wrap: wrap; }
@@ -1782,6 +1788,9 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
     margin: 0;
   }
   .focus-ring-time { font-size: 30px; letter-spacing: -2px; }
+  .focus-ring-time.frt-sm  { font-size: 24px !important; letter-spacing: -1px; }
+  .focus-ring-time.frt-xs  { font-size: 19px !important; letter-spacing: -0.5px; }
+  .focus-ring-time.frt-xxs { font-size: 16px !important; letter-spacing: 0px; }
   .focus-ring-mode { font-size: 8.5px; margin-top: 2px; }
 
   /* Mode tabs: no wrap, ultra compact */
