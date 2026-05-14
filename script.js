@@ -1268,14 +1268,76 @@
     });
   }
 
-  async function _sJoinRoom(code) {
+  async function _sJoinRoom(code, _joinPwOverride) {
     if (!_db || !_userId) { toast('Sign in to use Social Study', 'warn'); return false; }
     code = (code || '').toString().trim().toUpperCase();
     if (!code || code.length !== 6 || !/^[A-Z0-9]{6}$/.test(code)) { toast('Enter a valid 6-character room code', 'warn'); return false; }
     try {
       const ref = _db.collection('groups').doc(code);
-      if (!(await ref.get()).exists) {
-        await ref.set({ roomCode: code, createdBy: _userId, createdAt: firebase.firestore.FieldValue.serverTimestamp(), groupGoals: [], duels: [], groupVault: null, private: false, closed: false });
+      const snap = await ref.get();
+      if (!snap.exists) {
+        await ref.set({ roomCode: code, createdBy: _userId, createdAt: firebase.firestore.FieldValue.serverTimestamp(), groupGoals: [], duels: [], groupVault: null, private: false, closed: false, chatEnabled: true });
+      } else {
+        const roomData = snap.data();
+        const isCreator = roomData.createdBy === _userId;
+        // ── Capacity check ───────────────────────────────────────────────────
+        if (!isCreator && roomData.capacity && roomData.capacity > 0) {
+          const membersSnap = await ref.collection('members').get();
+          if (membersSnap.size >= roomData.capacity) {
+            toast(`🚫 This room is full (${roomData.capacity} members max)`, 'warn', 4000); return false;
+          }
+        }
+        // ── Join Password check ──────────────────────────────────────────────
+        if (!isCreator && roomData.joinPassword) {
+          const enteredPw = _joinPwOverride;
+          if (!enteredPw) {
+            // Show password prompt then re-call
+            openModal(`<h3>🔐 Room Password</h3>
+              <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px">This room requires a password to join.</p>
+              <div class="field"><input id="join-pw-inp" type="text" placeholder="Enter room password" autocomplete="off"/></div>
+              <div id="join-pw-err" style="color:#ef4444;font-size:12px;margin-bottom:8px;display:none"></div>
+              <div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn" id="join-pw-btn">Join</button></div>`,
+              root => {
+                const inp = root.querySelector('#join-pw-inp');
+                const errEl = root.querySelector('#join-pw-err');
+                const btn = root.querySelector('#join-pw-btn');
+                inp.focus();
+                const attempt = () => {
+                  const pw = inp.value.trim();
+                  if (!pw) { errEl.textContent = 'Enter the password.'; errEl.style.display = ''; return; }
+                  if (pw !== roomData.joinPassword) { errEl.textContent = 'Incorrect password.'; errEl.style.display = ''; inp.value = ''; return; }
+                  closeModal();
+                  _sJoinRoom(code, pw).catch(() => {});
+                };
+                btn.onclick = attempt;
+                inp.addEventListener('keydown', e => { if (e.key === 'Enter') attempt(); });
+              });
+            return false;
+          }
+          if (enteredPw !== roomData.joinPassword) { toast('Incorrect room password', 'danger'); return false; }
+        }
+        // ── Sign-up question + Approval mode ────────────────────────────────
+        if (!isCreator && roomData.joinMode === 'approval' && !_myGroupCodes.includes(code)) {
+          const question = roomData.joinQuestion || '';
+          openModal(`<h3>⏳ Request to Join</h3>
+            <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px">This room requires admin approval. Your request will be reviewed.</p>
+            ${question ? `<div class="field"><label style="font-weight:600">${escapeHTML(question)}</label><textarea id="jreq-ans" maxlength="200" placeholder="Your answer…" style="width:100%;min-height:60px;resize:vertical;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box"></textarea></div>` : ''}
+            <div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn" id="jreq-send">Send Request</button></div>`,
+            root => {
+              root.querySelector('#jreq-send').onclick = async () => {
+                const answer = (root.querySelector('#jreq-ans') ? root.querySelector('#jreq-ans').value.trim() : '');
+                try {
+                  await ref.collection('joinRequests').doc(_userId).set({
+                    uid: _userId, displayName: _sDisplayName(),
+                    answer, requestedAt: Date.now()
+                  });
+                  closeModal();
+                  toast('✅ Join request sent! Wait for admin approval.', 'success', 5000);
+                } catch(e) { toast('Failed to send request', 'danger'); }
+              };
+            });
+          return false;
+        }
       }
       _socialRoomCode = code;
       _socialLobbyCode = null;
@@ -2970,14 +3032,16 @@
         </div>
         <button class="sroom-reply-cancel" data-act="chat-reply-cancel">✕</button>
       </div>
-      <div class="sroom-chat-composer">
+      ${(_socialRoomData && _socialRoomData.chatEnabled === false)
+        ? `<div class="sroom-chat-disabled">💬 Chat is disabled by the admin</div>`
+        : `<div class="sroom-chat-composer">
         <div class="sroom-composer-inner">
           <textarea id="chat-text-input" class="sroom-chat-input" placeholder="Message…" rows="1" maxlength="2000"></textarea>
           <button class="sroom-send-btn" data-act="chat-send" title="Send">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
           </button>
         </div>
-      </div>
+      </div>`}
     </div>`;
 
     // ── RANKINGS PANE ────────────────────────────────────────────────
@@ -3241,11 +3305,22 @@
   function _openAdminSettings() {
     if (!_db || !_userId || !_socialRoomCode || !_socialRoomData) { toast('Not available', 'warn'); return; }
     if (_userId !== _socialRoomData.createdBy) { toast('Only the room admin can access these settings', 'warn'); return; }
-    const members = _mergedMembers();
-    const isPrivate = !!(_socialRoomData && _socialRoomData.private);
-    const notifOn = !!(state.socialNotif !== false);
-    const roomName = (_socialRoomData && _socialRoomData.roomName) || `Room ${_socialRoomCode}`;
-    const roomDesc = (_socialRoomData && _socialRoomData.description) || '';
+    const d          = _socialRoomData;
+    const members    = _mergedMembers();
+    const isPrivate  = !!(d && d.private);
+    const notifOn    = !!(state.socialNotif !== false);
+    const chatOn     = d.chatEnabled !== false;
+    const roomName   = d.roomName || `Room ${_socialRoomCode}`;
+    const roomDesc   = d.description || '';
+    const category   = d.category || '';
+    const dailyGoal  = d.dailyGoalHours || 0;
+    const capacity   = d.capacity || 0;
+    const joinMode   = d.joinMode || 'open';
+    const joinPw     = d.joinPassword || '';
+    const joinQ      = d.joinQuestion || '';
+    const nickReq    = !!(d.nicknameRequired);
+
+    const CATEGORIES = ['General','NEET','JEE','Board Exam','Medical','Language','Coding','Science','Arts'];
 
     const memberRows = members.map(m => {
       const isMe = m.uid === _userId;
@@ -3278,28 +3353,68 @@
         </div>
       </div>
 
+      <!-- ── GROUP CONFIGURATION ── -->
       <div class="adm-group">
-        <div class="adm-group-label">ROOM INFO</div>
-        <div class="adm-row">
-          <div class="adm-row-ico">🔑</div>
-          <div class="adm-row-body"><div class="adm-row-title">Room Code</div><div class="adm-row-sub adm-mono">${_socialRoomCode}</div></div>
-          <button class="adm-row-btn" data-act="social-copy-code">Copy</button>
-        </div>
-        <div class="adm-row" data-act="social-copy-code" style="cursor:pointer">
-          <div class="adm-row-ico">🔗</div>
-          <div class="adm-row-body"><div class="adm-row-title">Share Invite</div><div class="adm-row-sub">Copy code to invite friends to join</div></div>
+        <div class="adm-group-label">GROUP CONFIGURATION</div>
+        <div class="adm-row" data-act="admin-change-name" style="cursor:pointer">
+          <div class="adm-row-ico">✏️</div>
+          <div class="adm-row-body"><div class="adm-row-title">Change Group Name</div><div class="adm-row-sub">${escapeHTML(roomName)}</div></div>
           <div class="adm-row-chev">›</div>
         </div>
         <div class="adm-row" data-act="admin-edit-description" style="cursor:pointer">
-          <div class="adm-row-ico">📝</div>
-          <div class="adm-row-body">
-            <div class="adm-row-title">Room Description</div>
-            <div class="adm-row-sub">${roomDesc ? escapeHTML(roomDesc) : 'Add a description for your room…'}</div>
-          </div>
+          <div class="adm-row-ico">📋</div>
+          <div class="adm-row-body"><div class="adm-row-title">Description &amp; Rules</div><div class="adm-row-sub">${roomDesc ? escapeHTML(roomDesc) : 'Set group intro or rules…'}</div></div>
+          <div class="adm-row-chev">›</div>
+        </div>
+        <div class="adm-row" data-act="admin-change-category" style="cursor:pointer">
+          <div class="adm-row-ico">🏷️</div>
+          <div class="adm-row-body"><div class="adm-row-title">Category</div><div class="adm-row-sub">${category || 'Not set'}</div></div>
+          <div class="adm-row-chev">›</div>
+        </div>
+        <div class="adm-row" data-act="admin-change-daily-goal" style="cursor:pointer">
+          <div class="adm-row-ico">🎯</div>
+          <div class="adm-row-body"><div class="adm-row-title">Daily Goal</div><div class="adm-row-sub">${dailyGoal ? `${dailyGoal} hrs/day` : 'Not set'}</div></div>
+          <div class="adm-row-chev">›</div>
+        </div>
+        <div class="adm-row" data-act="admin-change-capacity" style="cursor:pointer">
+          <div class="adm-row-ico">👥</div>
+          <div class="adm-row-body"><div class="adm-row-title">Max Capacity</div><div class="adm-row-sub">${capacity ? `${members.length} / ${capacity} members` : 'Unlimited'}</div></div>
           <div class="adm-row-chev">›</div>
         </div>
       </div>
 
+      <!-- ── JOIN SETTINGS ── -->
+      <div class="adm-group">
+        <div class="adm-group-label">JOIN SETTINGS</div>
+        <div class="adm-row">
+          <div class="adm-row-ico">🚪</div>
+          <div class="adm-row-body">
+            <div class="adm-row-title">How to Join</div>
+            <div class="adm-row-sub">${joinMode === 'approval' ? 'Approval required' : 'Anyone with the code can join'}</div>
+          </div>
+          <button class="adm-toggle${joinMode === 'approval' ? ' adm-toggle-on' : ''}" data-act="admin-toggle-join-mode" title="Approval mode"><span class="adm-toggle-knob"></span></button>
+        </div>
+        <div class="adm-row" data-act="admin-change-join-password" style="cursor:pointer">
+          <div class="adm-row-ico">🔐</div>
+          <div class="adm-row-body"><div class="adm-row-title">Join Password</div><div class="adm-row-sub">${joinPw ? '••••••' : 'No password set'}</div></div>
+          <div class="adm-row-chev">›</div>
+        </div>
+        <div class="adm-row" data-act="admin-change-join-question" style="cursor:pointer">
+          <div class="adm-row-ico">❓</div>
+          <div class="adm-row-body"><div class="adm-row-title">Sign Up Question</div><div class="adm-row-sub">${joinQ ? escapeHTML(joinQ) : 'Ask new members a question…'}</div></div>
+          <div class="adm-row-chev">›</div>
+        </div>
+        <div class="adm-row">
+          <div class="adm-row-ico">📛</div>
+          <div class="adm-row-body">
+            <div class="adm-row-title">Nickname Rules</div>
+            <div class="adm-row-sub">Require members to set a display name</div>
+          </div>
+          <button class="adm-toggle${nickReq ? ' adm-toggle-on' : ''}" data-act="admin-toggle-nickname-rules"><span class="adm-toggle-knob"></span></button>
+        </div>
+      </div>
+
+      <!-- ── PRIVACY ── -->
       <div class="adm-group">
         <div class="adm-group-label">PRIVACY</div>
         <div class="adm-row">
@@ -3312,31 +3427,34 @@
         </div>
       </div>
 
+      <!-- ── MANAGEMENT ── -->
       <div class="adm-group">
-        <div class="adm-group-label">MEMBERS (${members.length})</div>
+        <div class="adm-group-label">MANAGEMENT</div>
+        ${joinMode === 'approval' ? `<div class="adm-row" data-act="admin-waiting-room" style="cursor:pointer">
+          <div class="adm-row-ico">⏳</div>
+          <div class="adm-row-body"><div class="adm-row-title">Waiting Room</div><div class="adm-row-sub">Review join requests from new members</div></div>
+          <div class="adm-row-chev">›</div>
+        </div>` : ''}
+        <div class="adm-group-label" style="margin-top:4px">MEMBERS (${members.length}${capacity ? ' / ' + capacity : ''})</div>
         <div class="adm-members-list">${memberRows}</div>
-      </div>
-
-      <div class="adm-group">
-        <div class="adm-group-label">NOTIFICATIONS</div>
-        <div class="adm-row">
-          <div class="adm-row-ico">🔔</div>
-          <div class="adm-row-body"><div class="adm-row-title">Focus Alerts</div><div class="adm-row-sub">Notify when members start a focus session</div></div>
-          <button class="adm-toggle${notifOn ? ' adm-toggle-on' : ''}" data-act="member-notif-toggle"><span class="adm-toggle-knob"></span></button>
-        </div>
-      </div>
-
-      <div class="adm-group">
-        <div class="adm-group-label">APPEARANCE</div>
-        <div class="adm-row" data-act="theme-gallery" data-close style="cursor:pointer">
-          <div class="adm-row-ico">🎨</div>
-          <div class="adm-row-body"><div class="adm-row-title">Theme Gallery</div><div class="adm-row-sub">Customise the app's look &amp; feel</div></div>
+        <div class="adm-row" data-act="admin-nudge-everyone" style="cursor:pointer;margin-top:6px">
+          <div class="adm-row-ico">📣</div>
+          <div class="adm-row-body"><div class="adm-row-title">Nudge Everyone</div><div class="adm-row-sub">Send a poke to all online members at once</div></div>
           <div class="adm-row-chev">›</div>
         </div>
       </div>
 
+      <!-- ── COMMUNICATION ── -->
       <div class="adm-group">
-        <div class="adm-group-label">ADMIN TOOLS</div>
+        <div class="adm-group-label">COMMUNICATION</div>
+        <div class="adm-row">
+          <div class="adm-row-ico">💬</div>
+          <div class="adm-row-body">
+            <div class="adm-row-title">Group Chat</div>
+            <div class="adm-row-sub">${chatOn ? 'Chat is enabled for all members' : 'Chat is disabled'}</div>
+          </div>
+          <button class="adm-toggle${chatOn ? ' adm-toggle-on' : ''}" data-act="admin-toggle-chat"><span class="adm-toggle-knob"></span></button>
+        </div>
         <div class="adm-row" data-act="admin-send-announcement" style="cursor:pointer">
           <div class="adm-row-ico">📢</div>
           <div class="adm-row-body"><div class="adm-row-title">Send Announcement</div><div class="adm-row-sub">Broadcast a highlighted message to all members</div></div>
@@ -3347,8 +3465,34 @@
           <div class="adm-row-body"><div class="adm-row-title">Create Poll</div><div class="adm-row-sub">Ask members a question with up to 4 options</div></div>
           <div class="adm-row-chev">›</div>
         </div>
+        <div class="adm-row" data-act="admin-promote-group" style="cursor:pointer">
+          <div class="adm-row-ico">📣</div>
+          <div class="adm-row-body"><div class="adm-row-title">Promote Group</div><div class="adm-row-sub">Share an invite link for your room</div></div>
+          <div class="adm-row-chev">›</div>
+        </div>
       </div>
 
+      <!-- ── NOTIFICATIONS ── -->
+      <div class="adm-group">
+        <div class="adm-group-label">NOTIFICATIONS</div>
+        <div class="adm-row">
+          <div class="adm-row-ico">🔔</div>
+          <div class="adm-row-body"><div class="adm-row-title">Focus Alerts</div><div class="adm-row-sub">Notify when members start a focus session</div></div>
+          <button class="adm-toggle${notifOn ? ' adm-toggle-on' : ''}" data-act="member-notif-toggle"><span class="adm-toggle-knob"></span></button>
+        </div>
+      </div>
+
+      <!-- ── APPEARANCE ── -->
+      <div class="adm-group">
+        <div class="adm-group-label">APPEARANCE</div>
+        <div class="adm-row" data-act="theme-gallery" data-close style="cursor:pointer">
+          <div class="adm-row-ico">🎨</div>
+          <div class="adm-row-body"><div class="adm-row-title">Theme Gallery</div><div class="adm-row-sub">Customise the app's look &amp; feel</div></div>
+          <div class="adm-row-chev">›</div>
+        </div>
+      </div>
+
+      <!-- ── DANGER ZONE ── -->
       <div class="adm-group adm-danger-group">
         <div class="adm-group-label adm-danger-label">⚠ DANGER ZONE</div>
         <button class="adm-delete-btn adm-clear-msgs-btn" data-act="admin-clear-messages">
@@ -3361,8 +3505,8 @@
         <button class="adm-delete-btn" data-act="admin-close-room">
           <span class="adm-delete-ico">🗑</span>
           <div class="adm-delete-body">
-            <div class="adm-delete-title">Close &amp; Delete Room</div>
-            <div class="adm-delete-sub">Permanently wipes all room data for everyone</div>
+            <div class="adm-delete-title">Delete Group</div>
+            <div class="adm-delete-sub">Permanently wipes all group data for everyone</div>
           </div>
         </button>
       </div>
@@ -9675,6 +9819,285 @@
           saveBtn.onclick = () => doSave(ta.value.trim());
           if (clearBtn) clearBtn.onclick = () => doSave('');
         });
+      return;
+    }
+    // ── New admin setting handlers ───────────────────────────────────────────
+    if (act === 'admin-change-name') {
+      if (!_db || !_socialRoomCode) return;
+      if (_userId !== (_socialRoomData && _socialRoomData.createdBy)) { toast('Only the room admin can rename the group', 'warn'); return; }
+      const cur = (_socialRoomData && _socialRoomData.roomName) || '';
+      closeModal();
+      openModal(`<h3>Change Group Name</h3>
+        <div class="field"><label>Group Name</label><input id="gname-input" type="text" maxlength="40" value="${escapeHTML(cur)}" placeholder="Enter group name…" autocomplete="off"/></div>
+        <div id="gname-err" style="color:#ef4444;font-size:12px;margin-bottom:8px;display:none"></div>
+        <div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn" id="gname-save">Save</button></div>`,
+        root => {
+          const inp = root.querySelector('#gname-input');
+          const errEl = root.querySelector('#gname-err');
+          const save = root.querySelector('#gname-save');
+          inp.focus(); inp.select();
+          const doSave = async () => {
+            const v = inp.value.trim();
+            if (!v) { errEl.textContent = 'Name cannot be empty.'; errEl.style.display = ''; return; }
+            save.disabled = true; save.textContent = 'Saving…';
+            try {
+              await _db.collection('groups').doc(_socialRoomCode).update({ roomName: v });
+              if (_socialRoomData) _socialRoomData.roomName = v;
+              if (_myGroupRoomMeta[_socialRoomCode]) _myGroupRoomMeta[_socialRoomCode].roomName = v;
+              closeModal(); toast('✏️ Group renamed!', 'success'); renderSocial();
+            } catch(e) { save.disabled = false; save.textContent = 'Save'; errEl.textContent = 'Failed. Try again.'; errEl.style.display = ''; }
+          };
+          save.onclick = doSave;
+          inp.addEventListener('keydown', e => { if (e.key === 'Enter') doSave(); });
+        });
+      return;
+    }
+    if (act === 'admin-change-category') {
+      if (!_db || !_socialRoomCode) return;
+      if (_userId !== (_socialRoomData && _socialRoomData.createdBy)) { toast('Admin only', 'warn'); return; }
+      const CATS = ['General','NEET','JEE','Board Exam','Medical','Language','Coding','Science','Arts'];
+      const cur = (_socialRoomData && _socialRoomData.category) || '';
+      closeModal();
+      openModal(`<h3>Category</h3>
+        <p style="font-size:13px;color:var(--text-muted);margin:0 0 14px">Choose the category that best describes your group.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          ${CATS.map(c => `<button class="btn ${c === cur ? 'btn-primary' : 'btn-ghost'} adm-cat-btn" style="text-align:left;padding:10px 14px;justify-content:flex-start" data-cat="${c}">${c === cur ? '✓ ' : ''}${escapeHTML(c)}</button>`).join('')}
+          <button class="btn btn-ghost adm-cat-btn" style="text-align:left;padding:10px 14px;color:#ef4444" data-cat="">Clear</button>
+        </div>`,
+        root => {
+          root.querySelectorAll('.adm-cat-btn').forEach(btn => {
+            btn.onclick = async () => {
+              const val = btn.dataset.cat;
+              try {
+                await _db.collection('groups').doc(_socialRoomCode).update({ category: val });
+                if (_socialRoomData) _socialRoomData.category = val;
+                closeModal(); toast(val ? `🏷️ Category set to "${val}"` : 'Category cleared', 'success');
+              } catch(e) { toast('Failed to save', 'danger'); }
+            };
+          });
+        });
+      return;
+    }
+    if (act === 'admin-change-daily-goal') {
+      if (!_db || !_socialRoomCode) return;
+      if (_userId !== (_socialRoomData && _socialRoomData.createdBy)) { toast('Admin only', 'warn'); return; }
+      const cur = (_socialRoomData && _socialRoomData.dailyGoalHours) || 0;
+      closeModal();
+      openModal(`<h3>Daily Goal</h3>
+        <p style="font-size:13px;color:var(--text-muted);margin:0 0 14px">Set how many hours per day your group aims to study.</p>
+        <div class="field"><label>Hours per day (1–24)</label><input id="dgoal-input" type="number" min="0" max="24" step="0.5" value="${cur || ''}" placeholder="e.g. 6"/></div>
+        <div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-ghost" id="dgoal-clear" style="color:#ef4444">Clear</button><button class="btn" id="dgoal-save">Save</button></div>`,
+        root => {
+          const inp = root.querySelector('#dgoal-input');
+          const doSave = async (val) => {
+            try {
+              await _db.collection('groups').doc(_socialRoomCode).update({ dailyGoalHours: val });
+              if (_socialRoomData) _socialRoomData.dailyGoalHours = val;
+              closeModal(); toast(val ? `🎯 Daily goal set to ${val} hrs` : 'Daily goal cleared', 'success');
+            } catch(e) { toast('Failed to save', 'danger'); }
+          };
+          root.querySelector('#dgoal-save').onclick = () => {
+            const v = parseFloat(inp.value);
+            if (!inp.value || isNaN(v) || v < 1 || v > 24) { toast('Enter a value between 1 and 24', 'warn'); return; }
+            doSave(v);
+          };
+          root.querySelector('#dgoal-clear').onclick = () => doSave(0);
+        });
+      return;
+    }
+    if (act === 'admin-change-capacity') {
+      if (!_db || !_socialRoomCode) return;
+      if (_userId !== (_socialRoomData && _socialRoomData.createdBy)) { toast('Admin only', 'warn'); return; }
+      const cur = (_socialRoomData && _socialRoomData.capacity) || 0;
+      closeModal();
+      openModal(`<h3>Max Capacity</h3>
+        <p style="font-size:13px;color:var(--text-muted);margin:0 0 14px">Limit how many members can join this group (2–200). Leave 0 for unlimited.</p>
+        <div class="field"><label>Max members</label><input id="cap-input" type="number" min="2" max="200" value="${cur || ''}" placeholder="e.g. 20 (0 = unlimited)"/></div>
+        <div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-ghost" id="cap-clear" style="color:#ef4444">Unlimited</button><button class="btn" id="cap-save">Save</button></div>`,
+        root => {
+          const inp = root.querySelector('#cap-input');
+          const doSave = async (val) => {
+            try {
+              await _db.collection('groups').doc(_socialRoomCode).update({ capacity: val });
+              if (_socialRoomData) _socialRoomData.capacity = val;
+              closeModal(); toast(val ? `👥 Capacity set to ${val}` : 'Capacity set to unlimited', 'success');
+            } catch(e) { toast('Failed to save', 'danger'); }
+          };
+          root.querySelector('#cap-save').onclick = () => {
+            const v = parseInt(inp.value);
+            if (!inp.value || isNaN(v) || v < 2 || v > 200) { toast('Enter a value between 2 and 200', 'warn'); return; }
+            doSave(v);
+          };
+          root.querySelector('#cap-clear').onclick = () => doSave(0);
+        });
+      return;
+    }
+    if (act === 'admin-toggle-join-mode') {
+      if (!_db || !_socialRoomCode) return;
+      if (_userId !== (_socialRoomData && _socialRoomData.createdBy)) { toast('Admin only', 'warn'); return; }
+      const newMode = ((_socialRoomData && _socialRoomData.joinMode) || 'open') === 'approval' ? 'open' : 'approval';
+      _db.collection('groups').doc(_socialRoomCode).update({ joinMode: newMode })
+        .then(() => {
+          if (_socialRoomData) _socialRoomData.joinMode = newMode;
+          toast(newMode === 'approval' ? '⏳ Approval required to join' : '🚪 Room is now open to join', 'success');
+          closeModal();
+        }).catch(() => toast('Failed to update', 'danger'));
+      return;
+    }
+    if (act === 'admin-change-join-password') {
+      if (!_db || !_socialRoomCode) return;
+      if (_userId !== (_socialRoomData && _socialRoomData.createdBy)) { toast('Admin only', 'warn'); return; }
+      const cur = (_socialRoomData && _socialRoomData.joinPassword) || '';
+      closeModal();
+      openModal(`<h3>Join Password</h3>
+        <p style="font-size:13px;color:var(--text-muted);margin:0 0 14px">New members must enter this password to join. Leave blank for no password.</p>
+        <div class="field"><label>Password</label><input id="jpw-input" type="text" maxlength="30" value="${escapeHTML(cur)}" placeholder="Leave blank for no password" autocomplete="off"/></div>
+        <div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-ghost" id="jpw-clear" style="color:#ef4444">Remove</button><button class="btn" id="jpw-save">Save</button></div>`,
+        root => {
+          const inp = root.querySelector('#jpw-input');
+          const doSave = async (val) => {
+            try {
+              await _db.collection('groups').doc(_socialRoomCode).update({ joinPassword: val });
+              if (_socialRoomData) _socialRoomData.joinPassword = val;
+              closeModal(); toast(val ? '🔐 Password set' : 'Password removed', 'success');
+            } catch(e) { toast('Failed to save', 'danger'); }
+          };
+          root.querySelector('#jpw-save').onclick = () => doSave(inp.value.trim());
+          root.querySelector('#jpw-clear').onclick = () => doSave('');
+        });
+      return;
+    }
+    if (act === 'admin-change-join-question') {
+      if (!_db || !_socialRoomCode) return;
+      if (_userId !== (_socialRoomData && _socialRoomData.createdBy)) { toast('Admin only', 'warn'); return; }
+      const cur = (_socialRoomData && _socialRoomData.joinQuestion) || '';
+      closeModal();
+      openModal(`<h3>Sign Up Question</h3>
+        <p style="font-size:13px;color:var(--text-muted);margin:0 0 14px">Ask new members a question when they request to join (e.g. "Why do you want to join?").</p>
+        <div class="field">
+          <textarea id="jq-input" maxlength="120" placeholder="e.g. What subject are you preparing for?" style="width:100%;min-height:70px;resize:vertical;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box">${escapeHTML(cur)}</textarea>
+        </div>
+        <div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-ghost" id="jq-clear" style="color:#ef4444">Remove</button><button class="btn" id="jq-save">Save</button></div>`,
+        root => {
+          const ta = root.querySelector('#jq-input');
+          const doSave = async (val) => {
+            try {
+              await _db.collection('groups').doc(_socialRoomCode).update({ joinQuestion: val });
+              if (_socialRoomData) _socialRoomData.joinQuestion = val;
+              closeModal(); toast(val ? '❓ Question saved' : 'Question removed', 'success');
+            } catch(e) { toast('Failed to save', 'danger'); }
+          };
+          root.querySelector('#jq-save').onclick = () => doSave(ta.value.trim());
+          root.querySelector('#jq-clear').onclick = () => doSave('');
+        });
+      return;
+    }
+    if (act === 'admin-toggle-nickname-rules') {
+      if (!_db || !_socialRoomCode) return;
+      if (_userId !== (_socialRoomData && _socialRoomData.createdBy)) { toast('Admin only', 'warn'); return; }
+      const newVal = !(_socialRoomData && _socialRoomData.nicknameRequired);
+      _db.collection('groups').doc(_socialRoomCode).update({ nicknameRequired: newVal })
+        .then(() => {
+          if (_socialRoomData) _socialRoomData.nicknameRequired = newVal;
+          toast(newVal ? '📛 Display name required' : 'Nickname rule removed', 'success');
+          closeModal();
+        }).catch(() => toast('Failed to update', 'danger'));
+      return;
+    }
+    if (act === 'admin-toggle-chat') {
+      if (!_db || !_socialRoomCode) return;
+      if (_userId !== (_socialRoomData && _socialRoomData.createdBy)) { toast('Admin only', 'warn'); return; }
+      const newVal = (_socialRoomData && _socialRoomData.chatEnabled) === false ? true : false;
+      _db.collection('groups').doc(_socialRoomCode).update({ chatEnabled: newVal })
+        .then(() => {
+          if (_socialRoomData) _socialRoomData.chatEnabled = newVal;
+          toast(newVal ? '💬 Group chat enabled' : '💬 Group chat disabled', 'success');
+          closeModal(); renderSocial();
+        }).catch(() => toast('Failed to update', 'danger'));
+      return;
+    }
+    if (act === 'admin-nudge-everyone') {
+      if (!_db || !_userId || !_socialRoomCode) return;
+      if (_userId !== (_socialRoomData && _socialRoomData.createdBy)) { toast('Admin only', 'warn'); return; }
+      const others = _mergedMembers().filter(m => m.uid !== _userId && _sStatusOf(m) !== 'offline');
+      if (!others.length) { toast('No one else is online right now', 'warn'); return; }
+      let count = 0;
+      others.forEach((m, i) => {
+        setTimeout(() => {
+          _sNudge(m.uid, m.displayName || 'Member').catch(() => {});
+          count++;
+          if (count === others.length) toast(`📣 Nudged ${count} member${count !== 1 ? 's' : ''}!`, 'success', 3000);
+        }, i * 400);
+      });
+      closeModal();
+      return;
+    }
+    if (act === 'admin-waiting-room') {
+      if (!_db || !_socialRoomCode) return;
+      if (_userId !== (_socialRoomData && _socialRoomData.createdBy)) { toast('Admin only', 'warn'); return; }
+      closeModal();
+      toast('Loading waiting room…', 'info', 1500);
+      _db.collection('groups').doc(_socialRoomCode).collection('joinRequests').get()
+        .then(snap => {
+          if (snap.empty) { toast('No pending join requests', 'info'); return; }
+          const rows = snap.docs.map(doc => {
+            const r = doc.data();
+            return `<div class="adm-member-row" style="margin-bottom:8px">
+              <div class="adm-member-av-wrap">
+                <div class="adm-member-av" style="background:${_sAvatarColor(r.uid)}">${_sInitials(r.displayName || '?')}</div>
+              </div>
+              <div class="adm-member-info" style="flex:1">
+                <div class="adm-member-name">${escapeHTML(r.displayName || 'Anonymous')}</div>
+                ${r.answer ? `<div class="adm-member-sub" style="font-style:italic">"${escapeHTML(r.answer)}"</div>` : ''}
+                <div class="adm-member-sub" style="font-size:10px">${new Date(r.requestedAt).toLocaleString()}</div>
+              </div>
+              <button class="adm-row-btn" style="background:rgba(34,197,94,.15);color:#22c55e;border-color:rgba(34,197,94,.3);margin-right:4px" data-act="admin-approve-request" data-uid="${r.uid}" data-name="${escapeHTML(r.displayName||'Member')}">✓</button>
+              <button class="adm-kick-btn" data-act="admin-reject-request" data-uid="${r.uid}">✕</button>
+            </div>`;
+          }).join('');
+          openModal(`<h3>⏳ Waiting Room</h3>
+            <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px">${snap.size} pending request${snap.size !== 1 ? 's' : ''}</p>
+            <div>${rows}</div>
+            <div class="actions"><button class="btn btn-ghost" data-close>Close</button></div>`);
+        })
+        .catch(() => toast('Could not load requests', 'danger'));
+      return;
+    }
+    if (act === 'admin-approve-request') {
+      if (!_db || !_socialRoomCode) return;
+      const uid_ = el.dataset.uid;
+      const name_ = el.dataset.name || 'Member';
+      _db.collection('groups').doc(_socialRoomCode).collection('joinRequests').doc(uid_).delete()
+        .then(() => {
+          _db.collection('groups').doc(_socialRoomCode).collection('members').doc(uid_).set({ uid: uid_, displayName: name_, joinedAt: Date.now() }, { merge: true }).catch(() => {});
+          toast(`✓ ${escapeHTML(name_)} approved!`, 'success');
+          el.closest('.adm-member-row').remove();
+        }).catch(() => toast('Failed to approve', 'danger'));
+      return;
+    }
+    if (act === 'admin-reject-request') {
+      if (!_db || !_socialRoomCode) return;
+      const uid_ = el.dataset.uid;
+      _db.collection('groups').doc(_socialRoomCode).collection('joinRequests').doc(uid_).delete()
+        .then(() => { toast('Request rejected', 'info'); el.closest('.adm-member-row').remove(); })
+        .catch(() => toast('Failed', 'danger'));
+      return;
+    }
+    if (act === 'admin-promote-group') {
+      const rName = (_socialRoomData && _socialRoomData.roomName) || `Room ${_socialRoomCode}`;
+      const rDesc = (_socialRoomData && _socialRoomData.description) || '';
+      const shareText = `Join my study room "${rName}" on Syllabus Tracker!\nCode: ${_socialRoomCode}${rDesc ? '\n' + rDesc : ''}`;
+      closeModal();
+      if (navigator.share) {
+        navigator.share({ title: rName, text: shareText }).catch(() => {});
+      } else {
+        navigator.clipboard.writeText(shareText).then(() => toast('📣 Invite text copied!', 'success')).catch(() => {
+          const ta = document.createElement('textarea');
+          ta.value = shareText; document.body.appendChild(ta); ta.select();
+          document.execCommand('copy'); document.body.removeChild(ta);
+          toast('📣 Invite text copied!', 'success');
+        });
+      }
       return;
     }
     if (act === 'admin-toggle-privacy') {

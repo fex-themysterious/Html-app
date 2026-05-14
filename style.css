@@ -5496,6 +5496,14 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .sroom-send-btn:hover { box-shadow: 0 0 26px rgba(91,168,255,0.55); transform: translateY(-2px); }
 .sroom-send-btn:active { transform: scale(0.97); box-shadow: none; }
 body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px)); }
+.sroom-chat-disabled {
+  flex-shrink: 0; padding: 14px 16px;
+  text-align: center; font-size: 13px;
+  color: var(--text-muted);
+  background: rgba(17,24,39,0.76);
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-bottom: max(14px, env(safe-area-inset-bottom, 14px));
+}
 
 /* Chat bubbles & messages */
 .chat-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 40px 20px; text-align: center; }
