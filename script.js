@@ -6257,19 +6257,125 @@
   }
 
   // ========== Sound Track Catalogue ==========
-  // Free ambient tracks use Web Audio API synthesis (no network needed, always work)
-  // Premium tracks (cat:'music', premium:true) require Focus Music Pack purchase
+  // All tracks use Web Audio API synthesis — no external files needed, works offline
+
+  function _createAmbientFlowSynth() {
+    const ctx = getAudioContext(); if (!ctx) return null;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const master = ctx.createGain(); master.gain.value = ambientVolume * 0.35; master.connect(ctx.destination);
+    const freqs = [130.81, 164.81, 196.00, 261.63, 329.63];
+    const nodes = freqs.map((f, i) => {
+      const osc = ctx.createOscillator(), g = ctx.createGain();
+      osc.type = 'sine'; osc.frequency.value = f + (i % 2 === 0 ? 0.3 : -0.3); g.gain.value = 0.2 + (i === 0 ? 0.1 : 0);
+      const lfo = ctx.createOscillator(), lfoG = ctx.createGain();
+      lfo.frequency.value = 0.07 + i * 0.013; lfoG.gain.value = 1.5;
+      lfo.connect(lfoG); lfoG.connect(osc.frequency); lfo.start();
+      osc.connect(g); g.connect(master); osc.start();
+      return { osc, lfo };
+    });
+    let _paused = false, _vol = ambientVolume;
+    return { _isNoise: true, get paused() { return _paused; }, get currentTime() { return 0; }, set currentTime(_) {},
+      get volume() { return _vol; }, set volume(v) { _vol = v; master.gain.value = v * 0.35; },
+      pause() { if (!_paused) { master.gain.setTargetAtTime(0, ctx.currentTime, 0.15); setTimeout(() => { nodes.forEach(({ osc, lfo }) => { try { osc.stop(); lfo.stop(); } catch(e) {} }); }, 400); _paused = true; } } };
+  }
+
+  function _createRainStudySynth() {
+    const ctx = getAudioContext(); if (!ctx) return null;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const sr = ctx.sampleRate, buf = ctx.createBuffer(1, sr * 3, sr), d = buf.getChannelData(0);
+    let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
+    for (let i = 0; i < d.length; i++) {
+      const w = Math.random() * 2 - 1;
+      b0=0.99886*b0+w*0.0555179; b1=0.99332*b1+w*0.0750759; b2=0.96900*b2+w*0.1538520;
+      b3=0.86650*b3+w*0.3104856; b4=0.55000*b4+w*0.5329522; b5=-0.7616*b5-w*0.0168980;
+      d[i] = (b0+b1+b2+b3+b4+b5+b6+w*0.5362) * 0.11; b6 = w * 0.115926;
+    }
+    const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+    const bpf = ctx.createBiquadFilter(); bpf.type = 'bandpass'; bpf.frequency.value = 1000; bpf.Q.value = 0.5;
+    const shelf = ctx.createBiquadFilter(); shelf.type = 'lowshelf'; shelf.frequency.value = 4000; shelf.gain.value = -10;
+    const gain = ctx.createGain(); gain.gain.value = ambientVolume;
+    src.connect(bpf); bpf.connect(shelf); shelf.connect(gain); gain.connect(ctx.destination); src.start();
+    let _paused = false, _vol = ambientVolume;
+    return { _isNoise: true, get paused() { return _paused; }, get currentTime() { return 0; }, set currentTime(_) {},
+      get volume() { return _vol; }, set volume(v) { _vol = v; gain.gain.value = v; },
+      pause() { if (!_paused) { gain.gain.setTargetAtTime(0, ctx.currentTime, 0.08); setTimeout(() => { try { src.stop(); } catch(e) {} }, 200); _paused = true; } } };
+  }
+
+  function _createDeepFocusSynth() {
+    const ctx = getAudioContext(); if (!ctx) return null;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const master = ctx.createGain(); master.gain.value = ambientVolume * 0.3; master.connect(ctx.destination);
+    const partials = [{ freq: 55, amp: 0.5 }, { freq: 82.4, amp: 0.3 }, { freq: 110, amp: 0.4 }, { freq: 164.8, amp: 0.15 }];
+    const nodes = partials.map(({ freq, amp }, i) => {
+      const osc = ctx.createOscillator(), g = ctx.createGain();
+      osc.type = 'sine'; osc.frequency.value = freq; g.gain.value = amp;
+      const lfo = ctx.createOscillator(), lfoG = ctx.createGain();
+      lfo.frequency.value = 0.05 + i * 0.02; lfoG.gain.value = amp * 0.4;
+      lfo.connect(lfoG); lfoG.connect(g.gain); lfo.start();
+      osc.connect(g); g.connect(master); osc.start();
+      return { osc, lfo };
+    });
+    let _paused = false, _vol = ambientVolume;
+    return { _isNoise: true, get paused() { return _paused; }, get currentTime() { return 0; }, set currentTime(_) {},
+      get volume() { return _vol; }, set volume(v) { _vol = v; master.gain.value = v * 0.3; },
+      pause() { if (!_paused) { master.gain.setTargetAtTime(0, ctx.currentTime, 0.15); setTimeout(() => { nodes.forEach(({ osc, lfo }) => { try { osc.stop(); lfo.stop(); } catch(e) {} }); }, 400); _paused = true; } } };
+  }
+
+  function _createLofiBeatsSynth() {
+    const ctx = getAudioContext(); if (!ctx) return null;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const master = ctx.createGain(); master.gain.value = ambientVolume * 0.4; master.connect(ctx.destination);
+    const sr = ctx.sampleRate, buf = ctx.createBuffer(1, sr * 4, sr), d = buf.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < d.length; i++) { const w = (Math.random()*2-1)*0.02; last = Math.max(-0.97, Math.min(0.97, last+w)); d[i] = last*3.0; }
+    const noiseSrc = ctx.createBufferSource(); noiseSrc.buffer = buf; noiseSrc.loop = true;
+    const nFilt = ctx.createBiquadFilter(); nFilt.type = 'lowpass'; nFilt.frequency.value = 600;
+    const nGain = ctx.createGain(); nGain.gain.value = 0.25;
+    noiseSrc.connect(nFilt); nFilt.connect(nGain); nGain.connect(master); noiseSrc.start();
+    let _stopped = false;
+    const beat = 60 / 75;
+    function scheduleKick(t) {
+      const k = ctx.createOscillator(), kEnv = ctx.createGain();
+      k.type = 'sine'; k.frequency.setValueAtTime(110, t); k.frequency.exponentialRampToValueAtTime(40, t + 0.25);
+      kEnv.gain.setValueAtTime(0.55, t); kEnv.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+      k.connect(kEnv); kEnv.connect(master); k.start(t); k.stop(t + 0.4);
+    }
+    function scheduleHH(t, accent) {
+      const hBuf = ctx.createBuffer(1, ~~(sr*0.05), sr), hd = hBuf.getChannelData(0);
+      for (let i = 0; i < hd.length; i++) hd[i] = (Math.random()*2-1)*(1-i/hd.length);
+      const hSrc = ctx.createBufferSource(); hSrc.buffer = hBuf;
+      const hFilt = ctx.createBiquadFilter(); hFilt.type = 'highpass'; hFilt.frequency.value = 7000;
+      const hEnv = ctx.createGain(); hEnv.gain.setValueAtTime(accent ? 0.12 : 0.06, t); hEnv.gain.exponentialRampToValueAtTime(0.001, t+0.05);
+      hSrc.connect(hFilt); hFilt.connect(hEnv); hEnv.connect(master); hSrc.start(t); hSrc.stop(t+0.06);
+    }
+    let nextT = ctx.currentTime + 0.05, beatIdx = 0, schTimer;
+    function scheduler() {
+      if (_stopped) return;
+      while (nextT < ctx.currentTime + 0.3) {
+        if (beatIdx % 4 === 0 || beatIdx % 4 === 2) scheduleKick(nextT);
+        scheduleHH(nextT, beatIdx % 2 === 0); scheduleHH(nextT + beat*0.5, false);
+        nextT += beat; beatIdx++;
+      }
+      if (!_stopped) schTimer = setTimeout(scheduler, 50);
+    }
+    schTimer = setTimeout(scheduler, 0);
+    let _paused = false, _vol = ambientVolume;
+    return { _isNoise: true, get paused() { return _paused; }, get currentTime() { return 0; }, set currentTime(_) {},
+      get volume() { return _vol; }, set volume(v) { _vol = v; master.gain.value = v * 0.4; },
+      pause() { if (!_paused) { _stopped = true; clearTimeout(schTimer); master.gain.setTargetAtTime(0, ctx.currentTime, 0.1); setTimeout(() => { try { noiseSrc.stop(); } catch(e) {} }, 200); _paused = true; } } };
+  }
+
   const SOUNDS = [
-    { id: 'none',       label: '🔇 Off',          src: null, cat: null },
+    { id: 'none',       label: '🔇 Off',          cat: null },
     // ── Free synthesized ambient ─────────────────────────────────────────
-    { id: 'rain',       label: '🌧️ Rain',          src: null, noiseType: 'pink',  cat: 'ambient' },
-    { id: 'white',      label: '🤍 White Noise',   src: null, noiseType: 'white', cat: 'ambient' },
-    { id: 'brown',      label: '🟤 Brown Noise',   src: null, noiseType: 'brown', cat: 'ambient' },
-    // ── Premium music tracks (Focus Music Pack) ──────────────────────────
-    { id: 'lofi',       label: '🎵 Lo-fi Beats',   src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-17.mp3', cat: 'music', premium: true },
-    { id: 'ambient_fl', label: '✨ Ambient Flow',   src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-11.mp3', cat: 'music', premium: true },
-    { id: 'rain_study', label: '☔ Rain Study',     src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3',  cat: 'music', premium: true },
-    { id: 'deep_focus', label: '🔮 Deep Focus',     src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3',  cat: 'music', premium: true },
+    { id: 'rain',       label: '🌧️ Rain',          noiseType: 'pink',  cat: 'ambient' },
+    { id: 'white',      label: '🤍 White Noise',   noiseType: 'white', cat: 'ambient' },
+    { id: 'brown',      label: '🟤 Brown Noise',   noiseType: 'brown', cat: 'ambient' },
+    // ── Synthesized music tracks ──────────────────────────────────────────
+    { id: 'lofi',       label: '🎵 Lo-fi Beats',   synthFn: _createLofiBeatsSynth,   cat: 'music', premium: true },
+    { id: 'ambient_fl', label: '✨ Ambient Flow',   synthFn: _createAmbientFlowSynth, cat: 'music', premium: true },
+    { id: 'rain_study', label: '☔ Rain Study',     synthFn: _createRainStudySynth,   cat: 'music', premium: true },
+    { id: 'deep_focus', label: '🔮 Deep Focus',     synthFn: _createDeepFocusSynth,   cat: 'music', premium: true },
   ];
   function soundById(id) { return SOUNDS.find(s => s.id === id) || SOUNDS[0]; }
 
@@ -6448,6 +6554,13 @@
     if (sound.noiseType) {
       const noiseObj = _createNoiseAmbient(sound.noiseType);
       if (noiseObj) { ambientAudio = noiseObj; }
+      return;
+    }
+
+    // ── Synthesized music tracks (ambient_fl / rain_study / deep_focus / lofi) ──
+    if (sound.synthFn) {
+      const synthObj = sound.synthFn();
+      if (synthObj) { ambientAudio = synthObj; }
       return;
     }
 
@@ -7715,9 +7828,10 @@
           </div>
         </div>
 
-        <!-- ── Vertical controls: Play · Landscape · Exit (grid-area: ctrl) ── -->
+        <!-- ── Vertical controls: Play · Sound · Landscape · Exit (grid-area: ctrl) ── -->
         <div class="fs-ctrl-col">
           <button class="fs-ctrl-btn fs-main-btn${focusOvertime ? ' fs-overtime-btn' : ''}" data-act="fs-toggle">${focusRunning ? '⏸' : (focusOvertime ? '⏹' : '▶')}</button>
+          <button class="fs-ctrl-btn fs-side-btn fs-sound-btn${ambientMode !== 'none' ? ' fs-sound-btn--on' : ''}" data-act="fs-cycle-ambient" title="Cycle ambient sound">${ambientIcon}</button>
           <button class="fs-ctrl-btn fs-side-btn fs-orient-btn" data-act="fs-toggle-landscape" title="Toggle landscape">${orientIcon}</button>
           <button class="fs-ctrl-btn fs-side-btn fs-exit-btn" data-act="exit-full-session" title="Exit">✕</button>
         </div>

@@ -2231,6 +2231,8 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .fs-main-btn { width: 80px; height: 80px; border-radius: 50%; background: var(--primary); color: #021020; font-size: 28px; box-shadow: 0 0 40px rgba(77,168,255,0.5), 0 4px 20px rgba(0,0,0,0.4); transition: background var(--t-fast), box-shadow var(--t-fast); }
 .fs-main-btn:hover { background: #6ab8ff; box-shadow: 0 0 54px rgba(77,168,255,0.6); }
 .fs-exit-btn { font-size: 18px; font-weight: 800; }
+.fs-sound-btn { font-size: 20px; }
+.fs-sound-btn--on { background: rgba(56,189,248,0.18); border-color: rgba(56,189,248,0.5); }
 
 /* ── Footer: hint text ──────────────────────────────────────── */
 .fs-footer { display: flex; flex-direction: column; align-items: center; gap: 6px; align-self: end; padding-bottom: 4px; }
