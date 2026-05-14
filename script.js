@@ -2429,7 +2429,8 @@
       ]).then(([roomSnap, membersSnap]) => {
         const existing = _myGroupRoomMeta[code] || {};
         _myGroupRoomMeta[code] = {
-          roomName: (roomSnap && roomSnap.exists && roomSnap.data().roomName) || null,
+          roomName:    (roomSnap && roomSnap.exists && roomSnap.data().roomName) || null,
+          description: (roomSnap && roomSnap.exists && roomSnap.data().description) || '',
           memberCount: membersSnap ? membersSnap.size : (existing.memberCount || 0)
         };
         if (_currentTab === 'social' && !_socialRoomCode) renderSocial();
@@ -2695,6 +2696,7 @@
             const memberBadge = (mc != null && !meta._loading)
               ? `<span class="slob-room-member-badge">👥 ${mc} member${mc !== 1 ? 's' : ''}</span>`
               : (meta._loading ? `<span class="slob-room-member-badge" style="opacity:.5">👥 …</span>` : '');
+            const desc = meta.description || '';
             return `
             <div class="slob-room-card">
               <div class="slob-room-card-header">
@@ -2703,6 +2705,7 @@
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                 </button>
               </div>
+              ${desc ? `<div class="slob-room-desc">${escapeHTML(desc)}</div>` : ''}
               <div class="slob-room-code-row">
                 <span class="slob-room-code-label">Code</span>
                 <span class="slob-room-code-val">${c}</span>
@@ -2761,10 +2764,12 @@
       const rows = visiblePublicRooms.map(r => {
         const rName = r.roomName || `Room ${r.id}`;
         const alreadyIn = _myGroupCodes.includes(r.id);
+        const rDesc = r.description || '';
         return `<div class="slob-pub-row">
           <div class="slob-pub-av" style="background:${_sAvatarColor(r.createdBy||r.id)}">${_sInitials(rName)}</div>
           <div class="slob-pub-info">
             <div class="slob-pub-name">${escapeHTML(rName)}</div>
+            ${rDesc ? `<div class="slob-pub-desc">${escapeHTML(rDesc)}</div>` : ''}
             <div class="slob-pub-meta">
               <span class="slob-pub-code">${r.id}</span>
               <span class="slob-pub-badge">🌐 Public</span>
@@ -2810,6 +2815,7 @@
     const momentumComplete = momentumPct >= 100;
     const isCreator        = _userId === (_socialRoomData && _socialRoomData.createdBy);
     const roomName         = (_socialRoomData && _socialRoomData.roomName) || `Room ${_socialRoomCode}`;
+    const roomDesc         = (_socialRoomData && _socialRoomData.description) || '';
     const isPrivate        = !!(_socialRoomData && _socialRoomData.private);
     const T                = _socialRoomTab;
 
@@ -2835,6 +2841,7 @@
           <button class="sroom-code-pill" data-act="social-copy-code" title="Copy room code">${_socialRoomCode}</button>
           ${isPrivate ? '<span class="sroom-privacy">🔒</span>' : ''}
         </div>
+        ${roomDesc ? `<div class="sroom-desc-bar">${escapeHTML(roomDesc)}</div>` : ''}
       </div>
       <button class="sroom-settings-btn" data-act="social-room-settings" aria-label="Settings">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -3238,6 +3245,7 @@
     const isPrivate = !!(_socialRoomData && _socialRoomData.private);
     const notifOn = !!(state.socialNotif !== false);
     const roomName = (_socialRoomData && _socialRoomData.roomName) || `Room ${_socialRoomCode}`;
+    const roomDesc = (_socialRoomData && _socialRoomData.description) || '';
 
     const memberRows = members.map(m => {
       const isMe = m.uid === _userId;
@@ -3280,6 +3288,14 @@
         <div class="adm-row" data-act="social-copy-code" style="cursor:pointer">
           <div class="adm-row-ico">🔗</div>
           <div class="adm-row-body"><div class="adm-row-title">Share Invite</div><div class="adm-row-sub">Copy code to invite friends to join</div></div>
+          <div class="adm-row-chev">›</div>
+        </div>
+        <div class="adm-row" data-act="admin-edit-description" style="cursor:pointer">
+          <div class="adm-row-ico">📝</div>
+          <div class="adm-row-body">
+            <div class="adm-row-title">Room Description</div>
+            <div class="adm-row-sub">${roomDesc ? escapeHTML(roomDesc) : 'Add a description for your room…'}</div>
+          </div>
           <div class="adm-row-chev">›</div>
         </div>
       </div>
@@ -3365,6 +3381,7 @@
     const creatorName = creatorMember ? (creatorMember.displayName || 'Room Admin') : 'Room Admin';
     const notifOn = !!(state.socialNotif !== false);
     const roomName = (_socialRoomData && _socialRoomData.roomName) || `Room ${_socialRoomCode}`;
+    const roomDesc = (_socialRoomData && _socialRoomData.description) || '';
     const isPrivate = !!(_socialRoomData && _socialRoomData.private);
     const members = _mergedMembers();
 
@@ -3409,6 +3426,10 @@
           <div class="adm-row-body"><div class="adm-row-title">Share Room Code</div><div class="adm-row-sub">Copy and invite a friend to join</div></div>
           <div class="adm-row-chev">›</div>
         </div>
+        ${roomDesc ? `<div class="adm-row">
+          <div class="adm-row-ico">📝</div>
+          <div class="adm-row-body"><div class="adm-row-title">Description</div><div class="adm-row-sub">${escapeHTML(roomDesc)}</div></div>
+        </div>` : ''}
         <div class="adm-row">
           <div class="adm-row-ico">👑</div>
           <div class="adm-row-body"><div class="adm-row-title">Room Admin</div><div class="adm-row-sub">${escapeHTML(creatorName)}</div></div>
@@ -9612,6 +9633,48 @@
           toast(`Copied ${code}!`, 'success');
         });
       }
+      return;
+    }
+    if (act === 'admin-edit-description') {
+      if (!_db || !_socialRoomCode) return;
+      if (_userId !== (_socialRoomData && _socialRoomData.createdBy)) { toast('Only the room admin can edit the description', 'warn'); return; }
+      const curDesc = (_socialRoomData && _socialRoomData.description) || '';
+      closeModal();
+      openModal(`<h3>Room Description</h3>
+        <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px">Write a short bio for your study room. Members and anyone browsing public rooms will see this.</p>
+        <div class="field">
+          <textarea id="desc-input" maxlength="150" placeholder="e.g. NEET 2026 prep group — Biology &amp; Chemistry focus 🔬" style="width:100%;min-height:80px;resize:vertical;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box">${escapeHTML(curDesc)}</textarea>
+          <div id="desc-counter" style="text-align:right;font-size:11px;color:var(--text-muted);margin-top:4px">${curDesc.length}/150</div>
+        </div>
+        <div id="desc-err" style="color:#ef4444;font-size:12px;margin-bottom:8px;display:none"></div>
+        <div class="actions">
+          <button class="btn btn-ghost" data-close>Cancel</button>
+          ${curDesc ? `<button class="btn btn-ghost" id="desc-clear-btn" style="color:#ef4444">Clear</button>` : ''}
+          <button class="btn" id="desc-save-btn">Save</button>
+        </div>`,
+        root => {
+          const ta  = root.querySelector('#desc-input');
+          const ctr = root.querySelector('#desc-counter');
+          const err = root.querySelector('#desc-err');
+          const saveBtn  = root.querySelector('#desc-save-btn');
+          const clearBtn = root.querySelector('#desc-clear-btn');
+          ta.addEventListener('input', () => { ctr.textContent = `${ta.value.length}/150`; });
+          const doSave = async (val) => {
+            saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+            try {
+              await _db.collection('groups').doc(_socialRoomCode).update({ description: val });
+              if (_socialRoomData) _socialRoomData.description = val;
+              if (_myGroupRoomMeta[_socialRoomCode]) _myGroupRoomMeta[_socialRoomCode].description = val;
+              closeModal();
+              toast(val ? '📝 Description saved' : 'Description cleared', 'success');
+            } catch(e) {
+              saveBtn.disabled = false; saveBtn.textContent = 'Save';
+              err.textContent = 'Failed to save. Please try again.'; err.style.display = '';
+            }
+          };
+          saveBtn.onclick = () => doSave(ta.value.trim());
+          if (clearBtn) clearBtn.onclick = () => doSave('');
+        });
       return;
     }
     if (act === 'admin-toggle-privacy') {

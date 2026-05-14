@@ -4795,6 +4795,11 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   display: flex; align-items: center; justify-content: space-between;
   position: relative; z-index: 1;
 }
+.slob-room-desc {
+  font-size: 12px; color: var(--text-muted); margin: 2px 0 6px;
+  line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical; overflow: hidden;
+}
 .slob-room-card-title {
   font-size: 16px; font-weight: 800; color: #FFFFFF; letter-spacing: -0.3px;
 }
@@ -4855,6 +4860,10 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .slob-pub-name {
   font-size: 14px; font-weight: 700; color: var(--text-primary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.slob-pub-desc {
+  font-size: 11px; color: var(--text-muted); margin: 3px 0 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;
 }
 .slob-pub-meta { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
 .slob-pub-code {
@@ -5065,6 +5074,11 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .sroom-name-save   { background: rgba(34,197,94,0.2); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
 .sroom-name-cancel { background: rgba(248,113,113,0.15); color: #f87171; border: 1px solid rgba(248,113,113,0.25); }
 .sroom-meta { display: flex; align-items: center; gap: 6px; margin-top: 3px; flex-wrap: wrap; }
+.sroom-desc-bar {
+  font-size: 12px; color: var(--text-muted); margin-top: 5px;
+  line-height: 1.4; max-width: 340px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
 .sroom-online {
   display: flex; align-items: center; gap: 4px;
   font-size: 13px; color: rgba(243,246,251,0.75); font-weight: 600;
