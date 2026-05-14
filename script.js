@@ -468,7 +468,6 @@
       // Always land on Home tab after login
       switchTab('home');
       renderAll();
-      _sSocialInit();
       refreshSettingsIfOpen();
       console.log('[Auth] Signed in:', user.email || user.uid);
       if (!_db) return;
@@ -892,6 +891,7 @@
   // ======================================================================
   // ========== Social Study System =======================================
   // ======================================================================
+  const SOCIAL_DISABLED = true; // Disabled — under maintenance, re-enable when bugs are fixed
   const SOCIAL_OFFLINE_MS        = 90 * 1000;   // 90 s — 3x slow heartbeat buffer for mobile throttling
   const SOCIAL_IDLE_INPUT_MS     = 5 * 60 * 1000; // 5 min no input → idle
   const SOCIAL_HEARTBEAT_FAST_MS = 7000;          // active heartbeat interval
@@ -947,9 +947,10 @@
   let _pendingRenderSocial = false;  // deferred full re-render when chat input is focused
   let _voiceRemoteAudios = {};
 
-  // Debounced sync: after XP/activity, push stats to global LB + room presence (max once per 3 s)
+  // Debounced sync: disabled while SOCIAL_DISABLED is true
   let _socialSyncTimer = null;
   function _debouncedSocialSync() {
+    if (SOCIAL_DISABLED) return;
     if (_socialSyncTimer) return;
     _socialSyncTimer = setTimeout(() => {
       _socialSyncTimer = null;
@@ -2603,19 +2604,7 @@
   }
 
   async function _sSocialInit() {
-    // Load saved my-groups list
-    try {
-      const raw = localStorage.getItem('my_group_codes');
-      if (raw) { const arr = JSON.parse(raw); if (Array.isArray(arr)) _myGroupCodes = arr; }
-    } catch(_) {}
-    const saved = (() => { try { return localStorage.getItem('social_room_code'); } catch (e) { return null; } })();
-    if (saved && _db && _userId && !_socialRoomCode) {
-      _socialRoomCode = saved;
-      await _sUpdatePresence('break'); // pre-seeds _socialMembers[_userId] immediately
-      _sSubscribe();
-      _startSocialLiveTimers();
-      if (_currentTab === 'social') renderSocial(); // render room UI without waiting for listener
-    }
+    if (SOCIAL_DISABLED) return; // Social system disabled — skip all background init
   }
 
   // Fetch room name + member count for rooms not yet in _myGroupRoomMeta
@@ -2645,6 +2634,10 @@
   function renderSocial() {
     const view = document.getElementById('view-social');
     if (!view) return;
+    if (SOCIAL_DISABLED) {
+      view.innerHTML = `<div class="social-gate"><div class="social-gate-icon">🚧</div><h2 class="social-gate-title">Coming Soon</h2><p class="social-gate-sub">Social Study Rooms are being improved and will be back soon. Stay tuned!</p></div>`;
+      return;
+    }
     if (!_userId) {
       view.innerHTML = `<div class="social-gate"><div class="social-gate-icon">👥</div><h2 class="social-gate-title">Social Study Rooms</h2><p class="social-gate-sub">Sign in to join a room and study with friends, compete in duels, and hit group goals together.</p><button class="btn" data-act="auth-show-modal">Sign In to Continue</button></div>`;
       return;
@@ -11432,7 +11425,6 @@
     setTimeout(maybeAutoShowBurnoutPopup, 2500);
     maybeShowBackupReminder();
     _initFirebase();
-    setTimeout(_sSocialInit, 3000); // resume social room after Firebase auth resolves
     // Enter key: handled natively by the form submit event (auth-submit is type="button",
     // so form submit fires on Enter in email/password fields via the showAuthModal listener).
   }
