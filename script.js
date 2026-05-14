@@ -483,9 +483,21 @@
             // Restore joined rooms from Firestore profile
             const savedRooms = snap.data().joinedRooms;
             if (Array.isArray(savedRooms) && savedRooms.length) {
-              _myGroupCodes = savedRooms;
+              _myGroupCodes = Array.from(new Set([..._myGroupCodes, ...savedRooms]));
               try { localStorage.setItem('my_group_codes', JSON.stringify(_myGroupCodes)); } catch(_) {}
             }
+            // Also fetch rooms where this user is admin/creator (may not be in joinedRooms)
+            try {
+              const createdSnap = await _db.collection('groups').where('createdBy', '==', user.uid).get();
+              createdSnap.forEach(d => {
+                if (!_myGroupCodes.includes(d.id)) {
+                  _myGroupCodes.push(d.id);
+                  _myGroupRoomMeta[d.id] = { roomName: d.data().roomName || null, description: d.data().description || '', memberCount: null };
+                }
+              });
+              try { localStorage.setItem('my_group_codes', JSON.stringify(_myGroupCodes)); } catch(_) {}
+              if (_db && user.uid) _db.collection('users').doc(user.uid).set({ joinedRooms: _myGroupCodes }, { merge: true }).catch(() => {});
+            } catch(_) {}
             renderAll();
             if (_currentTab === 'social') renderSocial();
             _setCloudStatus('synced');
@@ -497,9 +509,20 @@
         // No cloud data yet — but try to restore joinedRooms if it exists
         const existingRooms = snap.exists && snap.data() && snap.data().joinedRooms;
         if (Array.isArray(existingRooms) && existingRooms.length) {
-          _myGroupCodes = existingRooms;
+          _myGroupCodes = Array.from(new Set([..._myGroupCodes, ...existingRooms]));
           try { localStorage.setItem('my_group_codes', JSON.stringify(_myGroupCodes)); } catch(_) {}
         }
+        // Fetch admin-created rooms even if no cloud app data exists yet
+        try {
+          const createdSnap = await _db.collection('groups').where('createdBy', '==', user.uid).get();
+          createdSnap.forEach(d => {
+            if (!_myGroupCodes.includes(d.id)) {
+              _myGroupCodes.push(d.id);
+              _myGroupRoomMeta[d.id] = { roomName: d.data().roomName || null, description: d.data().description || '', memberCount: null };
+            }
+          });
+          try { localStorage.setItem('my_group_codes', JSON.stringify(_myGroupCodes)); } catch(_) {}
+        } catch(_) {}
         // Upload current local state
         await _db.collection('users').doc(user.uid).set({
           data:        JSON.stringify(state),
@@ -517,6 +540,12 @@
       }
     } else {
       _userId = null;
+      // Reset social group state on sign-out so next sign-in loads fresh from Firestore
+      _myGroupCodes = [];
+      _myGroupRoomMeta = {};
+      _publicRooms = [];
+      _publicRoomsLoading = false;
+      try { localStorage.removeItem('my_group_codes'); } catch(_) {}
       _setCloudStatus('idle');
       if (!_authSkipped) _scheduleModal();
       refreshSettingsIfOpen();
@@ -918,6 +947,20 @@
   let _pendingRenderSocial = false;  // deferred full re-render when chat input is focused
   let _voiceRemoteAudios = {};
 
+  // Debounced sync: after XP/activity, push stats to global LB + room presence (max once per 3 s)
+  let _socialSyncTimer = null;
+  function _debouncedSocialSync() {
+    if (_socialSyncTimer) return;
+    _socialSyncTimer = setTimeout(() => {
+      _socialSyncTimer = null;
+      _updateGlobalLb();
+      if (_socialRoomCode && _userId) {
+        const curStatus = (focusRunning && focusMode === 'work') ? 'focusing' : 'break';
+        _sUpdatePresence(curStatus).catch(() => {});
+      }
+    }, 3000);
+  }
+
   function _sDisplayName() {
     if (state.profile && state.profile.name) return state.profile.name;
     const u = _auth && _auth.currentUser;
@@ -1085,12 +1128,23 @@
     }
   }
 
-  // Smart re-render gate — skips full re-render while chat is focused, queues it for blur.
+  // Returns true when the join-room input in the lobby is focused (keyboard open on mobile)
+  function _isJoinInputFocused() {
+    const el = document.getElementById('social-join-input');
+    return !!el && document.activeElement === el;
+  }
+
+  // Smart re-render gate — skips full re-render while chat or join input is focused.
   // Also debounces rapid Firestore updates to max one re-render per 800ms.
   let _renderSocialDebounceTimer = null;
   function _renderSocialSafe() {
     if (_isChatFocused()) {
       _updateSocialInPlace();
+      _pendingRenderSocial = true;
+      return;
+    }
+    if (_isJoinInputFocused()) {
+      // Don't destroy the join input while user is typing a room code
       _pendingRenderSocial = true;
       return;
     }
@@ -2606,7 +2660,23 @@
     }
     if (!_socialRoomCode) {
       _loadPublicRooms();
+      // ── Preserve join-input value & focus across re-renders (keeps keyboard open) ──
+      const _prevJoin = document.getElementById('social-join-input');
+      const _joinVal  = _prevJoin ? _prevJoin.value : '';
+      const _joinFocused = _prevJoin && document.activeElement === _prevJoin;
       view.innerHTML = _renderSocialLobby();
+      const _newJoin = document.getElementById('social-join-input');
+      if (_newJoin && _joinVal) _newJoin.value = _joinVal;
+      if (_newJoin && _joinFocused) _newJoin.focus();
+      // If a pending render was deferred because join input was focused, set up a one-shot blur handler
+      if (_newJoin) {
+        _newJoin.addEventListener('blur', () => {
+          if (_pendingRenderSocial && _currentTab === 'social' && !_isChatFocused()) {
+            _pendingRenderSocial = false;
+            renderSocial();
+          }
+        }, { once: true });
+      }
       return;
     }
     const _momMembers = Object.values(_socialMembers);
@@ -2822,11 +2892,11 @@
       <div class="slob-section">
         <div class="slob-section-label-row">
           <div>
-            <div class="slob-lb-title">🌍 Global Leaderboard</div>
+            <div class="slob-lb-title"><span class="slob-lb-globe">🌎</span> Global Leaderboard</div>
             <div class="slob-lb-sub">Weekly XP · resets every Monday</div>
           </div>
           <button class="slob-refresh-btn" data-act="social-lb-refresh" title="Refresh">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           </button>
         </div>
         ${podiumHTML}
@@ -2942,10 +3012,18 @@
       </div>`;
     })();
 
+    // ── Offline banner ──
+    const offlineBanner = !navigator.onLine ? `
+      <div class="slob-offline-banner">
+        <span class="slob-offline-icon">📵</span>
+        <span>No network connection — Social features are unavailable offline</span>
+      </div>` : '';
+
     return `<div class="slob-page">
+      ${offlineBanner}
       ${lbSection}
-      ${publicRoomsHTML}
       ${myRoomsHTML}
+      ${publicRoomsHTML}
       ${createJoinHTML}
     </div>`;
   }
@@ -4335,6 +4413,8 @@
         }, 700);
       }
       this._updateXPBar();
+      // Push updated stats to Firebase instantly so social LB reflects new XP
+      _debouncedSocialSync();
       return amount;
     },
 
@@ -10910,17 +10990,21 @@
 
   // Network online/offline — force immediate resync on reconnect
   window.addEventListener('online', () => {
+    console.log('[Social] Network back online — resyncing');
     if (_db && _userId && _socialRoomCode) {
-      console.log('[Social] Network back online — resyncing');
       // Cancel any pending reconnect timer; resubscribe fresh
       if (_socialReconnectTimer) { clearTimeout(_socialReconnectTimer); _socialReconnectTimer = null; }
       _socialReconnectAttempts = 0;
       _sSubscribe();
       _sUpdatePresence((focusRunning && focusMode === 'work') ? 'focusing' : 'break');
     }
+    // Re-render social lobby to remove offline banner
+    if (_currentTab === 'social' && !_socialRoomCode) renderSocial();
   });
   window.addEventListener('offline', () => {
     console.warn('[Social] Network lost — presence will stale-out in 30 s');
+    // Re-render social lobby to show offline banner
+    if (_currentTab === 'social' && !_socialRoomCode) renderSocial();
   });
 
   // ========== Init ==========

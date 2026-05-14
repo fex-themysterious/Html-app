@@ -8003,6 +8003,25 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
 }
 .poll-modal-send:hover { opacity: 0.88; transform: translateY(-1px); }
 
+/* ── Globe emoji fix: exempt from gradient text-fill ── */
+.slob-lb-globe {
+  -webkit-text-fill-color: initial;
+  font-style: normal;
+}
+
+/* ── Offline banner in Social lobby ── */
+.slob-offline-banner {
+  display: flex; align-items: center; gap: 10px;
+  background: rgba(248,113,113,0.10);
+  border: 1px solid rgba(248,113,113,0.25);
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 13px; font-weight: 600;
+  color: rgba(248,113,113,0.92);
+  margin-bottom: 8px;
+}
+.slob-offline-icon { font-size: 18px; flex-shrink: 0; }
+
 /* ══════════════════════════════════════════════════════════════
    MARKETPLACE COSMETICS — Border, Aura & Title effects
    ══════════════════════════════════════════════════════════════ */
