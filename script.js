@@ -714,10 +714,28 @@
                   await user.reauthenticateWithCredential(cred);
                   // Wipe Firestore data
                   if (_db && _userId) {
-                    await Promise.allSettled([
+                    const cleanupOps = [
                       _db.collection('users').doc(_userId).delete(),
                       _db.collection('global_lb').doc(_userId).delete(),
-                    ]);
+                    ];
+                    // Clean up from current room if in one
+                    if (_socialRoomCode) {
+                      const groupRef = _db.collection('groups').doc(_socialRoomCode);
+                      cleanupOps.push(groupRef.collection('presence').doc(_userId).delete());
+                      cleanupOps.push(groupRef.collection('members').doc(_userId).delete());
+                      // Cancel active duels involving this user
+                      const currentDuels = (_socialRoomData && _socialRoomData.duels) || [];
+                      const updatedDuels = currentDuels.map(d => {
+                        if (!d.winner && d.duelState !== 'COMPLETED' && (d.challenger === _userId || d.opponent === _userId)) {
+                          return { ...d, winner: 'cancelled', duelState: 'COMPLETED' };
+                        }
+                        return d;
+                      });
+                      if (updatedDuels.some((d, i) => d !== currentDuels[i])) {
+                        cleanupOps.push(groupRef.update({ duels: updatedDuels }));
+                      }
+                    }
+                    await Promise.allSettled(cleanupOps);
                   }
                   await user.delete();
                   closeModal();
@@ -736,10 +754,26 @@
           (async () => {
             try {
               if (_db && _userId) {
-                await Promise.allSettled([
+                const cleanupOps = [
                   _db.collection('users').doc(_userId).delete(),
                   _db.collection('global_lb').doc(_userId).delete(),
-                ]);
+                ];
+                if (_socialRoomCode) {
+                  const groupRef = _db.collection('groups').doc(_socialRoomCode);
+                  cleanupOps.push(groupRef.collection('presence').doc(_userId).delete());
+                  cleanupOps.push(groupRef.collection('members').doc(_userId).delete());
+                  const currentDuels = (_socialRoomData && _socialRoomData.duels) || [];
+                  const updatedDuels = currentDuels.map(d => {
+                    if (!d.winner && d.duelState !== 'COMPLETED' && (d.challenger === _userId || d.opponent === _userId)) {
+                      return { ...d, winner: 'cancelled', duelState: 'COMPLETED' };
+                    }
+                    return d;
+                  });
+                  if (updatedDuels.some((d, i) => d !== currentDuels[i])) {
+                    cleanupOps.push(groupRef.update({ duels: updatedDuels }));
+                  }
+                }
+                await Promise.allSettled(cleanupOps);
               }
               await user.delete();
               toast('Account deleted.', 'info', 4000);
@@ -1404,6 +1438,7 @@
     const merged = {};
     Object.values(_socialRoomMembersList).forEach(m => { merged[m.uid] = { ...m }; });
     Object.values(_socialMembers).forEach(m => {
+      if (m.status === 'kicked') return; // kicked members already removed — don't ghost-show them
       merged[m.uid] = { ...(merged[m.uid] || {}), ...m };
     });
     // Guarantee own user is always present while in room
@@ -3194,8 +3229,16 @@
       <div class="sroom-mastery-empty-sub">Complete focus sessions with your subjects — they'll unlock mastery insights here.</div>
     </div>`;
 
+    const _allRoomMemberUids = new Set(Object.keys(_socialRoomMembersList).concat(Object.keys(_socialMembers)));
     const activeDuels = ((_socialRoomData&&_socialRoomData.duels)||[])
-      .filter(d => !d.winner && d.endsAt > now && (d.challenger === _userId || d.opponent === _userId));
+      .filter(d => {
+        if (d.winner || d.endsAt <= now) return false;
+        if (d.challenger !== _userId && d.opponent !== _userId) return false;
+        // Don't show duel if the opponent is no longer in the room (left, kicked, or deleted account)
+        const oppUid = d.challenger === _userId ? d.opponent : d.challenger;
+        if (!_allRoomMemberUids.has(oppUid)) return false;
+        return true;
+      });
     const duelsHTML = activeDuels.map(d => {
       const iAm  = d.challenger === _userId;
       const myG  = Math.max(0, ((state.xp&&state.xp.total)||0) - (iAm ? d.challengerXPStart : d.opponentXPStart));
@@ -3624,10 +3667,21 @@
       const groupRef = _db.collection('groups').doc(_socialRoomCode);
       // Primary: write to group doc (admin-owned) so the kicked user detects it via room onSnapshot
       await groupRef.update({ kickedMembers: firebase.firestore.FieldValue.arrayUnion(uid_) });
-      // Secondary: also try setting presence status (may be blocked by security rules, so catch silently)
-      groupRef.collection('presence').doc(uid_).update({ status: 'kicked' }).catch(() => {});
+      // Delete presence doc entirely (not just update status) so it disappears from all member lists
+      groupRef.collection('presence').doc(uid_).delete().catch(() => {});
       // Remove from members list so they can't rejoin without the code
       await groupRef.collection('members').doc(uid_).delete().catch(() => {});
+      // Cancel any active duels involving the kicked member
+      const currentDuels = (_socialRoomData && _socialRoomData.duels) || [];
+      const updatedDuels = currentDuels.map(d => {
+        if (!d.winner && d.duelState !== 'COMPLETED' && (d.challenger === uid_ || d.opponent === uid_)) {
+          return { ...d, winner: 'cancelled', duelState: 'COMPLETED' };
+        }
+        return d;
+      });
+      if (updatedDuels.some((d, i) => d !== currentDuels[i])) {
+        groupRef.update({ duels: updatedDuels }).catch(() => {});
+      }
       // Clean up local state immediately so the kicked member disappears from admin's view
       delete _socialRoomMembersList[uid_];
       delete _socialMembers[uid_];
