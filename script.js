@@ -4611,26 +4611,30 @@
   // ═══════════════════════════════════════════════════════════════
   var SHOP_ITEMS = [
     // Profile borders
-    { id:'border_flame',      name:'Flame Border',      cat:'profile',  rarity:'epic',      cost:500,  icon:'🔥', desc:'Animated fire ring pulses around your avatar',        equip:'border' },
-    { id:'border_galaxy',     name:'Galaxy Frame',      cat:'profile',  rarity:'legendary', cost:1500, icon:'🌌', desc:'Swirling galaxy frame — the rarest border',           equip:'border' },
-    { id:'border_crystal',    name:'Crystal Aura',      cat:'profile',  rarity:'rare',      cost:350,  icon:'💎', desc:'Shimmering crystal ring — elegant & rare',            equip:'border' },
+    { id:'border_flame',      name:'Flame Border',      cat:'profile',  rarity:'epic',      cost:2000,  icon:'🔥', desc:'Animated fire ring pulses around your avatar',        equip:'border' },
+    { id:'border_galaxy',     name:'Galaxy Frame',      cat:'profile',  rarity:'legendary', cost:5000,  icon:'🌌', desc:'Swirling galaxy frame — the rarest border',           equip:'border' },
+    { id:'border_crystal',    name:'Crystal Aura',      cat:'profile',  rarity:'rare',      cost:1500,  icon:'💎', desc:'Shimmering crystal ring — elegant & rare',            equip:'border' },
     // Profile titles
-    { id:'title_botany',      name:'Botany Expert',     cat:'profile',  rarity:'rare',      cost:300,  icon:'🌿', desc:'Custom title shown in Social rooms',                  equip:'title'  },
-    { id:'title_night',       name:'Night Scholar',     cat:'profile',  rarity:'rare',      cost:300,  icon:'🌙', desc:'For those who study after midnight',                  equip:'title'  },
-    { id:'title_focus',       name:'Focus Master',      cat:'profile',  rarity:'epic',      cost:600,  icon:'⚡', desc:'Elite title — only for the truly dedicated',          equip:'title'  },
-    { id:'title_grind',       name:'The Grinder',       cat:'profile',  rarity:'legendary', cost:1200, icon:'💀', desc:'Legendary status — earned through relentless grind',  equip:'title'  },
+    { id:'title_botany',      name:'Botany Expert',     cat:'profile',  rarity:'rare',      cost:1200,  icon:'🌿', desc:'Custom title shown in Social rooms',                  equip:'title'  },
+    { id:'title_night',       name:'Night Scholar',     cat:'profile',  rarity:'rare',      cost:1200,  icon:'🌙', desc:'For those who study after midnight',                  equip:'title'  },
+    { id:'title_focus',       name:'Focus Master',      cat:'profile',  rarity:'epic',      cost:2500,  icon:'⚡', desc:'Elite title — only for the truly dedicated',          equip:'title'  },
+    { id:'title_grind',       name:'The Grinder',       cat:'profile',  rarity:'legendary', cost:5000,  icon:'💀', desc:'Legendary status — earned through relentless grind',  equip:'title'  },
     // Visual auras
-    { id:'aura_fire',         name:'Fire Aura',         cat:'visual',   rarity:'epic',      cost:700,  icon:'🔥', desc:'Blazing aura pulses when you\'re online',            equip:'aura'   },
-    { id:'aura_lightning',    name:'Lightning Pulse',   cat:'visual',   rarity:'epic',      cost:800,  icon:'⚡', desc:'Electric pulse rings during focus sessions',         equip:'aura'   },
-    { id:'aura_galaxy',       name:'Galaxy Orb',        cat:'visual',   rarity:'legendary', cost:1800, icon:'🌌', desc:'Orbital galaxy effect — rarest visual in the shop',  equip:'aura'   },
-    { id:'aura_leaf',         name:'Leaf Animation',    cat:'visual',   rarity:'common',    cost:200,  icon:'🍃', desc:'Peaceful floating leaves during study sessions',     equip:'aura'   },
+    { id:'aura_fire',         name:'Fire Aura',         cat:'visual',   rarity:'epic',      cost:3000,  icon:'🔥', desc:'Blazing aura pulses when you\'re online',            equip:'aura'   },
+    { id:'aura_lightning',    name:'Lightning Pulse',   cat:'visual',   rarity:'epic',      cost:3500,  icon:'⚡', desc:'Electric pulse rings during focus sessions',         equip:'aura'   },
+    { id:'aura_galaxy',       name:'Galaxy Orb',        cat:'visual',   rarity:'legendary', cost:7500,  icon:'🌌', desc:'Orbital galaxy effect — rarest visual in the shop',  equip:'aura'   },
+    { id:'aura_leaf',         name:'Leaf Animation',    cat:'visual',   rarity:'common',    cost:800,   icon:'🍃', desc:'Peaceful floating leaves during study sessions',     equip:'aura'   },
     // Utility — stackable / timed
-    { id:'streak_freeze',     name:'Streak Freeze',     cat:'utility',  rarity:'rare',      cost:150,  icon:'🧊', desc:'Protects your streak for 1 missed day. Stackable.',   equip:null, stackable:true },
-    { id:'xp_boost_2x',       name:'XP Booster 2×',    cat:'utility',  rarity:'rare',      cost:400,  icon:'⚡', desc:'Doubles ALL earned XP for 24 hours — tasks & focus both.',  equip:null, timed:true },
+    { id:'streak_freeze',     name:'Streak Freeze',     cat:'utility',  rarity:'rare',      cost:500,   icon:'🧊', desc:'Protects your streak for 1 missed day. Stackable.',   equip:null, stackable:true },
+    { id:'xp_boost_2x',       name:'XP Booster 2×',    cat:'utility',  rarity:'rare',      cost:1500,  icon:'⚡', desc:'Doubles ALL earned XP for 24 hours — tasks & focus both.',  equip:null, timed:true },
     // Premium items
-    { id:'focus_music_pack',  name:'Focus Music Pack',  cat:'premium',  rarity:'epic',      cost:500,  icon:'🎵', desc:'Unlock premium Lo-fi, Ambient, Rain Study & Deep Focus audio tracks.' },
-    { id:'custom_badge',      name:'Custom Badge',      cat:'premium',  rarity:'legendary', cost:1000, icon:'🏅', desc:'Equip an animated profile badge: Verified Learner, Hardworker, or Top Grinder.' },
-    { id:'theme_unlocker',    name:'Theme Unlocker',    cat:'premium',  rarity:'legendary', cost:800,  icon:'🎨', desc:'Unlock premium app themes: Dark Gold, BUET Blue & Neon Night.' },
+    { id:'custom_badge',      name:'Custom Badge',      cat:'premium',  rarity:'legendary', cost:4000,  icon:'🏅', desc:'Equip an animated profile badge: Verified Learner, Hardworker, or Top Grinder.' },
+    { id:'theme_unlocker',    name:'Theme Unlocker',    cat:'premium',  rarity:'legendary', cost:3000,  icon:'🎨', desc:'Unlock premium app themes: Dark Gold, BUET Blue & Neon Night.' },
+    // Music tracks — buy individually in Music tab
+    { id:'music_soft_rain',   name:'Soft Rain',         cat:'music_track', rarity:'rare',      cost:10000, icon:'🌧️', desc:'Gentle pink-noise rainfall — soft and soothing for long study sessions.' },
+    { id:'music_piano_study', name:'Piano Study',       cat:'music_track', rarity:'epic',      cost:10000, icon:'🎹', desc:'Soft piano melody in C major pentatonic — a calming study companion.' },
+    { id:'music_forest_calm', name:'Forest Calm',       cat:'music_track', rarity:'rare',      cost:10000, icon:'🌿', desc:'Forest ambience with brown noise, gentle breeze & distant bird calls.' },
+    { id:'music_deep_focus',  name:'Deep Focus',        cat:'music_track', rarity:'legendary', cost:10000, icon:'🔮', desc:'Sub-bass drone with slow breathing LFO — engineered for deep concentration.' },
   ];
 
   var QUEST_TEMPLATES = [
@@ -4712,8 +4716,8 @@
         locked = true;
         btnHTML = `<button class="mkt-btn mkt-btn-locked" disabled>⚡ ${it.cost.toLocaleString()} XP</button>`;
       }
-    } else if (it.id === 'focus_music_pack') {
-      if (state.focusMusicUnlocked) {
+    } else if (it.cat === 'music_track') {
+      if (owned) {
         btnHTML = `<button class="mkt-btn mkt-btn-owned" disabled>🎵 UNLOCKED</button>`;
       } else if (canAfford) {
         btnHTML = `<button class="mkt-btn mkt-btn-buy" data-act="shop-buy" data-iid="${it.id}">⚡ ${it.cost.toLocaleString()} XP</button>`;
@@ -4801,10 +4805,11 @@
     const spent    = (state.xp && state.xp.spent)  || 0;
 
     const cats = [
-      { id:'profile', label:'Profile', icon:'👤' },
-      { id:'visual',  label:'Visual',  icon:'✨' },
-      { id:'utility', label:'Utility', icon:'🛠️' },
-      { id:'premium', label:'Premium', icon:'💎' },
+      { id:'profile',     label:'Profile', icon:'👤' },
+      { id:'visual',      label:'Visual',  icon:'✨' },
+      { id:'utility',     label:'Utility', icon:'🛠️' },
+      { id:'premium',     label:'Premium', icon:'💎' },
+      { id:'music_track', label:'Music',   icon:'🎵' },
     ];
     const catTabs = cats.map(c =>
       `<button class="mkt-cat-btn${c.id === _shopCategory ? ' active' : ''}" data-act="shop-cat" data-cat="${c.id}">${c.icon} ${c.label}</button>`
@@ -4814,7 +4819,7 @@
     const itemsHTML = items.map(it => _mktCard(it, bal)).join('') ||
       '<div class="mkt-empty">No items in this category yet.</div>';
 
-    const ownedItems = SHOP_ITEMS.filter(it => _itemOwned(it.id) || state.focusMusicUnlocked && it.id === 'focus_music_pack' || state.themeUnlocked && it.id === 'theme_unlocker' || state.customBadgeOwned && it.id === 'custom_badge');
+    const ownedItems = SHOP_ITEMS.filter(it => _itemOwned(it.id) || state.themeUnlocked && it.id === 'theme_unlocker' || state.customBadgeOwned && it.id === 'custom_badge');
     const invPreview = ownedItems.slice(0, 8).map(it => `<span class="inv-icon" title="${escapeHTML(it.name)}">${it.icon}</span>`).join('')
                        || '<span style="color:var(--text-muted);font-size:12px">Buy something below to start your collection!</span>';
 
@@ -4900,9 +4905,13 @@
       _activateBooster();
       toast('⚡ XP Booster 2× activated! All XP doubled for 24 hours!', 'success', 5000);
       gamificationManager._flashGlow('rgba(251,191,36,0.22)');
-    } else if (it.id === 'focus_music_pack') {
-      state.focusMusicUnlocked = true;
-      toast('🎵 Focus Music Pack unlocked! Premium audio tracks available.', 'success', 4000);
+    } else if (it.cat === 'music_track') {
+      state.inventory[it.id] = 1;
+      toast(`${it.icon} ${it.name} unlocked! Play it in the Focus tab.`, 'success', 4000);
+      saveState(); gamificationManager._updateXPBar();
+      const balEl2 = document.querySelector('.mkt-bal-num');
+      if (balEl2) { showXPFloat(-it.cost, balEl2); balEl2.textContent = _xpBalance().toLocaleString(); }
+      renderShop(); renderFocus(); return;
     } else if (it.id === 'custom_badge') {
       state.customBadgeOwned = true;
       if (!state.selectedBadge) state.selectedBadge = 'verified';
@@ -6285,175 +6294,21 @@
   }
 
   // ========== Sound Track Catalogue ==========
-  // All tracks use Web Audio API synthesis — no external files needed, works offline
-
-  function _createAmbientFlowSynth() {
-    const ctx = getAudioContext(); if (!ctx) return null;
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-    const master = ctx.createGain(); master.gain.value = ambientVolume * 0.35; master.connect(ctx.destination);
-    const freqs = [130.81, 164.81, 196.00, 261.63, 329.63];
-    const nodes = freqs.map((f, i) => {
-      const osc = ctx.createOscillator(), g = ctx.createGain();
-      osc.type = 'sine'; osc.frequency.value = f + (i % 2 === 0 ? 0.3 : -0.3); g.gain.value = 0.2 + (i === 0 ? 0.1 : 0);
-      const lfo = ctx.createOscillator(), lfoG = ctx.createGain();
-      lfo.frequency.value = 0.07 + i * 0.013; lfoG.gain.value = 1.5;
-      lfo.connect(lfoG); lfoG.connect(osc.frequency); lfo.start();
-      osc.connect(g); g.connect(master); osc.start();
-      return { osc, lfo };
-    });
-    let _paused = false, _vol = ambientVolume;
-    return { _isNoise: true, get paused() { return _paused; }, get currentTime() { return 0; }, set currentTime(_) {},
-      get volume() { return _vol; }, set volume(v) { _vol = v; master.gain.value = v * 0.35; },
-      pause() { if (!_paused) { master.gain.setTargetAtTime(0, ctx.currentTime, 0.15); setTimeout(() => { nodes.forEach(({ osc, lfo }) => { try { osc.stop(); lfo.stop(); } catch(e) {} }); }, 400); _paused = true; } } };
-  }
-
-  function _createRainStudySynth() {
-    const ctx = getAudioContext(); if (!ctx) return null;
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-    const sr = ctx.sampleRate, buf = ctx.createBuffer(1, sr * 3, sr), d = buf.getChannelData(0);
-    let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
-    for (let i = 0; i < d.length; i++) {
-      const w = Math.random() * 2 - 1;
-      b0=0.99886*b0+w*0.0555179; b1=0.99332*b1+w*0.0750759; b2=0.96900*b2+w*0.1538520;
-      b3=0.86650*b3+w*0.3104856; b4=0.55000*b4+w*0.5329522; b5=-0.7616*b5-w*0.0168980;
-      d[i] = (b0+b1+b2+b3+b4+b5+b6+w*0.5362) * 0.11; b6 = w * 0.115926;
-    }
-    const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
-    const bpf = ctx.createBiquadFilter(); bpf.type = 'bandpass'; bpf.frequency.value = 1000; bpf.Q.value = 0.5;
-    const shelf = ctx.createBiquadFilter(); shelf.type = 'lowshelf'; shelf.frequency.value = 4000; shelf.gain.value = -10;
-    const gain = ctx.createGain(); gain.gain.value = ambientVolume;
-    src.connect(bpf); bpf.connect(shelf); shelf.connect(gain); gain.connect(ctx.destination); src.start();
-    let _paused = false, _vol = ambientVolume;
-    return { _isNoise: true, get paused() { return _paused; }, get currentTime() { return 0; }, set currentTime(_) {},
-      get volume() { return _vol; }, set volume(v) { _vol = v; gain.gain.value = v; },
-      pause() { if (!_paused) { gain.gain.setTargetAtTime(0, ctx.currentTime, 0.08); setTimeout(() => { try { src.stop(); } catch(e) {} }, 200); _paused = true; } } };
-  }
-
-  function _createDeepFocusSynth() {
-    const ctx = getAudioContext(); if (!ctx) return null;
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-    const master = ctx.createGain(); master.gain.value = ambientVolume * 0.3; master.connect(ctx.destination);
-    const partials = [{ freq: 55, amp: 0.5 }, { freq: 82.4, amp: 0.3 }, { freq: 110, amp: 0.4 }, { freq: 164.8, amp: 0.15 }];
-    const nodes = partials.map(({ freq, amp }, i) => {
-      const osc = ctx.createOscillator(), g = ctx.createGain();
-      osc.type = 'sine'; osc.frequency.value = freq; g.gain.value = amp;
-      const lfo = ctx.createOscillator(), lfoG = ctx.createGain();
-      lfo.frequency.value = 0.05 + i * 0.02; lfoG.gain.value = amp * 0.4;
-      lfo.connect(lfoG); lfoG.connect(g.gain); lfo.start();
-      osc.connect(g); g.connect(master); osc.start();
-      return { osc, lfo };
-    });
-    let _paused = false, _vol = ambientVolume;
-    return { _isNoise: true, get paused() { return _paused; }, get currentTime() { return 0; }, set currentTime(_) {},
-      get volume() { return _vol; }, set volume(v) { _vol = v; master.gain.value = v * 0.3; },
-      pause() { if (!_paused) { master.gain.setTargetAtTime(0, ctx.currentTime, 0.15); setTimeout(() => { nodes.forEach(({ osc, lfo }) => { try { osc.stop(); lfo.stop(); } catch(e) {} }); }, 400); _paused = true; } } };
-  }
-
-  function _createLofiBeatsSynth() {
-    const ctx = getAudioContext(); if (!ctx) return null;
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-    const master = ctx.createGain(); master.gain.value = ambientVolume * 0.4; master.connect(ctx.destination);
-    const sr = ctx.sampleRate, buf = ctx.createBuffer(1, sr * 4, sr), d = buf.getChannelData(0);
-    let last = 0;
-    for (let i = 0; i < d.length; i++) { const w = (Math.random()*2-1)*0.02; last = Math.max(-0.97, Math.min(0.97, last+w)); d[i] = last*3.0; }
-    const noiseSrc = ctx.createBufferSource(); noiseSrc.buffer = buf; noiseSrc.loop = true;
-    const nFilt = ctx.createBiquadFilter(); nFilt.type = 'lowpass'; nFilt.frequency.value = 600;
-    const nGain = ctx.createGain(); nGain.gain.value = 0.25;
-    noiseSrc.connect(nFilt); nFilt.connect(nGain); nGain.connect(master); noiseSrc.start();
-    let _stopped = false;
-    const beat = 60 / 75;
-    function scheduleKick(t) {
-      const k = ctx.createOscillator(), kEnv = ctx.createGain();
-      k.type = 'sine'; k.frequency.setValueAtTime(110, t); k.frequency.exponentialRampToValueAtTime(40, t + 0.25);
-      kEnv.gain.setValueAtTime(0.55, t); kEnv.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
-      k.connect(kEnv); kEnv.connect(master); k.start(t); k.stop(t + 0.4);
-    }
-    function scheduleHH(t, accent) {
-      const hBuf = ctx.createBuffer(1, ~~(sr*0.05), sr), hd = hBuf.getChannelData(0);
-      for (let i = 0; i < hd.length; i++) hd[i] = (Math.random()*2-1)*(1-i/hd.length);
-      const hSrc = ctx.createBufferSource(); hSrc.buffer = hBuf;
-      const hFilt = ctx.createBiquadFilter(); hFilt.type = 'highpass'; hFilt.frequency.value = 7000;
-      const hEnv = ctx.createGain(); hEnv.gain.setValueAtTime(accent ? 0.12 : 0.06, t); hEnv.gain.exponentialRampToValueAtTime(0.001, t+0.05);
-      hSrc.connect(hFilt); hFilt.connect(hEnv); hEnv.connect(master); hSrc.start(t); hSrc.stop(t+0.06);
-    }
-    let nextT = ctx.currentTime + 0.05, beatIdx = 0, schTimer;
-    function scheduler() {
-      if (_stopped) return;
-      while (nextT < ctx.currentTime + 0.3) {
-        if (beatIdx % 4 === 0 || beatIdx % 4 === 2) scheduleKick(nextT);
-        scheduleHH(nextT, beatIdx % 2 === 0); scheduleHH(nextT + beat*0.5, false);
-        nextT += beat; beatIdx++;
-      }
-      if (!_stopped) schTimer = setTimeout(scheduler, 50);
-    }
-    schTimer = setTimeout(scheduler, 0);
-    let _paused = false, _vol = ambientVolume;
-    return { _isNoise: true, get paused() { return _paused; }, get currentTime() { return 0; }, set currentTime(_) {},
-      get volume() { return _vol; }, set volume(v) { _vol = v; master.gain.value = v * 0.4; },
-      pause() { if (!_paused) { _stopped = true; clearTimeout(schTimer); master.gain.setTargetAtTime(0, ctx.currentTime, 0.1); setTimeout(() => { try { noiseSrc.stop(); } catch(e) {} }, 200); _paused = true; } } };
-  }
+  // 5 soft study-friendly WAV tracks — 1 free, 4 premium (10,000 XP each)
 
   const SOUNDS = [
-    { id: 'none',       label: '🔇 Off',          cat: null },
-    // ── Free synthesized ambient ─────────────────────────────────────────
-    { id: 'rain',       label: '🌧️ Rain',          noiseType: 'pink',  cat: 'ambient' },
-    { id: 'white',      label: '🤍 White Noise',   noiseType: 'white', cat: 'ambient' },
-    { id: 'brown',      label: '🟤 Brown Noise',   noiseType: 'brown', cat: 'ambient' },
-    // ── Synthesized music tracks ──────────────────────────────────────────
-    { id: 'lofi',       label: '🎵 Lo-fi Beats',   synthFn: _createLofiBeatsSynth,   cat: 'music', premium: true },
-    { id: 'ambient_fl', label: '✨ Ambient Flow',   synthFn: _createAmbientFlowSynth, cat: 'music', premium: true },
-    { id: 'rain_study', label: '☔ Rain Study',     synthFn: _createRainStudySynth,   cat: 'music', premium: true },
-    { id: 'deep_focus', label: '🔮 Deep Focus',     synthFn: _createDeepFocusSynth,   cat: 'music', premium: true },
+    { id: 'none',         label: '🔇 Off',          cat: null },
+    // ── Free track ──────────────────────────────────────────────────────────
+    { id: 'ocean_waves',  label: '🌊 Ocean Waves',   src: '/sounds/ocean_waves.wav',  cat: 'music' },
+    // ── Premium tracks (unlock each for 10,000 XP in the Music shop tab) ──
+    { id: 'soft_rain',    label: '🌧️ Soft Rain',      src: '/sounds/soft_rain.wav',    cat: 'music', premium: true, shopId: 'music_soft_rain'   },
+    { id: 'piano_study',  label: '🎹 Piano Study',    src: '/sounds/piano_study.wav',  cat: 'music', premium: true, shopId: 'music_piano_study' },
+    { id: 'forest_calm',  label: '🌿 Forest Calm',    src: '/sounds/forest_calm.wav',  cat: 'music', premium: true, shopId: 'music_forest_calm' },
+    { id: 'deep_focus',   label: '🔮 Deep Focus',     src: '/sounds/deep_focus.wav',   cat: 'music', premium: true, shopId: 'music_deep_focus'  },
   ];
   function soundById(id) { return SOUNDS.find(s => s.id === id) || SOUNDS[0]; }
 
-  // ── Web Audio noise synthesis — used for rain / white / brown noise ───
-  function _createNoiseAmbient(noiseType) {
-    const ctx = getAudioContext();
-    if (!ctx) return null;
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-    const sr = ctx.sampleRate;
-    const buf = ctx.createBuffer(1, sr * 2, sr);
-    const d   = buf.getChannelData(0);
-    if (noiseType === 'white') {
-      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    } else if (noiseType === 'brown') {
-      let last = 0;
-      for (let i = 0; i < d.length; i++) {
-        const w = (Math.random() * 2 - 1) * 0.02;
-        last = Math.max(-0.97, Math.min(0.97, last + w));
-        d[i] = last * 3.0;
-      }
-    } else { // pink — approximates gentle rain
-      let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
-      for (let i = 0; i < d.length; i++) {
-        const w = Math.random() * 2 - 1;
-        b0=0.99886*b0+w*0.0555179; b1=0.99332*b1+w*0.0750759;
-        b2=0.96900*b2+w*0.1538520; b3=0.86650*b3+w*0.3104856;
-        b4=0.55000*b4+w*0.5329522; b5=-0.7616*b5-w*0.0168980;
-        d[i] = (b0+b1+b2+b3+b4+b5+b6+w*0.5362) * 0.11;
-        b6 = w * 0.115926;
-      }
-    }
-    const src  = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
-    const gain = ctx.createGain(); gain.gain.value = ambientVolume;
-    if (noiseType === 'pink') {
-      // gentle low-shelf cut to soften highs → more rain-like
-      const flt = ctx.createBiquadFilter(); flt.type = 'lowshelf'; flt.frequency.value = 3500; flt.gain.value = -10;
-      src.connect(flt); flt.connect(gain);
-    } else { src.connect(gain); }
-    gain.connect(ctx.destination); src.start();
-    let _paused = false, _vol = ambientVolume;
-    return {
-      _isNoise: true,
-      get paused()      { return _paused; },
-      get currentTime() { return 0; },
-      set currentTime(_) {},
-      get volume()      { return _vol; },
-      set volume(v)     { _vol = v; gain.gain.value = v; },
-      pause() { if (!_paused) { gain.gain.setTargetAtTime(0, ctx.currentTime, 0.05); setTimeout(() => { try { src.stop(); } catch(e) {} }, 200); _paused = true; } },
-    };
-  }
+  function _createNoiseAmbient() { return null; }
 
   // ── Focus Timer Motivational Quotes ─────────────────────────────
   let _currentQuote = null;
@@ -6576,23 +6431,7 @@
     resumeAudioContext();
 
     const sound = soundById(mode);
-    if (!sound) return;
-
-    // ── Web Audio noise synthesis (rain / white / brown) ──────────────────
-    if (sound.noiseType) {
-      const noiseObj = _createNoiseAmbient(sound.noiseType);
-      if (noiseObj) { ambientAudio = noiseObj; }
-      return;
-    }
-
-    // ── Synthesized music tracks (ambient_fl / rain_study / deep_focus / lofi) ──
-    if (sound.synthFn) {
-      const synthObj = sound.synthFn();
-      if (synthObj) { ambientAudio = synthObj; }
-      return;
-    }
-
-    if (!sound.src) return;
+    if (!sound || !sound.src) return;
 
     const audio = new Audio();
     audio.loop = true;          // Primary gapless loop mechanism
@@ -7452,25 +7291,26 @@
           </div>
         </div>
         ${(()=>{
-          const freeSounds   = SOUNDS.filter(s => !s.premium);
-          const premSounds   = SOUNDS.filter(s => s.premium);
-          const hasMusic     = state.focusMusicUnlocked;
-          const unlockedPrem = hasMusic ? premSounds : [];
-          const lockedPrem   = hasMusic ? [] : premSounds;
-          const visibleSounds = [...freeSounds, ...unlockedPrem];
-          const lockedBtns = lockedPrem.map(s =>
-            `<button class="ambient-btn ambient-btn--locked" disabled title="Requires Focus Music Pack">🔒 ${s.label}</button>`
-          ).join('');
-          const freeBtns = visibleSounds.map(s =>
+          const freeSounds  = SOUNDS.filter(s => s.cat && !s.premium);
+          const premSounds  = SOUNDS.filter(s => s.premium);
+          const freeBtns = freeSounds.map(s =>
             `<button class="ambient-btn${ambientMode === s.id ? ' active' : ''}" data-act="ambient-select" data-amode="${s.id}">${s.label}</button>`
           ).join('');
+          const premBtns = premSounds.map(s => {
+            const owned = _itemOwned(s.shopId);
+            if (owned) {
+              return `<button class="ambient-btn${ambientMode === s.id ? ' active' : ''}" data-act="ambient-select" data-amode="${s.id}">${s.label}</button>`;
+            }
+            return `<button class="ambient-btn ambient-btn--locked" disabled title="Buy for 10,000 XP in Music Shop">🔒 ${s.label}</button>`;
+          }).join('');
+          const lockedCount = premSounds.filter(s => !_itemOwned(s.shopId)).length;
           const volRow = ambientMode !== 'none'
             ? `<div class="fac-vol-row"><span>🔊</span><input type="range" id="ambient-vol-slider" min="0" max="1" step="0.05" value="${ambientVolume}" class="bb-vol-slider"/></div>`
             : '';
-          const shopHint = !hasMusic && lockedPrem.length
-            ? `<div class="fac-premium-hint">🔒 ${lockedPrem.length} premium tracks — <button class="btn-link" data-act="open-shop">unlock with Focus Music Pack ⚡500 XP</button></div>`
+          const shopHint = lockedCount
+            ? `<div class="fac-premium-hint">🔒 ${lockedCount} premium track${lockedCount > 1 ? 's' : ''} — <button class="btn-link" data-act="open-music-shop">unlock in XP Shop ⚡ 10,000 XP each</button></div>`
             : '';
-          return `<div class="focus-ambient-card"><div class="fac-title">🎵 Ambient Sound</div><div class="ambient-grid">${freeBtns}${lockedBtns}</div>${volRow}${shopHint}</div>`;
+          return `<div class="focus-ambient-card"><div class="fac-title">🎵 Ambient Sound</div><div class="ambient-grid">${freeBtns}${premBtns}</div>${volRow}${shopHint}</div>`;
         })()}
         <button class="btn fs-enter-btn" data-act="enter-full-session">🚀 Enter Full Focus Mode</button>
       </div>
@@ -10790,6 +10630,7 @@
     if (act === 'change-password') { closeModal(); _handleChangePassword(); return; }
     if (act === 'delete-account')  { closeModal(); _authDeleteAccount(); return; }
     if (act === 'open-shop') { closeModal(); switchTab('shop'); renderShop(); return; }
+    if (act === 'open-music-shop') { closeModal(); _shopCategory = 'music_track'; switchTab('shop'); renderShop(); return; }
     if (act === 'shop-back') { switchTab('home'); renderHome(); return; }
     if (act === 'remove-avatar') {
       state.profile.avatarDataUrl = null;
@@ -10963,7 +10804,7 @@
       renderFullSession(); return;
     }
     if (act === 'fs-cycle-ambient') {
-      const modes = SOUNDS.map(s => s.id);
+      const modes = SOUNDS.filter(s => !s.premium || _itemOwned(s.shopId)).map(s => s.id);
       ambientMode = modes[(modes.indexOf(ambientMode) + 1) % modes.length];
       startAmbient(ambientMode); renderFullSession(); return;
     }
