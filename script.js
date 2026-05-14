@@ -686,6 +686,63 @@
       _showAuthError(msg);
     }
   }
+  // Wipes ALL traces of a user from every group they ever joined:
+  // messages, presence, members sub-collections and active duels.
+  async function _wipeUserFromAllGroups(uid) {
+    if (!_db || !uid) return;
+    // Gather all group codes the user was part of (in-memory + Firestore stored list)
+    let groupCodes = Array.from(new Set([
+      ..._myGroupCodes,
+      ...(_socialRoomCode ? [_socialRoomCode] : [])
+    ]));
+    // Also try to read joinedRooms from Firestore in case memory is stale
+    try {
+      const userSnap = await _db.collection('users').doc(uid).get();
+      if (userSnap.exists) {
+        const stored = userSnap.data().joinedRooms;
+        if (Array.isArray(stored)) groupCodes = Array.from(new Set([...groupCodes, ...stored]));
+      }
+    } catch(_) {}
+
+    await Promise.allSettled(groupCodes.map(async code => {
+      const groupRef = _db.collection('groups').doc(code);
+      const ops = [
+        groupRef.collection('presence').doc(uid).delete(),
+        groupRef.collection('members').doc(uid).delete(),
+      ];
+
+      // Delete all messages sent by this user in this group
+      try {
+        const msgsSnap = await groupRef.collection('messages').where('uid', '==', uid).get();
+        msgsSnap.forEach(d => ops.push(d.ref.delete()));
+      } catch(_) {}
+
+      // Delete any join requests from this user
+      try {
+        ops.push(groupRef.collection('joinRequests').doc(uid).delete());
+      } catch(_) {}
+
+      // Cancel active duels involving this user
+      try {
+        const roomSnap = await groupRef.get();
+        if (roomSnap.exists) {
+          const currentDuels = roomSnap.data().duels || [];
+          const updatedDuels = currentDuels.map(d => {
+            if (!d.winner && d.duelState !== 'COMPLETED' && (d.challenger === uid || d.opponent === uid)) {
+              return { ...d, winner: 'cancelled', duelState: 'COMPLETED' };
+            }
+            return d;
+          });
+          if (updatedDuels.some((d, i) => d !== currentDuels[i])) {
+            ops.push(groupRef.update({ duels: updatedDuels }));
+          }
+        }
+      } catch(_) {}
+
+      await Promise.allSettled(ops);
+    }));
+  }
+
   async function _authDeleteAccount() {
     const user = _auth && _auth.currentUser;
     if (!user) return;
@@ -712,30 +769,14 @@
                 try {
                   const cred = firebase.auth.EmailAuthProvider.credential(user.email, pw);
                   await user.reauthenticateWithCredential(cred);
-                  // Wipe Firestore data
                   if (_db && _userId) {
-                    const cleanupOps = [
+                    // Wipe from all groups (messages, presence, members, duels, join requests)
+                    await _wipeUserFromAllGroups(_userId);
+                    // Wipe top-level user documents
+                    await Promise.allSettled([
                       _db.collection('users').doc(_userId).delete(),
                       _db.collection('global_lb').doc(_userId).delete(),
-                    ];
-                    // Clean up from current room if in one
-                    if (_socialRoomCode) {
-                      const groupRef = _db.collection('groups').doc(_socialRoomCode);
-                      cleanupOps.push(groupRef.collection('presence').doc(_userId).delete());
-                      cleanupOps.push(groupRef.collection('members').doc(_userId).delete());
-                      // Cancel active duels involving this user
-                      const currentDuels = (_socialRoomData && _socialRoomData.duels) || [];
-                      const updatedDuels = currentDuels.map(d => {
-                        if (!d.winner && d.duelState !== 'COMPLETED' && (d.challenger === _userId || d.opponent === _userId)) {
-                          return { ...d, winner: 'cancelled', duelState: 'COMPLETED' };
-                        }
-                        return d;
-                      });
-                      if (updatedDuels.some((d, i) => d !== currentDuels[i])) {
-                        cleanupOps.push(groupRef.update({ duels: updatedDuels }));
-                      }
-                    }
-                    await Promise.allSettled(cleanupOps);
+                    ]);
                   }
                   await user.delete();
                   closeModal();
@@ -754,26 +795,13 @@
           (async () => {
             try {
               if (_db && _userId) {
-                const cleanupOps = [
+                // Wipe from all groups (messages, presence, members, duels, join requests)
+                await _wipeUserFromAllGroups(_userId);
+                // Wipe top-level user documents
+                await Promise.allSettled([
                   _db.collection('users').doc(_userId).delete(),
                   _db.collection('global_lb').doc(_userId).delete(),
-                ];
-                if (_socialRoomCode) {
-                  const groupRef = _db.collection('groups').doc(_socialRoomCode);
-                  cleanupOps.push(groupRef.collection('presence').doc(_userId).delete());
-                  cleanupOps.push(groupRef.collection('members').doc(_userId).delete());
-                  const currentDuels = (_socialRoomData && _socialRoomData.duels) || [];
-                  const updatedDuels = currentDuels.map(d => {
-                    if (!d.winner && d.duelState !== 'COMPLETED' && (d.challenger === _userId || d.opponent === _userId)) {
-                      return { ...d, winner: 'cancelled', duelState: 'COMPLETED' };
-                    }
-                    return d;
-                  });
-                  if (updatedDuels.some((d, i) => d !== currentDuels[i])) {
-                    cleanupOps.push(groupRef.update({ duels: updatedDuels }));
-                  }
-                }
-                await Promise.allSettled(cleanupOps);
+                ]);
               }
               await user.delete();
               toast('Account deleted.', 'info', 4000);
