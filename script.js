@@ -447,7 +447,7 @@
       renderAll();
       _setCloudStatus('synced');
       setTimeout(() => _setCloudStatus('idle'), 3000);
-      toast('\u2601\ufe0f Data restored from cloud!', 'success', 4500);
+      /* cloud restore — silent */
     } catch (e) {
       console.warn('[Firestore] Restore failed:', e.message);
       _setCloudStatus('error');
@@ -502,7 +502,7 @@
             if (_currentTab === 'social') renderSocial();
             _setCloudStatus('synced');
             setTimeout(() => _setCloudStatus('idle'), 3000);
-            toast('\u2601\ufe0f Synced from your account!', 'success', 4000);
+            /* cloud sync — silent */
             return;
           }
         }
@@ -1164,7 +1164,7 @@
     const delay = Math.min(30000, 1000 * Math.pow(2, _socialReconnectAttempts - 1));
     if (_socialReconnectAttempts === 3 && !_socialReconnectToast) {
       _socialReconnectToast = true;
-      toast('🔄 Reconnecting to study room…', 'warn', 8000);
+      /* reconnect toast removed — silent retry */
     }
     console.warn(`[Social] Reconnect attempt ${_socialReconnectAttempts} in ${delay}ms`);
     _socialReconnectTimer = setTimeout(() => {
@@ -2034,8 +2034,6 @@
 
   async function _sNudge(memberUid, memberName) {
     if (!_db || !_userId || !_socialRoomCode) return;
-    // Optimistic immediate visual feedback (<200ms)
-    toast(`👋 Poking ${escapeHTML(memberName)}…`, 'info', 1500);
     try {
       await _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(memberUid)
         .update({ nudge: { from: _userId, fromName: _sDisplayName(), ts: Date.now() } });
@@ -2054,8 +2052,7 @@
     if (targetBusy) { toast(`${escapeHTML(memberName)} is already in a duel!`, 'warn'); return; }
     const selfBusy = activeDuels.find(d => d.challenger === _userId || d.opponent === _userId);
     if (selfBusy) { toast("You're already in an active duel!", 'warn'); return; }
-    // Optimistic feedback
-    toast(`⚔️ Sending challenge to ${escapeHTML(memberName)}…`, 'info', 1500);
+    // Sending challenge (no interim toast)
     try {
       // Write with REQUESTED state so target's listener can act atomically
       await _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(memberUid)
@@ -2598,7 +2595,7 @@
         const h = Math.floor(rem / 3600000), m = Math.floor((rem % 3600000) / 60000);
         el.textContent = `⏳ ${h}h ${m}m to claim`;
       });
-    }, 1000);
+    }, 2000);
   }
 
   function _stopSocialLiveTimers() {
@@ -6487,6 +6484,7 @@
   let _currentTab = 'home';
 
   function switchTab(tab) {
+    if (tab === 'social') return;
     if (focusLocked && !focusMultitaskMode && focusRunning && tab !== 'focus') {
       if (!confirm('Lock Mode is on and timer is running. Leave Focus tab?')) return;
     }
@@ -10308,7 +10306,6 @@
       state.socialNotif = !(state.socialNotif !== false);
       saveState();
       closeModal();
-      toast(state.socialNotif ? '🔔 Notifications on' : '🔕 Notifications off', 'info');
       return;
     }
     if (act === 'admin-send-announcement') {
