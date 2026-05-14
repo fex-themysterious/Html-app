@@ -9415,80 +9415,185 @@
     if (perm === 'unsupported') { permCls = 'warn'; permText = 'Notifications not supported on this browser.'; }
     else if (perm === 'granted')  { permCls = 'ok';   permText = 'Notifications are allowed.'; }
     else if (perm === 'denied')   { permCls = 'err';  permText = 'Notifications are blocked. Enable in browser settings.'; }
-    const chips = (which, list) => list.map((t, i) => `<span class="time-chip"><button type="button" class="time-chip-edit" data-act="open-time-picker" data-which="${which}" data-i="${i}">${escapeHTML(formatTime12(t))}</button><button type="button" class="time-chip-del" data-act="del-time-slot" data-which="${which}" data-i="${i}">×</button></span>`).join('');
+
+    const chips = (which, list) => list.map((t, i) => `
+      <span class="stg-chip">
+        <button type="button" class="stg-chip-val" data-act="open-time-picker" data-which="${which}" data-i="${i}">${escapeHTML(formatTime12(t))}</button>
+        <button type="button" class="stg-chip-del" data-act="del-time-slot" data-which="${which}" data-i="${i}">×</button>
+      </span>`).join('');
+
     const _authUser = _auth ? _auth.currentUser : null;
-    const avatarPreview = state.profile.avatarDataUrl
-      ? `<img src="${escapeHTML(state.profile.avatarDataUrl)}" class="auth-avatar-img" alt=""/>`
-      : (_authUser && _authUser.photoURL
-          ? `<img src="${escapeHTML(_authUser.photoURL)}" class="auth-avatar-img" alt=""/>`
-          : `<div class="auth-avatar-initial">${(_authUser ? (_authUser.email || '?')[0] : '?').toUpperCase()}</div>`);
     const isEmailUser = _authUser && _authUser.providerData && _authUser.providerData.some(p => p.providerId === 'password');
-    const accountSection = _authUser
-      ? `<div class="settings-section settings-auth-section">
-          <h4>☁️ Account</h4>
-          <div class="auth-profile-row">
-            ${avatarPreview}
-            <div class="auth-profile-info">
-              ${_authUser.displayName ? `<div class="auth-profile-name">${escapeHTML(_authUser.displayName)}</div>` : ''}
-              <div class="auth-profile-email">${escapeHTML(_authUser.email || 'Anonymous')}</div>
-              <div class="auth-sync-badge">☁️ Cloud sync active</div>
+
+    const acAvatarHTML = state.profile.avatarDataUrl
+      ? `<img src="${escapeHTML(state.profile.avatarDataUrl)}" class="stg-av-img" alt=""/>`
+      : (_authUser && _authUser.photoURL
+          ? `<img src="${escapeHTML(_authUser.photoURL)}" class="stg-av-img" alt=""/>`
+          : `<div class="stg-av-init">${(_authUser ? (_authUser.email || '?') : (state.profile.name || '?'))[0].toUpperCase()}</div>`);
+
+    const profAvatarHTML = state.profile.avatarDataUrl
+      ? `<img src="${escapeHTML(state.profile.avatarDataUrl)}" class="stg-av-img" alt=""/>`
+      : `<div class="stg-av-init">${(state.profile.name || '?')[0].toUpperCase()}</div>`;
+
+    const accountCard = _authUser
+      ? `<div class="stg-card stg-card-account">
+          <div class="stg-card-lbl">☁️ Account</div>
+          <div class="stg-ac-row">
+            <div class="stg-ac-av">${acAvatarHTML}</div>
+            <div class="stg-ac-info">
+              ${_authUser.displayName ? `<div class="stg-ac-name">${escapeHTML(_authUser.displayName)}</div>` : ''}
+              <div class="stg-ac-email">${escapeHTML(_authUser.email || 'Anonymous')}</div>
+              <div class="stg-sync-pill">☁️ Cloud sync active</div>
             </div>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-            ${isEmailUser ? `<button class="btn btn-ghost" style="flex:1" data-act="change-password">🔑 Change Password</button>` : ''}
-            <button class="btn btn-ghost" style="flex:1;color:#ef4444;border-color:rgba(239,68,68,.25)" data-act="auth-logout">Sign Out</button>
+          <div class="stg-btn-row" style="margin-top:12px">
+            ${isEmailUser ? `<button class="stg-btn stg-btn-ghost" data-act="change-password">🔑 Change Password</button>` : ''}
+            <button class="stg-btn stg-btn-danger-soft" data-act="auth-logout">Sign Out</button>
           </div>
-          <div style="margin-top:8px">
-            <button class="btn btn-ghost btn-block" style="color:#ef4444;border-color:rgba(239,68,68,.15);font-size:12px;opacity:.7" data-act="delete-account">🗑️ Delete Account</button>
-          </div>
+          <button class="stg-btn stg-btn-ghost stg-btn-block stg-del-btn" style="margin-top:8px" data-act="delete-account">🗑️ Delete Account</button>
         </div>`
-      : `<div class="settings-section settings-auth-section">
-          <h4>☁️ Account</h4>
-          <p style="font-size:13px;color:var(--text-muted);margin:0 0 10px">Sign in to sync your study data across devices.</p>
-          <button class="btn btn-block" data-act="auth-show-modal">Sign In / Sign Up</button>
+      : `<div class="stg-card">
+          <div class="stg-card-lbl">☁️ Account</div>
+          <p class="stg-muted">Sign in to sync your study data across devices.</p>
+          <button class="stg-btn stg-btn-primary stg-btn-block" data-act="auth-show-modal">Sign In / Sign Up</button>
         </div>`;
+
+    const activeAlarms = (state.alarms||[]).filter(a=>a.enabled).length;
+
     openModal(`<h3>Settings</h3>
-      ${accountSection}
-      <div class="settings-section" id="profile-settings-section">
-        <h4>👤 Profile</h4>
-        <div class="avatar-upload-row">
-          ${state.profile.avatarDataUrl
-            ? `<img src="${escapeHTML(state.profile.avatarDataUrl)}" class="avatar-preview-img" alt=""/>`
-            : `<div class="avatar-preview-placeholder">${(state.profile.name || '?')[0].toUpperCase()}</div>`}
-          <div class="avatar-upload-btns">
-            <label class="btn btn-sm btn-ghost" style="cursor:pointer">📷 Upload Photo<input type="file" accept="image/*" id="avatar-file-input" style="display:none"/></label>
-            ${state.profile.avatarDataUrl ? `<button class="btn btn-sm btn-ghost" data-act="remove-avatar" style="color:#ef4444">✕ Remove</button>` : ''}
-          </div>
-        </div>
-        <div class="field" style="margin-top:12px"><label>Your Name</label><input id="set-profile-name" placeholder="Enter your name…" maxlength="40" value="${escapeHTML(state.profile.name)}"/></div>
-        <div class="field"><label>Tagline</label><input id="set-profile-tagline" placeholder="e.g. CSE'26, BUET" maxlength="60" value="${escapeHTML(state.profile.tagline)}"/></div>
-        <div style="margin-top:10px"><button class="btn btn-block" data-act="save-profile">Save Profile</button></div>
-      </div>
-      <div class="settings-section settings-shop-card" data-act="open-shop" style="cursor:pointer;padding:0;overflow:hidden;border:1px solid rgba(251,191,36,0.2)">
-        <div class="ssc-inner">
-          <div class="ssc-glow"></div>
-          <div class="ssc-left">
-            <div class="ssc-icon">🛍️</div>
-            <div>
-              <div class="ssc-title">XP Shop</div>
-              <div class="ssc-sub">Themes, titles &amp; effects</div>
+      <div class="stg-page">
+        ${accountCard}
+
+        <div class="stg-card" id="profile-settings-section">
+          <div class="stg-card-lbl">👤 Profile</div>
+          <div class="stg-av-row">
+            <div class="stg-av-wrap">${profAvatarHTML}</div>
+            <div class="stg-av-btns">
+              <label class="stg-btn stg-btn-ghost" style="cursor:pointer">📷 Upload Photo<input type="file" accept="image/*" id="avatar-file-input" style="display:none"/></label>
+              ${state.profile.avatarDataUrl ? `<button class="stg-btn stg-btn-ghost stg-btn-remove" data-act="remove-avatar">✕ Remove</button>` : ''}
             </div>
           </div>
-          <div class="ssc-right">
-            <div class="ssc-bal">⚡ ${((state.xp && state.xp.total) || 0).toLocaleString()}</div>
-            <div class="ssc-btn">Shop Now →</div>
+          <div class="stg-field">
+            <label class="stg-lbl">Your Name</label>
+            <input class="stg-input" id="set-profile-name" placeholder="Enter your name…" maxlength="40" value="${escapeHTML(state.profile.name)}"/>
+          </div>
+          <div class="stg-field">
+            <label class="stg-lbl">Tagline</label>
+            <input class="stg-input" id="set-profile-tagline" placeholder="e.g. CSE'26, BUET" maxlength="60" value="${escapeHTML(state.profile.tagline)}"/>
+          </div>
+          <button class="stg-btn stg-btn-primary stg-btn-block" style="margin-top:4px" data-act="save-profile">Save Profile</button>
+        </div>
+
+        <div class="stg-card stg-shop-banner" data-act="open-shop" style="cursor:pointer">
+          <div class="ssc-glow"></div>
+          <div class="ssc-inner" style="padding:0">
+            <div class="ssc-left">
+              <div class="ssc-icon">🛍️</div>
+              <div><div class="ssc-title">XP Shop</div><div class="ssc-sub">Themes, titles &amp; effects</div></div>
+            </div>
+            <div class="ssc-right">
+              <div class="ssc-bal">⚡ ${((state.xp && state.xp.total) || 0).toLocaleString()}</div>
+              <div class="ssc-btn">Shop Now →</div>
+            </div>
           </div>
         </div>
-      </div>
-      <div class="settings-section"><h4>Daily Study Reminder</h4><div class="settings-row"><div class="label">Notify when tasks aren't done<div class="sub">Multiple reminder times supported.</div></div><label class="switch"><input type="checkbox" id="set-sr-toggle" ${sr.enabled ? 'checked' : ''} data-act="toggle-smart-reminder"/><span class="slider"></span></label></div><div class="time-chip-row" style="${sr.enabled ? '' : 'opacity:.55;pointer-events:none'}">${sr.times.length ? chips('reminder', sr.times) : '<span class="muted">No times set.</span>'}<button type="button" class="time-chip add" data-act="open-time-picker" data-which="reminder" data-i="-1">+ Add</button></div></div>
-      <div class="settings-section"><h4>Motivation Notifications</h4><div class="settings-row"><div class="label">Motivational push messages<div class="sub">Random quote at each scheduled time.</div></div><label class="switch"><input type="checkbox" id="set-mr-toggle" ${mr.enabled ? 'checked' : ''} data-act="toggle-motivation"/><span class="slider"></span></label></div><div class="time-chip-row" style="${mr.enabled ? '' : 'opacity:.55;pointer-events:none'}">${mr.times.length ? chips('motivation', mr.times) : '<span class="muted">No times set.</span>'}<button type="button" class="time-chip add" data-act="open-time-picker" data-which="motivation" data-i="-1">+ Add</button></div></div>
-      <div class="settings-section"><h4>🔔 Interval Reminders</h4><div class="settings-row"><div class="label">Motivational boost every few hours<div class="sub">Smart quotes — urgent tone when you are behind on studying.</div></div><label class="switch"><input type="checkbox" id="set-mi-toggle" ${mi.enabled ? 'checked' : ''} data-act="toggle-motivation-interval"/><span class="slider"></span></label></div><div class="moti-interval-row" style="${mi.enabled ? '' : 'opacity:.55;pointer-events:none'}"><span class="moti-interval-label">Every</span><div class="moti-interval-btns">${[1, 2, 3, 4, 6].map(h => `<button type="button" class="tp-chip${mi.intervalHours === h ? ' on' : ''}" data-act="set-motivation-interval" data-h="${h}">${h}h</button>`).join('')}</div></div></div>
-      <div class="settings-section"><h4>Notifications Status</h4><div class="notif-status ${permCls}">${escapeHTML(permText)}</div>${(perm === 'default' || perm === 'denied') ? `<div style="margin-top:9px"><button class="btn btn-block" data-act="sr-request-perm">${perm === 'denied' ? 'Try requesting again' : 'Allow notifications'}</button></div>` : ''}</div>
-      <div class="settings-section"><h4>My Motivation Quotes</h4><p style="font-size:12px;color:var(--text-muted);margin:0 0 10px">These quotes appear on the home screen and in Full Focus mode. Add as many as you like.</p><div class="quote-list">${state.motivationQuotes.length ? state.motivationQuotes.map((q, i) => `<div class="quote-row"><div class="text">${escapeHTML(q)}</div><button class="menu-btn" data-act="del-quote" data-i="${i}">${ic('trash')}</button></div>`).join('') : '<div style="font-size:12px;color:var(--text-muted);padding:4px 0">No quotes yet. Add one below!</div>'}</div><div class="quote-add-row"><input id="set-new-quote" placeholder="Add a motivation quote…" maxlength="200"/><button class="btn" data-act="add-quote">${ic('plus')}</button></div></div>
-      <div class="settings-section"><h4>🌙 Night Study Mode</h4><div class="settings-row"><div class="label">Warm amber overlay — reduces eye strain<div class="sub">Also reminds you to take a 20-second eye break every 40 min of video watching.</div></div><label class="switch"><input type="checkbox" id="set-eye-care" ${state.eyeCareMode ? 'checked' : ''} data-act="toggle-eye-care"/><span class="slider"></span></label></div></div>
-      <div class="settings-section"><h4>⏰ Alarm Clock</h4><p style="font-size:12px;color:var(--text-muted);margin:0 0 10px">Wake up to your saved motivations with an escalating alarm. Dismiss by catching the moving button!</p><button class="btn btn-block" data-act="open-alarm-manager">⏰ Manage Alarms${(state.alarms||[]).filter(a=>a.enabled).length ? ` <span style="background:rgba(239,68,68,.2);color:#f87171;padding:2px 8px;border-radius:999px;font-size:11px;margin-left:6px">${(state.alarms||[]).filter(a=>a.enabled).length} active</span>` : ''}</button></div>
-      <div class="settings-section"><h4>Data</h4><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost" data-act="export-data">${ic('download')} Export Backup</button><label class="btn btn-ghost" style="cursor:pointer">${ic('upload')} Import Backup<input type="file" accept=".json" style="display:none" id="import-file-input"/></label></div></div>
-      <div class="actions" style="margin-top:16px"><button class="btn btn-ghost" data-close>Close</button></div>`,
+
+        <div class="stg-card">
+          <div class="stg-card-lbl">Daily Study Reminder</div>
+          <div class="stg-row">
+            <div class="stg-row-info">
+              <div class="stg-row-title">Notify when tasks aren't done</div>
+              <div class="stg-row-sub">Multiple reminder times supported.</div>
+            </div>
+            <label class="switch"><input type="checkbox" id="set-sr-toggle" ${sr.enabled ? 'checked' : ''} data-act="toggle-smart-reminder"/><span class="slider"></span></label>
+          </div>
+          <div class="stg-chips" style="${sr.enabled ? '' : 'opacity:.45;pointer-events:none'}">
+            ${sr.times.length ? chips('reminder', sr.times) : '<span class="stg-muted-sm">No times set.</span>'}
+            <button type="button" class="stg-chip-add" data-act="open-time-picker" data-which="reminder" data-i="-1">+ Add</button>
+          </div>
+        </div>
+
+        <div class="stg-card">
+          <div class="stg-card-lbl">Motivation Notifications</div>
+          <div class="stg-row">
+            <div class="stg-row-info">
+              <div class="stg-row-title">Motivational push messages</div>
+              <div class="stg-row-sub">Random quote at each scheduled time.</div>
+            </div>
+            <label class="switch"><input type="checkbox" id="set-mr-toggle" ${mr.enabled ? 'checked' : ''} data-act="toggle-motivation"/><span class="slider"></span></label>
+          </div>
+          <div class="stg-chips" style="${mr.enabled ? '' : 'opacity:.45;pointer-events:none'}">
+            ${mr.times.length ? chips('motivation', mr.times) : '<span class="stg-muted-sm">No times set.</span>'}
+            <button type="button" class="stg-chip-add" data-act="open-time-picker" data-which="motivation" data-i="-1">+ Add</button>
+          </div>
+        </div>
+
+        <div class="stg-card">
+          <div class="stg-card-lbl">🔔 Interval Reminders</div>
+          <div class="stg-row">
+            <div class="stg-row-info">
+              <div class="stg-row-title">Motivational boost every few hours</div>
+              <div class="stg-row-sub">Smart quotes when you're behind on studying.</div>
+            </div>
+            <label class="switch"><input type="checkbox" id="set-mi-toggle" ${mi.enabled ? 'checked' : ''} data-act="toggle-motivation-interval"/><span class="slider"></span></label>
+          </div>
+          <div class="stg-interval" style="${mi.enabled ? '' : 'opacity:.45;pointer-events:none'}">
+            <span class="stg-interval-lbl">Every</span>
+            <div class="stg-interval-btns">
+              ${[1,2,3,4,5,6].map(h => `<button type="button" class="stg-interval-btn${mi.intervalHours===h?' active':''}" data-act="set-motivation-interval" data-h="${h}">${h}h</button>`).join('')}
+            </div>
+          </div>
+        </div>
+
+        <div class="stg-card">
+          <div class="stg-card-lbl">Notifications Status</div>
+          <div class="stg-notif-badge stg-notif-${permCls}">${escapeHTML(permText)}</div>
+          ${(perm === 'default' || perm === 'denied') ? `<button class="stg-btn stg-btn-primary stg-btn-block" style="margin-top:10px" data-act="sr-request-perm">${perm === 'denied' ? 'Try requesting again' : 'Allow notifications'}</button>` : ''}
+        </div>
+
+        <div class="stg-card">
+          <div class="stg-card-lbl">My Motivation Quotes</div>
+          <p class="stg-muted">Appear on home screen and in Full Focus mode.</p>
+          <div class="stg-quote-list">
+            ${state.motivationQuotes.length
+              ? state.motivationQuotes.map((q, i) => `<div class="stg-quote-row"><div class="stg-quote-txt">${escapeHTML(q)}</div><button class="stg-icon-btn" data-act="del-quote" data-i="${i}">${ic('trash')}</button></div>`).join('')
+              : '<div class="stg-muted-sm">No quotes yet. Add one below!</div>'}
+          </div>
+          <div class="stg-quote-add">
+            <input class="stg-input" id="set-new-quote" placeholder="Add a motivation quote…" maxlength="200"/>
+            <button class="stg-btn stg-btn-primary stg-add-btn" data-act="add-quote">${ic('plus')}</button>
+          </div>
+        </div>
+
+        <div class="stg-card">
+          <div class="stg-row" style="padding:0">
+            <div class="stg-row-info">
+              <div class="stg-card-lbl" style="margin-bottom:2px">🌙 Night Study Mode</div>
+              <div class="stg-row-sub">Warm amber overlay — reduces eye strain</div>
+            </div>
+            <label class="switch"><input type="checkbox" id="set-eye-care" ${state.eyeCareMode ? 'checked' : ''} data-act="toggle-eye-care"/><span class="slider"></span></label>
+          </div>
+        </div>
+
+        <div class="stg-card">
+          <div class="stg-card-lbl">⏰ Alarm Clock</div>
+          <p class="stg-muted">Wake up with an escalating alarm. Dismiss by catching the moving button!</p>
+          <button class="stg-btn stg-btn-primary stg-btn-block" data-act="open-alarm-manager">
+            ⏰ Manage Alarms
+            ${activeAlarms ? `<span class="stg-alarm-pill">${activeAlarms} active</span>` : ''}
+          </button>
+        </div>
+
+        <div class="stg-card">
+          <div class="stg-card-lbl">Data</div>
+          <div class="stg-btn-row">
+            <button class="stg-btn stg-btn-ghost" style="flex:1" data-act="export-data">${ic('download')} Export Backup</button>
+            <label class="stg-btn stg-btn-ghost" style="flex:1;cursor:pointer">${ic('upload')} Import Backup<input type="file" accept=".json" style="display:none" id="import-file-input"/></label>
+          </div>
+        </div>
+
+        <button class="stg-btn stg-btn-ghost stg-btn-block" style="margin-top:4px;margin-bottom:8px" data-close>Close</button>
+      </div>`,
       root => {
         root.querySelector('#import-file-input').onchange = e => { importData(e.target.files[0]); closeModal(); };
         const avatarInput = root.querySelector('#avatar-file-input');
