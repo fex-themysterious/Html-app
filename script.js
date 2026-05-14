@@ -3417,30 +3417,29 @@
   function _loadPublicRooms() {
     if (!_db || _publicRoomsLoading) return;
     _publicRoomsLoading = true;
+    // No orderBy — avoids needing a composite Firestore index.
+    // closed + createdAt sort are handled client-side.
     _db.collection('groups')
       .where('private', '==', false)
-      .where('closed', '==', false)
-      .orderBy('createdAt', 'desc')
-      .limit(20)
+      .limit(30)
       .get()
       .then(snap => {
-        _publicRooms = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        _publicRooms = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(r => !r.closed)
+          .sort((a, b) => {
+            const ta = (a.createdAt && typeof a.createdAt.toMillis === 'function') ? a.createdAt.toMillis() : (a.createdAt || 0);
+            const tb = (b.createdAt && typeof b.createdAt.toMillis === 'function') ? b.createdAt.toMillis() : (b.createdAt || 0);
+            return tb - ta;
+          })
+          .slice(0, 20);
         _publicRoomsLoading = false;
         if (_currentTab === 'social' && !_socialRoomCode) renderSocial();
       })
       .catch(() => {
-        // Fallback: query without closed filter (rooms created before the closed field existed)
-        _db.collection('groups')
-          .where('private', '==', false)
-          .orderBy('createdAt', 'desc')
-          .limit(20)
-          .get()
-          .then(snap => {
-            _publicRooms = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(r => !r.closed);
-            _publicRoomsLoading = false;
-            if (_currentTab === 'social' && !_socialRoomCode) renderSocial();
-          })
-          .catch(() => { _publicRoomsLoading = false; });
+        _publicRooms = [];
+        _publicRoomsLoading = false;
+        if (_currentTab === 'social' && !_socialRoomCode) renderSocial();
       });
   }
 
