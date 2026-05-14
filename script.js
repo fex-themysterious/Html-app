@@ -7254,10 +7254,9 @@
   }
 
   /* ── Alarm + Overtime helpers ─────────────────────────────── */
-  function stopOvertimeAlarm() {
-    if (_alarmStopTimer) { clearTimeout(_alarmStopTimer); _alarmStopTimer = null; }
-    _alarmAudio = null;
-  }
+  // Tracks active oscillators so we can stop them immediately on demand
+  let _activeOscillators = [];
+
   // Beautiful 3-bell chime via Web Audio API — no file needed
   function _playChime(vol) {
     const ctx = getAudioContext();
@@ -7268,7 +7267,6 @@
       const t = ctx.currentTime + i * 0.38;
       const osc  = ctx.createOscillator();
       const gain = ctx.createGain();
-      // Add a subtle harmonic overtone for richer bell timbre
       const osc2  = ctx.createOscillator();
       const gain2 = ctx.createGain();
       osc.type  = 'sine';  osc.frequency.setValueAtTime(freq, t);
@@ -7284,24 +7282,27 @@
       osc2.connect(gain2); gain2.connect(ctx.destination);
       osc.start(t);  osc.stop(t + 2.8);
       osc2.start(t); osc2.stop(t + 1.6);
+      _activeOscillators.push(osc, osc2);
     });
+    // Auto-clean refs after chime fully fades
+    setTimeout(() => { _activeOscillators = []; }, 3500);
   }
-  let _chimeRepeatTimer = null;
+
+  function stopOvertimeAlarm() {
+    if (_alarmStopTimer)    { clearTimeout(_alarmStopTimer);    _alarmStopTimer = null; }
+    // Stop any scheduled oscillator nodes immediately
+    _activeOscillators.forEach(o => { try { o.stop(); } catch (_) {} });
+    _activeOscillators = [];
+    _alarmAudio = null;
+  }
+
+  // Play once — 5 s natural fade, stops instantly if timer is killed
   function playOvertimeAlarm() {
     stopOvertimeAlarm();
     resumeAudioContext();
     _playChime(0.80);
-    // Repeat the chime every 6 s for up to 30 s
-    let repeats = 0;
-    _chimeRepeatTimer = setInterval(() => {
-      repeats++;
-      _playChime(0.80);
-      if (repeats >= 4) { clearInterval(_chimeRepeatTimer); _chimeRepeatTimer = null; }
-    }, 6000);
-    _alarmStopTimer = setTimeout(() => {
-      clearInterval(_chimeRepeatTimer); _chimeRepeatTimer = null;
-      stopOvertimeAlarm();
-    }, 30000);
+    // Auto-silence after 5 s even if nothing stops it
+    _alarmStopTimer = setTimeout(() => stopOvertimeAlarm(), 5000);
   }
   function startOvertimeMode() {
     focusOvertime = true; focusOvertimeSeconds = 0;
