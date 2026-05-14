@@ -4835,6 +4835,47 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.09);
   border-radius: 6px; padding: 2px 8px; white-space: nowrap;
 }
+/* ── Public Rooms Discovery ── */
+.slob-pub-loading {
+  font-size: 13px; color: rgba(244,247,255,0.4); text-align: center; padding: 14px 0;
+}
+.slob-pub-list { display: flex; flex-direction: column; gap: 8px; }
+.slob-pub-row {
+  display: flex; align-items: center; gap: 12px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px; padding: 10px 12px;
+}
+.slob-pub-av {
+  width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 800; color: #fff;
+}
+.slob-pub-info { flex: 1; min-width: 0; }
+.slob-pub-name {
+  font-size: 14px; font-weight: 700; color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.slob-pub-meta { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.slob-pub-code {
+  font-size: 11px; font-weight: 700; letter-spacing: 2px;
+  color: #5badff; font-family: 'Courier New', monospace;
+}
+.slob-pub-badge {
+  font-size: 10px; font-weight: 700; color: rgba(244,247,255,0.45);
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 5px; padding: 1px 6px;
+}
+.slob-pub-join-btn {
+  flex-shrink: 0; height: 32px; padding: 0 14px;
+  font-size: 12px; font-weight: 800; border-radius: 10px;
+  background: linear-gradient(135deg, #5BA8FF, #3478F6);
+  border: none; color: #fff; cursor: pointer;
+}
+.slob-pub-join-btn:disabled {
+  background: rgba(255,255,255,0.08); color: rgba(244,247,255,0.35); cursor: default;
+}
+
 .slob-enter-room-btn {
   width: 100%; justify-content: center; gap: 8px;
   background: linear-gradient(135deg, #5BA8FF, #3478F6);

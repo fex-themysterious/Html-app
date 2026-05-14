@@ -740,6 +740,8 @@
   let _socialRoomTab   = 'members';
   let _globalLbData    = [];
   let _globalLbUnsub   = null;
+  let _publicRooms     = [];
+  let _publicRoomsLoading = false;
   let _voicePeers      = {};
   let _localStream     = null;
   let _voiceMembers    = {};
@@ -1194,7 +1196,7 @@
     try {
       const ref = _db.collection('groups').doc(code);
       if (!(await ref.get()).exists) {
-        await ref.set({ roomCode: code, createdBy: _userId, createdAt: firebase.firestore.FieldValue.serverTimestamp(), groupGoals: [], duels: [], groupVault: null });
+        await ref.set({ roomCode: code, createdBy: _userId, createdAt: firebase.firestore.FieldValue.serverTimestamp(), groupGoals: [], duels: [], groupVault: null, private: false, closed: false });
       }
       _socialRoomCode = code;
       _socialLobbyCode = null;
@@ -2357,7 +2359,11 @@
     if (!_socialRoomCode && _myGroupCodes.length) {
       _fetchMyGroupsMeta();
     }
-    if (!_socialRoomCode) { view.innerHTML = _renderSocialLobby(); return; }
+    if (!_socialRoomCode) {
+      _loadPublicRooms();
+      view.innerHTML = _renderSocialLobby();
+      return;
+    }
     const _momMembers = Object.values(_socialMembers);
     const _momXP = _momMembers.reduce((s, m) => s + (m.weeklyXP || 0), 0);
     const _momTarget = Math.max(500, _momMembers.length * 400);
@@ -2632,8 +2638,47 @@
       </div>
     `;
 
+    // ── Public Rooms Discovery ──
+    const visiblePublicRooms = _publicRooms.filter(r => !_myGroupCodes.includes(r.id));
+    const publicRoomsHTML = (() => {
+      if (_publicRoomsLoading && !_publicRooms.length) {
+        return `<div class="slob-section">
+          <div class="slob-section-label-row">
+            <span class="slob-section-label">🌐 Public Rooms</span>
+          </div>
+          <div class="slob-pub-loading">Loading public rooms…</div>
+        </div>`;
+      }
+      if (!visiblePublicRooms.length) return '';
+      const rows = visiblePublicRooms.map(r => {
+        const rName = r.roomName || `Room ${r.id}`;
+        const alreadyIn = _myGroupCodes.includes(r.id);
+        return `<div class="slob-pub-row">
+          <div class="slob-pub-av" style="background:${_sAvatarColor(r.createdBy||r.id)}">${_sInitials(rName)}</div>
+          <div class="slob-pub-info">
+            <div class="slob-pub-name">${escapeHTML(rName)}</div>
+            <div class="slob-pub-meta">
+              <span class="slob-pub-code">${r.id}</span>
+              <span class="slob-pub-badge">🌐 Public</span>
+            </div>
+          </div>
+          <button class="slob-pub-join-btn btn" data-act="social-join-pub" data-code="${r.id}" ${alreadyIn ? 'disabled' : ''}>${alreadyIn ? 'Joined' : 'Join →'}</button>
+        </div>`;
+      }).join('');
+      return `<div class="slob-section">
+        <div class="slob-section-label-row">
+          <span class="slob-section-label">🌐 Public Rooms</span>
+          <button class="slob-refresh-btn" data-act="social-pub-refresh" title="Refresh">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          </button>
+        </div>
+        <div class="slob-pub-list">${rows}</div>
+      </div>`;
+    })();
+
     return `<div class="slob-page">
       ${lbSection}
+      ${publicRoomsHTML}
       ${myRoomsHTML}
       ${createJoinHTML}
     </div>`;
@@ -3366,6 +3411,36 @@
         _globalLbData = snap.docs.map(d => d.data());
         if (_currentTab === 'social') renderSocial();
       }, e => { console.warn('[Global LB]', e.message); });
+  }
+
+  function _loadPublicRooms() {
+    if (!_db || _publicRoomsLoading) return;
+    _publicRoomsLoading = true;
+    _db.collection('groups')
+      .where('private', '==', false)
+      .where('closed', '==', false)
+      .orderBy('createdAt', 'desc')
+      .limit(20)
+      .get()
+      .then(snap => {
+        _publicRooms = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        _publicRoomsLoading = false;
+        if (_currentTab === 'social' && !_socialRoomCode) renderSocial();
+      })
+      .catch(() => {
+        // Fallback: query without closed filter (rooms created before the closed field existed)
+        _db.collection('groups')
+          .where('private', '==', false)
+          .orderBy('createdAt', 'desc')
+          .limit(20)
+          .get()
+          .then(snap => {
+            _publicRooms = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(r => !r.closed);
+            _publicRoomsLoading = false;
+            if (_currentTab === 'social' && !_socialRoomCode) renderSocial();
+          })
+          .catch(() => { _publicRoomsLoading = false; });
+      });
   }
 
   // ── Social Profile Modal ──────────────────────────────────────────────────
@@ -9233,6 +9308,8 @@
       return;
     }
     if (act === 'social-lb-refresh') { _loadGlobalLeaderboard().catch(() => {}); return; }
+    if (act === 'social-pub-refresh') { _publicRooms = []; _publicRoomsLoading = false; _loadPublicRooms(); return; }
+    if (act === 'social-join-pub') { _sJoinRoom(el.dataset.code).catch(() => {}); return; }
     if (act === 'social-copy-lobby-code') {
       const c_ = el.dataset.code || '';
       if (c_) { navigator.clipboard.writeText(c_).then(() => toast(`Copied ${c_}!`, 'success')).catch(() => { const ta = document.createElement('textarea'); ta.value = c_; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); toast(`Copied ${c_}!`, 'success'); }); }
