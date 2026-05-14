@@ -9362,8 +9362,15 @@
       const current = (_socialRoomData && _socialRoomData.roomName) || '';
       const newName = prompt('Enter a new name for this room:', current);
       if (newName && newName.trim()) {
-        _db.collection('groups').doc(_socialRoomCode).update({ roomName: newName.trim() })
-          .then(() => { toast('Room renamed!', 'success'); closeModal(); })
+        const _renameCode2 = _socialRoomCode;
+        const _trimmedName = newName.trim();
+        _db.collection('groups').doc(_renameCode2).update({ roomName: _trimmedName })
+          .then(() => {
+            if (_myGroupRoomMeta[_renameCode2]) _myGroupRoomMeta[_renameCode2].roomName = _trimmedName;
+            const pr2 = _publicRooms.find(r => r.id === _renameCode2);
+            if (pr2) pr2.roomName = _trimmedName;
+            toast('Room renamed!', 'success'); closeModal();
+          })
           .catch(() => toast('Failed to rename', 'danger'));
       }
       return;
@@ -9382,8 +9389,14 @@
       const newName = (inp ? inp.value : '').trim();
       if (!newName) { toast('Enter a room name', 'warn'); return; }
       if (!_db || !_socialRoomCode) return;
-      _db.collection('groups').doc(_socialRoomCode).update({ roomName: newName })
-        .then(() => { toast('Room renamed!', 'success'); renderSocial(); })
+      const _renameCode = _socialRoomCode;
+      _db.collection('groups').doc(_renameCode).update({ roomName: newName })
+        .then(() => {
+          if (_myGroupRoomMeta[_renameCode]) _myGroupRoomMeta[_renameCode].roomName = newName;
+          const pr = _publicRooms.find(r => r.id === _renameCode);
+          if (pr) pr.roomName = newName;
+          toast('Room renamed!', 'success'); renderSocial();
+        })
         .catch(() => toast('Failed to rename', 'danger'));
       return;
     }
