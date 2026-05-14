@@ -1040,10 +1040,10 @@
           _socialPrevStatuses[data.uid] = data.status;
           if (data.uid !== _userId) return;
           // Nudge (poke)
-          if (data.nudge && data.nudge.ts && Date.now() - data.nudge.ts < 30000) {
+          if (data.nudge && data.nudge.ts && Date.now() - data.nudge.ts < 5 * 60 * 1000) {
             const pokeMsg = `👋 ${escapeHTML(data.nudge.fromName)} is poking you — get back to studying!`;
             toast(pokeMsg, 'warn', 6000);
-            if (document.hidden) showWebNotification('👋 Study Poke!', `${data.nudge.fromName} is poking you — get back to studying!`, { tag: 'social-poke', requireInteraction: true, data: { room_id: roomCode } });
+            showWebNotification('👋 Study Poke!', `${data.nudge.fromName} is poking you — get back to studying!`, { tag: 'social-poke', requireInteraction: true, data: { room_id: roomCode } });
             _db.collection('groups').doc(roomCode).collection('presence').doc(_userId)
               .update({ nudge: firebase.firestore.FieldValue.delete() }).catch(() => {});
           }
@@ -1057,11 +1057,11 @@
               .update({ pendingBounty: firebase.firestore.FieldValue.delete() }).catch(() => {});
           }
           // Duel Challenge — show modal immediately, clear field first (idempotent)
-          if (data.pendingDuelChallenge && Date.now() - data.pendingDuelChallenge.ts < 30000) {
+          if (data.pendingDuelChallenge && Date.now() - data.pendingDuelChallenge.ts < 5 * 60 * 1000) {
             const ch = { ...data.pendingDuelChallenge };
             _db.collection('groups').doc(roomCode).collection('presence').doc(_userId)
               .update({ pendingDuelChallenge: firebase.firestore.FieldValue.delete() }).catch(() => {});
-            if (document.hidden) showWebNotification('⚔️ XP Duel Challenge!', `${ch.fromName} challenges you to a 2-hour XP Duel! Open the app to accept.`, { tag: 'social-duel', requireInteraction: true, data: { room_id: roomCode } });
+            showWebNotification('⚔️ XP Duel Challenge!', `${ch.fromName} challenges you to a 2-hour XP Duel! Open the app to accept.`, { tag: 'social-duel', requireInteraction: true, data: { room_id: roomCode } });
             openModal(`<h3>⚔️ XP Duel Challenge!</h3>
               <p style="color:var(--text-muted);font-size:14px;margin:8px 0 16px">
                 <strong>${escapeHTML(ch.fromName)}</strong> challenges you to a <strong>2-hour XP Duel</strong>!<br>
@@ -1219,7 +1219,10 @@
       }
       _sSubscribe();
       _updateGlobalLb();
-      // join toast removed (room opens visually)
+      // Request notification permission for poke / duel alerts
+      if (NOTIF_SUPPORTED && notifPermission() === 'default') {
+        requestNotifPermission().catch(() => {});
+      }
       // Award Group Member achievement on first room join
       checkBadges({ joinedRoom: true });
       renderSocial();
