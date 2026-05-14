@@ -7174,9 +7174,9 @@
           <button class="focus-mode-btn ${focusMode === 'long' ? 'active' : ''}" data-act="focus-mode" data-mode="long">Long Break</button>
         </div>
         <div class="focus-mode-edit">
-          <div class="focus-mode-edit-item"><label>Work</label><input type="number" min="1" max="120" id="focus-dur-work" value="${customDurations.work}" data-act="focus-dur-change" data-dmode="work"/><span>min</span></div>
+          <div class="focus-mode-edit-item"><label>Work</label><input type="number" min="1" max="2000" id="focus-dur-work" value="${customDurations.work}" data-act="focus-dur-change" data-dmode="work"/><span>min</span></div>
           <div class="focus-mode-edit-item"><label>Short</label><input type="number" min="1" max="60" id="focus-dur-short" value="${customDurations.short}" data-act="focus-dur-change" data-dmode="short"/><span>min</span></div>
-          <div class="focus-mode-edit-item"><label>Long</label><input type="number" min="1" max="60" id="focus-dur-long" value="${customDurations.long}" data-act="focus-dur-change" data-dmode="long"/><span>min</span></div>
+          <div class="focus-mode-edit-item"><label>Long</label><input type="number" min="1" max="120" id="focus-dur-long" value="${customDurations.long}" data-act="focus-dur-change" data-dmode="long"/><span>min</span></div>
         </div>
         <div class="focus-ring-wrap${focusIntensityMode !== 'none' ? ' intensity-active' : ''}">
           <svg class="focus-ring-svg" viewBox="0 0 220 220" aria-hidden="true">
@@ -10811,7 +10811,8 @@
     if (el.id === 'binaural-vol-slider') { setBinauralVolume(el.value); return; }
     if (el.dataset.act === 'focus-dur-change') {
       const dmode = el.dataset.dmode, val = parseInt(el.value, 10);
-      if (dmode && !isNaN(val) && val >= 1 && val <= 120) {
+      const maxForMode = dmode === 'work' ? 2000 : (dmode === 'long' ? 120 : 60);
+      if (dmode && !isNaN(val) && val >= 1 && val <= maxForMode) {
         customDurations[dmode] = val;
         if (dmode === focusMode && !focusRunning) { focusSeconds = val * 60; updateFocusDisplay(); }
       }
@@ -10890,6 +10891,20 @@
 
   document.addEventListener('fullscreenchange', () => {
     if (!document.fullscreenElement && fsSessionActive) { exitFullSession(); }
+  });
+
+  // pagehide fires on iOS/mobile when the app is swiped away or killed — more reliable than beforeunload
+  window.addEventListener('pagehide', () => {
+    if (focusRunning && focusMode === 'work' && focusStartTime !== null) {
+      const _phElapsedSec = Math.floor((Date.now() - focusStartTime) / 1000);
+      const _phElapsedMin = Math.round(_phElapsedSec / 60);
+      if (_phElapsedMin > 0) {
+        const _phToday = todayKey();
+        state.focusStats.minutesByDate[_phToday] = (state.focusStats.minutesByDate[_phToday] || 0) + _phElapsedMin;
+        // Synchronous localStorage save — only reliable method on pagehide
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {}
+      }
+    }
   });
 
   window.addEventListener('beforeunload', e => {
@@ -10974,6 +10989,25 @@
       }
     } else {
       _socialIsBg = true;
+      // Background: save focus progress so session isn't lost if app is killed
+      if (focusRunning && focusMode === 'work' && focusStartTime !== null) {
+        const _bgElapsedSec = Math.floor((Date.now() - focusStartTime) / 1000);
+        const _bgRemaindSec = Math.max(0, focusStartSeconds - _bgElapsedSec);
+        const _bgElapsedMin = Math.round((_bgElapsedSec) / 60);
+        if (_bgElapsedMin > 0) {
+          const _bgToday = todayKey();
+          state.focusStats.minutesByDate[_bgToday] = (state.focusStats.minutesByDate[_bgToday] || 0) + _bgElapsedMin;
+          _recordSubjectMinutes(_bgElapsedMin);
+          awardXP(_bgElapsedMin, _bgToday);
+          _sContributeToGoals(_bgElapsedMin).catch(() => {});
+          checkBadges({ sessionMinutes: _bgElapsedMin });
+          // Reset baseline so we don't double-count when coming back to foreground
+          focusStartTime = Date.now();
+          focusStartSeconds = _bgRemaindSec;
+          focusSeconds = _bgRemaindSec;
+          saveState();
+        }
+      }
       // Background: write a final "last seen" timestamp and throttle heartbeat to slow rate
       if (_db && _userId && _socialRoomCode) {
         const _bgStatus = (focusRunning && focusMode === 'work') ? 'focusing' : 'break';

@@ -1363,7 +1363,7 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .focus-mode-edit { display: flex; align-items: center; gap: 5px; justify-content: center; margin-bottom: 14px; flex-wrap: wrap; }
 .focus-mode-edit-item { display: flex; align-items: center; gap: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xs); padding: 5px 10px; }
 .focus-mode-edit-item label { font-size: 10px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
-.focus-mode-edit-item input { width: 44px; background: transparent; border: none; color: var(--primary); font: inherit; font-size: 14px; font-weight: 800; text-align: center; padding: 0; outline: none; }
+.focus-mode-edit-item input { width: 54px; background: transparent; border: none; color: var(--primary); font: inherit; font-size: 14px; font-weight: 800; text-align: center; padding: 0; outline: none; }
 .focus-mode-edit-item span { font-size: 11px; color: var(--text-muted); }
 
 .focus-buttons { display: flex; gap: 9px; justify-content: center; flex-wrap: wrap; margin-bottom: 18px; }
@@ -1796,7 +1796,7 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   /* Duration edit row: minimal */
   .focus-col-left .focus-mode-edit { margin-bottom: 0; gap: 3px; }
   .focus-mode-edit-item { padding: 2px 5px; }
-  .focus-mode-edit-item input { font-size: 11px; width: 28px; }
+  .focus-mode-edit-item input { font-size: 11px; width: 38px; }
   .focus-mode-edit-item label,
   .focus-mode-edit-item span   { font-size: 8px; }
 
