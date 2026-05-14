@@ -704,8 +704,36 @@
       }
     } catch(_) {}
 
+    // Also find any groups this user created (so they get fully deleted)
+    try {
+      const createdSnap = await _db.collection('groups').where('createdBy', '==', uid).get();
+      createdSnap.forEach(d => { groupCodes = Array.from(new Set([...groupCodes, d.id])); });
+    } catch(_) {}
+
     await Promise.allSettled(groupCodes.map(async code => {
       const groupRef = _db.collection('groups').doc(code);
+
+      // If this user is the group creator → delete the entire group
+      try {
+        const roomSnap = await groupRef.get();
+        if (roomSnap.exists && roomSnap.data().createdBy === uid) {
+          const deleteOps = [];
+          const [presSnap, membSnap, msgSnap, reqSnap] = await Promise.allSettled([
+            groupRef.collection('presence').get(),
+            groupRef.collection('members').get(),
+            groupRef.collection('messages').get(),
+            groupRef.collection('joinRequests').get(),
+          ]);
+          [presSnap, membSnap, msgSnap, reqSnap].forEach(r => {
+            if (r.status === 'fulfilled') r.value.forEach(d => deleteOps.push(d.ref.delete()));
+          });
+          deleteOps.push(groupRef.delete());
+          await Promise.allSettled(deleteOps);
+          return; // done for this group
+        }
+      } catch(_) {}
+
+      // Not creator — remove only this user's traces
       const ops = [
         groupRef.collection('presence').doc(uid).delete(),
         groupRef.collection('members').doc(uid).delete(),
@@ -2798,7 +2826,7 @@
             <div class="slob-lb-sub">Weekly XP · resets every Monday</div>
           </div>
           <button class="slob-refresh-btn" data-act="social-lb-refresh" title="Refresh">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
           </button>
         </div>
         ${podiumHTML}
@@ -2907,7 +2935,7 @@
         <div class="slob-section-label-row">
           <span class="slob-section-label">🌐 Public Rooms</span>
           <button class="slob-refresh-btn" data-act="social-pub-refresh" title="Refresh">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
           </button>
         </div>
         <div class="slob-pub-list">${rows}</div>
@@ -3164,7 +3192,7 @@
     <div class="sroom-lb-section" style="margin-top:14px">
       <div class="sroom-lb-head-row">
         <span class="sroom-lb-head">🌍 Global Leaderboard</span>
-        <button class="sroom-lb-refresh" data-act="social-lb-refresh" title="Refresh"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+        <button class="sroom-lb-refresh" data-act="social-lb-refresh" title="Refresh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></button>
       </div>
       ${!_globalLbData.length ? '<div class="sroom-empty-txt" style="padding:18px 14px;text-align:center">Complete sessions to appear on the global board. 🌍</div>' : glbRowsHTML}
     </div>`;
@@ -9783,12 +9811,24 @@
     if (act === 'social-room-settings') { _openRoomSettings(); return; }
     if (act === 'social-room-settings-lobby') {
       const c_ = el.dataset.code;
-      confirmModal(`Remove room ${c_} from your list? You can rejoin later with the code.`, () => {
+      const meta_ = _myGroupRoomMeta[c_] || {};
+      const roomName_ = meta_.roomName || c_;
+      confirmModal(`Leave "${roomName_}"? You'll be removed from the group. Public rooms will still be visible to join again.`, async () => {
         _myGroupCodes = _myGroupCodes.filter(c => c !== c_);
+        delete _myGroupRoomMeta[c_];
         try { localStorage.setItem('my_group_codes', JSON.stringify(_myGroupCodes)); } catch(_) {}
-        if (_db && _userId) _db.collection('users').doc(_userId).update({ joinedRooms: _myGroupCodes }).catch(() => {});
+        if (_db && _userId) {
+          _db.collection('users').doc(_userId).update({ joinedRooms: _myGroupCodes }).catch(() => {});
+          // Remove presence and membership from Firestore
+          const groupRef = _db.collection('groups').doc(c_);
+          groupRef.collection('presence').doc(_userId).delete().catch(() => {});
+          groupRef.collection('members').doc(_userId).delete().catch(() => {});
+        }
+        // Refresh public rooms so the left group reappears there if public
+        _publicRooms = []; _publicRoomsLoading = false;
+        _loadPublicRooms();
         renderSocial();
-      }, { title: 'Remove Room?', yesLabel: 'Remove', yesClass: 'btn btn-danger', noLabel: 'Cancel' });
+      }, { title: 'Leave Room?', yesLabel: 'Leave', yesClass: 'btn btn-danger', noLabel: 'Cancel' });
       return;
     }
     if (act === 'admin-rename-room') {
