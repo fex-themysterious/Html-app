@@ -2792,7 +2792,7 @@
       const isMe       = m.uid === _userId;
       // For own card: derive status locally so it's instant (serverTimestamp round-trip causes false 'offline')
       const st         = isMe
-        ? (typeof focusRunning !== 'undefined' && focusRunning && focusStartTime !== null ? 'focusing' : 'break')
+        ? (typeof focusRunning !== 'undefined' && focusRunning && focusStartTime !== null && (typeof focusMode === 'undefined' || focusMode === 'work') ? 'focusing' : 'break')
         : _sStatusOf(m);
       const isFocusing = st === 'focusing';
       const isOnline   = st !== 'offline';
@@ -2836,9 +2836,12 @@
         <div class="sroom-mc-name">${escapeHTML((m.displayName || 'Anonymous').split(' ')[0])}</div>
         ${titleHTML ? `<div class="sroom-mc-title-row">${titleHTML}</div>` : ''}
         <div class="sroom-mc-status-row">
-          ${isFocusing && m.focusStartedAt
-            ? `<span class="sroom-mc-timer grm-elapsed" data-focusat="${m.focusStartedAt}">0s</span>`
-            : `<span class="sroom-mc-sl sroom-sl-${st}">${stLabel}</span>`}
+          ${(() => {
+            const _focusAt = isFocusing ? (m.focusStartedAt || (isMe && typeof focusStartTime !== 'undefined' ? focusStartTime : null)) : null;
+            return _focusAt
+              ? `<span class="sroom-mc-timer grm-elapsed" data-focusat="${_focusAt}">0s</span>`
+              : `<span class="sroom-mc-sl sroom-sl-${st}">${stLabel}</span>`;
+          })()}
         </div>
         ${activityHTML}
         <div class="sroom-mc-xp">⚡ ${xpStr}</div>
@@ -9626,6 +9629,7 @@
         clearInterval(focusTimer); focusTimer = null; focusRunning = false;
         focusStartTime = null; focusStartSeconds = null;
         updateMiniTimer();
+        if (_socialRoomCode && _currentTab === 'social') renderSocial();
       } else if (focusOvertime) {
         // User ending overtime — save extra minutes then switch to break
 
@@ -9648,6 +9652,7 @@
         focusTimer = setInterval(focusTick, 1000);
         if (_socialRoomCode) _sUpdatePresence('focusing').catch(() => {});
         resumeAmbientIfNeeded();
+        if (_socialRoomCode && _currentTab === 'social') renderSocial();
       }
       renderFocus(); return;
     }
@@ -9679,6 +9684,7 @@
         if (_socialRoomCode) _sUpdatePresence('break').catch(() => {});
         clearInterval(focusTimer); focusTimer = null; focusRunning = false;
         focusStartTime = null; focusStartSeconds = null;
+        if (_socialRoomCode && _currentTab === 'social') renderSocial();
       } else if (focusOvertime) {
         // User ending overtime in full-session view — save extra minutes, switch to break
 
@@ -9701,6 +9707,7 @@
         focusTimer = setInterval(focusTick, 1000);
         if (_socialRoomCode) _sUpdatePresence('focusing').catch(() => {});
         resumeAmbientIfNeeded();
+        if (_socialRoomCode && _currentTab === 'social') renderSocial();
       }
       renderFullSession(); return;
     }
