@@ -10326,6 +10326,9 @@
             const todayStr = todayKey();
             state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + elapsedMin;
             _recordSubjectMinutes(elapsedMin);
+            awardXP(elapsedMin, todayStr);
+            _sContributeToGoals(elapsedMin).catch(() => {});
+            checkBadges({ sessionMinutes: elapsedMin });
             saveState();
           }
         }
@@ -10361,7 +10364,27 @@
       }
       renderFocus(); return;
     }
-    if (act === 'focus-reset') { stopOvertimeMode(); clearInterval(focusTimer); focusTimer = null; focusRunning = false; focusStartTime = null; focusStartSeconds = null; focusSeconds = customDurations[focusMode] * 60; focusMultitaskMode = false; renderFocus(); document.title = 'Syllabus Tracker'; updateMiniTimer(); return; }
+    if (act === 'focus-reset') {
+      // Save any elapsed time before wiping the timer
+      if (focusMode === 'work' && focusRunning && focusStartTime !== null) {
+        const elapsedMin = Math.floor((Date.now() - focusStartTime) / 1000 / 60);
+        if (elapsedMin > 0) {
+          const todayStr = todayKey();
+          state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + elapsedMin;
+          _recordSubjectMinutes(elapsedMin);
+          awardXP(elapsedMin, todayStr);
+          _sContributeToGoals(elapsedMin).catch(() => {});
+          checkBadges({ sessionMinutes: elapsedMin });
+          saveState();
+        }
+        if (_socialRoomCode && focusSeconds > 0) _sHandleFocusBounty().catch(() => {});
+        if (_socialRoomCode) _sUpdatePresence('break').catch(() => {});
+      }
+      stopOvertimeMode(); clearInterval(focusTimer); focusTimer = null; focusRunning = false; focusStartTime = null; focusStartSeconds = null; focusSeconds = customDurations[focusMode] * 60; focusMultitaskMode = false;
+      renderFocus(); document.title = 'Syllabus Tracker'; updateMiniTimer();
+      if (document.getElementById('view-stats') && document.getElementById('view-stats').classList.contains('active')) renderStats();
+      return;
+    }
     if (act === 'focus-lock') { focusMultitaskMode = false; focusLocked = !focusLocked; renderFocus(); return; }
     if (act === 'focus-multitask') { focusMultitaskMode = !focusMultitaskMode; if (focusMultitaskMode) { focusLocked = false; } renderFocus(); return; }
     if (act === 'focus-task-clear') { focusCurrentTaskKey = null; renderFocus(); return; }
@@ -10382,6 +10405,9 @@
             const todayStr = todayKey();
             state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + elapsedMin;
             _recordSubjectMinutes(elapsedMin);
+            awardXP(elapsedMin, todayStr);
+            _sContributeToGoals(elapsedMin).catch(() => {});
+            checkBadges({ sessionMinutes: elapsedMin });
             saveState();
           }
         }
