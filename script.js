@@ -113,7 +113,7 @@
       ],
       exams: [{ id: uid(), name: 'Mid-Term Exam', date: nextDateISO(30) }],
       motivationQuotes: [],
-      streak: { count: 1, lastDate: todayKey() },
+      streak: { count: 0, lastDate: null },
       activity: { [todayKey()]: 0 },
       dailyPlans: {},
       smartReminder: { enabled: false, times: ['20:00'], lastFired: {} },
@@ -4332,6 +4332,18 @@
   }
 
   // ========== Activity & Streak ==========
+
+  // Called once on app load — resets streak to 0 if last study was before yesterday
+  function _checkStreakReset() {
+    if (!state.streak || !state.streak.lastDate) return;
+    const today = todayKey();
+    const yesterday = addDaysISO(today, -1);
+    if (state.streak.lastDate !== today && state.streak.lastDate !== yesterday) {
+      state.streak.count = 0;
+      save();
+    }
+  }
+
   function bumpActivity() {
     const k = todayKey();
     state.activity[k] = (state.activity[k] || 0) + 1;
@@ -11289,6 +11301,7 @@
 
   // ========== Init ==========
   function init() {
+    _checkStreakReset();
     _migrateLegacyBadges();
     _initTheme();
     applyTheme(getActiveTheme());
