@@ -50,7 +50,17 @@ An offline-capable Progressive Web App for tracking study progress with spaced r
 - Dashboard tab: Study Calendar/Heatmap, Goals, Smart Suggestions, Weak Areas, Revision Zone (Due Today + Upcoming). Plan adder (add from syllabus) stays on Dashboard only.
 
 ## User preferences
-_Populate as you build_
+- Premium anime/wuxia dark UI aesthetic with orange accent (#ff7a1a) and black background
+- Mobile-first, native Android app feeling
+- Glassmorphism cards, smooth spring animations, floating particle backgrounds
+
+## Theme Store Page
+- `theme-store.html` — standalone Theme Store / Purchase page
+- `theme-store.css` — all styles (CSS variables, glassmorphism, character art)
+- `theme-store.js` — all logic (state, purchase flow, toggle, toast, confetti, particles)
+- Access at `/theme-store.html`
+- State persisted in localStorage under key `themeStore_v1`
+- 8 theme variants (2 locked), purchase flow, dark/light toggle, heart favorite, swipe gallery
 
 ## Date / Timezone Architecture
 - **`localISO(d)`** — canonical date formatter. Uses `d.getFullYear() / getMonth() / getDate()` (local fields). NEVER use `toISOString().slice(0,10)` for date keys — it returns UTC and causes off-by-one on UTC+ devices.
