@@ -6105,13 +6105,15 @@
   // ── XP Float: golden pill that rises from a tapped element ──────────────
   function showXPFloat(amount, anchorEl) {
     const el = document.createElement('div');
-    el.className = 'xp-float';
-    el.textContent = `+${amount} XP`;
+    const isNeg = amount < 0;
+    el.className = 'xp-float' + (isNeg ? ' xp-float--neg' : '');
+    el.textContent = (isNeg ? '' : '+') + amount + ' XP';
     let cx, cy;
     if (anchorEl) {
       const r = anchorEl.getBoundingClientRect();
-      cx = r.left + r.width  / 2;
-      cy = r.top  + r.height / 4;
+      // Clamp so the float is always well inside the viewport (avoids bottom-nav bleed)
+      cx = Math.min(Math.max(r.left + r.width / 2, 60), window.innerWidth - 60);
+      cy = Math.min(Math.max(r.top + r.height / 4, 80), window.innerHeight - 140);
     } else {
       cx = window.innerWidth  / 2;
       cy = window.innerHeight * 0.42;
@@ -6119,7 +6121,10 @@
     el.style.left = Math.round(cx) + 'px';
     el.style.top  = Math.round(cy) + 'px';
     document.body.appendChild(el);
-    el.addEventListener('animationend', () => el.remove(), { once: true });
+    // Fallback removal in case animationend doesn't fire (e.g. prefers-reduced-motion)
+    const cleanup = () => el.remove();
+    el.addEventListener('animationend', cleanup, { once: true });
+    setTimeout(cleanup, 2000);
   }
 
   // ========== Modal ==========
@@ -9435,13 +9440,16 @@
       ? `<img src="${escapeHTML(state.profile.avatarDataUrl)}" class="stg-av-img" alt=""/>`
       : `<div class="stg-av-init">${(state.profile.name || '?')[0].toUpperCase()}</div>`;
 
+    // Use Firebase displayName, fall back to saved profile name
+    const displayName = (_authUser && _authUser.displayName) || state.profile.name || '';
+
     const accountCard = _authUser
       ? `<div class="stg-card stg-card-account">
           <div class="stg-card-lbl">☁️ Account</div>
           <div class="stg-ac-row">
             <div class="stg-ac-av">${acAvatarHTML}</div>
             <div class="stg-ac-info">
-              ${_authUser.displayName ? `<div class="stg-ac-name">${escapeHTML(_authUser.displayName)}</div>` : ''}
+              ${displayName ? `<div class="stg-ac-name">${escapeHTML(displayName)}</div>` : ''}
               <div class="stg-ac-email">${escapeHTML(_authUser.email || 'Anonymous')}</div>
               <div class="stg-sync-pill">☁️ Cloud sync active</div>
             </div>
@@ -9482,6 +9490,24 @@
             <input class="stg-input" id="set-profile-tagline" placeholder="e.g. CSE'26, BUET" maxlength="60" value="${escapeHTML(state.profile.tagline)}"/>
           </div>
           <button class="stg-btn stg-btn-primary stg-btn-block" style="margin-top:4px" data-act="save-profile">Save Profile</button>
+          ${(()=>{
+            const eq = state.equippedItems || {};
+            const chips = [];
+            if (eq.border) {
+              const it = SHOP_ITEMS.find(i => i.id === eq.border);
+              if (it) chips.push(`<button class="stg-equipped-chip" data-act="stg-unequip" data-iid="${it.id}">${it.icon} ${escapeHTML(it.name)}<span class="stg-eq-x">×</span></button>`);
+            }
+            if (eq.title) {
+              const it = SHOP_ITEMS.find(i => i.id === eq.title);
+              if (it) chips.push(`<button class="stg-equipped-chip" data-act="stg-unequip" data-iid="${it.id}">${it.icon} ${escapeHTML(it.name)}<span class="stg-eq-x">×</span></button>`);
+            }
+            if (eq.aura) {
+              const it = SHOP_ITEMS.find(i => i.id === eq.aura);
+              if (it) chips.push(`<button class="stg-equipped-chip" data-act="stg-unequip" data-iid="${it.id}">${it.icon} ${escapeHTML(it.name)}<span class="stg-eq-x">×</span></button>`);
+            }
+            if (chips.length === 0) return '';
+            return `<div class="stg-equipped-lbl">Equipped cosmetics</div><div class="stg-equipped-row">${chips.join('')}</div>`;
+          })()}
         </div>
 
         <div class="stg-card stg-shop-banner" data-act="open-shop" style="cursor:pointer">
@@ -10556,6 +10582,7 @@
     if (act === 'shop-confirm-buy')  { _shopConfirmBuy(el.dataset.iid);    return; }
     if (act === 'shop-equip')        { _shopEquip(el.dataset.iid);         return; }
     if (act === 'shop-unequip')      { _shopUnequip(el.dataset.iid);       return; }
+    if (act === 'stg-unequip')       { _shopUnequip(el.dataset.iid); refreshSettingsIfOpen(); return; }
     if (act === 'shop-select-badge') { _shopSelectBadge(el.dataset.bid);   return; }
     if (act === 'shop-select-theme') { _shopSelectTheme(el.dataset.tid);   return; }
     // ── Daily Quests ─────────────────────────────────────────────────────
