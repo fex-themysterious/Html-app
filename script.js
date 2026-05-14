@@ -2520,19 +2520,36 @@
 
   }
 
+  function _dedupedGlobalLb() {
+    const seen = new Map();
+    const result = [];
+    for (const m of _globalLbData) {
+      const key = (m.name || '').toLowerCase().trim();
+      if (!key) { result.push(m); continue; }
+      if (!seen.has(key)) {
+        seen.set(key, result.length);
+        result.push(m);
+      } else if (m.uid === _userId) {
+        result[seen.get(key)] = m;
+      }
+    }
+    return result;
+  }
+
   function _renderSocialLobby() {
     if (!_socialLobbyCode) _socialLobbyCode = _sGenerateCode();
     const code = _socialLobbyCode;
 
     // ── Global Leaderboard: podium top-3 + ranked list ──
-    const maxXP = _globalLbData[0] ? Math.max(_globalLbData[0].weeklyXP || 1, 1) : 1;
+    const _lbDeduped = _dedupedGlobalLb();
+    const maxXP = _lbDeduped[0] ? Math.max(_lbDeduped[0].weeklyXP || 1, 1) : 1;
 
     // Podium: silver(left) gold(center) bronze(right)
-    const _podSlots = [_globalLbData[1], _globalLbData[0], _globalLbData[2]];
+    const _podSlots = [_lbDeduped[1], _lbDeduped[0], _lbDeduped[2]];
     const _podMedals = ['🥈', '🥇', '🥉'];
     const _podCls    = ['slob-pod-2', 'slob-pod-1', 'slob-pod-3'];
     const _podRanks  = [2, 1, 3];
-    const podiumHTML = _globalLbData.length ? `
+    const podiumHTML = _lbDeduped.length ? `
       <div class="slob-lb-podium">
         ${_podSlots.map((m, pi) => {
           if (!m) return `<div class="slob-lb-pod ${_podCls[pi]} slob-pod-empty"></div>`;
@@ -2549,7 +2566,7 @@
         }).join('')}
       </div>` : `<div class="slob-lb-empty">Complete a focus session to appear here!</div>`;
 
-    const listRowsHTML = _globalLbData.slice(3, 50).map((m, i) => {
+    const listRowsHTML = _lbDeduped.slice(3, 50).map((m, i) => {
       const isMe = m.uid === _userId;
       const rank = i + 4;
       const pct  = Math.round(((m.weeklyXP || 0) / maxXP) * 100);
@@ -2900,7 +2917,7 @@
       </div>`;
     }).join('') : `<div class="sroom-empty-txt" style="padding:18px 14px;text-align:center">No sessions yet — start focusing to earn XP and claim the top spot! 🏆</div>`;
 
-    const glbRowsHTML = _globalLbData.slice(0, 15).map((m, i) => {
+    const glbRowsHTML = _dedupedGlobalLb().slice(0, 15).map((m, i) => {
       const isMe = m.uid === _userId;
       const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="font-size:12px;color:var(--text-muted);font-weight:700">${i+1}</span>`;
       const mEq = isMe ? _myEquipped() : (m.equippedItems || {});
@@ -9039,18 +9056,36 @@
         const name    = (root.querySelector('#set-profile-name')?.value  || '').trim();
         const tagline = (root.querySelector('#set-profile-tagline')?.value || '').trim();
         if (!name) { toast('Name is required', 'warn'); return; }
-        state.profile.name    = name;
-        state.profile.tagline = tagline;
-        saveState();
-        renderAll();
-        toast('Profile saved ✓', 'success');
-        // Push new name to room presence immediately so others see it
-        if (_socialRoomCode) {
-          const curSt = (typeof focusRunning !== 'undefined' && focusRunning && focusStartTime !== null) ? 'focusing' : 'break';
-          _sUpdatePresence(curSt).catch(() => {});
+        const doSave = () => {
+          state.profile.name    = name;
+          state.profile.tagline = tagline;
+          saveState();
+          renderAll();
+          toast('Profile saved ✓', 'success');
+          if (_socialRoomCode) {
+            const curSt = (typeof focusRunning !== 'undefined' && focusRunning && focusStartTime !== null) ? 'focusing' : 'break';
+            _sUpdatePresence(curSt).catch(() => {});
+          }
+          _updateGlobalLb();
+        };
+        const nameChanged = name.toLowerCase() !== (state.profile.name || '').toLowerCase();
+        if (nameChanged && _db && _userId) {
+          const saveBtn = root.querySelector('[data-act="save-profile"]');
+          if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Checking…'; }
+          _db.collection('global_lb').where('name', '==', name).limit(5).get()
+            .then(snap => {
+              const conflict = snap.docs.find(d => d.id !== _userId);
+              if (conflict) {
+                toast(`"${name}" is already taken. Please choose a different name.`, 'warn', 4500);
+                if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Profile'; }
+              } else {
+                doSave();
+              }
+            })
+            .catch(() => { doSave(); });
+        } else {
+          doSave();
         }
-        // Also update global leaderboard entry
-        _updateGlobalLb();
       }
       return;
     }
