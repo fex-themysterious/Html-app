@@ -1602,7 +1602,7 @@
     } catch(e) { toast('Could not save vote', 'warn'); }
   }
 
-  function _showChatContextMenu(msgId, isMe, anchorRect) {
+  function _showChatContextMenu(msgId, _unused, anchorRect) {
     const existing  = document.getElementById('chat-ctx-menu');
     const existingBd = document.getElementById('chat-ctx-backdrop');
     if (existing)   existing.remove();
@@ -1610,6 +1610,10 @@
 
     const msg = _chatMessages.find(m => m.id === msgId);
     if (!msg || msg.deletedAt) return;
+
+    const isMe      = !!_userId && msg.uid === _userId;
+    const isAdmin   = !!_userId && _socialRoomData && _socialRoomData.createdBy === _userId;
+    const canDelete = isMe || isAdmin;
 
     const MENU_EMOJIS = ['👍','🔥','💯','😂','❤️','😮','🙌','👏'];
     const preview = (msg.text || '').slice(0, 60);
@@ -1632,11 +1636,12 @@
       <button class="chat-ctx-action" data-act="chat-menu-pin" data-msgid="${escapeHTML(msgId)}">
         <span>📌</span> ${(_socialRoomData && _socialRoomData.pinnedMessage && _socialRoomData.pinnedMessage.id === msgId) ? 'Unpin Message' : 'Pin Message'}
       </button>
+      ${(isMe || canDelete) ? `<div class="chat-ctx-divider"></div>` : ''}
       ${isMe ? `
-      <div class="chat-ctx-divider"></div>
-      <button class="chat-ctx-action" data-act="chat-menu-edit" data-msgid="${escapeHTML(msgId)}" data-mtext="${escapeHTML(msg.text||'')}">
+      <button class="chat-ctx-action" data-act="chat-menu-edit" data-msgid="${escapeHTML(msgId)}">
         <span>✏️</span> Edit Message
-      </button>
+      </button>` : ''}
+      ${canDelete ? `
       <button class="chat-ctx-action chat-ctx-danger" data-act="chat-menu-delete-all" data-msgid="${escapeHTML(msgId)}">
         <span>🗑️</span> Delete for Everyone
       </button>` : ''}
@@ -1683,7 +1688,9 @@
   function _showChatMsgMenu(msgId) {
     const msg = _chatMessages.find(m => m.id === msgId);
     if (!msg || msg.deletedAt) return;
-    const isMe = !!_userId && msg.uid === _userId;
+    const isMe      = !!_userId && msg.uid === _userId;
+    const isAdmin   = !!_userId && _socialRoomData && _socialRoomData.createdBy === _userId;
+    const canDelete = isMe || isAdmin;
     const preview = (msg.text || '').slice(0, 60);
     const MENU_EMOJIS = ['👍','🔥','💯','😂','❤️','🎯','😮','🙌'];
     openModal(`<div class="chat-menu-sheet">
@@ -1693,7 +1700,8 @@
         <button class="chat-menu-item" data-act="chat-menu-reply" data-msgid="${msgId}" data-mname="${escapeHTML(msg.name||'Unknown')}" data-mtext="${escapeHTML(preview)}"><span class="chat-menu-item-icon">↩️</span> Reply</button>
         <button class="chat-menu-item" data-act="chat-menu-pin" data-msgid="${msgId}"><span class="chat-menu-item-icon">📌</span> ${(_socialRoomData && _socialRoomData.pinnedMessage && _socialRoomData.pinnedMessage.id === msgId) ? 'Unpin Message' : 'Pin Message'}</button>
         ${isMe ? `
-        <button class="chat-menu-item" data-act="chat-menu-edit" data-msgid="${msgId}" data-mtext="${escapeHTML(msg.text||'')}"><span class="chat-menu-item-icon">✏️</span> Edit Message</button>
+        <button class="chat-menu-item" data-act="chat-menu-edit" data-msgid="${msgId}"><span class="chat-menu-item-icon">✏️</span> Edit Message</button>` : ''}
+        ${canDelete ? `
         <button class="chat-menu-item chat-menu-danger" data-act="chat-menu-delete-all" data-msgid="${msgId}"><span class="chat-menu-item-icon">🗑</span> Delete for Everyone</button>` : ''}
       </div>
       <button class="chat-menu-cancel" data-close>Cancel</button>
