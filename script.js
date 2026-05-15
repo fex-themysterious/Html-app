@@ -5,7 +5,7 @@
   let _db             = null;
   let _auth           = null;
   let _userId         = null;
-  let _cloudSyncTimer = null;
+  let _cloudSyncTimer = null; 
   let _authMode       = 'login'; // 'login' | 'signup'
   let _authConfigured = false;   // true once Firebase config validated & auth object created
 
@@ -399,35 +399,17 @@
     }
   }
 
-  function _setCloudStatus(status) {
-    const el = document.getElementById('cloud-sync-icon');
-    if (!el) return;
-    el.className = 'cloud-sync-icon cloud-' + status;
-    const msgs = {
-      idle:    'Cloud sync ready',
-      syncing: 'Saving to cloud\u2026',
-      synced:  'Saved to cloud \u2713',
-      error:   'Sync failed \u2014 working offline'
-    };
-    el.title = msgs[status] || '';
-  }
-
   function _scheduledCloudSync() {
     if (!_db || !_userId || !(_auth && _auth.currentUser)) return;
     clearTimeout(_cloudSyncTimer);
-    _setCloudStatus('syncing');
     _cloudSyncTimer = setTimeout(() => {
       _db.collection('users').doc(_userId).set({
         data:       JSON.stringify(state),
         uid:        _userId,
         updatedAt:  firebase.firestore.FieldValue.serverTimestamp()
       }).then(() => {
-        _setCloudStatus('synced');
-        setTimeout(() => _setCloudStatus('idle'), 3000);
       }).catch(e => {
         console.warn('[Firestore] Write failed:', e.message);
-        _setCloudStatus('error');
-        setTimeout(() => _setCloudStatus('idle'), 5000);
       });
     }, 3000);
   }
@@ -435,23 +417,17 @@
   async function _restoreFromCloud() {
     if (!_db || !_userId) return;
     try {
-      _setCloudStatus('syncing');
       const snap = await _db.collection('users').doc(_userId).get();
-      if (!snap.exists) { _setCloudStatus('idle'); return; }
+      if (!snap.exists) return;
       const raw = snap.data().data;
-      if (!raw) { _setCloudStatus('idle'); return; }
+      if (!raw) return;
       const parsed = JSON.parse(raw);
-      if (!parsed || !Array.isArray(parsed.subjects)) { _setCloudStatus('idle'); return; }
+      if (!parsed || !Array.isArray(parsed.subjects)) return;
       state = migrate(JSON.parse(JSON.stringify(parsed)));
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {}
       renderAll();
-      _setCloudStatus('synced');
-      setTimeout(() => _setCloudStatus('idle'), 3000);
-      /* cloud restore — silent */
     } catch (e) {
       console.warn('[Firestore] Restore failed:', e.message);
-      _setCloudStatus('error');
-      setTimeout(() => _setCloudStatus('idle'), 5000);
     }
   }
 
@@ -471,7 +447,6 @@
       refreshSettingsIfOpen();
       console.log('[Auth] Signed in:', user.email || user.uid);
       if (!_db) return;
-      _setCloudStatus('syncing');
       try {
         const snap = await _db.collection('users').doc(user.uid).get();
         if (snap.exists && snap.data() && snap.data().data) {
@@ -499,9 +474,6 @@
             } catch(_) {}
             renderAll();
             if (_currentTab === 'social') renderSocial();
-            _setCloudStatus('synced');
-            setTimeout(() => _setCloudStatus('idle'), 3000);
-            /* cloud sync — silent */
             return;
           }
         }
@@ -529,13 +501,9 @@
           joinedRooms: _myGroupCodes,
           updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
         });
-        _setCloudStatus('synced');
-        setTimeout(() => _setCloudStatus('idle'), 3000);
         toast('\u2705 Account linked! Data saved to cloud.', 'success', 4000);
       } catch (e) {
         console.warn('[Auth] Sync error:', e.message);
-        _setCloudStatus('error');
-        setTimeout(() => _setCloudStatus('idle'), 5000);
       }
     } else {
       _userId = null;
@@ -548,7 +516,6 @@
       _publicRooms = [];
       _publicRoomsLoading = false;
       try { localStorage.removeItem('my_group_codes'); } catch(_) {}
-      _setCloudStatus('idle');
       if (!_authSkipped) _scheduleModal();
       refreshSettingsIfOpen();
     }

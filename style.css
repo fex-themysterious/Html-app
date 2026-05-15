@@ -4262,31 +4262,6 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 }
 
 /* ── Cloud Sync Icon ──────────────────────────────────────────────────────── */
-.cloud-sync-icon {
-  position: fixed;
-  top: 12px;
-  right: 58px;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  z-index: 1001;
-  cursor: default;
-  transition: color 0.35s, opacity 0.35s;
-  opacity: 0.75;
-}
-.cloud-sync-icon:hover { opacity: 1; }
-.cloud-sync-icon svg { width: 17px; height: 17px; pointer-events: none; }
-.cloud-idle    { color: #475569; }
-.cloud-syncing { color: #f59e0b; animation: cloud-pulse 1.1s ease-in-out infinite; }
-.cloud-synced  { color: #22c55e; }
-.cloud-error   { color: #ef4444; }
-@keyframes cloud-pulse {
-  0%, 100% { opacity: 0.75; }
-  50%       { opacity: 0.25; }
-}
 
 /* ── Auth Overlay (Login / Sign-up Modal) ────────────────────────────────── */
 .auth-overlay {
