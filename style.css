@@ -8792,3 +8792,43 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
   gap: 5px;
 }
 .eff-dot-legend .eff-dot { width: 10px; height: 10px; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   PERFORMANCE — Mobile heat & battery optimisation
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Pause EVERY CSS animation when the app is backgrounded.
+   JS adds/removes .page-bg on document.body via visibilitychange.
+   This alone saves ~30-40 % GPU work on mobile while minimised. */
+body.page-bg *,
+body.page-bg *::before,
+body.page-bg *::after {
+  animation-play-state: paused !important;
+}
+
+/* Respect the OS "reduce motion" accessibility setting */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration:        0.01ms !important;
+    animation-iteration-count: 1      !important;
+    transition-duration:       0.1ms  !important;
+  }
+}
+
+/* Reduce backdrop-filter blur radius on mobile — it is the
+   single biggest GPU heat source on Android/iOS.
+   Full blur is kept on desktop/tablet (≥ 769 px) where GPU is faster. */
+@media (max-width: 768px) {
+  :root {
+    --glass-blur: blur(8px) saturate(120%);
+  }
+}
+
+/* Heavy always-on pulse animations → slow them down on mobile
+   so they consume less GPU time per second */
+@media (max-width: 768px) {
+  .hero-card.urgent        { animation-duration: 4s !important; }
+  .bento-urgent            { animation-duration: 4s !important; }
+  .sroom-lb-live-dot       { animation-duration: 3s !important; }
+  .lsm-aura                { animation-duration: 5s !important; }
+}

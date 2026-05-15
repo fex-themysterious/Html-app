@@ -863,10 +863,10 @@
   // ========== Social Study System =======================================
   // ======================================================================
   const SOCIAL_DISABLED = true; // Disabled — under maintenance, re-enable when bugs are fixed
-  const SOCIAL_OFFLINE_MS        = 90 * 1000;   // 90 s — 3x slow heartbeat buffer for mobile throttling
+  const SOCIAL_OFFLINE_MS        = 120 * 1000;  // 120 s — generous buffer for mobile throttling
   const SOCIAL_IDLE_INPUT_MS     = 5 * 60 * 1000; // 5 min no input → idle
-  const SOCIAL_HEARTBEAT_FAST_MS = 7000;          // active heartbeat interval
-  const SOCIAL_HEARTBEAT_SLOW_MS = 25000;         // background/idle heartbeat (well under 90s threshold)
+  const SOCIAL_HEARTBEAT_FAST_MS = 15000;         // active heartbeat — was 7s, halved for mobile battery
+  const SOCIAL_HEARTBEAT_SLOW_MS = 45000;         // background/idle heartbeat
   const SOCIAL_RECONNECT_MAX     = 8;             // max reconnect attempts
   const SOCIAL_BOUNTY_XP         = 50;
   let _socialRoomCode        = null;
@@ -2570,9 +2570,10 @@
 
   function _startSocialLiveTimers() {
     _stopSocialLiveTimers();
+    // 5 s interval (was 2 s) — reduces DOM queries by 60% for mobile battery
     _socialLiveTimerId = setInterval(() => {
+      if (document.hidden) return;  // skip entirely when backgrounded
       const now = Date.now();
-      // Support both old (.sm-elapsed) and new (.grm-elapsed) class names
       document.querySelectorAll('.sm-elapsed[data-focusat], .grm-elapsed[data-focusat]').forEach(el => {
         const start = parseInt(el.dataset.focusat, 10);
         if (!start || isNaN(start)) return;
@@ -2596,7 +2597,7 @@
         const h = Math.floor(rem / 3600000), m = Math.floor((rem % 3600000) / 60000);
         el.textContent = `⏳ ${h}h ${m}m to claim`;
       });
-    }, 2000);
+    }, 5000);
   }
 
   function _stopSocialLiveTimers() {
@@ -6089,11 +6090,19 @@
     maybeShowBackupReminder();
   }
 
+  // Stored so they can be cleared if startTimers() is ever called again
+  let _backupCheckInterval  = null;
+  let _midnightCheckInterval = null;
+
   function startTimers() {
+    // Clear any previously running intervals to prevent leaks
     clearInterval(dueTaskTimer);
-    setInterval(checkBackupBannerWindow, 60000);
+    clearInterval(_backupCheckInterval);
+    clearInterval(_midnightCheckInterval);
+
+    _backupCheckInterval = setInterval(checkBackupBannerWindow, 60000);
     // Check for date change every 60s — triggers midnight rollover
-    setInterval(() => {
+    _midnightCheckInterval = setInterval(() => {
       const now = todayKey();
       if (now !== _planDateKey) { _planDateKey = now; onMidnightReset(); }
     }, 60000);
@@ -11390,6 +11399,8 @@
 
   // Page visibility — sync focus timer and social presence on tab hide/show
   document.addEventListener('visibilitychange', () => {
+    // Toggle page-bg class so CSS pauses all animations while app is backgrounded
+    document.body.classList.toggle('page-bg', document.hidden);
     if (document.visibilityState === 'visible') {
       _socialIsBg = false;
       // Sync timer to wall-clock elapsed time (fixes background throttling)

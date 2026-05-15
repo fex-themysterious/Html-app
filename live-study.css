@@ -583,3 +583,27 @@
 #view-focus .lsm-mode-switcher {
   margin: -4px 0 12px 0;
 }
+
+/* ─────────────────────────────────────────────────
+   PERFORMANCE: Pause all Live Study animations when
+   the overlay is not active (user is on another tab)
+   ───────────────────────────────────────────────── */
+#lsm-overlay:not(.lsm-active) *,
+#lsm-overlay:not(.lsm-active)::before,
+#lsm-overlay:not(.lsm-active)::after {
+  animation-play-state: paused !important;
+}
+
+/* Also pause character / aura / dot animations while timer is paused */
+#lsm-overlay .lsm-timer.lsm-paused ~ * .lsm-character-svg,
+#lsm-overlay .lsm-timer.lsm-paused ~ * .lsm-dot {
+  animation-play-state: paused !important;
+}
+
+/* Reduce blur in live study overlay on mobile */
+@media (max-width: 768px) {
+  #lsm-overlay {
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+}
