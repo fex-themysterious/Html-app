@@ -147,18 +147,7 @@
 
         <!-- TOP BAR -->
         <div class="lsm-top-bar">
-          <button class="lsm-dday-badge" id="lsm-dday-badge" title="Set exam date">
-            <span id="lsm-dday-label">D-Day</span>
-            <span class="lsm-dday-count" id="lsm-dday-count">—</span>
-          </button>
-          <div class="lsm-top-actions">
-            <button class="lsm-icon-btn" id="lsm-swap-btn" title="Switch to Pomodoro">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4 4 4"/><path d="M17 8v12m0 0 4-4m-4 4-4-4"/></svg>
-            </button>
-            <button class="lsm-icon-btn" id="lsm-grid-btn" title="Pick subject">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-            </button>
-          </div>
+          <button class="lsm-exit-btn" id="lsm-exit-btn" title="Exit">✕ Exit</button>
         </div>
 
         <!-- STATUS + TIMER -->
@@ -207,7 +196,6 @@
 
         <!-- CONTROLS -->
         <div class="lsm-controls">
-          <button class="lsm-allowed-btn" id="lsm-allowed-btn">Allowed Apps</button>
           <button class="lsm-pause-btn" id="lsm-pause-btn" aria-label="Start / Pause">
             ${pauseIconSVG(false)}
           </button>
@@ -227,8 +215,6 @@
     xpValEl       = document.getElementById('lsm-xp-val');
     levelValEl    = document.getElementById('lsm-level-val');
     streakValEl   = document.getElementById('lsm-streak-val');
-    ddayBadge     = document.getElementById('lsm-dday-badge');
-    ddayCount     = document.getElementById('lsm-dday-count');
     characterSvg  = overlay.querySelector('.lsm-character-svg');
     auraEl        = document.getElementById('lsm-aura');
     pCanvas       = document.getElementById('lsm-particles');
@@ -236,10 +222,7 @@
 
     /* Events */
     pauseBtn.addEventListener('click', onPauseClick);
-    document.getElementById('lsm-swap-btn').addEventListener('click', switchToPomodoro);
-    document.getElementById('lsm-grid-btn').addEventListener('click', openSubjectPicker);
-    document.getElementById('lsm-allowed-btn').addEventListener('click', openAllowedApps);
-    ddayBadge.addEventListener('click', openDDayModal);
+    document.getElementById('lsm-exit-btn').addEventListener('click', hideOverlay);
 
     /* Canvas resize */
     resizeCanvas();
