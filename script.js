@@ -9608,7 +9608,8 @@
               <div><div class="ssc-title">XP Shop</div><div class="ssc-sub">Themes, titles &amp; effects</div></div>
             </div>
             <div class="ssc-right">
-              <div class="ssc-bal">⚡ ${((state.xp && state.xp.total) || 0).toLocaleString()}</div>
+              <div class="ssc-bal">⚡ ${Math.max(0,((state.xp&&state.xp.total)||0)-((state.xp&&state.xp.spent)||0)).toLocaleString()}</div>
+              <div class="ssc-avail">Available Balance</div>
               <div class="ssc-btn">Shop Now →</div>
             </div>
           </div>

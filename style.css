@@ -8319,11 +8319,31 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
 /* XP Shop banner inside settings */
 .stg-shop-banner {
   background: linear-gradient(135deg, #1a1206 0%, #120d02 100%);
-  border-color: rgba(251,191,36,0.25);
+  border-color: rgba(251,191,36,0.35);
+  box-shadow: 0 0 0 1px rgba(251,191,36,0.1), 0 8px 28px rgba(251,191,36,0.1);
   padding: 0;
   overflow: hidden;
 }
-.stg-shop-banner .ssc-inner { padding: 16px; }
+.stg-shop-banner .ssc-inner {
+  padding: 22px 20px;
+  align-items: center;
+}
+.stg-shop-banner .ssc-icon  { font-size: 36px; }
+.stg-shop-banner .ssc-title { font-size: 17px; font-weight: 800; }
+.stg-shop-banner .ssc-sub   { font-size: 12.5px; margin-top: 3px; }
+.stg-shop-banner .ssc-bal   {
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: -0.5px;
+}
+.ssc-avail {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(251,191,36,0.55);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-top: 2px;
+}
 .stg-shop-banner:active { transform: scale(0.98); }
 
 /* Settings row (label + toggle) */
