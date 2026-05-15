@@ -1159,6 +1159,7 @@
     if (_socialHeartbeatId) { clearInterval(_socialHeartbeatId); _socialHeartbeatId = null; }
     if (!_db || !_socialRoomCode) return;
     _socialHeartbeatId = setInterval(() => {
+      if (document.hidden) return; // skip when backgrounded — saves battery & Firestore writes
       _sHeartbeatTick++;
       const isIdle = Date.now() - _socialLastInputAt > SOCIAL_IDLE_INPUT_MS;
       const status = (focusRunning && focusMode === 'work') ? 'focusing' : (isIdle ? 'idle' : 'break');
@@ -4590,6 +4591,7 @@
   function _startShopBoosterTimer() {
     clearInterval(_shopBoosterInterval);
     _shopBoosterInterval = setInterval(() => {
+      if (document.hidden) return;
       const el = document.querySelector('.mkt-booster-countdown');
       if (!el) { clearInterval(_shopBoosterInterval); return; }
       if (_isBoosterActive()) {
@@ -6124,13 +6126,18 @@
     clearInterval(_backupCheckInterval);
     clearInterval(_midnightCheckInterval);
 
-    _backupCheckInterval = setInterval(checkBackupBannerWindow, 60000);
+    _backupCheckInterval = setInterval(() => {
+      if (document.hidden) return;
+      checkBackupBannerWindow();
+    }, 60000);
     // Check for date change every 60s — triggers midnight rollover
     _midnightCheckInterval = setInterval(() => {
+      if (document.hidden) return;
       const now = todayKey();
       if (now !== _planDateKey) { _planDateKey = now; onMidnightReset(); }
     }, 60000);
     dueTaskTimer = setInterval(() => {
+      if (document.hidden) return;
       const today = todayKey(); if (dueTaskNotifiedDate !== today) { dueTaskNotified.clear(); dueTaskNotifiedDate = today; }
       for (const item of dueRevisionItems()) {
         const key = `${item.revisionId}:${item.step.offset}`; if (dueTaskNotified.has(key)) continue;
@@ -6254,7 +6261,10 @@
   }
   function startMotivationRotation() {
     clearInterval(_motivationRotateTimer);
-    _motivationRotateTimer = setInterval(nextMotivationQuote, 30000);
+    _motivationRotateTimer = setInterval(() => {
+      if (document.hidden) return;
+      nextMotivationQuote();
+    }, 30000);
   }
 
   // ========== Focus Timer State ==========
@@ -7640,8 +7650,12 @@
   }
   function _genFsParticles() {
     const out = [];
+    // Reduce particle count on mobile to lower GPU load and heat
+    const isMobile = window.matchMedia('(max-width: 600px)').matches;
+    const starCount  = isMobile ? 4 : 7;
+    const blobCount  = isMobile ? 2 : 5;
     // Small bright stars (drift fast across)
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < starCount; i++) {
       const sz   = (1.5 + Math.random() * 3).toFixed(1);
       const top  = (4  + Math.random() * 82).toFixed(1);
       const dur  = (14 + Math.random() * 16).toFixed(1);
@@ -7651,7 +7665,7 @@
       out.push(`<div class="fs-particle" style="width:${sz}px;height:${sz}px;top:${top}%;--drift-y:${dy}px;animation-duration:${dur}s;animation-delay:${del}s;opacity:${op}"></div>`);
     }
     // Larger soft cloud blobs (drift slow)
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < blobCount; i++) {
       const sz   = (28 + Math.random() * 55).toFixed(1);
       const top  = (5  + Math.random() * 80).toFixed(1);
       const dur  = (24 + Math.random() * 22).toFixed(1);

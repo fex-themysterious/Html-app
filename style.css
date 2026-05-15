@@ -8804,6 +8804,8 @@ body.page-bg *,
 body.page-bg *::before,
 body.page-bg *::after {
   animation-play-state: paused !important;
+  /* Release all promoted GPU compositor layers — biggest heat/battery fix */
+  will-change: auto !important;
 }
 
 /* Respect the OS "reduce motion" accessibility setting */
