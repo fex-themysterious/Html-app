@@ -11454,6 +11454,9 @@
       }
       // Re-validate notification schedule (catches any missed/expired timers)
       scheduleAllNotifications();
+      // Immediately check midnight rollover (avoids up-to-60s delay from guarded interval)
+      const _fgNow = todayKey();
+      if (_fgNow !== _planDateKey) { _planDateKey = _fgNow; onMidnightReset(); }
       // Re-acquire alarm wake lock if alarm is still active
       if (_activeAlarmId && !_alarmWakeLock && 'wakeLock' in navigator) {
         navigator.wakeLock.request('screen').then(wl => { _alarmWakeLock = wl; }).catch(() => {});
