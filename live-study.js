@@ -10,9 +10,10 @@
 
   /* ── Constants ─────────────────────────────────────── */
   const LS_KEY         = 'liveStudy_v1';
+  const MAIN_LS_KEY    = 'syllabus_tracker_v2';   // main app storage key
   const XP_PER_MINUTE  = 10;
   const STATUS_MSGS    = ['Focusing', 'Deep Work', 'Locked In', 'In The Zone', 'Grind Mode'];
-  const DEEPWORK_MINS  = 25; // enter "deep work" visual state after this many minutes
+  const DEEPWORK_MINS  = 25;
 
   const DEFAULT_SUBJECTS = [
     { id: 'math',    icon: '📐', name: 'Mathematics' },
@@ -39,18 +40,19 @@
 
   /* ── State ─────────────────────────────────────────── */
   let state = {
-    mode: 'pomodoro',    // 'pomodoro' | 'live'
+    mode: 'pomodoro',
     running: false,
-    sessionElapsed: 0,   // ms — current session
-    subjectElapsed: 0,   // ms — current subject total today
-    todayElapsed: 0,     // ms — all subjects today
-    sessionStart: null,  // timestamp when last started
-    subject: null,       // { id, icon, name }
+    sessionElapsed: 0,       // ms — total elapsed this session (persisted accurately)
+    subjectElapsed: 0,       // ms — current subject total today
+    todayElapsed: 0,         // ms — all subjects today
+    sessionStart: null,      // wall-clock ms when last (re)started
+    subject: null,
     xp: 0,
     level: 1,
     streak: 0,
     lastStudyDate: null,
-    lastXPMinute: 0,     // track when last XP was awarded
+    lastXPMinute: 0,
+    lastCommittedMins: 0,    // ← minutes already written to main app today
     dday: { label: 'D-Day', date: null },
     allowedApps: [],
     customSubjects: [],
@@ -58,7 +60,7 @@
 
   /* ── DOM refs ───────────────────────────────────────── */
   let overlay, timerEl, statusEl, subjectTimeEl, todayTimeEl;
-  let pauseBtn, pauseIcon, xpValEl, levelValEl, streakValEl;
+  let pauseBtn, xpValEl, levelValEl, streakValEl;
   let ddayBadge, ddayCount, characterSvg, auraEl;
   let pCanvas, pCtx, particleAnim, particles = [];
   let tickInterval = null;
@@ -66,6 +68,30 @@
   let statusIdx = 0;
   let isOnFocusTab = false;
   let focusViewObserver = null;
+
+  /* ═══════════════════════════════════════════════════
+     DATE HELPERS — must match main app's localISO()
+  ═══════════════════════════════════════════════════ */
+  // FIX: pad month and day so format is YYYY-MM-DD (matches main app)
+  function todayStr() {
+    const d = new Date();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${mm}-${dd}`;
+  }
+
+  function calcStreak(prev, lastDate) {
+    if (!lastDate) return 0;
+    const today = todayStr();
+    const yd = new Date();
+    yd.setDate(yd.getDate() - 1);
+    const ymm = String(yd.getMonth() + 1).padStart(2, '0');
+    const ydd = String(yd.getDate()).padStart(2, '0');
+    const yesterday = `${yd.getFullYear()}-${ymm}-${ydd}`;
+    if (lastDate === yesterday) return (prev || 0) + 1;
+    if (lastDate === today)     return prev || 0;
+    return 0;
+  }
 
   /* ═══════════════════════════════════════════════════
      INIT
@@ -76,16 +102,18 @@
     injectModeSwitcher();
     watchFocusView();
     watchTabSwitches();
-    if (state.mode === 'live' && state.running) {
-      // Was running when page closed — restore elapsed
-      if (state.sessionStart) {
-        const pausedAt = state.sessionStart;
-        state.sessionElapsed += Date.now() - pausedAt;
-        state.sessionStart = null;
-        state.running = false;
-      }
+
+    // Recover from crash / page close without pause
+    if (state.mode === 'live' && state.running && state.sessionStart) {
+      const extra = Date.now() - state.sessionStart;
+      state.sessionElapsed += extra;
+      state.todayElapsed   += extra;   // FIX: also update today + subject
+      state.subjectElapsed += extra;
+      state.sessionStart = null;
+      state.running = false;
       saveState();
     }
+
     updateOverlayState();
     updateTimerDisplay();
     updateXPDisplay();
@@ -102,9 +130,11 @@
       const saved = JSON.parse(raw);
       const today = todayStr();
       if (saved.lastStudyDate !== today) {
-        saved.subjectElapsed = 0;
-        saved.todayElapsed   = 0;
-        saved.lastXPMinute   = 0;
+        // New day — reset daily counters
+        saved.subjectElapsed     = 0;
+        saved.todayElapsed       = 0;
+        saved.lastXPMinute       = 0;
+        saved.lastCommittedMins  = 0;   // reset daily commit tracking
         saved.streak = calcStreak(saved.streak, saved.lastStudyDate);
       }
       Object.assign(state, saved);
@@ -116,19 +146,62 @@
     try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (_) {}
   }
 
-  function todayStr() {
-    const d = new Date();
-    return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-  }
+  /* ═══════════════════════════════════════════════════
+     SYNC TO MAIN APP
+     Writes accumulated minutes into syllabus_tracker_v2
+     so stats, charts and heatmap all update correctly.
+  ═══════════════════════════════════════════════════ */
+  function commitToMainApp() {
+    // Compute current total today in ms
+    const now = Date.now();
+    const runningDelta = (state.running && state.sessionStart) ? now - state.sessionStart : 0;
+    const totalTodayMs = state.todayElapsed + runningDelta;
+    const totalTodayMins = Math.floor(totalTodayMs / 60000);
 
-  function calcStreak(prev, lastDate) {
-    if (!lastDate) return 0;
-    const today   = todayStr();
-    const yd      = new Date(); yd.setDate(yd.getDate() - 1);
-    const yesterday = `${yd.getFullYear()}-${yd.getMonth()}-${yd.getDate()}`;
-    if (lastDate === yesterday) return (prev || 0) + 1;
-    if (lastDate === today)     return prev || 0;
-    return 0;
+    const delta = totalTodayMins - (state.lastCommittedMins || 0);
+    if (delta < 1) return;  // nothing new to commit
+
+    state.lastCommittedMins = totalTodayMins;
+    saveState();
+
+    const today = todayStr();
+
+    // ── Write to main app localStorage ────────────────
+    try {
+      const raw = localStorage.getItem(MAIN_LS_KEY);
+      if (raw) {
+        const mainState = JSON.parse(raw);
+        if (!mainState.focusStats) mainState.focusStats = {};
+        if (!mainState.focusStats.minutesByDate) mainState.focusStats.minutesByDate = {};
+        if (!mainState.focusStats.sessions)      mainState.focusStats.sessions = {};
+        if (!mainState.focusStats.videoMinutes)  mainState.focusStats.videoMinutes = {};
+        mainState.focusStats.minutesByDate[today] = (mainState.focusStats.minutesByDate[today] || 0) + delta;
+        mainState.focusStats.sessions[today]      = (mainState.focusStats.sessions[today]      || 0) + 1;
+        // bump activity
+        if (!mainState.activity) mainState.activity = {};
+        mainState.activity[today] = true;
+        localStorage.setItem(MAIN_LS_KEY, JSON.stringify(mainState));
+      }
+    } catch (_) {}
+
+    // ── Live sync into main app's in-memory state (best-effort) ──
+    try {
+      if (typeof gamificationManager !== 'undefined' && gamificationManager.addFocusXP) {
+        gamificationManager.addFocusXP(delta, today);
+      }
+    } catch (_) {}
+    // Trigger chart refresh if stats tab is visible
+    try {
+      if (typeof renderStats === 'function' && document.body.classList.contains('tab-stats')) {
+        renderStats();
+      }
+    } catch (_) {}
+    try {
+      if (typeof renderDashboard === 'function') renderDashboard();
+    } catch (_) {}
+    try {
+      if (typeof _updateLiveStats === 'function') _updateLiveStats();
+    } catch (_) {}
   }
 
   /* ═══════════════════════════════════════════════════
@@ -222,7 +295,7 @@
 
     /* Events */
     pauseBtn.addEventListener('click', onPauseClick);
-    document.getElementById('lsm-exit-btn').addEventListener('click', hideOverlay);
+    document.getElementById('lsm-exit-btn').addEventListener('click', onExitClick);
 
     /* Canvas resize */
     resizeCanvas();
@@ -232,52 +305,29 @@
   function buildCharacterSVG() {
     return `
     <svg class="lsm-character-svg" viewBox="0 0 200 170" fill="none" xmlns="http://www.w3.org/2000/svg" overflow="visible">
-      <!-- Desk surface -->
       <line x1="28" y1="132" x2="172" y2="132" stroke="var(--lsm-accent)" stroke-width="2.8" stroke-linecap="round"/>
-      <!-- Desk legs -->
       <line x1="45"  y1="132" x2="45"  y2="155" stroke="var(--lsm-accent)" stroke-width="2.2" stroke-linecap="round"/>
       <line x1="155" y1="132" x2="155" y2="155" stroke="var(--lsm-accent)" stroke-width="2.2" stroke-linecap="round"/>
-
-      <!-- Books stack on desk -->
       <rect x="110" y="116" width="38" height="4"  rx="1.5" fill="rgba(255,122,26,0.5)" stroke="var(--lsm-accent)" stroke-width="1.5"/>
       <rect x="112" y="111" width="34" height="4"  rx="1.5" fill="rgba(255,122,26,0.35)" stroke="var(--lsm-accent)" stroke-width="1.5"/>
       <rect x="115" y="106" width="28" height="4"  rx="1.5" fill="rgba(255,122,26,0.2)" stroke="var(--lsm-accent)" stroke-width="1.5"/>
-
-      <!-- Person body -->
       <line x1="90" y1="93"  x2="90" y2="128" stroke="var(--lsm-accent)" stroke-width="3" stroke-linecap="round"/>
-
-      <!-- Person head (bobs) -->
       <g class="lsm-char-head">
         <circle cx="90" cy="76" r="16" stroke="var(--lsm-accent)" stroke-width="2.5"/>
-        <!-- Hair detail -->
         <path d="M78 70 Q82 60 90 62 Q98 60 102 70" stroke="var(--lsm-accent)" stroke-width="2" stroke-linecap="round" fill="none"/>
       </g>
-
-      <!-- Left arm resting -->
       <line x1="90" y1="105" x2="55"  y2="126" stroke="var(--lsm-accent)" stroke-width="2.5" stroke-linecap="round"/>
-      <!-- Right arm writing (animates) -->
       <g class="lsm-arm-r">
         <line x1="90" y1="105" x2="120" y2="124" stroke="var(--lsm-accent)" stroke-width="2.5" stroke-linecap="round"/>
-        <!-- Pen -->
         <line x1="120" y1="124" x2="126" y2="130" stroke="var(--lsm-accent)" stroke-width="1.8" stroke-linecap="round"/>
       </g>
-
-      <!-- Paper on desk -->
       <rect x="58" y="120" width="44" height="11" rx="2" fill="rgba(255,122,26,0.12)" stroke="var(--lsm-accent)" stroke-width="1.5"/>
-      <!-- Lines on paper -->
       <line x1="63" y1="124" x2="96" y2="124" stroke="var(--lsm-accent)" stroke-width="1" stroke-linecap="round" opacity="0.5"/>
       <line x1="63" y1="127" x2="88" y2="127" stroke="var(--lsm-accent)" stroke-width="1" stroke-linecap="round" opacity="0.3"/>
-
-      <!-- Lamp post -->
       <line x1="148" y1="132" x2="148" y2="86" stroke="var(--lsm-accent)" stroke-width="2.2" stroke-linecap="round"/>
-      <!-- Lamp arm -->
       <line x1="148" y1="86" x2="124" y2="72" stroke="var(--lsm-accent)" stroke-width="2.2" stroke-linecap="round"/>
-      <!-- Lamp shade -->
       <path d="M114 72 Q124 58 134 72 Z" stroke="var(--lsm-accent)" stroke-width="2" stroke-linejoin="round" fill="rgba(255,122,26,0.18)"/>
-      <!-- Lamp glow circle -->
       <circle cx="124" cy="75" r="14" fill="rgba(255,122,26,0.06)" class="lsm-lamp-glow"/>
-
-      <!-- Floating thought dots -->
       <circle class="lsm-dot" cx="62" cy="62" r="3.5" fill="var(--lsm-accent)" opacity="0.7"/>
       <circle class="lsm-dot" cx="52" cy="50" r="4.5" fill="var(--lsm-accent)" opacity="0.8"/>
       <circle class="lsm-dot" cx="40" cy="37" r="6"   fill="var(--lsm-accent)" opacity="0.9"/>
@@ -316,7 +366,6 @@
       if (!btn) return;
       setMode(btn.dataset.lsmMode);
     });
-    // Insert before first child of view (above page-header)
     view.insertBefore(sw, view.firstChild);
   }
 
@@ -339,8 +388,6 @@
     }
   }
 
-  function switchToPomodoro() { setMode('pomodoro'); }
-
   function updateModeSwitcherUI() {
     const sw = document.getElementById('lsm-mode-switcher');
     if (!sw) return;
@@ -358,6 +405,15 @@
     updateTimerDisplay();
   }
 
+  // FIX: exit button saves progress before hiding
+  function onExitClick() {
+    if (state.running) {
+      pauseTimer();   // flush elapsed into state
+    }
+    commitToMainApp();  // write to main app
+    hideOverlay();
+  }
+
   function hideOverlay() {
     if (!overlay) return;
     overlay.classList.remove('lsm-active');
@@ -370,7 +426,7 @@
   ═══════════════════════════════════════════════════ */
   function startTimer() {
     if (state.running) return;
-    state.running     = true;
+    state.running      = true;
     state.sessionStart = Date.now();
     saveState();
     tickInterval = setInterval(tick, 1000);
@@ -381,67 +437,73 @@
   function pauseTimer() {
     if (!state.running) return;
     clearInterval(tickInterval); tickInterval = null;
-    const now = Date.now();
+    const now   = Date.now();
     const delta = now - state.sessionStart;
+    // FIX: accumulate into all counters correctly
     state.sessionElapsed  += delta;
     state.subjectElapsed  += delta;
     state.todayElapsed    += delta;
     state.sessionStart    = null;
     state.running         = false;
     stopStatusRotation();
+    commitToMainApp();   // ← write minutes to main app on every pause
     saveState();
     updateOverlayState();
   }
 
   function tick() {
+    if (!state.running || !state.sessionStart) return;
     const now   = Date.now();
     const delta = now - state.sessionStart;
-    const totalElapsed = state.sessionElapsed + delta;
+
+    // Live display values
+    const totalSession = state.sessionElapsed + delta;
     const totalToday   = state.todayElapsed   + delta;
     const totalSubject = state.subjectElapsed + delta;
 
-    updateTimerRaw(totalElapsed);
-    subjectTimeEl.textContent = formatHMS(totalSubject);
-    todayTimeEl.textContent   = formatHMS(totalToday);
+    updateTimerRaw(totalSession);
+    if (subjectTimeEl) subjectTimeEl.textContent = formatHMS(totalSubject);
+    if (todayTimeEl)   todayTimeEl.textContent   = formatHMS(totalToday);
 
-    // XP: award every complete minute
-    const elapsedMins = Math.floor(totalElapsed / 60000);
+    // XP: award every complete minute of SESSION time
+    const elapsedMins = Math.floor(totalSession / 60000);
     if (elapsedMins > state.lastXPMinute) {
       const earned = (elapsedMins - state.lastXPMinute) * XP_PER_MINUTE;
       state.lastXPMinute = elapsedMins;
       awardXP(earned);
+      commitToMainApp();   // ← write to main app every minute
     }
 
-    // Deep work visual state after DEEPWORK_MINS
+    // Deep work visual state
     if (elapsedMins >= DEEPWORK_MINS) {
       overlay.classList.add('lsm-deepwork');
     } else {
       overlay.classList.remove('lsm-deepwork');
     }
 
-    // Save every 30s
-    if (Math.floor(totalElapsed / 1000) % 30 === 0) {
+    // FIX: periodic save every 30s — keep sessionElapsed as running total (not reset to 0)
+    if (Math.floor(totalSession / 1000) % 30 === 0) {
+      state.sessionElapsed = totalSession;   // ← full running total, NOT 0
       state.todayElapsed   = totalToday;
       state.subjectElapsed = totalSubject;
-      state.sessionStart   = now;
-      state.sessionElapsed = 0;
+      state.sessionStart   = now;            // reset baseline so delta stays small
       saveState();
     }
   }
 
   function updateTimerRaw(ms) {
-    timerEl.textContent = formatHMS(ms);
+    if (timerEl) timerEl.textContent = formatHMS(ms);
   }
 
   function updateTimerDisplay() {
     if (!timerEl) return;
-    timerEl.textContent   = formatHMS(state.sessionElapsed);
+    timerEl.textContent = formatHMS(state.sessionElapsed);
     if (subjectTimeEl) subjectTimeEl.textContent = formatHMS(state.subjectElapsed);
     if (todayTimeEl)   todayTimeEl.textContent   = formatHMS(state.todayElapsed);
   }
 
   function formatHMS(ms) {
-    const totalSec = Math.floor(ms / 1000);
+    const totalSec = Math.max(0, Math.floor(ms / 1000));
     const h  = Math.floor(totalSec / 3600);
     const m  = Math.floor((totalSec % 3600) / 60);
     const s  = totalSec % 60;
@@ -452,7 +514,6 @@
      PAUSE BUTTON
   ═══════════════════════════════════════════════════ */
   function onPauseClick(e) {
-    // Ripple effect
     const btn  = e.currentTarget;
     const rect = btn.getBoundingClientRect();
     const rip  = document.createElement('span');
@@ -461,12 +522,8 @@
     rip.style.cssText = `width:${size}px;height:${size}px;top:${e.clientY-rect.top-size/2}px;left:${e.clientX-rect.left-size/2}px`;
     btn.appendChild(rip);
     setTimeout(() => rip.remove(), 600);
-
-    if (state.running) {
-      pauseTimer();
-    } else {
-      startTimer();
-    }
+    if (state.running) pauseTimer();
+    else               startTimer();
   }
 
   function updateOverlayState() {
@@ -475,10 +532,9 @@
     if (!pauseBtn) return;
     pauseBtn.classList.toggle('lsm-is-running', state.running);
     pauseBtn.innerHTML = pauseIconSVG(state.running);
-
-    if (timerEl) timerEl.classList.toggle('lsm-paused', !state.running);
-    if (statusEl) statusEl.classList.toggle('lsm-running', state.running);
-    if (auraEl)   auraEl.classList.toggle('lsm-dim', !state.running);
+    if (timerEl)      timerEl.classList.toggle('lsm-paused', !state.running);
+    if (statusEl)     statusEl.classList.toggle('lsm-running', state.running);
+    if (auraEl)       auraEl.classList.toggle('lsm-dim', !state.running);
     if (characterSvg) characterSvg.classList.toggle('lsm-paused', !state.running);
   }
 
@@ -510,15 +566,13 @@
   }
 
   /* ═══════════════════════════════════════════════════
-     XP SYSTEM
+     XP SYSTEM (live-study internal XP display)
   ═══════════════════════════════════════════════════ */
   function awardXP(amount) {
     state.xp += amount;
     state.level = Math.floor(state.xp / 500) + 1;
     updateXPDisplay();
     showXPPopup(amount);
-    // Try to sync with main app if accessible
-    trySyncXP(amount);
     saveState();
   }
 
@@ -538,15 +592,6 @@
     setTimeout(() => el.remove(), 1600);
   }
 
-  function trySyncXP(amount) {
-    // Best-effort attempt to feed into main app's gamification if available
-    try {
-      if (typeof gamificationManager !== 'undefined' && gamificationManager.addFocusXP) {
-        gamificationManager.addFocusXP(amount / XP_PER_MINUTE, todayStr());
-      }
-    } catch (_) {}
-  }
-
   /* ═══════════════════════════════════════════════════
      D-DAY
   ═══════════════════════════════════════════════════ */
@@ -554,16 +599,18 @@
     if (!ddayCount || !ddayBadge) return;
     if (!state.dday.date) {
       ddayCount.textContent = '—';
-      document.getElementById('lsm-dday-label').textContent = 'D-Day';
+      const lbl = document.getElementById('lsm-dday-label');
+      if (lbl) lbl.textContent = 'D-Day';
       return;
     }
     const target = new Date(state.dday.date);
     const now    = new Date();
     const diff   = Math.ceil((target - now) / (1000*60*60*24));
-    document.getElementById('lsm-dday-label').textContent = state.dday.label || 'D-Day';
-    if (diff > 0)       ddayCount.textContent = `-${diff}`;
+    const lbl = document.getElementById('lsm-dday-label');
+    if (lbl) lbl.textContent = state.dday.label || 'D-Day';
+    if (diff > 0)        ddayCount.textContent = `-${diff}`;
     else if (diff === 0) ddayCount.textContent = 'TODAY';
-    else                ddayCount.textContent = `+${Math.abs(diff)}`;
+    else                 ddayCount.textContent = `+${Math.abs(diff)}`;
   }
 
   function openDDayModal() {
@@ -610,12 +657,12 @@
       row.addEventListener('click', () => {
         const subj = all.find(s => s.id === row.dataset.subjectId);
         if (!subj) return;
-        // Reset subject elapsed when switching
         if (!state.subject || state.subject.id !== subj.id) {
           state.subjectElapsed = 0;
         }
         state.subject = subj;
-        document.getElementById('lsm-subject-label').textContent = subj.name;
+        const lbl = document.getElementById('lsm-subject-label');
+        if (lbl) lbl.textContent = subj.name;
         saveState();
         closeModal(modal);
       });
@@ -706,24 +753,18 @@
         p.x  += p.vx;
         p.life -= p.decay;
         if (p.life <= 0) Object.assign(p, makeParticle());
-
         pCtx.save();
         pCtx.globalAlpha = Math.max(0, p.life) * 0.6;
-
-        // Ember spark
         pCtx.shadowBlur  = 8;
         pCtx.shadowColor = `rgba(${r},${g},${b},0.9)`;
         pCtx.fillStyle   = `rgba(${r},${Math.min(255,g+80)},0,1)`;
         pCtx.beginPath();
         pCtx.arc(p.x, p.y, p.size, 0, Math.PI*2);
         pCtx.fill();
-
-        // Tiny trail
         pCtx.globalAlpha *= 0.35;
         pCtx.beginPath();
         pCtx.arc(p.x - p.vx*3, p.y - p.vy*3, p.size * 0.7, 0, Math.PI*2);
         pCtx.fill();
-
         pCtx.restore();
       });
       particleAnim = requestAnimationFrame(loop);
@@ -751,7 +792,6 @@
 
   /* ═══════════════════════════════════════════════════
      FOCUS VIEW OBSERVER
-     Re-inject mode switcher after every render
   ═══════════════════════════════════════════════════ */
   function watchFocusView() {
     const view = document.getElementById('view-focus');
@@ -760,11 +800,8 @@
     focusViewObserver = new MutationObserver(() => {
       clearTimeout(debounce);
       debounce = setTimeout(() => {
-        if (!document.getElementById('lsm-mode-switcher')) {
-          injectModeSwitcher();
-        }
+        if (!document.getElementById('lsm-mode-switcher')) injectModeSwitcher();
         if (state.mode === 'live') updateModeSwitcherUI();
-        // Sync subject label
         if (state.subject && document.getElementById('lsm-subject-label')) {
           document.getElementById('lsm-subject-label').textContent = state.subject.name;
         }
@@ -780,19 +817,13 @@
     const bodyObs = new MutationObserver(() => {
       const onFocus = document.body.classList.contains('tab-focus');
       if (onFocus && !isOnFocusTab) {
-        // Arrived on Focus tab
         isOnFocusTab = true;
-        if (state.mode === 'live') {
-          showOverlay();
-        }
-        if (!document.getElementById('lsm-mode-switcher')) {
-          injectModeSwitcher();
-        }
+        if (state.mode === 'live') showOverlay();
+        if (!document.getElementById('lsm-mode-switcher')) injectModeSwitcher();
       } else if (!onFocus && isOnFocusTab) {
-        // Left Focus tab
         isOnFocusTab = false;
         if (state.mode === 'live' && state.running) {
-          // Keep timer running, just hide overlay
+          // Keep timer running in background, just hide overlay
           overlay.classList.remove('lsm-active');
           stopParticles();
         } else {
@@ -805,26 +836,76 @@
   }
 
   /* ═══════════════════════════════════════════════════
+     PAGE LIFECYCLE — crash protection
+  ═══════════════════════════════════════════════════ */
+
+  // FIX: save elapsed on page hide (reload, tab close, back button)
+  window.addEventListener('pagehide', () => {
+    if (state.mode === 'live' && state.running && state.sessionStart) {
+      const extra = Date.now() - state.sessionStart;
+      state.sessionElapsed += extra;
+      state.todayElapsed   += extra;
+      state.subjectElapsed += extra;
+      state.sessionStart = Date.now();  // reset so recovery works
+      // Commit to main app synchronously
+      const totalMins = Math.floor(state.todayElapsed / 60000);
+      const delta = totalMins - (state.lastCommittedMins || 0);
+      if (delta >= 1) {
+        state.lastCommittedMins = totalMins;
+        try {
+          const today = todayStr();
+          const raw = localStorage.getItem(MAIN_LS_KEY);
+          if (raw) {
+            const ms = JSON.parse(raw);
+            if (!ms.focusStats) ms.focusStats = {};
+            if (!ms.focusStats.minutesByDate) ms.focusStats.minutesByDate = {};
+            ms.focusStats.minutesByDate[today] = (ms.focusStats.minutesByDate[today] || 0) + delta;
+            localStorage.setItem(MAIN_LS_KEY, JSON.stringify(ms));
+          }
+        } catch (_) {}
+      }
+      saveState();
+    }
+  });
+
+  // FIX: re-sync elapsed on tab return (handles background throttling)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      // Re-sync: nothing special needed since tick() uses wall-clock delta
+      if (state.mode === 'live' && state.running) {
+        // Just update display immediately
+        if (state.sessionStart) {
+          const delta = Date.now() - state.sessionStart;
+          updateTimerRaw(state.sessionElapsed + delta);
+          if (subjectTimeEl) subjectTimeEl.textContent = formatHMS(state.subjectElapsed + delta);
+          if (todayTimeEl)   todayTimeEl.textContent   = formatHMS(state.todayElapsed   + delta);
+        }
+      }
+    } else {
+      // Going to background: flush to main app
+      if (state.mode === 'live' && state.running) {
+        commitToMainApp();
+      }
+    }
+  });
+
+  /* ═══════════════════════════════════════════════════
      BOOT
   ═══════════════════════════════════════════════════ */
   function boot() {
     init();
-    // If on focus tab on load with live mode active, show overlay
     if (document.body.classList.contains('tab-focus') && state.mode === 'live') {
       showOverlay();
     }
   }
 
-  // Auto-navigate to focus tab via URL hash (for direct linking / screenshots)
   function maybeAutoNav() {
     const hash = window.location.hash;
     if (hash === '#focus' || hash === '#live') {
       setTimeout(() => {
         const btn = document.querySelector('.nav-btn[data-tab="focus"]');
         if (btn) btn.click();
-        if (hash === '#live') {
-          setTimeout(() => setMode('live'), 200);
-        }
+        if (hash === '#live') setTimeout(() => setMode('live'), 200);
       }, 400);
     }
   }
