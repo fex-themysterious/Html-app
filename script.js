@@ -204,6 +204,7 @@
     if (!s.focusStats || typeof s.focusStats !== 'object') s.focusStats = { sessions: {}, minutesByDate: {} };
     if (!s.focusStats.sessions) s.focusStats.sessions = {};
     if (!s.focusStats.minutesByDate) s.focusStats.minutesByDate = {};
+    if (!s.focusStats.topicsCompletedByDate) s.focusStats.topicsCompletedByDate = {};
     s.recurringTasks = Array.isArray(s.recurringTasks) ? s.recurringTasks.map(rt => ({
       id: rt.id || uid(), text: rt.text || '', frequency: rt.frequency || 'daily', lastResetDate: rt.lastResetDate || null
     })) : [];
@@ -4341,6 +4342,12 @@
     }
   }
 
+  function bumpSyllabusCompletion(n) {
+    const k = todayKey();
+    if (!state.focusStats.topicsCompletedByDate) state.focusStats.topicsCompletedByDate = {};
+    state.focusStats.topicsCompletedByDate[k] = (state.focusStats.topicsCompletedByDate[k] || 0) + (n || 1);
+  }
+
   function bumpActivity() {
     const k = todayKey();
     state.activity[k] = (state.activity[k] || 0) + 1;
@@ -7497,7 +7504,7 @@
       const task = focusCurrentTaskKey ? getActivePlanTasks().find(t => t.key === focusCurrentTaskKey) : null;
       if (task && !task.done) {
         confirmModal(`Session complete! Mark "${task.text}" as done?`, () => {
-          if (task.type === 'auto') { const t = findTopic(task.subId, task.chId, task.tId); if (t) { t.done = true; bumpActivity(); onTopicDoneChanged(task.subId, task.chId, task.tId, true); saveState(); renderAll(); } }
+          if (task.type === 'auto') { const t = findTopic(task.subId, task.chId, task.tId); if (t) { t.done = true; bumpActivity(); bumpSyllabusCompletion(1); onTopicDoneChanged(task.subId, task.chId, task.tId, true); saveState(); renderAll(); } }
           else { const plan = state.dailyPlans[todayKey()]; if (plan) { const ct = plan.custom.find(c => c.id === task.id); if (ct) { ct.done = true; bumpActivity(); saveState(); renderAll(); } } }
         }, { title: 'Session done!', yesLabel: 'Mark done', yesClass: 'btn' });
       } else {
@@ -8916,7 +8923,7 @@
     const _buildEffData = keys => keys.map(k => {
       const fMin = state.focusStats.minutesByDate[k] || 0;
       const fHrs = parseFloat((fMin / 60).toFixed(2));
-      const comp = state.activity[k] || 0;
+      const comp = (state.focusStats.topicsCompletedByDate && state.focusStats.topicsCompletedByDate[k]) || 0;
       const prod = fHrs > 0 ? parseFloat((comp / fHrs).toFixed(2)) : 0;
       const lbl  = new Date(k + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 3);
       return { k, label: lbl, focusHrs: fHrs, completions: comp, productivity: prod };
@@ -10014,7 +10021,7 @@
     if (act === 'regen-plan') { closeModal(); const k = todayKey(); if (state.dailyPlans[k]) { state.dailyPlans[k].generated = false; state.dailyPlans[k].auto = []; state.dailyPlans[k].custom = state.dailyPlans[k].custom.filter(c => !c.rolledOver); } saveState(); ensureTodayPlan(); renderDashboard(); toast('Plan regenerated', 'info'); return; }
     if (act === 'toggle-plan-task') {
       const type = el.dataset.type;
-      if (type === 'auto') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { const wasDone = t.done; t.done = !t.done; if (t.done) { bumpActivity(); gamificationManager.addTaskXP(el); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); _justPoppedKey = `auto:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`; } else onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, false); const tasks = getActivePlanTasks(); if (tasks.length > 0 && tasks.every(x => x.done) && !wasDone) _justCompletedDay = todayKey(); saveState(); renderAll(); } }
+      if (type === 'auto') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { const wasDone = t.done; t.done = !t.done; if (t.done) { bumpActivity(); bumpSyllabusCompletion(1); gamificationManager.addTaskXP(el); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); _justPoppedKey = `auto:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`; } else onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, false); const tasks = getActivePlanTasks(); if (tasks.length > 0 && tasks.every(x => x.done) && !wasDone) _justCompletedDay = todayKey(); saveState(); renderAll(); } }
       else { const plan = state.dailyPlans[todayKey()]; if (plan) { const ct = plan.custom.find(c => c.id === el.dataset.id); if (ct) { ct.done = !ct.done; if (ct.done) { bumpActivity(); gamificationManager.addTaskXP(el); } saveState(); renderAll(); } } }
       return;
     }
@@ -10123,7 +10130,7 @@
 
     // Chapters
     if (act === 'toggle-chapter') { const id = el.dataset.id; openChapters.has(id) ? openChapters.delete(id) : openChapters.add(id); renderSyllabus(); return; }
-    if (act === 'toggle-chapter-done') { const ch = findChapter(el.dataset.sub, el.dataset.ch); if (ch) { const nowDone = !isChapterEffectivelyDone(ch); for (const t of ch.topics) { if (t.done !== nowDone) { t.done = nowDone; onTopicDoneChanged(el.dataset.sub, el.dataset.ch, t.id, nowDone); } } ch.done = nowDone; if (nowDone) bumpActivity(); saveState(); renderAll(); toast(nowDone ? 'Chapter marked done' : 'Chapter reopened', nowDone ? 'success' : 'info'); } return; }
+    if (act === 'toggle-chapter-done') { const ch = findChapter(el.dataset.sub, el.dataset.ch); if (ch) { const nowDone = !isChapterEffectivelyDone(ch); const _newTopics = nowDone ? ch.topics.filter(t => !t.done).length : 0; for (const t of ch.topics) { if (t.done !== nowDone) { t.done = nowDone; onTopicDoneChanged(el.dataset.sub, el.dataset.ch, t.id, nowDone); } } ch.done = nowDone; if (nowDone) { bumpActivity(); bumpSyllabusCompletion(_newTopics || 1); } saveState(); renderAll(); toast(nowDone ? 'Chapter marked done' : 'Chapter reopened', nowDone ? 'success' : 'info'); } return; }
     if (act === 'add-chapter') { closeDropdown(); modalAddChapter(el.dataset.sub, null); return; }
     if (act === 'open-chapter-menu') { e.stopPropagation(); showChapterMenu(el.dataset.sub, el.dataset.ch); return; }
     if (act === 'edit-chapter') { closeDropdown(); const ch = findChapter(el.dataset.sub, el.dataset.ch); if (ch) modalAddChapter(el.dataset.sub, ch); return; }
@@ -10131,7 +10138,7 @@
     if (act === 'schedule-chapter') { closeDropdown(); const ch = findChapter(el.dataset.sub, el.dataset.ch); if (!ch) return; openModal(`<h3>Schedule Chapter</h3><div class="field"><label>Date</label><input id="m-date" type="date" value="${ch.scheduledDate || todayKey()}"/></div><div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn" id="m-save">Schedule</button></div>`, root => { root.querySelector('#m-save').onclick = () => { ch.scheduledDate = root.querySelector('#m-date').value || null; saveState(); closeModal(); renderAll(); toast('Chapter scheduled', 'success'); }; }); return; }
 
     // Topics
-    if (act === 'toggle-topic-done') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.done = !t.done; if (t.done) bumpActivity(); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, t.done); saveState(); renderAll(); } return; }
+    if (act === 'toggle-topic-done') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.done = !t.done; if (t.done) { bumpActivity(); bumpSyllabusCompletion(1); } onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, t.done); saveState(); renderAll(); } return; }
     if (act === 'add-topic') { closeDropdown(); modalAddTopic(el.dataset.sub, el.dataset.ch, null); return; }
     if (act === 'open-topic-menu') { e.stopPropagation(); showTopicMenu(el.dataset.sub, el.dataset.ch, el.dataset.t); return; }
     if (act === 'edit-topic') { closeDropdown(); const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) modalAddTopic(el.dataset.sub, el.dataset.ch, t); return; }
@@ -11144,11 +11151,11 @@
 
     // Smart suggestions
     if (act === 'suggest-rev-done') { completeRevisionStep(el.dataset.rev, parseInt(el.dataset.off, 10)); renderDashboard(); toast('Marked done', 'success'); return; }
-    if (act === 'suggest-topic-done') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.done = true; bumpActivity(); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); saveState(); renderAll(); toast('Marked done', 'success'); } return; }
+    if (act === 'suggest-topic-done') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.done = true; bumpActivity(); bumpSyllabusCompletion(1); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); saveState(); renderAll(); toast('Marked done', 'success'); } return; }
     if (act === 'suggest-open') { openSubjects.add(el.dataset.sub); openChapters.add(el.dataset.ch); switchTab('syllabus'); renderSyllabus(); return; }
 
     // Weak areas
-    if (act === 'weak-mark-done') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.done = true; bumpActivity(); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); saveState(); renderAll(); toast('Marked done', 'success'); } return; }
+    if (act === 'weak-mark-done') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.done = true; bumpActivity(); bumpSyllabusCompletion(1); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); saveState(); renderAll(); toast('Marked done', 'success'); } return; }
     if (act === 'weak-reset') { resetWeakTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); saveState(); renderDashboard(); toast('Reset weak flag', 'info'); return; }
 
     // Settings actions
