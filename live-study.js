@@ -469,12 +469,15 @@
     updateTimerDisplay();
   }
 
-  // FIX: exit button saves progress before hiding
+  // Exit: save progress, switch mode back to pomodoro, update switcher UI
   function onExitClick() {
     if (state.running) {
       pauseTimer();   // flush elapsed into state
     }
     commitToMainApp();  // write to main app
+    state.mode = 'pomodoro';
+    saveState();
+    updateModeSwitcherUI();
     hideOverlay();
   }
 
