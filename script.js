@@ -9034,8 +9034,8 @@
           <span class="eff-live-badge">LIVE</span>
         </div>
         <div class="eff-toggle-row">
-          <button class="eff-toggle-btn eff-toggle-active" id="eff-btn-weekly">Weekly</button>
-          <button class="eff-toggle-btn" id="eff-btn-monthly">Monthly</button>
+          <button class="eff-toggle-btn eff-toggle-active" id="eff-btn-weekly" data-act="eff-toggle" data-mode="weekly">Weekly</button>
+          <button class="eff-toggle-btn" id="eff-btn-monthly" data-act="eff-toggle" data-mode="monthly">Monthly</button>
         </div>
         <div class="eff-graph-wrap"><canvas id="eff-graph-canvas"></canvas></div>
         <div class="eff-ai-insight">
@@ -11175,11 +11175,11 @@
     if (act === 'add-quote') { const input = document.getElementById('set-new-quote'), text = input ? input.value.trim() : ''; if (!text) { toast('Enter a quote first', 'warn'); return; } state.motivationQuotes.push(text); saveState(); _motivationIdx = state.motivationQuotes.length - 1; refreshSettingsIfOpen(); _refreshHomeMotiText(); if (input) input.value = ''; toast('Quote saved ✨', 'success'); return; }
     if (act === 'export-data') { closeModal(); exportData(); return; }
     if (act === 'backup-export') { exportData(); return; }
-    if (el.id === 'eff-btn-weekly' || el.id === 'eff-btn-monthly') {
-      const mode = el.id === 'eff-btn-weekly' ? 'weekly' : 'monthly';
+    if (act === 'eff-toggle') {
+      const mode = el.dataset.mode || 'weekly';
       if (_effGraphMode === mode) return;
       _effGraphMode = mode;
-      document.querySelectorAll('.eff-toggle-btn').forEach(b => b.classList.toggle('eff-toggle-active', b.id === el.id));
+      document.querySelectorAll('.eff-toggle-btn').forEach(b => b.classList.toggle('eff-toggle-active', b.dataset.mode === mode));
       _initEffChart(_effData[mode]);
       return;
     }
