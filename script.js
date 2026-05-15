@@ -4338,8 +4338,19 @@
     const today = todayKey();
     const yesterday = addDaysISO(today, -1);
     if (state.streak.lastDate !== today && state.streak.lastDate !== yesterday) {
-      state.streak.count = 0;
-      save();
+      // Auto-consume a Streak Freeze if the user owns one
+      const freezeQty = (state.inventory || {}).streak_freeze || 0;
+      if (freezeQty > 0) {
+        if (!state.inventory) state.inventory = {};
+        state.inventory.streak_freeze = freezeQty - 1;
+        // Pretend they studied yesterday so next bumpActivity continues the streak
+        state.streak.lastDate = yesterday;
+        saveState();
+        setTimeout(() => toast('🧊 Streak Freeze used! Your streak is protected.', 'success', 5000), 1200);
+      } else {
+        state.streak.count = 0;
+        saveState();
+      }
     }
   }
 
@@ -4493,12 +4504,20 @@
     // Update the XP widgets in the current DOM without a full re-render
     _updateXPBar() {
       const info = this.calculateLevel((state.xp && state.xp.total) || 0);
+      // Header XP bar (focus / dashboard header)
       const badge = document.querySelector('.xp-level-badge');
       const fill  = document.querySelector('.xp-bar-fill');
       const label = document.querySelector('.xp-label');
       if (badge) badge.textContent = `Lv.${info.level}`;
       if (fill)  fill.style.width  = `${info.percent}%`;
       if (label) label.textContent = `${info.currentLevelXP}/${info.nextLevelXP} XP`;
+      // Home tab XP board — patch in-place so tab switch isn't needed
+      const homeLv   = document.querySelector('.xp-board-lv-num');
+      const homeBar  = document.querySelector('.xp-board-bar-fill');
+      const homeLbls = document.querySelectorAll('.xp-board-bar-label span');
+      if (homeLv)  homeLv.textContent   = info.level;
+      if (homeBar) { homeBar.style.width = `${info.percent}%`; homeBar.style.minWidth = info.percent > 0 ? '4px' : ''; }
+      if (homeLbls.length >= 2) { homeLbls[0].textContent = `${info.currentLevelXP} XP earned`; homeLbls[1].textContent = `${info.nextLevelXP} XP next`; }
     },
 
     // Focus-streak tracker (was embedded in old awardXP)
@@ -4580,7 +4599,7 @@
         clearInterval(_shopBoosterInterval);
         if (_currentTab === 'shop') renderShop();
       }
-    }, 30000);
+    }, 60000);
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -4866,11 +4885,15 @@
   }
 
   // ── Execute purchase ────────────────────────────────────────────────────
+  let _buyInProgress = false;
   function _shopConfirmBuy(itemId) {
+    if (_buyInProgress) return;
+    _buyInProgress = true;
+    setTimeout(() => { _buyInProgress = false; }, 2000);
     closeModal();
     const it = SHOP_ITEMS.find(i => i.id === itemId);
-    if (!it) return;
-    if (_xpBalance() < it.cost) { toast('❌ Not enough XP!', 'warn', 3000); return; }
+    if (!it) { _buyInProgress = false; return; }
+    if (_xpBalance() < it.cost) { toast('❌ Not enough XP!', 'warn', 3000); _buyInProgress = false; return; }
     // Deduct XP
     if (!state.xp) state.xp = { total: 0 };
     if (typeof state.xp.spent !== 'number') state.xp.spent = 0;
@@ -4944,8 +4967,9 @@
       const curStatus = (_socialMembers[_userId] && _socialMembers[_userId].status) || 'break';
       _sUpdatePresence(curStatus).catch(() => {});
     }
-    // Re-render social view if visible so effects show immediately
-    if (_currentTab === 'social') renderSocial();
+    // Re-render the current tab so cosmetics (border/aura/title) show immediately
+    if (_currentTab === 'home')   renderHome();
+    else if (_currentTab === 'social') renderSocial();
   }
 
   // ── Badge & theme selectors ──────────────────────────────────────────────
@@ -6680,6 +6704,7 @@
   }
 
   function renderHome() {
+    try {
     const view = document.getElementById('view-home'); if (!view) return;
     const overall = overallProgress();
     const tasks = getActivePlanTasks(), doneCount = tasks.filter(t => t.done).length, totalCount = tasks.length;
@@ -6715,6 +6740,7 @@
     view.innerHTML = `<div class="home-profile" data-act="open-settings" role="button" tabindex="0" style="cursor:pointer" title="Edit profile">${profAvatarHTML}<div class="home-profile-info">${nameHtml}${taglineHtml}</div><span class="home-profile-greeting">${greeting()} 👋</span></div><div class="home-moti-card"><span class="home-moti-icon">💡</span><p class="home-moti-text" id="home-moti-text">${escapeHTML(motivationMsg)}</p></div><div class="home-xp-board"><div class="xp-board-header"><span class="xp-board-eyebrow">⚡ STATS BOARD</span><span class="xp-board-rank-pill">${escapeHTML(_rankInfo.label || 'Seeker')}</span></div><div class="xp-board-body"><div class="xp-board-level-wrap"><span class="xp-board-lv-label">LEVEL</span><span class="xp-board-lv-num">${_lvInfo.level}</span></div><div class="xp-board-bar-col"><div class="xp-board-bar-track"><div class="xp-board-bar-fill" style="width:${_lvInfo.percent}%;${_lvInfo.percent>0?'min-width:4px':''}"></div></div><div class="xp-board-bar-label"><span>${_lvInfo.currentLevelXP} XP earned</span><span>${_lvInfo.nextLevelXP} XP next</span></div></div><div class="xp-board-streak-wrap"><span class="xp-board-streak-num">${_streakCount}</span><span class="xp-board-streak-label">🔥 streak</span></div></div></div>${renderBentoGrid()}${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${tasksHtml}`;
     if (_justPoppedKey) requestAnimationFrame(() => { _justPoppedKey = null; });
     if (_justCompletedDay) setTimeout(() => { _justCompletedDay = null; }, 1800);
+    } catch(e) { console.error('renderHome error', e); }
   }
   function renderTasksList(tasks) {
     if (!tasks.length) return `<div class="empty">No tasks for today — add some below.</div>`;
