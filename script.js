@@ -11477,6 +11477,41 @@
     if (_currentTab === 'social' && !_socialRoomCode) renderSocial();
   });
 
+  // ═══════════════════════════════════════════════════════════
+  //  Live-Study ↔ Main-App Bridge
+  //  Called by live-study.js whenever it commits focus minutes/XP.
+  //  Updates the in-memory state so tab-switches show fresh data.
+  // ═══════════════════════════════════════════════════════════
+  window._lsSync = function (data) {
+    try {
+      const { xpEarned, minutesEarned, today } = data || {};
+      let dirty = false;
+      if (minutesEarned > 0) {
+        if (!state.focusStats) state.focusStats = {};
+        if (!state.focusStats.minutesByDate) state.focusStats.minutesByDate = {};
+        if (!state.focusStats.sessions)      state.focusStats.sessions = {};
+        state.focusStats.minutesByDate[today] = (state.focusStats.minutesByDate[today] || 0) + minutesEarned;
+        state.focusStats.sessions[today]      = (state.focusStats.sessions[today] || 0) + 1;
+        dirty = true;
+      }
+      if (xpEarned > 0) {
+        if (!state.xp || typeof state.xp !== 'object') state.xp = { total: 0 };
+        state.xp.total = (state.xp.total || 0) + xpEarned;
+        gamificationManager._updateXPBar();
+        dirty = true;
+      }
+      if (dirty) {
+        bumpActivity();
+        saveState();
+        _updateLiveStats();
+        const t = _currentTab;
+        if (t === 'stats')     renderStats();
+        else if (t === 'home') renderHome();
+        else if (t === 'dashboard') renderDashboard();
+      }
+    } catch (e) { console.warn('[_lsSync]', e); }
+  };
+
   // ========== Init ==========
   function init() {
     _checkStreakReset();

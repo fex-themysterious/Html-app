@@ -47,12 +47,15 @@
     todayElapsed: 0,         // ms — all subjects today
     sessionStart: null,      // wall-clock ms when last (re)started
     subject: null,
-    xp: 0,
+    xp: 0,                   // = mainAppXP + sessionXPEarned (display value)
     level: 1,
     streak: 0,
     lastStudyDate: null,
     lastXPMinute: 0,
-    lastCommittedMins: 0,    // ← minutes already written to main app today
+    lastCommittedMins: 0,    // minutes already written to main app today
+    sessionXPEarned: 0,      // XP earned in current live-study session (delta only)
+    lastCommittedXP: 0,      // sessionXPEarned already written to main app
+    mainAppXP: 0,            // main app XP at session start (base for display)
     dday: { label: 'D-Day', date: null },
     allowedApps: [],
     customSubjects: [],
@@ -94,6 +97,35 @@
   }
 
   /* ═══════════════════════════════════════════════════
+     XP / LEVEL HELPERS  (mirrors gamificationManager)
+  ═══════════════════════════════════════════════════ */
+  function calcLevelFromXP(totalXP) {
+    let level = 1, threshold = 0;
+    while (true) {
+      const needed = level * 100;
+      if (totalXP < threshold + needed) return level;
+      threshold += needed;
+      level++;
+      if (level > 9999) break;
+    }
+    return 9999;
+  }
+
+  // Read XP, level, streak from the main app's localStorage (source of truth).
+  function syncBaseFromMainApp() {
+    try {
+      const raw = localStorage.getItem(MAIN_LS_KEY);
+      if (!raw) return;
+      const ms = JSON.parse(raw);
+      state.mainAppXP = (ms.xp && typeof ms.xp.total === 'number') ? ms.xp.total : 0;
+      state.streak    = (ms.streak && typeof ms.streak.count === 'number') ? ms.streak.count : 0;
+      // Recompute display XP = mainAppXP + XP earned this session
+      state.xp    = state.mainAppXP + (state.sessionXPEarned || 0);
+      state.level = calcLevelFromXP(state.xp);
+    } catch (_) {}
+  }
+
+  /* ═══════════════════════════════════════════════════
      INIT
   ═══════════════════════════════════════════════════ */
   function init() {
@@ -126,19 +158,23 @@
   function loadState() {
     try {
       const raw = localStorage.getItem(LS_KEY);
-      if (!raw) return;
-      const saved = JSON.parse(raw);
-      const today = todayStr();
-      if (saved.lastStudyDate !== today) {
-        // New day — reset daily counters
-        saved.subjectElapsed     = 0;
-        saved.todayElapsed       = 0;
-        saved.lastXPMinute       = 0;
-        saved.lastCommittedMins  = 0;   // reset daily commit tracking
-        saved.streak = calcStreak(saved.streak, saved.lastStudyDate);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        const today = todayStr();
+        if (saved.lastStudyDate !== today) {
+          // New day — reset all daily / session counters
+          saved.subjectElapsed    = 0;
+          saved.todayElapsed      = 0;
+          saved.lastXPMinute      = 0;
+          saved.lastCommittedMins = 0;
+          saved.sessionXPEarned   = 0;
+          saved.lastCommittedXP   = 0;
+        }
+        Object.assign(state, saved);
       }
-      Object.assign(state, saved);
     } catch (_) {}
+    // Always pull XP / level / streak from main app — it is the source of truth
+    syncBaseFromMainApp();
   }
 
   function saveState() {
@@ -148,20 +184,22 @@
 
   /* ═══════════════════════════════════════════════════
      SYNC TO MAIN APP
-     Writes accumulated minutes into syllabus_tracker_v2
-     so stats, charts and heatmap all update correctly.
+     Writes accumulated minutes + XP into syllabus_tracker_v2
+     so stats, XP bar, streak, charts and heatmap all update.
   ═══════════════════════════════════════════════════ */
   function commitToMainApp() {
-    // Compute current total today in ms
     const now = Date.now();
     const runningDelta = (state.running && state.sessionStart) ? now - state.sessionStart : 0;
-    const totalTodayMs = state.todayElapsed + runningDelta;
+    const totalTodayMs   = state.todayElapsed + runningDelta;
     const totalTodayMins = Math.floor(totalTodayMs / 60000);
 
-    const delta = totalTodayMins - (state.lastCommittedMins || 0);
-    if (delta < 1) return;  // nothing new to commit
+    const minDelta = totalTodayMins - (state.lastCommittedMins || 0);
+    const xpDelta  = (state.sessionXPEarned || 0) - (state.lastCommittedXP || 0);
 
-    state.lastCommittedMins = totalTodayMins;
+    if (minDelta < 1 && xpDelta < 1) return;  // nothing new
+
+    if (minDelta >= 1) state.lastCommittedMins = totalTodayMins;
+    if (xpDelta  >= 1) state.lastCommittedXP   = state.sessionXPEarned;
     saveState();
 
     const today = todayStr();
@@ -170,37 +208,51 @@
     try {
       const raw = localStorage.getItem(MAIN_LS_KEY);
       if (raw) {
-        const mainState = JSON.parse(raw);
-        if (!mainState.focusStats) mainState.focusStats = {};
-        if (!mainState.focusStats.minutesByDate) mainState.focusStats.minutesByDate = {};
-        if (!mainState.focusStats.sessions)      mainState.focusStats.sessions = {};
-        if (!mainState.focusStats.videoMinutes)  mainState.focusStats.videoMinutes = {};
-        mainState.focusStats.minutesByDate[today] = (mainState.focusStats.minutesByDate[today] || 0) + delta;
-        mainState.focusStats.sessions[today]      = (mainState.focusStats.sessions[today]      || 0) + 1;
-        // bump activity
-        if (!mainState.activity) mainState.activity = {};
-        mainState.activity[today] = true;
-        localStorage.setItem(MAIN_LS_KEY, JSON.stringify(mainState));
+        const ms = JSON.parse(raw);
+
+        // Focus minutes
+        if (!ms.focusStats) ms.focusStats = {};
+        if (!ms.focusStats.minutesByDate) ms.focusStats.minutesByDate = {};
+        if (!ms.focusStats.sessions)      ms.focusStats.sessions = {};
+        if (minDelta >= 1) {
+          ms.focusStats.minutesByDate[today] = (ms.focusStats.minutesByDate[today] || 0) + minDelta;
+          ms.focusStats.sessions[today]      = (ms.focusStats.sessions[today] || 0) + 1;
+        }
+
+        // XP total
+        if (xpDelta >= 1) {
+          if (!ms.xp || typeof ms.xp !== 'object') ms.xp = { total: 0 };
+          ms.xp.total = (ms.xp.total || 0) + xpDelta;
+        }
+
+        // Streak
+        if (!ms.streak || typeof ms.streak !== 'object') ms.streak = { count: 0, lastDate: null };
+        if (ms.streak.lastDate !== today) {
+          const prevDate = ms.streak.lastDate;
+          const yd = new Date(); yd.setDate(yd.getDate() - 1);
+          const yesterday = `${yd.getFullYear()}-${String(yd.getMonth()+1).padStart(2,'0')}-${String(yd.getDate()).padStart(2,'0')}`;
+          ms.streak.count    = (prevDate === yesterday) ? (ms.streak.count || 0) + 1 : 1;
+          ms.streak.lastDate = today;
+          if (!ms.streak.best || ms.streak.count > ms.streak.best) ms.streak.best = ms.streak.count;
+        }
+
+        // Activity flag
+        if (!ms.activity) ms.activity = {};
+        ms.activity[today] = (ms.activity[today] || 0) + 1;
+
+        localStorage.setItem(MAIN_LS_KEY, JSON.stringify(ms));
+
+        // Update live-study streak display to match main app
+        state.streak = ms.streak.count;
+        updateXPDisplay();
       }
     } catch (_) {}
 
-    // ── Live sync into main app's in-memory state (best-effort) ──
+    // ── Live-sync main app's in-memory state via the global bridge ──
     try {
-      if (typeof gamificationManager !== 'undefined' && gamificationManager.addFocusXP) {
-        gamificationManager.addFocusXP(delta, today);
+      if (typeof window._lsSync === 'function') {
+        window._lsSync({ xpEarned: xpDelta >= 1 ? xpDelta : 0, minutesEarned: minDelta >= 1 ? minDelta : 0, today });
       }
-    } catch (_) {}
-    // Trigger chart refresh if stats tab is visible
-    try {
-      if (typeof renderStats === 'function' && document.body.classList.contains('tab-stats')) {
-        renderStats();
-      }
-    } catch (_) {}
-    try {
-      if (typeof renderDashboard === 'function') renderDashboard();
-    } catch (_) {}
-    try {
-      if (typeof _updateLiveStats === 'function') _updateLiveStats();
     } catch (_) {}
   }
 
@@ -566,11 +618,14 @@
   }
 
   /* ═══════════════════════════════════════════════════
-     XP SYSTEM (live-study internal XP display)
+     XP SYSTEM — synced with main app
   ═══════════════════════════════════════════════════ */
   function awardXP(amount) {
-    state.xp += amount;
-    state.level = Math.floor(state.xp / 500) + 1;
+    if (!amount || amount <= 0) return;
+    state.sessionXPEarned = (state.sessionXPEarned || 0) + amount;
+    // Display value = main app base + everything earned this session
+    state.xp    = (state.mainAppXP || 0) + state.sessionXPEarned;
+    state.level = calcLevelFromXP(state.xp);
     updateXPDisplay();
     showXPPopup(amount);
     saveState();
@@ -847,23 +902,8 @@
       state.todayElapsed   += extra;
       state.subjectElapsed += extra;
       state.sessionStart = Date.now();  // reset so recovery works
-      // Commit to main app synchronously
-      const totalMins = Math.floor(state.todayElapsed / 60000);
-      const delta = totalMins - (state.lastCommittedMins || 0);
-      if (delta >= 1) {
-        state.lastCommittedMins = totalMins;
-        try {
-          const today = todayStr();
-          const raw = localStorage.getItem(MAIN_LS_KEY);
-          if (raw) {
-            const ms = JSON.parse(raw);
-            if (!ms.focusStats) ms.focusStats = {};
-            if (!ms.focusStats.minutesByDate) ms.focusStats.minutesByDate = {};
-            ms.focusStats.minutesByDate[today] = (ms.focusStats.minutesByDate[today] || 0) + delta;
-            localStorage.setItem(MAIN_LS_KEY, JSON.stringify(ms));
-          }
-        } catch (_) {}
-      }
+      // Commit minutes + XP to main app synchronously on page hide
+      commitToMainApp();
       saveState();
     }
   });
