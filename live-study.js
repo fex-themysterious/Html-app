@@ -632,7 +632,9 @@
   }
 
   function updateXPDisplay() {
-    if (xpValEl)     xpValEl.textContent     = state.xp >= 1000 ? (state.xp/1000).toFixed(1)+'k' : state.xp;
+    // XP shows only what was earned THIS session (starts at 0)
+    const earned = state.sessionXPEarned || 0;
+    if (xpValEl)     xpValEl.textContent     = earned >= 1000 ? (earned/1000).toFixed(1)+'k' : earned;
     if (levelValEl)  levelValEl.textContent  = state.level;
     if (streakValEl) streakValEl.textContent = state.streak;
   }
