@@ -892,6 +892,8 @@
   let _socialLastInputAt       = Date.now();
   let _socialIdleCheckId       = null;
   let _socialIsBg              = false;
+  let _effData = { weekly: [], monthly: [] };
+  let _effGraphMode = 'weekly';
 
   // ── Multi-group / Global LB / Voice ──────────────────────────────────────
   let _myGroupCodes    = [];
@@ -8910,6 +8912,41 @@
     const effColor = efficiencyPct >= 80 ? '#4ade80' : efficiencyPct >= 50 ? '#38bdf8' : efficiencyPct >= 25 ? '#f59e0b' : '#f87171';
     const effLabel = efficiencyPct >= 80 ? '🔥 Outstanding — keep pushing!' : efficiencyPct >= 50 ? '👍 Good — steady progress!' : efficiencyPct >= 25 ? '📈 Building momentum' : '🌱 Get started — you\'ve got this!';
 
+    // ── Study Efficiency Graph computations ───────────────────────────────────
+    const _buildEffData = keys => keys.map(k => {
+      const fMin = state.focusStats.minutesByDate[k] || 0;
+      const fHrs = parseFloat((fMin / 60).toFixed(2));
+      const comp = state.activity[k] || 0;
+      const prod = fHrs > 0 ? parseFloat((comp / fHrs).toFixed(2)) : 0;
+      const lbl  = new Date(k + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 3);
+      return { k, label: lbl, focusHrs: fHrs, completions: comp, productivity: prod };
+    });
+    const effWeekData  = _buildEffData(buildDateRange(7));
+    const effMonthData = _buildEffData(buildDateRange(30));
+    _effData = { weekly: effWeekData, monthly: effMonthData };
+
+    let effBestDay = null, effBestScore = 0;
+    effMonthData.forEach(d => { if (d.focusHrs >= 0.25 && d.productivity > effBestScore) { effBestScore = d.productivity; effBestDay = d; } });
+
+    const _subMinsEff = state.focusStats.minutesBySubject || {};
+    let effMostEffSub = null, effMostEffScore = 0;
+    for (const sub of state.subjects) {
+      let done = 0;
+      for (const ch of sub.chapters) for (const t of ch.topics) { if (t.done) done++; }
+      const hrs = (_subMinsEff[sub.id] || 0) / 60;
+      const eff = hrs > 0.1 ? done / hrs : 0;
+      if (eff > effMostEffScore) { effMostEffScore = eff; effMostEffSub = sub; }
+    }
+    const effMostEffSubName = effMostEffSub ? effMostEffSub.name : null;
+    const effAvgSpeed = totalFocusMin > 0 ? parseFloat((doneTopics / (totalFocusMin / 60)).toFixed(1)) : 0;
+    const effFocusDays30 = buildDateRange(30).filter(k => (state.focusStats.minutesByDate[k] || 0) > 0).length;
+    const effConsistencyPct = Math.round((effFocusDays30 / 30) * 100);
+    const effAiInsight = effBestDay
+      ? `${new Date(effBestDay.k + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long' })} showed your highest efficiency with ${effBestScore.toFixed(1)}x completion rate.`
+      : totalFocusMin > 0
+        ? 'Keep logging study sessions to unlock your efficiency profile!'
+        : 'Start your first focus session to see your efficiency analytics here.';
+
     view.innerHTML = `
       <div class="page-header"><h1>Stats</h1><div class="subtitle">Premium study analytics</div></div>
 
@@ -8984,6 +9021,65 @@
           <div class="stats-chart-card">${pieSubjects.length
             ? `<div class="stats-pie-wrap"><canvas id="stats-pie-chart"></canvas></div>`
             : `<div class="stats-empty-chart">Complete topics to see distribution</div>`}</div>
+        </div>
+      </div>
+
+      <div class="stats-section-head" style="margin-top:22px"><span>📊 Study Efficiency</span><span class="stats-section-meta">Focus vs Completion</span></div>
+      <div class="eff-graph-card" id="eff-graph-card">
+        <div class="eff-graph-header">
+          <div>
+            <div class="eff-graph-title">Study Efficiency Graph</div>
+            <div class="eff-graph-sub">Focus vs Completion Ratio</div>
+          </div>
+          <span class="eff-live-badge">LIVE</span>
+        </div>
+        <div class="eff-toggle-row">
+          <button class="eff-toggle-btn eff-toggle-active" id="eff-btn-weekly">Weekly</button>
+          <button class="eff-toggle-btn" id="eff-btn-monthly">Monthly</button>
+        </div>
+        <div class="eff-graph-wrap"><canvas id="eff-graph-canvas"></canvas></div>
+        <div class="eff-ai-insight">
+          <span class="eff-ai-icon">✦</span>
+          <span class="eff-ai-text">${escapeHTML(effAiInsight)}</span>
+        </div>
+        <div class="eff-metrics-grid">
+          <div class="eff-metric-card">
+            <div class="eff-metric-icon">🏆</div>
+            <div class="eff-metric-val" style="font-size:${effMostEffSubName && effMostEffSubName.length > 9 ? '11' : '14'}px">${effMostEffSubName ? escapeHTML(effMostEffSubName) : '—'}</div>
+            <div class="eff-metric-lbl">Most Efficient Subject</div>
+          </div>
+          <div class="eff-metric-card">
+            <div class="eff-metric-icon">⚡</div>
+            <div class="eff-metric-val" style="color:#a855f7">${effAvgSpeed}<span style="font-size:10px;color:rgba(148,163,184,0.6);font-weight:600"> /hr</span></div>
+            <div class="eff-metric-lbl">Topics / Hour</div>
+          </div>
+          <div class="eff-metric-card">
+            <div class="eff-metric-icon">🎯</div>
+            <div class="eff-metric-val" style="color:#4ade80">${effConsistencyPct}%</div>
+            <div class="eff-metric-lbl">Focus Consistency (30d)</div>
+          </div>
+          <div class="eff-metric-card">
+            <div class="eff-metric-icon">🔥</div>
+            <div class="eff-metric-val" style="color:#f97316">${effFocusDays30}<span style="font-size:10px;color:rgba(148,163,184,0.6);font-weight:600"> days</span></div>
+            <div class="eff-metric-lbl">Active Days (30d)</div>
+          </div>
+        </div>
+        <div class="eff-streak-section">
+          <div class="eff-streak-label">14-Day Study Heatmap</div>
+          <div class="eff-streak-dots">
+            ${buildDateRange(14).map(k => {
+              const hasF = (state.focusStats.minutesByDate[k] || 0) > 0;
+              const hasA = (state.activity[k] || 0) > 0;
+              const cls  = hasF ? 'eff-dot-focus' : hasA ? 'eff-dot-activity' : 'eff-dot-empty';
+              const tip  = new Date(k + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+              return `<div class="eff-dot ${cls}" title="${tip}"></div>`;
+            }).join('')}
+          </div>
+          <div class="eff-dot-legend">
+            <span><div class="eff-dot eff-dot-focus"></div>Focus day</span>
+            <span><div class="eff-dot eff-dot-activity"></div>Active</span>
+            <span><div class="eff-dot eff-dot-empty"></div>Off day</span>
+          </div>
         </div>
       </div>
 
@@ -9295,6 +9391,98 @@
     }
   }
 
+  function _initEffChart(data) {
+    const canvas = document.getElementById('eff-graph-canvas');
+    if (!canvas || !window.Chart) return;
+    const prev = Chart.getChart(canvas); if (prev) prev.destroy();
+    if (!data || !data.length) return;
+    new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: data.map(d => d.label),
+        datasets: [
+          {
+            label: 'Focus Hours',
+            data: data.map(d => parseFloat(d.focusHrs.toFixed(2))),
+            borderColor: '#00e5ff',
+            backgroundColor: ctx => {
+              const g = ctx.chart.ctx.createLinearGradient(0, 0, 0, 190);
+              g.addColorStop(0, 'rgba(0,229,255,0.38)');
+              g.addColorStop(1, 'rgba(0,229,255,0.02)');
+              return g;
+            },
+            fill: true, tension: 0.42, borderWidth: 2.5,
+            pointBackgroundColor: '#00e5ff', pointBorderColor: '#070f1e', pointBorderWidth: 2,
+            pointRadius: 5, pointHoverRadius: 8, yAxisID: 'yLeft'
+          },
+          {
+            label: 'Completions',
+            data: data.map(d => d.completions),
+            borderColor: '#a855f7',
+            backgroundColor: ctx => {
+              const g = ctx.chart.ctx.createLinearGradient(0, 0, 0, 190);
+              g.addColorStop(0, 'rgba(168,85,247,0.28)');
+              g.addColorStop(1, 'rgba(168,85,247,0.02)');
+              return g;
+            },
+            fill: true, tension: 0.42, borderWidth: 2, borderDash: [5, 3],
+            pointBackgroundColor: '#a855f7', pointBorderColor: '#070f1e', pointBorderWidth: 2,
+            pointRadius: 4, pointHoverRadius: 7, yAxisID: 'yRight'
+          }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: { duration: 900, easing: 'easeOutQuart' },
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: {
+            display: true, position: 'top',
+            labels: { color: 'rgba(148,163,184,0.88)', font: { size: 11, weight: '700' }, usePointStyle: true, pointStyleWidth: 8, padding: 14 }
+          },
+          tooltip: {
+            backgroundColor: '#0d1b2a', borderColor: 'rgba(0,229,255,0.35)', borderWidth: 1,
+            titleColor: '#e8f4ff', bodyColor: '#94a3b8', padding: 12,
+            callbacks: {
+              title: ctx => {
+                const d = data[ctx[0].dataIndex];
+                if (!d) return '';
+                return d.k
+                  ? new Date(d.k + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
+                  : d.label;
+              },
+              label: ctx => {
+                const d = data[ctx.dataIndex];
+                if (!d) return '';
+                if (ctx.dataset.yAxisID === 'yLeft') {
+                  const ratio = d.productivity > 0 ? `  ·  ${d.productivity.toFixed(1)}x ratio` : '';
+                  return ` 🕐 Focus: ${d.focusHrs.toFixed(1)}h${ratio}`;
+                }
+                return ` ✅ Completions: ${d.completions}`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false }, border: { display: false },
+            ticks: { color: 'rgba(148,163,184,0.65)', font: { size: 10, weight: '600' }, maxTicksLimit: 8 }
+          },
+          yLeft: {
+            position: 'left', min: 0,
+            grid: { color: 'rgba(0,229,255,0.07)' }, border: { display: false },
+            ticks: { color: 'rgba(0,229,255,0.65)', font: { size: 10 }, maxTicksLimit: 5, callback: v => v + 'h' }
+          },
+          yRight: {
+            position: 'right', min: 0,
+            grid: { display: false }, border: { display: false },
+            ticks: { color: 'rgba(168,85,247,0.65)', font: { size: 10 }, maxTicksLimit: 5, precision: 0 }
+          }
+        }
+      }
+    });
+  }
+
   function initStatsCharts(days7, pieSubjects, days7cls) {
     if (!window.Chart) { setTimeout(() => initStatsCharts(days7, pieSubjects, days7cls), 300); return; }
 
@@ -9468,6 +9656,10 @@
         }
       });
     }
+
+    // ── Study Efficiency Graph chart ─────────────────────────────────────────
+    _effGraphMode = 'weekly';
+    _initEffChart(_effData.weekly);
   }
 
   // ========== Settings Modal ==========
@@ -10983,6 +11175,14 @@
     if (act === 'add-quote') { const input = document.getElementById('set-new-quote'), text = input ? input.value.trim() : ''; if (!text) { toast('Enter a quote first', 'warn'); return; } state.motivationQuotes.push(text); saveState(); _motivationIdx = state.motivationQuotes.length - 1; refreshSettingsIfOpen(); _refreshHomeMotiText(); if (input) input.value = ''; toast('Quote saved ✨', 'success'); return; }
     if (act === 'export-data') { closeModal(); exportData(); return; }
     if (act === 'backup-export') { exportData(); return; }
+    if (el.id === 'eff-btn-weekly' || el.id === 'eff-btn-monthly') {
+      const mode = el.id === 'eff-btn-weekly' ? 'weekly' : 'monthly';
+      if (_effGraphMode === mode) return;
+      _effGraphMode = mode;
+      document.querySelectorAll('.eff-toggle-btn').forEach(b => b.classList.toggle('eff-toggle-active', b.id === el.id));
+      _initEffChart(_effData[mode]);
+      return;
+    }
     if (act === 'toggle-eye-care') { state.eyeCareMode = el.checked; saveState(); applyEyCareMode(); refreshSettingsIfOpen(); toast(state.eyeCareMode ? '🌙 Night Study Mode on' : 'Night Study Mode off', 'info'); return; }
     // Alarm actions
     if (act === 'open-alarm-manager') { closeModal(); openAlarmManager(); return; }
