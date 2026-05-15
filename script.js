@@ -9602,14 +9602,23 @@
 
         <div class="stg-card stg-shop-banner" data-act="open-shop" style="cursor:pointer">
           <div class="ssc-glow"></div>
-          <div class="ssc-inner" style="padding:0">
-            <div class="ssc-left">
-              <div class="ssc-icon">🛍️</div>
-              <div><div class="ssc-title">XP Shop</div><div class="ssc-sub">Themes, titles &amp; effects</div></div>
+          <div class="ssc-inner">
+            <div class="ssc-top-row">
+              <div class="ssc-left">
+                <div class="ssc-icon">🛍️</div>
+                <div class="ssc-info">
+                  <div class="ssc-title">XP Shop</div>
+                  <div class="ssc-sub">Themes, titles &amp; effects</div>
+                </div>
+              </div>
+              <div class="ssc-bal-wrap">
+                <div class="ssc-bal">⚡ ${Math.max(0,((state.xp&&state.xp.total)||0)-((state.xp&&state.xp.spent)||0)).toLocaleString()}</div>
+                <div class="ssc-avail">Available</div>
+              </div>
             </div>
-            <div class="ssc-right">
-              <div class="ssc-bal">⚡ ${Math.max(0,((state.xp&&state.xp.total)||0)-((state.xp&&state.xp.spent)||0)).toLocaleString()}</div>
-              <div class="ssc-avail">Available Balance</div>
+            <div class="ssc-divider"></div>
+            <div class="ssc-bottom-row">
+              <div class="ssc-hint">✨ Unlock premium themes &amp; effects</div>
               <div class="ssc-btn">Shop Now →</div>
             </div>
           </div>

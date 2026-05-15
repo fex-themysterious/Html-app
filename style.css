@@ -8318,33 +8318,115 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
 
 /* XP Shop banner inside settings */
 .stg-shop-banner {
-  background: linear-gradient(135deg, #1a1206 0%, #120d02 100%);
-  border-color: rgba(251,191,36,0.35);
-  box-shadow: 0 0 0 1px rgba(251,191,36,0.1), 0 8px 28px rgba(251,191,36,0.1);
+  background: linear-gradient(140deg, #1f1500 0%, #150e00 50%, #0c0800 100%);
+  border-color: rgba(251,191,36,0.4);
+  box-shadow: 0 0 0 1px rgba(251,191,36,0.12), 0 12px 36px rgba(251,191,36,0.14);
   padding: 0;
   overflow: hidden;
 }
+.stg-shop-banner:active { transform: scale(0.985); }
+
+/* Two-row inner layout */
 .stg-shop-banner .ssc-inner {
-  padding: 22px 20px;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
 }
-.stg-shop-banner .ssc-icon  { font-size: 36px; }
-.stg-shop-banner .ssc-title { font-size: 17px; font-weight: 800; }
-.stg-shop-banner .ssc-sub   { font-size: 12.5px; margin-top: 3px; }
-.stg-shop-banner .ssc-bal   {
-  font-size: 20px;
+.ssc-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 20px 16px;
+  gap: 12px;
+}
+.stg-shop-banner .ssc-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+}
+.ssc-info { min-width: 0; }
+.stg-shop-banner .ssc-icon  {
+  font-size: 44px;
+  line-height: 1;
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 10px rgba(251,191,36,0.6));
+}
+.stg-shop-banner .ssc-title {
+  font-size: 19px;
   font-weight: 900;
+  color: #fbbf24;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.stg-shop-banner .ssc-sub {
+  font-size: 12px;
+  color: rgba(251,191,36,0.55);
+  margin-top: 3px;
+  white-space: nowrap;
+}
+.ssc-bal-wrap {
+  text-align: right;
+  flex-shrink: 0;
+}
+.stg-shop-banner .ssc-bal {
+  font-size: 24px;
+  font-weight: 900;
+  color: #fbbf24;
   letter-spacing: -0.5px;
+  text-shadow: 0 0 16px rgba(251,191,36,0.5);
+  white-space: nowrap;
 }
 .ssc-avail {
   font-size: 10px;
-  font-weight: 600;
-  color: rgba(251,191,36,0.55);
+  font-weight: 700;
+  color: rgba(251,191,36,0.5);
   text-transform: uppercase;
-  letter-spacing: 0.8px;
-  margin-top: 2px;
+  letter-spacing: 1px;
+  margin-top: 3px;
+  text-align: right;
 }
-.stg-shop-banner:active { transform: scale(0.98); }
+.ssc-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(251,191,36,0.2), transparent);
+  margin: 0 20px;
+}
+.ssc-bottom-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px 18px;
+  gap: 12px;
+}
+.ssc-hint {
+  font-size: 12px;
+  color: rgba(255,255,255,0.45);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stg-shop-banner .ssc-btn {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fbbf24;
+  background: rgba(251,191,36,0.14);
+  border: 1px solid rgba(251,191,36,0.3);
+  border-radius: 99px;
+  padding: 7px 16px;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+  transition: all 0.18s;
+  flex-shrink: 0;
+}
+.stg-shop-banner:hover .ssc-btn,
+.stg-shop-banner:active .ssc-btn {
+  background: rgba(251,191,36,0.24);
+  border-color: rgba(251,191,36,0.5);
+}
 
 /* Settings row (label + toggle) */
 .stg-row {
