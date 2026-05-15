@@ -47,6 +47,7 @@
     todayElapsed: 0,         // ms — all subjects today
     sessionStart: null,      // wall-clock ms when last (re)started
     subject: null,
+    currentTask: null,       // { key, text, meta, type, done } — selected today's-plan task
     xp: 0,                   // = mainAppXP + sessionXPEarned (display value)
     level: 1,
     streak: 0,
@@ -313,6 +314,13 @@
           </div>
         </div>
 
+        <!-- CURRENT TASK CHIP -->
+        <div class="lsm-task-chip" id="lsm-task-chip">
+          <span class="lsm-task-chip-icon">📋</span>
+          <span class="lsm-task-chip-text" id="lsm-task-chip-text">Tap to select today's task</span>
+          <span class="lsm-task-chip-arrow">›</span>
+        </div>
+
         <!-- CHARACTER -->
         <div class="lsm-character-wrap">
           <div class="lsm-aura lsm-dim" id="lsm-aura"></div>
@@ -348,6 +356,10 @@
     /* Events */
     pauseBtn.addEventListener('click', onPauseClick);
     document.getElementById('lsm-exit-btn').addEventListener('click', onExitClick);
+    document.getElementById('lsm-task-chip').addEventListener('click', openTaskPicker);
+
+    /* Restore task chip label if a task was previously selected */
+    updateTaskChip();
 
     /* Canvas resize */
     resizeCanvas();
@@ -684,6 +696,147 @@
       updateDDayDisplay();
       closeModal(modal);
     });
+  }
+
+  /* ═══════════════════════════════════════════════════
+     TASK CHIP DISPLAY
+  ═══════════════════════════════════════════════════ */
+  function updateTaskChip() {
+    const el = document.getElementById('lsm-task-chip-text');
+    if (!el) return;
+    if (state.currentTask) {
+      const done = state.currentTask.done ? '✅ ' : '';
+      el.textContent = done + state.currentTask.text;
+      const chip = document.getElementById('lsm-task-chip');
+      if (chip) {
+        chip.classList.toggle('lsm-task-done', !!state.currentTask.done);
+        chip.querySelector('.lsm-task-chip-icon').textContent = state.currentTask.done ? '✅' : '📌';
+      }
+    } else {
+      el.textContent = "Tap to select today's task";
+      const chip = document.getElementById('lsm-task-chip');
+      if (chip) {
+        chip.classList.remove('lsm-task-done');
+        chip.querySelector('.lsm-task-chip-icon').textContent = '📋';
+      }
+    }
+  }
+
+  /* ═══════════════════════════════════════════════════
+     READ TODAY'S PLAN TASKS FROM MAIN APP LOCALSTORAGE
+  ═══════════════════════════════════════════════════ */
+  function getTodayTasks() {
+    try {
+      const raw = localStorage.getItem(MAIN_LS_KEY);
+      if (!raw) return [];
+      const ms = JSON.parse(raw);
+
+      // Build a today key matching the main app's localISO()
+      const d   = new Date();
+      const mm  = String(d.getMonth() + 1).padStart(2, '0');
+      const dd2 = String(d.getDate()).padStart(2, '0');
+      const today = `${d.getFullYear()}-${mm}-${dd2}`;
+
+      const plan = ms.dailyPlans && ms.dailyPlans[today];
+      if (!plan) return [];
+
+      const tasks = [];
+      const subjectsArr = ms.subjects || [];
+
+      // Helper finders
+      const findSub = id => subjectsArr.find(s => s.id === id);
+      const findCh  = (sId, cId) => { const s = findSub(sId); return s && s.chapters.find(c => c.id === cId); };
+      const findTop = (sId, cId, tId) => { const c = findCh(sId, cId); return c && c.topics.find(t => t.id === tId); };
+
+      // Auto tasks (from syllabus)
+      for (const a of (plan.auto || [])) {
+        if ((plan.removed || []).includes(`${a.subId}:${a.chId}:${a.tId}`)) continue;
+        const sub = findSub(a.subId), ch = findCh(a.subId, a.chId), t = findTop(a.subId, a.chId, a.tId);
+        if (!sub || !ch || !t) continue;
+        tasks.push({
+          type: 'auto',
+          key:  `${a.subId}:${a.chId}:${a.tId}`,
+          text: t.name,
+          meta: `${sub.name} · ${ch.name}`,
+          color: sub.color || '#ff7a1a',
+          done:  !!t.done,
+        });
+      }
+
+      // Custom tasks
+      for (const c of (plan.custom || [])) {
+        tasks.push({
+          type:  'custom',
+          key:   c.id,
+          text:  c.text,
+          meta:  c.rolledOver ? 'Rolled over' : c.recurringId ? 'Daily task' : 'Custom task',
+          color: c.rolledOver ? '#f59e0b' : c.recurringId ? '#818cf8' : '#94a3b8',
+          done:  !!c.done,
+        });
+      }
+      return tasks;
+    } catch (_) { return []; }
+  }
+
+  /* ═══════════════════════════════════════════════════
+     TASK PICKER MODAL
+  ═══════════════════════════════════════════════════ */
+  function openTaskPicker() {
+    const tasks = getTodayTasks();
+
+    let bodyHTML;
+    if (tasks.length === 0) {
+      bodyHTML = `<div class="lsm-task-empty">
+        <div class="lsm-task-empty-icon">📭</div>
+        <div class="lsm-task-empty-msg">No tasks in today's plan yet.<br>Add tasks from the Dashboard tab first.</div>
+      </div>`;
+    } else {
+      const rows = tasks.map(t => `
+        <div class="lsm-modal-row lsm-task-row ${state.currentTask?.key === t.key ? 'active' : ''} ${t.done ? 'lsm-task-row-done' : ''}"
+             data-task-key="${t.key}">
+          <span class="lsm-task-row-dot" style="background:${t.color}"></span>
+          <div class="lsm-modal-row-body">
+            <div class="lsm-modal-row-title">${t.done ? '<s>' : ''}${t.text}${t.done ? '</s>' : ''}</div>
+            <div class="lsm-modal-row-sub">${t.meta}</div>
+          </div>
+          <span class="lsm-modal-check">${t.done ? '✅' : (state.currentTask?.key === t.key ? '✓' : '')}</span>
+        </div>
+      `).join('');
+      bodyHTML = rows + `
+        <div class="lsm-task-clear-wrap">
+          <button class="lsm-task-clear-btn" id="lsm-task-clear">Clear selection</button>
+        </div>`;
+    }
+
+    const modal = createModal("Today's Tasks", bodyHTML);
+
+    modal.querySelectorAll('[data-task-key]').forEach(row => {
+      row.addEventListener('click', () => {
+        const key  = row.dataset.taskKey;
+        const task = tasks.find(t => t.key === key);
+        if (!task) return;
+        state.currentTask = task;
+        // Auto-sync subject label with task subject
+        const metaParts = task.meta.split(' · ');
+        if (metaParts[0]) {
+          const lbl = document.getElementById('lsm-subject-label');
+          if (lbl) lbl.textContent = metaParts[0];
+        }
+        saveState();
+        updateTaskChip();
+        closeModal(modal);
+      });
+    });
+
+    const clearBtn = document.getElementById('lsm-task-clear');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        state.currentTask = null;
+        saveState();
+        updateTaskChip();
+        closeModal(modal);
+      });
+    }
   }
 
   /* ═══════════════════════════════════════════════════
