@@ -4560,9 +4560,9 @@
         <div class="lsf-badge-sep">|</div>
         <div class="lsf-badge lsf-badge-mult"><span class="lsf-badge-icon">⚡</span> <span class="lsf-badge-val">${mult}×</span></div>
       </div>
-      ${subjectLog.length ? `<div class="lsf-log-card">
+      <div class="lsf-log-card">
         <div class="lsf-log-title">📊 TODAY'S STUDY LOG</div>
-        ${subjectLog.map(s => {
+        ${subjectLog.length ? subjectLog.map(s => {
           const pct = Math.min(100, Math.round((s.mins / logTotalMins) * 100));
           const sh = Math.floor(s.mins / 60), sm = s.mins % 60;
           return `<div class="lsf-log-row" data-ls-log-sub="${s.id}">
@@ -4571,15 +4571,17 @@
             <div class="lsf-log-bar-wrap"><div class="lsf-log-bar" style="width:${pct}%;background:${s.color}"></div></div>
             <span class="lsf-log-time">0:${String(sh).padStart(2,'0')}:${String(sm).padStart(2,'0')}</span>
           </div>`;
-        }).join('')}
+        }).join('') : `<div class="lsf-log-empty">No sessions logged today yet.</div>`}
         <div class="lsf-log-total"><span>Total</span><span id="ls-log-total-val">${_secsToHMS(todaySecs)}</span></div>
-      </div>` : ''}
-      ${curSub ? `<div class="lsf-subject-row">
+      </div>
+      <div class="lsf-subject-row" data-act="ls-select-subject">
         <span class="lsf-sub-icon">📚</span>
-        <span class="lsf-sub-name">${escapeHTML(curSub.name)}</span>
-        <span class="lsf-sub-time" id="ls-sub-row-time">${_secsToHMS(subSecs)}</span>
+        ${curSub
+          ? `<span class="lsf-sub-name">${escapeHTML(curSub.name)}</span>
+             <span class="lsf-sub-time" id="ls-sub-row-time">${_secsToHMS(subSecs)}</span>`
+          : `<span class="lsf-sub-name lsf-sub-placeholder">Tap to select subject</span>`}
         <span class="lsf-sub-chev">›</span>
-      </div>` : ''}
+      </div>
       <div class="lsf-illustration">
         <svg viewBox="0 0 200 148" fill="none" class="lsf-figure-svg" aria-hidden="true">
           <defs><filter id="lsf-glow-ov" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="2.5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
@@ -4607,9 +4609,6 @@
           <line x1="148" y1="50" x2="136" y2="41"  stroke="#ff7a1a" stroke-width="2"/>
           <path d="M130 35 L143 35 L139 44 L134 44 Z" stroke="#ff7a1a" stroke-width="1.5" fill="rgba(255,122,26,0.15)"/>
         </svg>
-      </div>
-      <div class="lsf-aux-row">
-        <button class="lsf-aux-btn${ambientMode !== 'none' ? ' lsf-aux-btn--on' : ''}" data-act="fs-cycle-ambient" title="Cycle ambient">${ambientIcon}</button>
       </div>
       <button class="lsf-play-btn" id="ls-play-btn" data-act="ls-play-pause">${_lsRunning ? '⏸' : '▶'}</button>
     </div>`;
@@ -4946,7 +4945,7 @@
       const del  = -(Math.random() * 28).toFixed(1);
       const dy   = ((Math.random() - 0.5) * 60).toFixed(0);
       const op   = (0.35 + Math.random() * 0.45).toFixed(2);
-      out.push(`<div class="fs-particle" style="width:${sz}px;height:${sz}px;top:${top}%;--drift-y:${dy}px;animation-duration:${dur}s;animation-delay:${del}s;opacity:${op}"></div>`);
+      out.push(`<div class="fs-particle" style="width:${sz}px;height:${sz}px;top:${top}%;--drift-y:${dy}px;animation-duration:${dur}s;animation-delay:${del}s;--op:${op}"></div>`);
     }
     // Larger soft cloud blobs (drift slow)
     for (let i = 0; i < blobCount; i++) {
@@ -4956,7 +4955,7 @@
       const del  = -(Math.random() * 40).toFixed(1);
       const dy   = ((Math.random() - 0.5) * 80).toFixed(0);
       const op   = (0.02 + Math.random() * 0.045).toFixed(3);
-      out.push(`<div class="fs-particle" style="width:${sz}px;height:${sz}px;top:${top}%;--drift-y:${dy}px;animation-duration:${dur}s;animation-delay:${del}s;opacity:${op}"></div>`);
+      out.push(`<div class="fs-particle" style="width:${sz}px;height:${sz}px;top:${top}%;--drift-y:${dy}px;animation-duration:${dur}s;animation-delay:${del}s;--op:${op}"></div>`);
     }
     return out.join('');
   }
@@ -7488,6 +7487,30 @@
     }
     if (act === 'ls-enter') { enterLiveSession(); return; }
     if (act === 'ls-exit') { exitLiveSession(true); return; }
+    if (act === 'ls-select-subject') {
+      const overlay = document.getElementById('ls-overlay'); if (!overlay) return;
+      const existing = overlay.querySelector('.lsf-sub-picker');
+      if (existing) { existing.remove(); return; }
+      const subjects = (state.syllabus || []).filter(s => !s._deleted);
+      if (!subjects.length) { toast('Add subjects in the Study tab first', 'info'); return; }
+      const picker = document.createElement('div');
+      picker.className = 'lsf-sub-picker';
+      picker.innerHTML = `
+        <div class="lsf-sub-picker-title">Select Subject</div>
+        <button class="lsf-sub-picker-item${!_lsSubjectId ? ' lsf-sub-picker-active' : ''}" data-act="ls-pick-sub" data-sid="">No subject</button>
+        ${subjects.map(s => `<button class="lsf-sub-picker-item${_lsSubjectId === s.id ? ' lsf-sub-picker-active' : ''}" data-act="ls-pick-sub" data-sid="${escapeHTML(s.id)}" style="border-left:3px solid ${s.color||'#ff7a1a'}">${escapeHTML(s.name)}</button>`).join('')}
+      `;
+      overlay.appendChild(picker);
+      return;
+    }
+    if (act === 'ls-pick-sub') {
+      _lsSubjectId = el.dataset.sid || null;
+      const overlay = document.getElementById('ls-overlay');
+      const picker = overlay && overlay.querySelector('.lsf-sub-picker');
+      if (picker) picker.remove();
+      renderLiveOverlay();
+      return;
+    }
     if (act === 'ls-play-pause') {
       if (_lsRunning) {
         _lsElapsedBase = _lsGetElapsed();
