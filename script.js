@@ -7241,9 +7241,6 @@
     const total = customDurations[focusMode] * 60;
     const r = 96, c = 2 * Math.PI * r, off = c * (1 - _ringFillPct(focusSeconds, total));
     const isBreak = focusMode !== 'work';
-    const tasks = getActivePlanTasks().filter(t => !t.done);
-    const taskOptions = tasks.map(t => `<option value="${t.key}" ${focusCurrentTaskKey === t.key ? 'selected' : ''}>${escapeHTML(t.text)}</option>`).join('');
-    const currentTask = focusCurrentTaskKey ? tasks.find(t => t.key === focusCurrentTaskKey) : null;
     return `<div class="focus-view">
       <div class="focus-col-left">
         <div class="focus-mode-tabs">
@@ -7272,12 +7269,6 @@
         </div>
       </div>
       <div class="focus-col-right">
-        <div class="focus-task-bar">
-          <label>Current Task</label>
-          ${currentTask ? `<div class="focus-current-task"><span class="dot"></span>${escapeHTML(currentTask.text)}<button class="btn-link" data-act="focus-task-clear" style="margin-left:auto;font-size:12px">Clear</button></div>` :
-            tasks.length ? `<button class="focus-task-pick-btn" data-act="focus-task-open">📌 Pick a task…</button>` :
-            `<div style="color:var(--text-muted);font-size:13px">No tasks for today yet.</div>`}
-        </div>
         <div class="focus-sessions-info">
           <div class="grid">
             <div><div class="v">${focusSessions}</div><div class="k">Sessions today</div></div>
@@ -7676,9 +7667,6 @@
     const total = customDurations[focusMode] * 60;
     const r = 120, c = 2 * Math.PI * r, off = c * (1 - _ringFillPct(focusSeconds, total));
     const isBreak = focusMode !== 'work';
-    const tasks = getActivePlanTasks().filter(t => !t.done);
-    const currentTask = focusCurrentTaskKey ? tasks.find(t => t.key === focusCurrentTaskKey) : null;
-    const taskOpts = tasks.map(t => `<option value="${t.key}" ${focusCurrentTaskKey === t.key ? 'selected':''}>${escapeHTML(t.text)}</option>`).join('');
     const _curSound = soundById(ambientMode);
     const ambientIcon = _curSound.label.split(' ')[0];
     const sessionDots = Array.from({length: Math.min(focusSessions, 8)}, () => `<span class="fs-dot"></span>`).join('');
@@ -7694,12 +7682,6 @@
         <div class="fs-top">
           <div class="fs-mode-badge ${isBreak ? 'fs-mode-break' : ''}">${focusMode === 'work' ? '🎯 Focus Time' : focusMode === 'short' ? '☕ Short Break' : '🛌 Long Break'}</div>
           ${focusSessions > 0 ? `<div class="fs-session-dots">${sessionDots}<span class="fs-sessions-label">${focusSessions} session${focusSessions !== 1 ? 's' : ''}</span></div>` : ''}
-        </div>
-
-        <!-- ── Task picker (grid-area: task) ── -->
-        <div class="fs-task-box">
-          <div class="fs-task-label">Current Task</div>
-          ${currentTask ? `<div class="fs-task-name">${escapeHTML(currentTask.text)}</div>${currentTask.meta ? `<div class="fs-task-meta">${escapeHTML(currentTask.meta)}</div>` : ''}` : (tasks.length ? `<button class="focus-task-pick-btn fs-task-pick-btn" data-act="focus-task-open">📌 Pick a task…</button>` : `<div class="fs-task-empty">No tasks today</div>`)}
         </div>
 
         <!-- ── Glowing ring timer (grid-area: ring) ── -->
@@ -10965,39 +10947,6 @@
       if (document.getElementById('view-stats') && document.getElementById('view-stats').classList.contains('active')) renderStats();
       return;
     }
-    if (act === 'focus-task-clear') { focusCurrentTaskKey = null; renderFocus(); return; }
-    if (act === 'focus-task-open') {
-      const tasks = getActivePlanTasks().filter(t => !t.done);
-      const modal = document.createElement('div');
-      modal.className = 'focus-task-modal-overlay';
-      modal.innerHTML = `
-        <div class="focus-task-modal">
-          <div class="focus-task-modal-header">
-            <span>Pick a Task</span>
-            <button class="focus-task-modal-close" aria-label="Close">✕</button>
-          </div>
-          <div class="focus-task-modal-list">
-            ${tasks.map(t => `
-              <div class="focus-task-modal-row ${focusCurrentTaskKey === t.key ? 'active' : ''}" data-key="${t.key}">
-                <span class="focus-task-modal-text">${escapeHTML(t.text)}</span>
-                ${focusCurrentTaskKey === t.key ? '<span class="focus-task-modal-check">✓</span>' : ''}
-              </div>`).join('')}
-          </div>
-        </div>`;
-      document.body.appendChild(modal);
-      const close = () => { modal.remove(); };
-      modal.querySelector('.focus-task-modal-close').addEventListener('click', close);
-      modal.addEventListener('click', e => { if (e.target === modal) close(); });
-      modal.querySelectorAll('.focus-task-modal-row').forEach(row => {
-        row.addEventListener('click', () => {
-          focusCurrentTaskKey = row.dataset.key || null;
-          close();
-          if (fsSessionActive) renderFullSession(); else renderFocus();
-        });
-      });
-      return;
-    }
-
     // Ambient sound
     if (act === 'ambient-select') { ambientMode = el.dataset.amode; startAmbient(ambientMode); renderFocus(); return; }
     if (act === 'binaural-toggle') { toggleBinaural(); return; }
