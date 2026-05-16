@@ -1,36 +1,37 @@
-// social.js — Study Community System v1
-// Clean-room rebuild. Completely isolated from old social system.
+// social.js — Study Community System v2
+// Rooms tab: Group Discovery Feed (YPT-inspired, international)
 // Uses: window.appUI (set by script.js bridge), localStorage sc_v1
 
 (() => {
   'use strict';
 
-  const SC_KEY = 'sc_v1';
-  const genId  = () => Math.random().toString(36).slice(2, 10);
+  const SC_KEY  = 'sc_v1';
+  const genId   = () => Math.random().toString(36).slice(2, 10);
   const genCode = () => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let code = '';
-    for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
-    return code;
+    let c = '';
+    for (let i = 0; i < 6; i++) c += chars[Math.floor(Math.random() * chars.length)];
+    return c;
   };
 
-  // ── UI Utilities (via bridge, with safe fallbacks) ──────────────────────
-  const ui       = () => window.appUI || {};
-  const toast    = (msg, type, dur) => { try { ui().toast?.(msg, type, dur); } catch(e) {} };
-  const openModal   = (html, cb)     => { try { ui().openModal?.(html, cb); }   catch(e) {} };
-  const closeModal  = ()             => { try { ui().closeModal?.();  }          catch(e) {} };
-  const confirmModal= (msg, cb, o)   => { try { ui().confirmModal?.(msg, cb, o); } catch(e) {} };
-  const esc         = (s) => {
-    try {
-      return ui().html?.(String(s)) ?? String(s).replace(/[&<>"']/g, c =>
-        ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-    } catch(e) { return String(s ?? ''); }
+  // ── UI bridge ────────────────────────────────────────────────────────────
+  const ui          = () => window.appUI || {};
+  const toast       = (m, t, d)  => { try { ui().toast?.(m, t, d); } catch(_) {} };
+  const openModal   = (h, cb)    => { try { ui().openModal?.(h, cb); } catch(_) {} };
+  const closeModal  = ()         => { try { ui().closeModal?.(); } catch(_) {} };
+  const confirmModal= (m, cb, o) => { try { ui().confirmModal?.(m, cb, o); } catch(_) {} };
+  const esc = (s) => {
+    try { return ui().html?.(String(s)) ?? String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    catch(_) { return String(s ?? ''); }
   };
-  const minsToHrs = (m) => { try { return ui().minsToHrs?.(m) ?? (m < 60 ? m+'m' : Math.floor(m/60)+'h '+(m%60||'')+'m').trim(); } catch(e) { return m+'m'; } };
-  const todayKey  = () => { try { return ui().todayKey?.() ?? new Date().toISOString().slice(0,10); } catch(e) { return new Date().toISOString().slice(0,10); } };
-  const getMainState = () => { try { return ui().state?.() ?? {}; } catch(e) { return {}; } };
+  const minsToHrs = (m) => {
+    try { return ui().minsToHrs?.(m) ?? (m < 60 ? m + 'm' : Math.floor(m/60) + 'h ' + (m%60 ? m%60+'m' : '')).trim(); }
+    catch(_) { return m + 'm'; }
+  };
+  const todayKey     = () => { try { return ui().todayKey?.() ?? new Date().toISOString().slice(0,10); } catch(_) { return new Date().toISOString().slice(0,10); } };
+  const getMainState = () => { try { return ui().state?.() ?? {}; } catch(_) { return {}; } };
 
-  // ── Data Layer ──────────────────────────────────────────────────────────
+  // ── Data ─────────────────────────────────────────────────────────────────
   function scLoad() {
     try {
       const raw = localStorage.getItem(SC_KEY);
@@ -40,24 +41,22 @@
         tasks:  Array.isArray(d.tasks)  ? d.tasks  : [],
         notes:  Array.isArray(d.notes)  ? d.notes  : [],
       };
-    } catch(e) { return { groups: [], tasks: [], notes: [] }; }
+    } catch(_) { return { groups: [], tasks: [], notes: [] }; }
   }
-  function scSave(d) {
-    try { localStorage.setItem(SC_KEY, JSON.stringify(d)); } catch(e) {}
-  }
+  function scSave(d) { try { localStorage.setItem(SC_KEY, JSON.stringify(d)); } catch(_) {} }
 
-  // ── State ───────────────────────────────────────────────────────────────
-  let _tab      = 'rooms';   // 'rooms'|'groups'|'leaderboard'|'tasks'|'notes'
-  let _groupView = null;     // null = list view; string = group id for detail view
-  let _lbPeriod  = 'daily';  // 'daily'|'weekly'
-  let _destroyed = false;    // cleanup guard
+  // ── State ─────────────────────────────────────────────────────────────────
+  let _tab           = 'rooms';
+  let _groupView     = null;
+  let _lbPeriod      = 'daily';
+  let _roomFilter    = 'new';
+  let _roomPublicOnly = false;
+  let _roomWithSpace  = false;
+  let _destroyed     = false;
 
-  // ── Focus Status ────────────────────────────────────────────────────────
-  const isStudying = () => {
-    try { return window._focusActive === true; } catch(e) { return false; }
-  };
+  const isStudying = () => { try { return window._focusActive === true; } catch(_) { return false; } };
 
-  // ── SVG Icons ───────────────────────────────────────────────────────────
+  // ── Icons ─────────────────────────────────────────────────────────────────
   const ICON = {
     plus:   `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
     join:   `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>`,
@@ -71,58 +70,84 @@
     trophy: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg>`,
   };
 
-  // ── Main Render ──────────────────────────────────────────────────────────
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function _timeAgo(ts) {
+    if (!ts) return '';
+    const diff = Date.now() - (typeof ts === 'number' ? ts : new Date(ts).getTime());
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return 'just now';
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.floor(h / 24)}d ago`;
+  }
+
+  function _formatDate(ts) {
+    if (!ts) return '—';
+    const d  = new Date(typeof ts === 'number' ? ts : ts);
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    return `${dd}/${mm}/${d.getFullYear()}`;
+  }
+
+  function _catColor(cat) {
+    const map = {
+      'Exams':   { bg:'rgba(245,158,11,.18)',  text:'#fbbf24', border:'rgba(245,158,11,.3)'  },
+      'Language':{ bg:'rgba(59,130,246,.18)',  text:'#60a5fa', border:'rgba(59,130,246,.3)'  },
+      'Tech':    { bg:'rgba(56,189,248,.18)',  text:'#38bdf8', border:'rgba(56,189,248,.3)'  },
+      'Science': { bg:'rgba(34,197,94,.18)',   text:'#4ade80', border:'rgba(34,197,94,.3)'   },
+      'Arts':    { bg:'rgba(244,114,182,.18)', text:'#f472b6', border:'rgba(244,114,182,.3)' },
+      'General': { bg:'rgba(124,58,237,.18)',  text:'#a78bfa', border:'rgba(124,58,237,.3)'  },
+    };
+    return map[cat] || { bg:'rgba(148,163,184,.12)', text:'#94a3b8', border:'rgba(148,163,184,.2)' };
+  }
+
+  function _avatarColor(name) {
+    const cols = ['#7c3aed','#2563eb','#059669','#d97706','#dc2626','#0891b2'];
+    let h = 0;
+    for (let i = 0; i < (name||'').length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+    return cols[h % cols.length];
+  }
+
+  // ── Main render ───────────────────────────────────────────────────────────
   function renderSocial() {
     if (_destroyed) return;
     const view = document.getElementById('view-social');
     if (!view) return;
-
     try {
       view.innerHTML = `
         <div class="sc-page" role="main">
           ${_renderSubNav()}
-          <div class="sc-body">
-            ${_renderTabContent()}
-          </div>
-        </div>
-      `;
+          <div class="sc-body">${_renderTabContent()}</div>
+        </div>`;
       _bindEvents(view);
     } catch(err) {
-      console.error('[Social] Render error:', err);
-      view.innerHTML = `
-        <div class="sc-page">
-          <div class="sc-error-state">
-            <div class="sc-error-icon">⚠️</div>
-            <div class="sc-error-title">Something went wrong</div>
-            <div class="sc-error-sub">The community tab encountered an error.</div>
-            <button class="sc-btn sc-btn-primary" onclick="if(window._socialRender)window._socialRender()">Retry</button>
-          </div>
-        </div>
-      `;
+      console.error('[Social]', err);
+      view.innerHTML = `<div class="sc-page"><div class="sc-error-state">
+        <div class="sc-error-icon">⚠️</div>
+        <div class="sc-error-title">Something went wrong</div>
+        <button class="sc-btn sc-btn-primary" onclick="if(window._socialRender)window._socialRender()">Retry</button>
+      </div></div>`;
     }
   }
 
-  // ── Sub-Nav ──────────────────────────────────────────────────────────────
+  // ── Sub-nav ───────────────────────────────────────────────────────────────
   function _renderSubNav() {
     const tabs = [
-      { id:'rooms',       label:'Rooms',    emoji:'🏠' },
+      { id:'rooms',       label:'Discover', emoji:'🌍' },
       { id:'groups',      label:'Groups',   emoji:'👥' },
       { id:'leaderboard', label:'Rankings', emoji:'🏆' },
       { id:'tasks',       label:'Tasks',    emoji:'✅' },
       { id:'notes',       label:'Notes',    emoji:'📝' },
     ];
-    return `
-      <nav class="sc-subnav" role="tablist" aria-label="Community sections">
-        ${tabs.map(t => `
-          <button class="sc-subnav-btn${_tab === t.id ? ' sc-active' : ''}"
-                  data-sc="tab" data-tab="${t.id}"
-                  role="tab" aria-selected="${_tab === t.id}">
-            <span class="sc-subnav-emoji">${t.emoji}</span>
-            <span class="sc-subnav-label">${t.label}</span>
-          </button>
-        `).join('')}
-      </nav>
-    `;
+    return `<nav class="sc-subnav" role="tablist">
+      ${tabs.map(t => `
+        <button class="sc-subnav-btn${_tab === t.id ? ' sc-active' : ''}"
+                data-sc="tab" data-tab="${t.id}" role="tab" aria-selected="${_tab === t.id}">
+          <span class="sc-subnav-emoji">${t.emoji}</span>
+          <span class="sc-subnav-label">${t.label}</span>
+        </button>`).join('')}
+    </nav>`;
   }
 
   function _renderTabContent() {
@@ -136,88 +161,147 @@
         default:            return _renderRooms();
       }
     } catch(e) {
-      console.error('[Social] Tab render error:', e);
-      return `<div class="sc-error-state"><div class="sc-error-icon">⚠️</div><div class="sc-error-title">Could not load this section</div></div>`;
+      console.error('[Social] tab error:', e);
+      return `<div class="sc-error-state"><div class="sc-error-icon">⚠️</div><div class="sc-error-title">Could not load section</div></div>`;
     }
   }
 
-  // ── Rooms ────────────────────────────────────────────────────────────────
-  function _renderRooms() {
-    const sc = scLoad();
-    const studying = isStudying();
+  // ── Rooms / Discovery ─────────────────────────────────────────────────────
+  const FILTER_TABS = [
+    { id:'new',          label:'New' },
+    { id:'most-members', label:'Most Members' },
+    { id:'most-study',   label:'Most Study Time' },
+    { id:'cam',          label:'📷 Cam Study' },
+  ];
 
-    if (sc.groups.length === 0) {
-      return `
-        <div class="sc-empty-state">
-          <div class="sc-empty-icon">🏠</div>
-          <div class="sc-empty-title">No Study Rooms Yet</div>
-          <div class="sc-empty-sub">Create a group to get your own study room, or join one with an invite code.</div>
-          <div class="sc-empty-actions">
-            <button class="sc-btn sc-btn-primary" data-sc="create-group">${ICON.plus} Create Group</button>
-            <button class="sc-btn sc-btn-outline" data-sc="join-group">${ICON.join} Join via Invite Code</button>
-          </div>
-        </div>
-      `;
+  function _renderRooms() {
+    const sc  = scLoad();
+    const ms  = getMainState();
+    const studying  = isStudying();
+    const todayMins = (ms.focusStats?.minutesByDate || {})[todayKey()] || 0;
+
+    // Sync today's study time into each local group
+    if ((todayMins > 0 || studying) && sc.groups.length > 0) {
+      let dirty = false;
+      sc.groups.forEach(g => {
+        if (g._lastDateKey !== todayKey()) {
+          g.dailyMinsTotal = todayMins;
+          g._lastDateKey   = todayKey();
+          if (studying && todayMins > 0)
+            g.attendancePct = Math.min(100, Math.round(1 / Math.max(1, (g.members||[]).length) * 100));
+          dirty = true;
+        }
+      });
+      if (dirty) scSave(sc);
     }
 
-    const ms = getMainState();
-    const profileName = ms.profile?.name || 'You';
-    const focusStats  = ms.focusStats || {};
-    const minutesToday = (focusStats.minutesByDate || {})[todayKey()] || 0;
+    // Filter
+    let groups = [...sc.groups];
+    if (_roomPublicOnly) groups = groups.filter(g => !g.isPrivate);
+    if (_roomWithSpace)  groups = groups.filter(g => (g.members||[]).length < (g.maxMembers||50));
+    if (_roomFilter === 'cam') groups = groups.filter(g => g.camStudy);
 
-    const cards = sc.groups.map(g => {
-      const memberCount = (g.members || []).length;
-      return `
-        <div class="sc-room-card" data-sc="enter-room" data-gid="${esc(g.id)}" role="button" tabindex="0">
-          <div class="sc-room-top">
-            <div class="sc-room-icon-wrap">
-              <span class="sc-room-icon">${g.icon || '📚'}</span>
-            </div>
-            <div class="sc-room-info">
-              <div class="sc-room-name">${esc(g.name)}</div>
-              <div class="sc-room-meta">
-                ${g.isPrivate ? '🔒 Private' : '🌐 Public'} &middot; ${memberCount} member${memberCount !== 1 ? 's' : ''}
-              </div>
-            </div>
-            <span class="sc-status-dot ${studying ? 'sc-dot-on' : 'sc-dot-off'}"
-                  title="${studying ? 'Studying now' : 'Offline'}">
-              ${studying ? '● Studying' : '● Offline'}
-            </span>
-          </div>
-          ${g.description ? `<div class="sc-room-desc">${esc(g.description)}</div>` : ''}
-          <div class="sc-room-bottom">
-            <div class="sc-room-code-row">
-              <span class="sc-code-label">Code</span>
-              <span class="sc-code-value">${esc(g.code)}</span>
-              <button class="sc-copy-btn" data-sc="copy-code" data-code="${esc(g.code)}"
-                      title="Copy invite code" aria-label="Copy code" onclick="event.stopPropagation()">
-                ${ICON.copy}
-              </button>
-            </div>
-            <div class="sc-room-stats">
-              <span class="sc-room-stat">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                ${minsToHrs(minutesToday)} today
-              </span>
-            </div>
-          </div>
-        </div>
-      `;
-    });
+    // Sort
+    if (_roomFilter === 'most-members')
+      groups.sort((a, b) => (b.members||[]).length - (a.members||[]).length);
+    else if (_roomFilter === 'most-study')
+      groups.sort((a, b) => (b.dailyMinsTotal||0) - (a.dailyMinsTotal||0));
+    else
+      groups.sort((a, b) => (b.createdAt||0) - (a.createdAt||0));
+
+    const filterTabsHtml = FILTER_TABS.map(f =>
+      `<button class="sc-filter-tab${_roomFilter === f.id ? ' sc-ftab-active' : ''}"
+               data-sc="room-filter" data-filter="${f.id}">${f.label}</button>`
+    ).join('');
+
+    const emptyHtml = `
+      <div class="sc-disc-empty">
+        <div class="sc-disc-empty-icon">🌍</div>
+        <div class="sc-disc-empty-title">${sc.groups.length === 0 ? 'No Study Groups Yet' : 'No Groups Match'}</div>
+        <div class="sc-disc-empty-sub">${sc.groups.length === 0
+          ? 'Create your first group and invite others to study together globally.'
+          : 'Try adjusting the filters above.'}</div>
+        ${sc.groups.length === 0
+          ? `<button class="sc-btn sc-btn-primary sc-disc-create-btn" data-sc="create-group">${ICON.plus} Create a Group</button>`
+          : ''}
+      </div>`;
 
     return `
-      <div class="sc-section">
-        <div class="sc-section-header">
-          <span class="sc-section-title">Study Rooms</span>
-          <button class="sc-icon-btn" data-sc="create-group" title="Create room">${ICON.plus}</button>
+      <div class="sc-discovery">
+        <div class="sc-filter-tabs">${filterTabsHtml}</div>
+
+        <div class="sc-filter-checks">
+          <label class="sc-check-row">
+            <input type="checkbox" class="sc-checkbox" data-sc="filter-public" ${_roomPublicOnly ? 'checked' : ''}/>
+            <span>Public Only</span>
+          </label>
+          <label class="sc-check-row">
+            <input type="checkbox" class="sc-checkbox" data-sc="filter-space" ${_roomWithSpace ? 'checked' : ''}/>
+            <span>Groups with Space</span>
+          </label>
         </div>
-        <div class="sc-rooms-list">${cards.join('')}</div>
-        <button class="sc-join-row-btn" data-sc="join-group">${ICON.join} Join via Invite Code</button>
-      </div>
-    `;
+
+        <div class="sc-disc-feed">
+          ${groups.length === 0
+            ? emptyHtml
+            : groups.map(g => _renderDiscCard(g, studying, todayMins)).join('')}
+        </div>
+
+        <button class="sc-fab" data-sc="create-group" aria-label="Create group">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+      </div>`;
   }
 
-  // ── Groups ───────────────────────────────────────────────────────────────
+  function _renderDiscCard(g, studying, todayMins) {
+    const memberCount    = (g.members||[]).length;
+    const maxMembers     = g.maxMembers    || 50;
+    const dailyGoalHrs   = g.dailyGoalHrs  || 8;
+    const leader         = g.leader        || (g.members?.[0]?.name) || 'Unknown';
+    const category       = g.category      || 'General';
+    const camStudy       = !!g.camStudy;
+    const promoted       = !!g.promoted;
+    const createdAt      = g.createdAt     || Date.now();
+    const dailyMinsTotal = g.dailyMinsTotal || (studying ? todayMins : 0);
+    const attendancePct  = g.attendancePct
+      || ((studying && memberCount > 0) ? Math.min(100, Math.round(1 / memberCount * 100)) : 0);
+    const col            = _catColor(category);
+    const isAdmin        = g.role === 'admin';
+    const promoHTML      = promoted ? ' · <span class="sc-promo-badge">Promoted</span>' : '';
+
+    return `
+      <div class="sc-disc-card" data-sc="enter-room" data-gid="${esc(g.id)}" role="button" tabindex="0">
+        <div class="sc-disc-toprow">
+          <span class="sc-cat-tag" style="background:${col.bg};color:${col.text};border-color:${col.border}">${esc(category)}</span>
+          <span class="sc-disc-time">${esc(_timeAgo(createdAt))}${promoHTML}</span>
+        </div>
+
+        <div class="sc-disc-title">${esc(g.name)}</div>
+        ${g.description ? `<div class="sc-disc-desc">${esc(g.description)}</div>` : ''}
+
+        <div class="sc-disc-stats-row">
+          <span class="sc-dstat"><span class="sc-dstat-icon">🎯</span>${dailyGoalHrs}h goal</span>
+          <span class="sc-dstat-sep"></span>
+          <span class="sc-dstat"><span class="sc-dstat-icon">👥</span>${memberCount}/${maxMembers} people</span>
+          <span class="sc-dstat-sep"></span>
+          <span class="sc-dstat sc-dstat-leader"><span class="sc-dstat-icon">👑</span>${esc(leader)}</span>
+          ${camStudy ? `<span class="sc-dstat-sep"></span><span class="sc-dstat sc-dstat-cam">📷 Cam</span>` : ''}
+        </div>
+
+        <div class="sc-disc-perf-row">
+          <span class="sc-dperf">⏱ <strong>${minsToHrs(dailyMinsTotal)}</strong> today</span>
+          <span class="sc-dperf-dot">·</span>
+          <span class="sc-dperf">📊 <strong>${attendancePct}%</strong> attendance</span>
+        </div>
+
+        <div class="sc-disc-footer">
+          <span class="sc-disc-date">Started ${esc(_formatDate(createdAt))}</span>
+          <span class="sc-disc-role ${isAdmin ? 'sc-role-admin' : 'sc-role-member'}">${isAdmin ? '👑 Admin' : '✓ Member'}</span>
+        </div>
+      </div>`;
+  }
+
+  // ── Groups ────────────────────────────────────────────────────────────────
   function _renderGroups() {
     const sc = scLoad();
     if (_groupView) {
@@ -236,124 +320,104 @@
             <button class="sc-btn sc-btn-primary" data-sc="create-group">${ICON.plus} Create Group</button>
             <button class="sc-btn sc-btn-outline" data-sc="join-group">${ICON.join} Join via Invite Code</button>
           </div>
-        </div>
-      `;
+        </div>`;
     }
-
-    const cards = sc.groups.map(g => {
-      const mc = (g.members || []).length;
-      return `
-        <div class="sc-group-card" data-sc="open-group" data-gid="${esc(g.id)}" role="button" tabindex="0">
-          <div class="sc-group-icon">${g.icon || '📚'}</div>
-          <div class="sc-group-info">
-            <div class="sc-group-name">${esc(g.name)}</div>
-            <div class="sc-group-meta">
-              ${g.isPrivate ? '🔒 Private' : '🌐 Public'} &middot;
-              ${mc} member${mc !== 1 ? 's' : ''} &middot;
-              Code: <strong>${esc(g.code)}</strong>
-            </div>
-            ${g.description ? `<div class="sc-group-desc-preview">${esc(g.description)}</div>` : ''}
-          </div>
-          <div class="sc-chevron">${ICON.chevron}</div>
-        </div>
-      `;
-    });
 
     return `
       <div class="sc-section">
         <div class="sc-section-header">
           <span class="sc-section-title">Your Groups</span>
-          <button class="sc-icon-btn" data-sc="create-group" title="Create group">${ICON.plus}</button>
+          <button class="sc-icon-btn" data-sc="create-group">${ICON.plus}</button>
         </div>
-        <div class="sc-groups-list">${cards.join('')}</div>
+        <div class="sc-groups-list">
+          ${sc.groups.map(g => {
+            const mc = (g.members||[]).length;
+            return `
+              <div class="sc-group-card" data-sc="open-group" data-gid="${esc(g.id)}" role="button" tabindex="0">
+                <div class="sc-group-icon">${g.icon||'📚'}</div>
+                <div class="sc-group-info">
+                  <div class="sc-group-name">${esc(g.name)}</div>
+                  <div class="sc-group-meta">
+                    ${g.isPrivate ? '🔒 Private' : '🌐 Public'} &middot;
+                    ${mc} member${mc!==1?'s':''} &middot;
+                    Code: <strong>${esc(g.code)}</strong>
+                  </div>
+                  ${g.description ? `<div class="sc-group-desc-preview">${esc(g.description)}</div>` : ''}
+                </div>
+                <div class="sc-chevron">${ICON.chevron}</div>
+              </div>`;
+          }).join('')}
+        </div>
         <button class="sc-join-row-btn" data-sc="join-group">${ICON.join} Join via Invite Code</button>
-      </div>
-    `;
+      </div>`;
   }
 
   function _renderGroupDetail(g, sc) {
-    const members   = g.members || [];
-    const gTasks    = sc.tasks.filter(t => t.groupId === g.id);
-    const gNotes    = sc.notes.filter(n => n.groupId === g.id);
-    const pending   = gTasks.filter(t => !t.done).length;
-
-    const memberHTML = members.length === 0
-      ? `<div class="sc-empty-mini">No members listed.</div>`
-      : members.map(m => `
-          <div class="sc-member-row">
-            <div class="sc-member-av" style="background:${_avatarColor(m.name)}">${(m.name||'?')[0].toUpperCase()}</div>
-            <span class="sc-member-name">${esc(m.name || 'Unknown')}</span>
-            <span class="sc-member-badge sc-badge-${m.role === 'admin' ? 'admin' : 'member'}">${m.role === 'admin' ? 'Admin' : 'Member'}</span>
-          </div>
-        `).join('');
-
-    const taskHTML = gTasks.length === 0
-      ? `<div class="sc-empty-mini">No group tasks yet.</div>`
-      : gTasks.map(t => _taskRow(t)).join('');
-
-    const noteHTML = gNotes.length === 0
-      ? `<div class="sc-empty-mini">No group notes yet.</div>`
-      : gNotes.map(n => _noteCard(n)).join('');
+    const members = g.members || [];
+    const gTasks  = sc.tasks.filter(t => t.groupId === g.id);
+    const gNotes  = sc.notes.filter(n => n.groupId === g.id);
+    const pending = gTasks.filter(t => !t.done).length;
 
     return `
       <div class="sc-detail">
         <div class="sc-detail-header">
           <button class="sc-back-btn" data-sc="close-group" aria-label="Back">${ICON.back}</button>
-          <span class="sc-detail-icon">${g.icon || '📚'}</span>
+          <span class="sc-detail-icon">${g.icon||'📚'}</span>
           <span class="sc-detail-name">${esc(g.name)}</span>
-          <button class="sc-icon-btn sc-btn-danger-icon" data-sc="leave-group" data-gid="${esc(g.id)}" title="Leave group">${ICON.leave}</button>
+          <button class="sc-icon-btn sc-btn-danger-icon" data-sc="leave-group" data-gid="${esc(g.id)}">${ICON.leave}</button>
         </div>
-
         <div class="sc-detail-meta">
           <span class="sc-meta-chip">${g.isPrivate ? '🔒 Private' : '🌐 Public'}</span>
-          <span class="sc-meta-chip">
-            Code: <strong>${esc(g.code)}</strong>
+          <span class="sc-meta-chip">Code: <strong>${esc(g.code)}</strong>
             <button class="sc-copy-inline" data-sc="copy-code" data-code="${esc(g.code)}">Copy</button>
           </span>
         </div>
-
         ${g.description ? `<p class="sc-detail-desc">${esc(g.description)}</p>` : ''}
-
         <div class="sc-detail-block">
-          <div class="sc-block-header">
-            <span class="sc-block-title">Members (${members.length})</span>
+          <div class="sc-block-header"><span class="sc-block-title">Members (${members.length})</span></div>
+          <div class="sc-members-list">
+            ${members.length === 0
+              ? `<div class="sc-empty-mini">No members listed.</div>`
+              : members.map(m => `
+                  <div class="sc-member-row">
+                    <div class="sc-member-av" style="background:${_avatarColor(m.name)}">${(m.name||'?')[0].toUpperCase()}</div>
+                    <span class="sc-member-name">${esc(m.name||'Unknown')}</span>
+                    <span class="sc-member-badge sc-badge-${m.role==='admin'?'admin':'member'}">${m.role==='admin'?'Admin':'Member'}</span>
+                  </div>`).join('')}
           </div>
-          <div class="sc-members-list">${memberHTML}</div>
         </div>
-
         <div class="sc-detail-block">
           <div class="sc-block-header">
             <span class="sc-block-title">Group Tasks (${pending} pending)</span>
-            <button class="sc-icon-btn" data-sc="add-task" data-gid="${esc(g.id)}" title="Add task">${ICON.plus}</button>
+            <button class="sc-icon-btn" data-sc="add-task" data-gid="${esc(g.id)}">${ICON.plus}</button>
           </div>
-          <div class="sc-tasks-list">${taskHTML}</div>
+          <div class="sc-tasks-list">
+            ${gTasks.length === 0 ? `<div class="sc-empty-mini">No group tasks yet.</div>` : gTasks.map(_taskRow).join('')}
+          </div>
         </div>
-
         <div class="sc-detail-block">
           <div class="sc-block-header">
             <span class="sc-block-title">Group Notes (${gNotes.length})</span>
-            <button class="sc-icon-btn" data-sc="add-note" data-gid="${esc(g.id)}" title="Add note">${ICON.plus}</button>
+            <button class="sc-icon-btn" data-sc="add-note" data-gid="${esc(g.id)}">${ICON.plus}</button>
           </div>
-          <div class="sc-notes-list">${noteHTML}</div>
+          <div class="sc-notes-list">
+            ${gNotes.length === 0 ? `<div class="sc-empty-mini">No group notes yet.</div>` : gNotes.map(_noteCard).join('')}
+          </div>
         </div>
-      </div>
-    `;
+      </div>`;
   }
 
-  // ── Leaderboard ──────────────────────────────────────────────────────────
+  // ── Leaderboard ───────────────────────────────────────────────────────────
   function _renderLeaderboard() {
-    const ms     = getMainState();
-    const fStats = ms.focusStats || {};
-    const mins   = fStats.minutesByDate || {};
-    const today  = todayKey();
-
+    const ms    = getMainState();
+    const mins  = (ms.focusStats||{}).minutesByDate || {};
+    const today = todayKey();
     const todayMins = mins[today] || 0;
     let weekMins = 0;
     for (let i = 0; i < 7; i++) {
       const d = new Date(); d.setDate(d.getDate() - i);
       weekMins += (mins[d.toISOString().slice(0,10)] || 0);
     }
-
     const displayMins = _lbPeriod === 'daily' ? todayMins : weekMins;
     const sc = scLoad();
     const studying = isStudying();
@@ -363,224 +427,188 @@
         <div class="sc-section-header">
           <span class="sc-section-title">Rankings</span>
           <div class="sc-toggle-row">
-            <button class="sc-toggle-btn${_lbPeriod === 'daily'  ? ' sc-active' : ''}" data-sc="lb-period" data-period="daily">Daily</button>
-            <button class="sc-toggle-btn${_lbPeriod === 'weekly' ? ' sc-active' : ''}" data-sc="lb-period" data-period="weekly">Weekly</button>
+            <button class="sc-toggle-btn${_lbPeriod==='daily'?' sc-active':''}" data-sc="lb-period" data-period="daily">Daily</button>
+            <button class="sc-toggle-btn${_lbPeriod==='weekly'?' sc-active':''}" data-sc="lb-period" data-period="weekly">Weekly</button>
           </div>
         </div>
-
         <div class="sc-lb-you-card">
-          <div class="sc-lb-you-label">Your Study Time ${_lbPeriod === 'daily' ? 'Today' : 'This Week'}</div>
+          <div class="sc-lb-you-label">Your Study Time ${_lbPeriod==='daily'?'Today':'This Week'}</div>
           <div class="sc-lb-you-time">${minsToHrs(displayMins)}</div>
           ${studying ? '<div class="sc-lb-studying-badge">● Currently Studying</div>' : ''}
           <div class="sc-lb-progress-wrap">
-            <div class="sc-lb-progress-bar" style="width:${Math.min(100, (displayMins / (_lbPeriod === 'daily' ? 480 : 3360)) * 100).toFixed(1)}%"></div>
+            <div class="sc-lb-progress-bar" style="width:${Math.min(100,(displayMins/(_lbPeriod==='daily'?480:3360))*100).toFixed(1)}%"></div>
           </div>
-          <div class="sc-lb-goal-label">Goal: ${_lbPeriod === 'daily' ? '8h / day' : '56h / week'}</div>
+          <div class="sc-lb-goal-label">Goal: ${_lbPeriod==='daily'?'8h / day':'56h / week'}</div>
         </div>
-
         ${sc.groups.length > 0 ? `
           <div class="sc-lb-groups">
             <div class="sc-block-title" style="margin-bottom:10px">My Groups</div>
-            ${sc.groups.map((g, i) => `
+            ${sc.groups.map((g,i) => `
               <div class="sc-lb-row">
                 <span class="sc-lb-rank">#${i+1}</span>
-                <span class="sc-lb-gicon">${g.icon || '📚'}</span>
+                <span class="sc-lb-gicon">${g.icon||'📚'}</span>
                 <span class="sc-lb-gname">${esc(g.name)}</span>
                 <span class="sc-lb-gmeta">${(g.members||[]).length} members</span>
-              </div>
-            `).join('')}
-          </div>
-        ` : `
+              </div>`).join('')}
+          </div>` : `
           <div class="sc-lb-info-card">
             <div class="sc-lb-info-icon">${ICON.trophy}</div>
-            <div class="sc-lb-info-text">
-              <strong>Group leaderboards</strong><br>
-              Create or join a group to compete with study partners.
-            </div>
-          </div>
-        `}
-
+            <div class="sc-lb-info-text"><strong>Group leaderboards</strong><br>Create or join a group to compete.</div>
+          </div>`}
         <div class="sc-lb-streaks">
           <div class="sc-block-title" style="margin-bottom:10px">Your Stats</div>
           <div class="sc-stats-grid">
-            <div class="sc-stat-chip">
-              <div class="sc-stat-value">${minsToHrs(todayMins)}</div>
-              <div class="sc-stat-label">Today</div>
-            </div>
-            <div class="sc-stat-chip">
-              <div class="sc-stat-value">${minsToHrs(weekMins)}</div>
-              <div class="sc-stat-label">This Week</div>
-            </div>
-            <div class="sc-stat-chip">
-              <div class="sc-stat-value">${ms.streak?.current ?? ms.currentStreak ?? 0}🔥</div>
-              <div class="sc-stat-label">Streak</div>
-            </div>
+            <div class="sc-stat-chip"><div class="sc-stat-value">${minsToHrs(todayMins)}</div><div class="sc-stat-label">Today</div></div>
+            <div class="sc-stat-chip"><div class="sc-stat-value">${minsToHrs(weekMins)}</div><div class="sc-stat-label">This Week</div></div>
+            <div class="sc-stat-chip"><div class="sc-stat-value">${ms.streak?.current??ms.currentStreak??0}🔥</div><div class="sc-stat-label">Streak</div></div>
           </div>
         </div>
-      </div>
-    `;
+      </div>`;
   }
 
-  // ── Tasks ────────────────────────────────────────────────────────────────
+  // ── Tasks ─────────────────────────────────────────────────────────────────
   function _renderTasks() {
     const sc = scLoad();
-    const personalTasks = sc.tasks.filter(t => !t.groupId);
-    const pendingPersonal = personalTasks.filter(t => !t.done).length;
+    const personal = sc.tasks.filter(t => !t.groupId);
 
     return `
       <div class="sc-section">
         <div class="sc-section-header">
           <span class="sc-section-title">Tasks</span>
-          <button class="sc-icon-btn" data-sc="add-task" data-gid="" title="Add personal task">${ICON.plus}</button>
+          <button class="sc-icon-btn" data-sc="add-task" data-gid="">${ICON.plus}</button>
         </div>
-
         <div class="sc-tasks-group">
-          <div class="sc-tasks-label">Personal (${pendingPersonal} pending)</div>
-          ${personalTasks.length === 0
+          <div class="sc-tasks-label">Personal (${personal.filter(t=>!t.done).length} pending)</div>
+          ${personal.length === 0
             ? `<div class="sc-empty-mini">No tasks yet — tap + to add one.</div>`
-            : personalTasks.map(t => _taskRow(t)).join('')
-          }
-          <button class="sc-add-inline-btn" data-sc="add-task" data-gid="">
-            ${ICON.plus} Add personal task
-          </button>
+            : personal.map(_taskRow).join('')}
+          <button class="sc-add-inline-btn" data-sc="add-task" data-gid="">${ICON.plus} Add personal task</button>
         </div>
-
         ${sc.groups.map(g => {
-          const gTasks = sc.tasks.filter(t => t.groupId === g.id);
-          const gPending = gTasks.filter(t => !t.done).length;
+          const gt = sc.tasks.filter(t => t.groupId === g.id);
           return `
             <div class="sc-tasks-group">
-              <div class="sc-tasks-label">${esc(g.icon||'📚')} ${esc(g.name)} (${gPending} pending)</div>
-              ${gTasks.length === 0
-                ? `<div class="sc-empty-mini">No group tasks yet.</div>`
-                : gTasks.map(t => _taskRow(t)).join('')
-              }
-              <button class="sc-add-inline-btn" data-sc="add-task" data-gid="${esc(g.id)}">
-                ${ICON.plus} Add group task
-              </button>
-            </div>
-          `;
+              <div class="sc-tasks-label">${esc(g.icon||'📚')} ${esc(g.name)} (${gt.filter(t=>!t.done).length} pending)</div>
+              ${gt.length === 0 ? `<div class="sc-empty-mini">No group tasks yet.</div>` : gt.map(_taskRow).join('')}
+              <button class="sc-add-inline-btn" data-sc="add-task" data-gid="${esc(g.id)}">${ICON.plus} Add group task</button>
+            </div>`;
         }).join('')}
-      </div>
-    `;
+      </div>`;
   }
 
   function _taskRow(t) {
     return `
-      <div class="sc-task-row${t.done ? ' sc-task-done' : ''}">
-        <button class="sc-task-check${t.done ? ' sc-checked' : ''}"
-                data-sc="toggle-task" data-tid="${esc(t.id)}"
-                aria-label="${t.done ? 'Mark incomplete' : 'Mark complete'}">
-          ${t.done ? ICON.check : ''}
-        </button>
+      <div class="sc-task-row${t.done?' sc-task-done':''}">
+        <button class="sc-task-check${t.done?' sc-checked':''}" data-sc="toggle-task" data-tid="${esc(t.id)}">${t.done?ICON.check:''}</button>
         <span class="sc-task-text">${esc(t.title)}</span>
         ${t.dueDate ? `<span class="sc-task-due">${esc(t.dueDate)}</span>` : ''}
-        <button class="sc-task-del" data-sc="delete-task" data-tid="${esc(t.id)}" aria-label="Delete">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-    `;
+        <button class="sc-task-del" data-sc="delete-task" data-tid="${esc(t.id)}">${ICON.trash}</button>
+      </div>`;
   }
 
-  // ── Notes ────────────────────────────────────────────────────────────────
+  // ── Notes ─────────────────────────────────────────────────────────────────
   function _renderNotes() {
     const sc = scLoad();
-    const personalNotes = sc.notes.filter(n => !n.groupId);
-
-    if (personalNotes.length === 0 && sc.groups.every(g => sc.notes.filter(n => n.groupId === g.id).length === 0)) {
+    const personal = sc.notes.filter(n => !n.groupId);
+    if (personal.length === 0 && sc.groups.every(g => sc.notes.filter(n => n.groupId === g.id).length === 0)) {
       return `
         <div class="sc-empty-state">
           <div class="sc-empty-icon">📝</div>
           <div class="sc-empty-title">No Notes Yet</div>
           <div class="sc-empty-sub">Jot down formulas, ideas, and revision notes.</div>
           <button class="sc-btn sc-btn-primary" data-sc="add-note" data-gid="">${ICON.plus} Add First Note</button>
-        </div>
-      `;
+        </div>`;
     }
-
     return `
       <div class="sc-section">
         <div class="sc-section-header">
           <span class="sc-section-title">Notes</span>
-          <button class="sc-icon-btn" data-sc="add-note" data-gid="" title="Add note">${ICON.plus}</button>
+          <button class="sc-icon-btn" data-sc="add-note" data-gid="">${ICON.plus}</button>
         </div>
-
         <div class="sc-notes-group">
-          <div class="sc-tasks-label">Personal (${personalNotes.length})</div>
-          ${personalNotes.length === 0
-            ? `<div class="sc-empty-mini">No personal notes yet.</div>`
-            : personalNotes.map(n => _noteCard(n)).join('')
-          }
-          <button class="sc-add-inline-btn" data-sc="add-note" data-gid="">
-            ${ICON.plus} Add note
-          </button>
+          <div class="sc-tasks-label">Personal (${personal.length})</div>
+          ${personal.length === 0 ? `<div class="sc-empty-mini">No personal notes yet.</div>` : personal.map(_noteCard).join('')}
+          <button class="sc-add-inline-btn" data-sc="add-note" data-gid="">${ICON.plus} Add note</button>
         </div>
-
         ${sc.groups.map(g => {
-          const gNotes = sc.notes.filter(n => n.groupId === g.id);
+          const gn = sc.notes.filter(n => n.groupId === g.id);
           return `
             <div class="sc-notes-group">
               <div class="sc-tasks-label">${esc(g.icon||'📚')} ${esc(g.name)}</div>
-              ${gNotes.length === 0
-                ? `<div class="sc-empty-mini">No group notes yet.</div>`
-                : gNotes.map(n => _noteCard(n)).join('')
-              }
-              <button class="sc-add-inline-btn" data-sc="add-note" data-gid="${esc(g.id)}">
-                ${ICON.plus} Add group note
-              </button>
-            </div>
-          `;
+              ${gn.length === 0 ? `<div class="sc-empty-mini">No group notes yet.</div>` : gn.map(_noteCard).join('')}
+              <button class="sc-add-inline-btn" data-sc="add-note" data-gid="${esc(g.id)}">${ICON.plus} Add group note</button>
+            </div>`;
         }).join('')}
-      </div>
-    `;
+      </div>`;
   }
 
   function _noteCard(n) {
-    const preview = (n.content || '').slice(0, 140) + ((n.content || '').length > 140 ? '…' : '');
+    const preview = (n.content||'').slice(0,140) + ((n.content||'').length > 140 ? '…' : '');
     return `
       <div class="sc-note-card">
         <div class="sc-note-top">
-          <div class="sc-note-title">${esc(n.title || 'Untitled')}</div>
+          <div class="sc-note-title">${esc(n.title||'Untitled')}</div>
           <div class="sc-note-actions">
-            <button class="sc-note-btn" data-sc="edit-note" data-nid="${esc(n.id)}" title="Edit">${ICON.edit}</button>
-            <button class="sc-note-btn sc-note-del" data-sc="delete-note" data-nid="${esc(n.id)}" title="Delete">${ICON.trash}</button>
+            <button class="sc-note-btn" data-sc="edit-note" data-nid="${esc(n.id)}">${ICON.edit}</button>
+            <button class="sc-note-btn sc-note-del" data-sc="delete-note" data-nid="${esc(n.id)}">${ICON.trash}</button>
           </div>
         </div>
         ${preview ? `<div class="sc-note-body">${esc(preview)}</div>` : ''}
-      </div>
-    `;
+      </div>`;
   }
 
-  // ── Modals ───────────────────────────────────────────────────────────────
+  // ── Modals ────────────────────────────────────────────────────────────────
   const ICONS_LIST = ['📚','🎯','⚡','🔥','🚀','🧠','💡','🌟','🎓','💪','🏆','✨','🎨','🔬','🧪','📖'];
+  const CATEGORIES = ['General','Exams','Language','Tech','Science','Arts'];
 
   function _modalCreateGroup() {
     let selectedIcon = '📚';
-    const iconBtns = ICONS_LIST.map(ic => `
-      <button class="sc-icon-pick${ic === selectedIcon ? ' sc-icon-active' : ''}"
-              data-icon="${ic}" type="button">${ic}</button>
-    `).join('');
+    let selectedCat  = 'General';
+
+    const iconBtns = ICONS_LIST.map(ic =>
+      `<button class="sc-icon-pick${ic===selectedIcon?' sc-icon-active':''}" data-icon="${ic}" type="button">${ic}</button>`
+    ).join('');
+
+    const catChips = CATEGORIES.map(c =>
+      `<button class="sc-cat-chip-pick${c===selectedCat?' sc-cat-chip-active':''}" data-cat="${c}" type="button">${c}</button>`
+    ).join('');
 
     openModal(`
       <h3 class="sc-modal-title">Create Study Group</h3>
       <div class="sc-field">
         <label class="sc-label">Group Name</label>
-        <input id="sc-grp-name" type="text" maxlength="40" placeholder="e.g. NEET 2026 Prep"
-               class="sc-input" autocomplete="off"/>
+        <input id="sc-grp-name" type="text" maxlength="40" placeholder="e.g. Global SAT Prep 2026" class="sc-input" autocomplete="off"/>
+      </div>
+      <div class="sc-field">
+        <label class="sc-label">Category</label>
+        <div id="sc-cat-chips" class="sc-cat-chips-row">${catChips}</div>
+      </div>
+      <div class="sc-field sc-field-row">
+        <div style="flex:1;min-width:0">
+          <label class="sc-label">Daily Goal (hrs)</label>
+          <input id="sc-grp-goal" type="number" min="1" max="24" value="8" class="sc-input" style="text-align:center"/>
+        </div>
+        <div style="flex:1;min-width:0">
+          <label class="sc-label">Max Members</label>
+          <input id="sc-grp-max" type="number" min="2" max="500" value="50" class="sc-input" style="text-align:center"/>
+        </div>
       </div>
       <div class="sc-field">
         <label class="sc-label">Description <span class="sc-opt">(optional)</span></label>
-        <input id="sc-grp-desc" type="text" maxlength="100" placeholder="What are you studying?"
-               class="sc-input" autocomplete="off"/>
+        <input id="sc-grp-desc" type="text" maxlength="100" placeholder="What are you studying?" class="sc-input" autocomplete="off"/>
       </div>
       <div class="sc-field">
         <label class="sc-label">Icon</label>
         <div id="sc-icon-grid" class="sc-icon-grid">${iconBtns}</div>
       </div>
-      <div class="sc-field">
+      <div class="sc-field sc-checkboxes-stack">
         <label class="sc-checkbox-row">
+          <input id="sc-grp-cam" type="checkbox" class="sc-checkbox"/>
+          <span>📷 Cam Study room</span>
+        </label>
+        <label class="sc-checkbox-row" style="margin-top:8px">
           <input id="sc-grp-private" type="checkbox" class="sc-checkbox"/>
-          <span>Private group (invite only)</span>
+          <span>🔒 Private (invite only)</span>
         </label>
       </div>
       <div id="sc-grp-err" class="sc-field-err" style="display:none"></div>
@@ -589,10 +617,13 @@
         <button class="btn sc-modal-submit" id="sc-do-create">Create Group</button>
       </div>
     `, root => {
-      const nameEl = root.querySelector('#sc-grp-name');
-      const descEl = root.querySelector('#sc-grp-desc');
-      const privEl = root.querySelector('#sc-grp-private');
-      const errEl  = root.querySelector('#sc-grp-err');
+      const nameEl   = root.querySelector('#sc-grp-name');
+      const descEl   = root.querySelector('#sc-grp-desc');
+      const goalEl   = root.querySelector('#sc-grp-goal');
+      const maxEl    = root.querySelector('#sc-grp-max');
+      const privEl   = root.querySelector('#sc-grp-private');
+      const camEl    = root.querySelector('#sc-grp-cam');
+      const errEl    = root.querySelector('#sc-grp-err');
       const submitEl = root.querySelector('#sc-do-create');
       nameEl.focus();
 
@@ -601,6 +632,13 @@
         if (!btn) return;
         selectedIcon = btn.dataset.icon;
         root.querySelectorAll('.sc-icon-pick').forEach(b => b.classList.toggle('sc-icon-active', b.dataset.icon === selectedIcon));
+      });
+
+      root.querySelector('#sc-cat-chips').addEventListener('click', e => {
+        const btn = e.target.closest('.sc-cat-chip-pick');
+        if (!btn) return;
+        selectedCat = btn.dataset.cat;
+        root.querySelectorAll('.sc-cat-chip-pick').forEach(b => b.classList.toggle('sc-cat-chip-active', b.dataset.cat === selectedCat));
       });
 
       const doCreate = () => {
@@ -613,15 +651,25 @@
           id: genId(), name, icon: selectedIcon,
           code: genCode(), isPrivate: privEl.checked,
           description: descEl.value.trim(),
-          createdAt: Date.now(), role: 'admin',
-          members: [{ id: 'me', name: myName, role: 'admin', joinedAt: Date.now() }]
+          category:     selectedCat,
+          dailyGoalHrs: Math.max(1, Math.min(24, parseInt(goalEl.value)||8)),
+          maxMembers:   Math.max(2, Math.min(500, parseInt(maxEl.value)||50)),
+          leader:       myName,
+          camStudy:     camEl.checked,
+          promoted:     false,
+          createdAt:    Date.now(),
+          dailyMinsTotal: 0,
+          attendancePct:  0,
+          role: 'admin',
+          members: [{ id:'me', name:myName, role:'admin', joinedAt:Date.now() }],
         });
         scSave(sc);
         closeModal();
-        toast(`Group "${name}" created! 🎉`, 'success');
-        _tab = 'groups';
+        toast(`"${name}" created! 🎉`, 'success');
+        _tab = 'rooms';
         renderSocial();
       };
+
       submitEl.addEventListener('click', doCreate);
       nameEl.addEventListener('keydown', e => { if (e.key === 'Enter') doCreate(); });
     });
@@ -641,29 +689,31 @@
         <button class="btn sc-modal-submit" id="sc-do-join">Join Group</button>
       </div>
     `, root => {
-      const codeEl = root.querySelector('#sc-join-code');
-      const errEl  = root.querySelector('#sc-join-err');
+      const codeEl   = root.querySelector('#sc-join-code');
+      const errEl    = root.querySelector('#sc-join-err');
       const submitEl = root.querySelector('#sc-do-join');
       codeEl.focus();
       codeEl.addEventListener('input', () => { codeEl.value = codeEl.value.toUpperCase().replace(/[^A-Z0-9]/g,''); });
-
       const doJoin = () => {
         const code = codeEl.value.trim().toUpperCase();
-        if (code.length < 4) { errEl.textContent = 'Enter a valid invite code (4–8 characters).'; errEl.style.display = ''; return; }
+        if (code.length < 4) { errEl.textContent = 'Enter a valid invite code (4–8 characters).'; errEl.style.display=''; return; }
         const sc = scLoad();
-        if (sc.groups.find(g => g.code === code)) { errEl.textContent = 'You already belong to a group with this code.'; errEl.style.display = ''; return; }
+        if (sc.groups.find(g => g.code === code)) { errEl.textContent = 'You already belong to a group with this code.'; errEl.style.display=''; return; }
         const ms = getMainState();
         const myName = ms.profile?.name || 'You';
         sc.groups.push({
           id: genId(), name: `Group ${code}`, icon: '📚',
           code, isPrivate: false, description: '',
-          createdAt: Date.now(), role: 'member',
-          members: [{ id: 'me', name: myName, role: 'member', joinedAt: Date.now() }]
+          category: 'General', dailyGoalHrs: 8, maxMembers: 50,
+          leader: 'Admin', camStudy: false, promoted: false,
+          createdAt: Date.now(), dailyMinsTotal: 0, attendancePct: 0,
+          role: 'member',
+          members: [{ id:'me', name:myName, role:'member', joinedAt:Date.now() }],
         });
         scSave(sc);
         closeModal();
         toast('Group joined!', 'success');
-        _tab = 'groups';
+        _tab = 'rooms';
         renderSocial();
       };
       submitEl.addEventListener('click', doJoin);
@@ -678,9 +728,7 @@
       <h3 class="sc-modal-title">Add Task${g ? ` — ${esc(g.name)}` : ''}</h3>
       <div class="sc-field">
         <label class="sc-label">Task</label>
-        <input id="sc-task-title" type="text" maxlength="100"
-               placeholder="e.g. Complete Chapter 5 MCQs"
-               class="sc-input" autocomplete="off"/>
+        <input id="sc-task-title" type="text" maxlength="100" placeholder="e.g. Complete Chapter 5 MCQs" class="sc-input" autocomplete="off"/>
       </div>
       <div class="sc-field">
         <label class="sc-label">Due Date <span class="sc-opt">(optional)</span></label>
@@ -693,20 +741,16 @@
     `, root => {
       const titleEl = root.querySelector('#sc-task-title');
       const dueEl   = root.querySelector('#sc-task-due');
-      const submitEl = root.querySelector('#sc-do-add-task');
       titleEl.focus();
       const doAdd = () => {
         const title = titleEl.value.trim();
-        if (!title) { titleEl.style.borderColor = '#ef4444'; return; }
+        if (!title) { titleEl.style.borderColor='#ef4444'; return; }
         const sc2 = scLoad();
-        sc2.tasks.push({ id: genId(), title, groupId: groupId || null, done: false, dueDate: dueEl.value || null, createdAt: Date.now() });
-        scSave(sc2);
-        closeModal();
-        toast('Task added!', 'success');
-        renderSocial();
+        sc2.tasks.push({ id:genId(), title, groupId:groupId||null, done:false, dueDate:dueEl.value||null, createdAt:Date.now() });
+        scSave(sc2); closeModal(); toast('Task added!', 'success'); renderSocial();
       };
-      submitEl.addEventListener('click', doAdd);
-      titleEl.addEventListener('keydown', e => { if (e.key === 'Enter') doAdd(); });
+      root.querySelector('#sc-do-add-task').addEventListener('click', doAdd);
+      titleEl.addEventListener('keydown', e => { if (e.key==='Enter') doAdd(); });
     });
   }
 
@@ -720,7 +764,7 @@
         <input id="sc-note-title" type="text" maxlength="60" placeholder="Note title…" class="sc-input" autocomplete="off"/>
       </div>
       <div class="sc-field">
-        <label class="sc-label">Content <span class="sc-opt">(Markdown supported)</span></label>
+        <label class="sc-label">Content <span class="sc-opt">(optional)</span></label>
         <textarea id="sc-note-body" rows="5" placeholder="Write here…" class="sc-textarea"></textarea>
       </div>
       <div class="actions" style="margin-top:16px">
@@ -729,16 +773,11 @@
       </div>
     `, root => {
       const titleEl = root.querySelector('#sc-note-title');
-      const bodyEl  = root.querySelector('#sc-note-body');
-      const submitEl = root.querySelector('#sc-do-add-note');
       titleEl.focus();
-      submitEl.addEventListener('click', () => {
+      root.querySelector('#sc-do-add-note').addEventListener('click', () => {
         const sc2 = scLoad();
-        sc2.notes.push({ id: genId(), title: titleEl.value.trim() || 'Untitled', content: bodyEl.value.trim(), groupId: groupId || null, createdAt: Date.now(), updatedAt: Date.now() });
-        scSave(sc2);
-        closeModal();
-        toast('Note saved!', 'success');
-        renderSocial();
+        sc2.notes.push({ id:genId(), title:titleEl.value.trim()||'Untitled', content:root.querySelector('#sc-note-body').value.trim(), groupId:groupId||null, createdAt:Date.now(), updatedAt:Date.now() });
+        scSave(sc2); closeModal(); toast('Note saved!', 'success'); renderSocial();
       });
     });
   }
@@ -755,7 +794,7 @@
       </div>
       <div class="sc-field">
         <label class="sc-label">Content</label>
-        <textarea id="sc-enote-body" rows="6" class="sc-textarea">${esc(n.content || '')}</textarea>
+        <textarea id="sc-enote-body" rows="6" class="sc-textarea">${esc(n.content||'')}</textarea>
       </div>
       <div class="actions" style="margin-top:16px">
         <button class="btn btn-ghost" data-close>Cancel</button>
@@ -763,31 +802,33 @@
       </div>
     `, root => {
       const titleEl = root.querySelector('#sc-enote-title');
-      const bodyEl  = root.querySelector('#sc-enote-body');
-      const submitEl = root.querySelector('#sc-do-edit-note');
       titleEl.focus();
-      submitEl.addEventListener('click', () => {
+      root.querySelector('#sc-do-edit-note').addEventListener('click', () => {
         const sc2 = scLoad();
         const note = sc2.notes.find(x => x.id === noteId);
-        if (note) { note.title = titleEl.value.trim() || 'Untitled'; note.content = bodyEl.value.trim(); note.updatedAt = Date.now(); scSave(sc2); }
-        closeModal();
-        toast('Note updated!', 'success');
-        renderSocial();
+        if (note) { note.title = titleEl.value.trim()||'Untitled'; note.content = root.querySelector('#sc-enote-body').value.trim(); note.updatedAt=Date.now(); scSave(sc2); }
+        closeModal(); toast('Note updated!', 'success'); renderSocial();
       });
     });
   }
 
-  // ── Event Handling ───────────────────────────────────────────────────────
+  // ── Events ────────────────────────────────────────────────────────────────
   function _bindEvents(root) {
-    root.addEventListener('click', _onClick);
+    root.addEventListener('click',  _onClick);
+    root.addEventListener('change', _onChange);
   }
 
   function _onClick(e) {
     const el = e.target.closest('[data-sc]');
-    if (!el) return;
-    const act = el.dataset.sc;
+    if (!el || el.type === 'checkbox') return;
     e.stopPropagation();
-    try { _dispatch(act, el); } catch(err) { console.error('[Social] Action error:', act, err); }
+    try { _dispatch(el.dataset.sc, el); } catch(err) { console.error('[Social]', el.dataset.sc, err); }
+  }
+
+  function _onChange(e) {
+    const el = e.target;
+    if (el.dataset.sc === 'filter-public') { _roomPublicOnly = el.checked; renderSocial(); }
+    else if (el.dataset.sc === 'filter-space') { _roomWithSpace = el.checked; renderSocial(); }
   }
 
   function _dispatch(act, el) {
@@ -798,27 +839,25 @@
         renderSocial();
         break;
 
+      case 'room-filter':
+        _roomFilter = el.dataset.filter || 'new';
+        renderSocial();
+        break;
+
       case 'lb-period':
         _lbPeriod = el.dataset.period || 'daily';
         renderSocial();
         break;
 
-      case 'create-group':
-        _modalCreateGroup();
-        break;
-
-      case 'join-group':
-        _modalJoinGroup();
-        break;
+      case 'create-group': _modalCreateGroup(); break;
+      case 'join-group':   _modalJoinGroup();   break;
 
       case 'open-group':
-      case 'enter-room': {
-        const gid = el.dataset.gid;
-        if (act === 'enter-room') { _tab = 'groups'; }
-        _groupView = gid;
+      case 'enter-room':
+        _tab = 'groups';
+        _groupView = el.dataset.gid;
         renderSocial();
         break;
-      }
 
       case 'close-group':
         _groupView = null;
@@ -827,43 +866,33 @@
 
       case 'leave-group': {
         const gid = el.dataset.gid;
-        const sc = scLoad();
-        const g = sc.groups.find(x => x.id === gid);
+        const sc  = scLoad();
+        const g   = sc.groups.find(x => x.id === gid);
         if (!g) break;
-        confirmModal(
-          `Leave "${g.name}"? Your local group data will be removed.`,
-          () => {
-            const sc2 = scLoad();
-            sc2.groups = sc2.groups.filter(x => x.id !== gid);
-            sc2.tasks  = sc2.tasks.filter(t => t.groupId !== gid);
-            sc2.notes  = sc2.notes.filter(n => n.groupId !== gid);
-            scSave(sc2);
-            _groupView = null;
-            toast('Left group.', 'info');
-            renderSocial();
-          },
-          { title: 'Leave Group?', yesLabel: 'Leave', yesClass: 'btn btn-danger', noLabel: 'Cancel' }
-        );
+        confirmModal(`Leave "${g.name}"? Local group data will be removed.`, () => {
+          const sc2 = scLoad();
+          sc2.groups = sc2.groups.filter(x => x.id !== gid);
+          sc2.tasks  = sc2.tasks.filter(t => t.groupId !== gid);
+          sc2.notes  = sc2.notes.filter(n => n.groupId !== gid);
+          scSave(sc2); _groupView = null;
+          toast('Left group.', 'info'); renderSocial();
+        }, { title:'Leave Group?', yesLabel:'Leave', yesClass:'btn btn-danger', noLabel:'Cancel' });
         break;
       }
 
       case 'copy-code': {
         const code = el.dataset.code || '';
-        if (code) {
-          navigator.clipboard.writeText(code)
-            .then(() => toast(`Code ${code} copied!`, 'success'))
-            .catch(() => toast(`Code: ${code}`, 'info'));
-        }
+        if (code) navigator.clipboard.writeText(code).then(() => toast(`Code ${code} copied!`, 'success')).catch(() => toast(`Code: ${code}`, 'info'));
         break;
       }
 
-      case 'add-task':
-        _modalAddTask(el.dataset.gid || null);
-        break;
+      case 'add-task':    _modalAddTask(el.dataset.gid || null); break;
+      case 'add-note':    _modalAddNote(el.dataset.gid || null); break;
+      case 'edit-note':   _modalEditNote(el.dataset.nid);        break;
 
       case 'toggle-task': {
         const sc = scLoad();
-        const t = sc.tasks.find(x => x.id === el.dataset.tid);
+        const t  = sc.tasks.find(x => x.id === el.dataset.tid);
         if (t) { t.done = !t.done; scSave(sc); renderSocial(); }
         break;
       }
@@ -871,48 +900,26 @@
       case 'delete-task': {
         const sc = scLoad();
         sc.tasks = sc.tasks.filter(x => x.id !== el.dataset.tid);
-        scSave(sc);
-        renderSocial();
+        scSave(sc); renderSocial();
         break;
       }
-
-      case 'add-note':
-        _modalAddNote(el.dataset.gid || null);
-        break;
-
-      case 'edit-note':
-        _modalEditNote(el.dataset.nid);
-        break;
 
       case 'delete-note':
         confirmModal('Delete this note?', () => {
           const sc = scLoad();
           sc.notes = sc.notes.filter(n => n.id !== el.dataset.nid);
-          scSave(sc);
-          renderSocial();
-        }, { title: 'Delete Note', yesLabel: 'Delete', yesClass: 'btn btn-danger', noLabel: 'Cancel' });
+          scSave(sc); renderSocial();
+        }, { title:'Delete Note', yesLabel:'Delete', yesClass:'btn btn-danger', noLabel:'Cancel' });
         break;
 
-      default:
-        break;
+      default: break;
     }
   }
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
-  function _avatarColor(name) {
-    const colors = ['#7c3aed','#2563eb','#059669','#d97706','#dc2626','#7c3aed','#0891b2'];
-    let hash = 0;
-    for (let i = 0; i < (name||'').length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-    return colors[hash % colors.length];
-  }
-
-  // ── Init ─────────────────────────────────────────────────────────────────
+  // ── Init ──────────────────────────────────────────────────────────────────
   function init() {
     window._socialRender = renderSocial;
-    // Expose focus bridge: called when focus timer changes state
-    window._socialFocusUpdate = () => {
-      if (window._currentTab === 'social') renderSocial();
-    };
+    window._socialFocusUpdate = () => { if (window._currentTab === 'social') renderSocial(); };
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
