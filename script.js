@@ -904,7 +904,7 @@
   // ======================================================================
   // ========== Social Study System =======================================
   // ======================================================================
-  const SOCIAL_DISABLED = false;
+  const SOCIAL_DISABLED = true;
   const SOCIAL_OFFLINE_MS        = 120 * 1000;  // 120 s — generous buffer for mobile throttling
   const SOCIAL_IDLE_INPUT_MS     = 5 * 60 * 1000; // 5 min no input → idle
   const SOCIAL_HEARTBEAT_FAST_MS = 15000;         // active heartbeat — was 7s, halved for mobile battery
