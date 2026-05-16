@@ -689,16 +689,29 @@
       _showAuthError(msg);
     }
   }
+  // Deletes every document in a Firestore subcollection, paginating if needed.
+  async function _deleteSubcollection(colRef) {
+    let lastDoc = null;
+    for (;;) {
+      let q = colRef.limit(200);
+      if (lastDoc) q = q.startAfter(lastDoc);
+      const snap = await q.get().catch(() => null);
+      if (!snap || snap.empty) break;
+      await Promise.allSettled(snap.docs.map(d => d.ref.delete()));
+      lastDoc = snap.docs[snap.docs.length - 1];
+      if (snap.docs.length < 200) break;
+    }
+  }
+
   // Wipes ALL traces of a user from every group they ever joined:
-  // messages, presence, members sub-collections and active duels.
+  // messages, presence, members, voice, join requests and active duels.
   async function _wipeUserFromAllGroups(uid) {
     if (!_db || !uid) return;
-    // Gather all group codes the user was part of (in-memory + Firestore stored list)
+    // Gather all group codes from memory + Firestore
     let groupCodes = Array.from(new Set([
       ..._myGroupCodes,
       ...(_socialRoomCode ? [_socialRoomCode] : [])
     ]));
-    // Also try to read joinedRooms from Firestore in case memory is stale
     try {
       const userSnap = await _db.collection('users').doc(uid).get();
       if (userSnap.exists) {
@@ -706,8 +719,7 @@
         if (Array.isArray(stored)) groupCodes = Array.from(new Set([...groupCodes, ...stored]));
       }
     } catch(_) {}
-
-    // Also find any groups this user created (so they get fully deleted)
+    // Include groups this user created
     try {
       const createdSnap = await _db.collection('groups').where('createdBy', '==', uid).get();
       createdSnap.forEach(d => { groupCodes = Array.from(new Set([...groupCodes, d.id])); });
@@ -715,24 +727,20 @@
 
     await Promise.allSettled(groupCodes.map(async code => {
       const groupRef = _db.collection('groups').doc(code);
-
-      // If this user is the group creator → delete the entire group
       try {
         const roomSnap = await groupRef.get();
         if (roomSnap.exists && roomSnap.data().createdBy === uid) {
-          const deleteOps = [];
-          const [presSnap, membSnap, msgSnap, reqSnap] = await Promise.allSettled([
-            groupRef.collection('presence').get(),
-            groupRef.collection('members').get(),
-            groupRef.collection('messages').get(),
-            groupRef.collection('joinRequests').get(),
+          // Creator → delete the entire group including all subcollections
+          await Promise.allSettled([
+            _deleteSubcollection(groupRef.collection('presence')),
+            _deleteSubcollection(groupRef.collection('members')),
+            _deleteSubcollection(groupRef.collection('messages')),
+            _deleteSubcollection(groupRef.collection('joinRequests')),
+            _deleteSubcollection(groupRef.collection('voice_signals')),
+            _deleteSubcollection(groupRef.collection('voice_presence')),
           ]);
-          [presSnap, membSnap, msgSnap, reqSnap].forEach(r => {
-            if (r.status === 'fulfilled') r.value.forEach(d => deleteOps.push(d.ref.delete()));
-          });
-          deleteOps.push(groupRef.delete());
-          await Promise.allSettled(deleteOps);
-          return; // done for this group
+          await groupRef.delete().catch(() => {});
+          return;
         }
       } catch(_) {}
 
@@ -740,19 +748,16 @@
       const ops = [
         groupRef.collection('presence').doc(uid).delete(),
         groupRef.collection('members').doc(uid).delete(),
+        groupRef.collection('joinRequests').doc(uid).delete(),
+        groupRef.collection('voice_presence').doc(uid).delete(),
       ];
-
-      // Delete all messages sent by this user in this group
+      // Delete voice signaling doc if it exists
+      try { ops.push(groupRef.collection('voice_signals').doc(uid).delete()); } catch(_) {}
+      // Delete all messages sent by this user
       try {
         const msgsSnap = await groupRef.collection('messages').where('uid', '==', uid).get();
         msgsSnap.forEach(d => ops.push(d.ref.delete()));
       } catch(_) {}
-
-      // Delete any join requests from this user
-      try {
-        ops.push(groupRef.collection('joinRequests').doc(uid).delete());
-      } catch(_) {}
-
       // Cancel active duels involving this user
       try {
         const roomSnap = await groupRef.get();
@@ -769,9 +774,20 @@
           }
         }
       } catch(_) {}
-
       await Promise.allSettled(ops);
     }));
+  }
+
+  // Clears all local app data from localStorage after account deletion
+  function _wipeLocalData() {
+    try {
+      const keysToRemove = [
+        STORAGE_KEY, 'stk_logged_in', 'stk_auth_skipped',
+        'social_room_code', 'my_group_codes',
+        'live_study_state', 'themeStore_v1',
+      ];
+      keysToRemove.forEach(k => { try { localStorage.removeItem(k); } catch(_) {} });
+    } catch(_) {}
   }
 
   async function _authDeleteAccount() {
