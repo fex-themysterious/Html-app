@@ -4359,20 +4359,7 @@
         <div class="ls-stat-item"><div class="ls-stat-val">${streak} 🔥</div><div class="ls-stat-key">Streak</div></div>
         <div class="ls-stat-item"><div class="ls-stat-val" style="color:#ff7a1a">${mult}×</div><div class="ls-stat-key">Multiplier</div></div>
       </div>
-      <div class="ls-subject-section">
-        <div class="ls-section-label">SELECT SUBJECT</div>
-        <select class="ls-subject-sel" id="ls-subject-sel" data-act="ls-subject-change">
-          <option value="">— Pick a subject —</option>
-          ${subOpts}
-        </select>
-        ${curSub ? `<div class="ls-sub-preview">
-          <span class="ls-sub-preview-dot" style="background:${curSub.color||'#ff7a1a'}"></span>
-          <span style="color:#f0f6ff;font-weight:600">${escapeHTML(curSub.name)}</span>
-          <span class="ls-sub-preview-time">${minsToHrs(subMins)} studied</span>
-        </div>` : ''}
-      </div>
       <button class="ls-start-btn" data-act="ls-enter">▶ Start Live Study</button>
-      <div class="ls-hint">🔥 Progress syncs to Firebase · Visible to Study Group</div>
     </div>`;
   }
 
