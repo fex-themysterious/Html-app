@@ -4807,7 +4807,6 @@
           : `<span class="lsf-sub-name lsf-sub-placeholder">Tap to select subject</span>`}
         <span class="lsf-sub-chev">›</span>
       </div>
-      <div class="lsf-illustration">${_lsStickmanSVG()}</div>
       <div class="lsf-play-wrap">
         <button class="lsf-play-btn" id="ls-play-btn" data-act="ls-play-pause">
           <span class="lsf-play-icon">${_lsRunning ? '⏸' : '▶'}</span>
