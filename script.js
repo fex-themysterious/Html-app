@@ -450,6 +450,8 @@
       refreshSettingsIfOpen();
       console.log('[Auth] Signed in:', user.email || user.uid);
       if (!_db) return;
+      // Initialize social system (global LB, public rooms, rejoin saved room)
+      setTimeout(() => _sSocialInit().catch(() => {}), 1500);
       try {
         const snap = await _db.collection('users').doc(user.uid).get();
         if (snap.exists && snap.data() && snap.data().data) {
@@ -872,7 +874,7 @@
   // ======================================================================
   // ========== Social Study System =======================================
   // ======================================================================
-  const SOCIAL_DISABLED = true; // Disabled — under maintenance, re-enable when bugs are fixed
+  const SOCIAL_DISABLED = false;
   const SOCIAL_OFFLINE_MS        = 120 * 1000;  // 120 s — generous buffer for mobile throttling
   const SOCIAL_IDLE_INPUT_MS     = 5 * 60 * 1000; // 5 min no input → idle
   const SOCIAL_HEARTBEAT_FAST_MS = 15000;         // active heartbeat — was 7s, halved for mobile battery
@@ -999,27 +1001,45 @@
     return Array.from({ length: 6 }, () => C[Math.floor(Math.random() * C.length)]).join('');
   }
 
-  async function _sUpdatePresence(status, extra) {
+  // Timestamp of last FULL presence write (used to throttle expensive writes)
+  let _lastFullPresenceAt = 0;
+  const FULL_PRESENCE_INTERVAL_MS = 5 * 60 * 1000; // write full stats at most once per 5 min
+
+  // lightOnly=true → write only status+lastSeen (minimal Firestore cost, battery-friendly)
+  // lightOnly=false → write full stats payload (on join + every FULL_PRESENCE_INTERVAL_MS)
+  async function _sUpdatePresence(status, extra, lightOnly = false) {
     if (!_db || !_userId || !_socialRoomCode) return;
     const u = _auth && _auth.currentUser;
-    let focusSubjectName = '';
-    if (status === 'focusing' && typeof focusCurrentTaskKey !== 'undefined' && focusCurrentTaskKey) {
-      try {
-        const tasks = typeof getActivePlanTasks === 'function' ? getActivePlanTasks() : [];
-        const task = tasks.find(t => t.key === focusCurrentTaskKey);
-        if (task && task.subId) {
-          const sub = state.subjects.find(s => s.id === task.subId);
-          if (sub) focusSubjectName = sub.name;
-        }
-      } catch (_) {}
-    }
-    try {
-      // Use Date.now() — NOT serverTimestamp() — so the value is immediately
-      // available in the local Firestore cache without a pending-null phase.
-      // serverTimestamp() causes an instant re-fire where lastSeen === null,
-      // making _sStatusOf() return 'offline' for every member including yourself.
-      const nowMs = Date.now();
-      const presencePayload = {
+    const nowMs = Date.now();
+
+    // Force a full write if it's been longer than the interval, even in "light" calls
+    const needsFull = !lightOnly || (nowMs - _lastFullPresenceAt > FULL_PRESENCE_INTERVAL_MS);
+
+    let presencePayload;
+    if (!needsFull) {
+      // Minimal write — just enough to stay "online" and update status
+      presencePayload = {
+        uid: _userId,
+        displayName: _sDisplayName(),
+        status,
+        lastSeen: nowMs,
+        ...(extra || {})
+      };
+    } else {
+      // Full write with all stats — happens on room join and every 5 minutes
+      _lastFullPresenceAt = nowMs;
+      let focusSubjectName = '';
+      if (status === 'focusing' && typeof focusCurrentTaskKey !== 'undefined' && focusCurrentTaskKey) {
+        try {
+          const tasks = typeof getActivePlanTasks === 'function' ? getActivePlanTasks() : [];
+          const task = tasks.find(t => t.key === focusCurrentTaskKey);
+          if (task && task.subId) {
+            const sub = state.subjects.find(s => s.id === task.subId);
+            if (sub) focusSubjectName = sub.name;
+          }
+        } catch (_) {}
+      }
+      presencePayload = {
         uid: _userId, displayName: _sDisplayName(), email: (u && u.email) || '',
         status, lastSeen: nowMs,
         xpTotal: (state.xp && state.xp.total) || 0, weeklyXP: _sWeeklyXP(),
@@ -1036,9 +1056,13 @@
         earnedBadges: Object.keys(state.badges || {}),
         ...(extra || {})
       };
+    }
+
+    try {
+      // Use Date.now() — NOT serverTimestamp() — so the value is immediately
+      // available in the local Firestore cache without a pending-null phase.
       // Pre-seed own entry in _socialMembers immediately so onlineCount is correct
-      // BEFORE the async Firestore listener round-trip completes. This eliminates the
-      // "0 online" flash caused by rendering before the listener fires.
+      // BEFORE the async Firestore listener round-trip completes.
       _socialMembers[_userId] = { ...(_socialMembers[_userId] || {}), ...presencePayload };
       await _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId).set(presencePayload, { merge: true });
     } catch (e) { console.warn('[Social] Presence failed:', e.message); }
@@ -1173,10 +1197,11 @@
       _sHeartbeatTick++;
       const isIdle = Date.now() - _socialLastInputAt > SOCIAL_IDLE_INPUT_MS;
       const status = (focusRunning && focusMode === 'work') ? 'focusing' : (isIdle ? 'idle' : 'break');
-      _sUpdatePresence(status, { lastInput: _socialLastInputAt });
-      // Sync global LB every ~5 beats so the leaderboard tab stays in step
-      // with the room member XP without flooding Firestore writes.
-      if (_sHeartbeatTick % 5 === 0) _updateGlobalLb();
+      // Light heartbeat every beat (just status+lastSeen) — full stats every 5 beats (~75s/225s).
+      // This cuts Firestore write size by ~90% per heartbeat, preventing mobile overheating.
+      const doFull = (_sHeartbeatTick % 5 === 0);
+      _sUpdatePresence(status, { lastInput: _socialLastInputAt }, !doFull).catch(() => {});
+      if (doFull) _updateGlobalLb();
     }, _socialHeartbeatMs);
   }
 
@@ -1206,6 +1231,24 @@
       .onSnapshot(snap => {
         _socialReconnectAttempts = 0;
         _socialReconnectToast    = false;
+
+        // Auto-delete stale/ghost presence docs (>24h old with no activity).
+        // Handles deleted accounts and users who disconnected without cleanup.
+        const STALE_PRESENCE_MS = 24 * 60 * 60 * 1000;
+        snap.docs.forEach(doc => {
+          if (doc.id === _userId) return; // never delete own doc
+          const d = doc.data();
+          if (d.status === 'kicked') return; // already handled
+          // Skip docs with no displayName — ghost from deleted/fake account
+          const hasName = d.displayName && d.displayName.trim();
+          const ls = typeof d.lastSeen === 'number' ? d.lastSeen : (d.lastSeen && typeof d.lastSeen.toMillis === 'function' ? d.lastSeen.toMillis() : 0);
+          const isStale = ls && (Date.now() - ls > STALE_PRESENCE_MS);
+          if (!hasName || isStale) {
+            _db.collection('groups').doc(roomCode).collection('presence').doc(doc.id).delete().catch(() => {});
+            delete _socialMembers[doc.id];
+          }
+        });
+
         snap.docChanges().forEach(change => {
           if (change.type === 'removed') {
             // Clean up under both possible keys (doc.id and stored uid) to prevent ghost entries
@@ -1227,6 +1270,8 @@
           // Fall back to data.uid in case of legacy data.
           const key = data.uid || change.doc.id;
           if (!data.uid) data.uid = change.doc.id; // back-fill missing uid field
+          // Skip ghost entries: no displayName = deleted or fake account
+          if (key !== _userId && !(data.displayName && data.displayName.trim())) return;
           // If own presence was set to 'kicked' by admin, auto-leave the room
           if (key === _userId && data.status === 'kicked') {
             toast('You have been removed from the room by the admin.', 'warn', 5000);
@@ -2616,7 +2661,21 @@
   }
 
   async function _sSocialInit() {
-    if (SOCIAL_DISABLED) return; // Social system disabled — skip all background init
+    if (!_db || !_userId) return;
+    // Start real-time global leaderboard listener
+    if (!_globalLbUnsub) _loadGlobalLeaderboard();
+    // Push own stats to global leaderboard on login
+    _updateGlobalLb();
+    // Load public rooms for lobby discovery
+    if (!_publicRooms.length) _loadPublicRooms();
+    // Rejoin previous room if user was in one (survives page reload / re-login)
+    const savedCode = (() => { try { return localStorage.getItem('social_room_code'); } catch(_) { return null; } })();
+    if (savedCode && savedCode.length === 6 && !_socialRoomCode) {
+      _sJoinRoom(savedCode).catch(() => {
+        // Room may no longer exist — clear the saved code
+        try { localStorage.removeItem('social_room_code'); } catch(_) {}
+      });
+    }
   }
 
   // Fetch room name + member count for rooms not yet in _myGroupRoomMeta
