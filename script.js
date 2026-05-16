@@ -4799,14 +4799,12 @@
         }).join('') : `<div class="lsf-log-empty">No sessions logged today yet.</div>`}
         <div class="lsf-log-total"><span>Total</span><span id="ls-log-total-val">${_secsToHMS(todaySecs)}</span></div>
       </div>
-      <div class="lsf-subject-row" id="ls-sub-row">
+      ${curSub ? `<div class="lsf-subject-row" id="ls-sub-row">
         <span class="lsf-sub-icon">📚</span>
-        ${curSub
-          ? `<span class="lsf-sub-name">${escapeHTML(curSub.name)}</span>
-             <span class="lsf-sub-time" id="ls-sub-row-time">${_secsToHMS(subSecs)}</span>`
-          : `<span class="lsf-sub-name lsf-sub-placeholder">Tap to select subject</span>`}
+        <span class="lsf-sub-name">${escapeHTML(curSub.name)}</span>
+        <span class="lsf-sub-time" id="ls-sub-row-time">${_secsToHMS(subSecs)}</span>
         <span class="lsf-sub-chev">›</span>
-      </div>
+      </div>` : ''}
       <div class="lsf-spacer"></div>
       <div class="lsf-play-wrap">
         <button class="lsf-play-btn" id="ls-play-btn" data-act="ls-play-pause">
