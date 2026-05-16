@@ -651,38 +651,6 @@
   flex-shrink: 0;
 }
 
-.lsm-task-chip {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: rgba(255,122,26,0.1);
-  border: 1px solid rgba(255,122,26,0.3);
-  border-radius: 22px;
-  padding: 9px 16px;
-  margin: 0 auto 12px;
-  max-width: 320px;
-  width: calc(100% - 48px);
-  cursor: pointer;
-  transition: background 0.2s, border-color 0.2s;
-  position: relative;
-  z-index: 2;
-}
-.lsm-task-chip:active { background: rgba(255,122,26,0.2); }
-.lsm-task-chip.lsm-task-done {
-  background: rgba(34,197,94,0.1);
-  border-color: rgba(34,197,94,0.35);
-}
-.lsm-task-chip-icon { font-size: 15px; flex-shrink: 0; }
-.lsm-task-chip-text {
-  flex: 1;
-  font-size: 12px;
-  font-weight: 600;
-  color: rgba(255,255,255,0.85);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  letter-spacing: 0.01em;
-}
 .lsm-task-chip-arrow {
   font-size: 16px;
   color: rgba(255,122,26,0.7);

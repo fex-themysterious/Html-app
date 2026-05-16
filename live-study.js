@@ -361,13 +361,6 @@
           <span class="lsm-task-chip-arrow">›</span>
         </div>
 
-        <!-- CURRENT TASK CHIP -->
-        <div class="lsm-task-chip" id="lsm-task-chip">
-          <span class="lsm-task-chip-icon">📋</span>
-          <span class="lsm-task-chip-text" id="lsm-task-chip-text">Tap to select today's task</span>
-          <span class="lsm-task-chip-arrow">›</span>
-        </div>
-
         <!-- CHARACTER -->
         <div class="lsm-character-wrap">
           <div class="lsm-aura lsm-dim" id="lsm-aura"></div>
@@ -405,10 +398,6 @@
     pauseBtn.addEventListener('click', onPauseClick);
     document.getElementById('lsm-exit-btn').addEventListener('click', onExitClick);
     document.getElementById('lsm-subject-chip').addEventListener('click', openSubjectPicker);
-    document.getElementById('lsm-task-chip').addEventListener('click', openTaskPicker);
-
-    /* Restore task chip label if a task was previously selected */
-    updateTaskChip();
     updateSubjectChip();
 
     /* Canvas resize */
@@ -852,29 +841,6 @@
     }
   }
 
-  /* ═══════════════════════════════════════════════════
-     TASK CHIP DISPLAY
-  ═══════════════════════════════════════════════════ */
-  function updateTaskChip() {
-    const el = document.getElementById('lsm-task-chip-text');
-    if (!el) return;
-    if (state.currentTask) {
-      const done = state.currentTask.done ? '✅ ' : '';
-      el.textContent = done + state.currentTask.text;
-      const chip = document.getElementById('lsm-task-chip');
-      if (chip) {
-        chip.classList.toggle('lsm-task-done', !!state.currentTask.done);
-        chip.querySelector('.lsm-task-chip-icon').textContent = state.currentTask.done ? '✅' : '📌';
-      }
-    } else {
-      el.textContent = "Tap to select today's task";
-      const chip = document.getElementById('lsm-task-chip');
-      if (chip) {
-        chip.classList.remove('lsm-task-done');
-        chip.querySelector('.lsm-task-chip-icon').textContent = '📋';
-      }
-    }
-  }
 
   /* ═══════════════════════════════════════════════════
      READ TODAY'S PLAN TASKS FROM MAIN APP LOCALSTORAGE
@@ -930,67 +896,6 @@
       }
       return tasks;
     } catch (_) { return []; }
-  }
-
-  /* ═══════════════════════════════════════════════════
-     TASK PICKER MODAL
-  ═══════════════════════════════════════════════════ */
-  function openTaskPicker() {
-    const tasks = getTodayTasks();
-
-    let bodyHTML;
-    if (tasks.length === 0) {
-      bodyHTML = `<div class="lsm-task-empty">
-        <div class="lsm-task-empty-icon">📭</div>
-        <div class="lsm-task-empty-msg">No tasks in today's plan yet.<br>Add tasks from the Dashboard tab first.</div>
-      </div>`;
-    } else {
-      const rows = tasks.map(t => `
-        <div class="lsm-modal-row lsm-task-row ${state.currentTask?.key === t.key ? 'active' : ''} ${t.done ? 'lsm-task-row-done' : ''}"
-             data-task-key="${t.key}">
-          <span class="lsm-task-row-dot" style="background:${t.color}"></span>
-          <div class="lsm-modal-row-body">
-            <div class="lsm-modal-row-title">${t.done ? '<s>' : ''}${t.text}${t.done ? '</s>' : ''}</div>
-            <div class="lsm-modal-row-sub">${t.meta}</div>
-          </div>
-          <span class="lsm-modal-check">${t.done ? '✅' : (state.currentTask?.key === t.key ? '✓' : '')}</span>
-        </div>
-      `).join('');
-      bodyHTML = rows + `
-        <div class="lsm-task-clear-wrap">
-          <button class="lsm-task-clear-btn" id="lsm-task-clear">Clear selection</button>
-        </div>`;
-    }
-
-    const modal = createModal("Today's Tasks", bodyHTML);
-
-    modal.querySelectorAll('[data-task-key]').forEach(row => {
-      row.addEventListener('click', () => {
-        const key  = row.dataset.taskKey;
-        const task = tasks.find(t => t.key === key);
-        if (!task) return;
-        state.currentTask = task;
-        // Auto-sync subject label with task subject
-        const metaParts = task.meta.split(' · ');
-        if (metaParts[0]) {
-          const lbl = document.getElementById('lsm-subject-label');
-          if (lbl) lbl.textContent = metaParts[0];
-        }
-        saveState();
-        updateTaskChip();
-        closeModal(modal);
-      });
-    });
-
-    const clearBtn = document.getElementById('lsm-task-clear');
-    if (clearBtn) {
-      clearBtn.addEventListener('click', () => {
-        state.currentTask = null;
-        saveState();
-        updateTaskChip();
-        closeModal(modal);
-      });
-    }
   }
 
   /* ═══════════════════════════════════════════════════
