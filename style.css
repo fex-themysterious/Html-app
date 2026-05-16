@@ -5676,9 +5676,17 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
   display: flex; align-items: center; gap: 10px; padding: 10px 16px;
   border-top: 1px solid rgba(255,255,255,0.04);
   cursor: pointer;
-  transition: all 320ms cubic-bezier(0.22,1,0.36,1);
+  /* Scope transition to background only — "transition:all" includes transform/height
+     which forces a full layout recalc on scroll and causes row jitter on Android. */
+  transition: background 200ms ease;
 }
-.sroom-lb-row:hover { background: rgba(255,255,255,0.04); transform: translateY(-2px); }
+/* Only apply lift transform on devices that genuinely support hover (pointer: fine).
+   On touch screens :hover state sticks after tap, causing rows to stay elevated
+   and flash back down — which looks like a rendering glitch. */
+@media (hover: hover) and (pointer: fine) {
+  .sroom-lb-row:hover { background: rgba(255,255,255,0.04); transform: translateY(-2px); }
+}
+.sroom-lb-row:active { background: rgba(255,255,255,0.06); }
 .sroom-lb-me  { background: rgba(91,168,255,0.08) !important; border-left: 2px solid rgba(91,168,255,0.55); }
 .sroom-lb-rank {
   font-size: 15px; min-width: 26px; text-align: center; flex-shrink: 0;
@@ -7086,14 +7094,12 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
   -webkit-overflow-scrolling: touch;
   display: none;
   padding: 14px 14px 14px;
+  /* Layout containment prevents pane reflows from affecting sibling layers */
+  contain: layout style;
 }
 .grm2-pane.grm2-pane-active {
   display: block;
-  animation: paneIn 0.18s ease both;
-}
-@keyframes paneIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
+  /* paneIn animation removed here — canonical animation rule is grm2-pane-in below */
 }
 
 /* Chat pane uses flex column instead of scroll */
@@ -7104,7 +7110,7 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
 }
 .grm2-pane-chat.grm2-pane-active {
   display: flex;
-  animation: paneIn 0.18s ease both;
+  /* paneIn removed — use canonical grm2-pane-in rule; grm2-no-anim suppresses on re-renders */
 }
 
 /* ── Pane Section wrapper (for Rankings/Goals/Stats) ──────────────── */
@@ -7763,6 +7769,14 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
 @keyframes grm2-pane-in {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+/* JS adds grm2-no-anim to the active pane on background re-renders so the
+   fill-mode:both opacity:0 start frame never causes a blank flash.
+   Animation still plays on intentional tab switches (_socialPaneAnimPlayed reset). */
+.grm2-pane.grm2-no-anim {
+  animation: none !important;
+  opacity: 1 !important;
+  transform: none !important;
 }
 
 /* ── XP Shop Card (Settings Modal) ──────────────────────────── */

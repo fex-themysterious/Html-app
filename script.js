@@ -961,6 +961,7 @@
   let _chatReplyTarget    = null; // { id, name, text }
   let _pendingRenderSocial = false;  // deferred full re-render when chat input is focused
   let _socialRoomAnimPlayed = false; // true once room entry animation has played; suppressed on re-renders
+  let _socialPaneAnimPlayed = false; // true once pane entry animation has played; suppressed on re-renders
   let _lastSocialRoomRender = 0;     // timestamp of last full room re-render (used to rate-limit Firestore-triggered re-renders)
   let _voiceRemoteAudios = {};
   let _processedDuelIds  = new Set(); // guard: don't toast/write the same completed duel twice
@@ -1614,8 +1615,9 @@
     // Clear debounce timer and pending render flag
     if (_renderSocialDebounceTimer) { clearTimeout(_renderSocialDebounceTimer); _renderSocialDebounceTimer = null; }
     _pendingRenderSocial = false;
-    // Reset animation-played flag so next room join plays the slide-in animation fresh
+    // Reset animation-played flags so next room join plays slide-in animations fresh
     _socialRoomAnimPlayed = false;
+    _socialPaneAnimPlayed = false;
     _lastSocialRoomRender = 0;
     // Remove accumulated visualViewport listener
     if (_vpResizeHandler && window.visualViewport) {
@@ -2819,16 +2821,25 @@
       view.innerHTML = '<div class="social-gate"><div class="social-gate-icon">⚠️</div><h2 class="social-gate-title">Something went wrong</h2><p class="social-gate-sub">Tap the Social tab again to reload.</p><button class="btn" data-act="social-leave">← Back to Lobby</button></div>';
       return;
     }
-    // Suppress the entry animation on re-renders.  The grm2-room-in keyframe starts at
-    // opacity:0 with fill-mode:both, so every DOM replacement blanks the screen for 280ms.
-    // Only play the slide-in on the very first render after joining; subsequent Firestore-
-    // triggered re-renders get grm2-no-anim so the room is immediately visible at opacity:1.
+    // Suppress entry animations on re-renders.  Both the room wrapper (.grm2-room) and
+    // the active pane (.grm2-pane-active) use fill-mode:both, so they start at opacity:0
+    // every time the DOM is replaced — causing a blank flash for 180-280ms per re-render.
+    // We only allow the animation on the very first render after entering the room/pane;
+    // all subsequent Firestore-triggered re-renders receive grm2-no-anim immediately.
     const _rroomEl = view.querySelector('.grm2-room');
     if (_rroomEl) {
       if (_socialRoomAnimPlayed) {
         _rroomEl.classList.add('grm2-no-anim');
       } else {
         _socialRoomAnimPlayed = true;
+      }
+    }
+    const _rpaneEl = view.querySelector('.grm2-pane.grm2-pane-active');
+    if (_rpaneEl) {
+      if (_socialPaneAnimPlayed) {
+        _rpaneEl.classList.add('grm2-no-anim');
+      } else {
+        _socialPaneAnimPlayed = true;
       }
     }
     _lastSocialRoomRender = Date.now();
@@ -11087,11 +11098,15 @@
       document.getElementById('chat-ctx-menu')?.remove();
       document.getElementById('chat-ctx-backdrop')?.remove();
       _socialRoomTab = el.dataset.tab || 'members';
+      // Allow the pane slide-in animation to play on intentional user tab switches
+      _socialPaneAnimPlayed = false;
       if (_socialRoomTab === 'rankings' && _lbView === 'global') { _loadGlobalLeaderboard().catch(() => {}); }
       renderSocial(); return;
     }
     if (act === 'lb-view') {
       _lbView = el.dataset.v || 'group';
+      // Allow pane animation when user explicitly switches leaderboard view
+      _socialPaneAnimPlayed = false;
       if (_lbView === 'global') { _loadGlobalLeaderboard().catch(() => {}); }
       renderSocial(); return;
     }
