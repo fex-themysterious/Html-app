@@ -3236,6 +3236,16 @@
   let focusCurrentTaskKey = null;
   let fsSessionActive = false;
   let _fsSwipeStartX = 0, _fsSwipeStartY = 0;
+
+  // ── Live Study Timer state ────────────────────────────────────────────
+  let focusTopMode    = 'pomodoro'; // 'pomodoro' | 'live'
+  let _lsRunning      = false;
+  let _lsTimer        = null;
+  let _lsStartTime    = null;       // Date.now() when current run segment began
+  let _lsElapsedBase  = 0;          // seconds accumulated before current segment
+  let _lsSubjectId    = null;       // selected subject id
+  let _lsOverlayActive = false;
+  let _lsFbTick       = 0;          // throttle counter for Firebase writes
   let _fsMotiQuote = ''; /* set once on entering full session, shown in motivation box */
   const customDurations = { work: 25, short: 5, long: 15 };
   let focusStartTime = null;
@@ -4208,7 +4218,18 @@
   // ========== Focus Tab ==========
   function renderFocus() {
     const view = document.getElementById('view-focus'); if (!view) return;
-    view.innerHTML = `<div class="page-header"><h1>Focus</h1><div class="subtitle">Pomodoro timer & study materials</div></div><div class="focus-sub-nav"><button class="focus-sub-btn ${focusSubTab === 'timer' ? 'active' : ''}" data-act="focus-subtab" data-stab="timer">⏱ Timer</button><button class="focus-sub-btn ${focusSubTab === 'classroom' ? 'active' : ''}" data-act="focus-subtab" data-stab="classroom">🎓 Classroom</button></div>${focusSubTab === 'timer' ? renderFocusTimer() : renderClassroom()}`;
+    const topPills = `<div class="focus-top-pills">
+      <button class="ftp-pill${focusTopMode === 'pomodoro' ? ' ftp-pill--active' : ''}" data-act="focus-top-mode" data-mode="pomodoro">⏱ Pomodoro</button>
+      <button class="ftp-pill${focusTopMode === 'live' ? ' ftp-pill--live' : ''}" data-act="focus-top-mode" data-mode="live">▶ Live Study</button>
+    </div>`;
+    if (focusTopMode === 'live') {
+      view.innerHTML = topPills + renderLiveStudySetup();
+    } else {
+      view.innerHTML = topPills +
+        `<div class="page-header"><h1>Focus</h1><div class="subtitle">Pomodoro timer & study materials</div></div>` +
+        `<div class="focus-sub-nav"><button class="focus-sub-btn ${focusSubTab === 'timer' ? 'active' : ''}" data-act="focus-subtab" data-stab="timer">⏱ Timer</button><button class="focus-sub-btn ${focusSubTab === 'classroom' ? 'active' : ''}" data-act="focus-subtab" data-stab="classroom">🎓 Classroom</button></div>` +
+        `${focusSubTab === 'timer' ? renderFocusTimer() : renderClassroom()}`;
+    }
   }
 
   function renderFocusTimer() {
@@ -4295,6 +4316,300 @@
         })()}
         <button class="btn fs-enter-btn" data-act="enter-full-session">🚀 Enter Full Focus Mode</button>
       </div>
+    </div>`;
+  }
+
+  // ========== Live Study Timer ==========
+
+  function _secsToHMS(s) {
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sc = s % 60;
+    return `${h}:${String(m).padStart(2,'0')}:${String(sc).padStart(2,'0')}`;
+  }
+
+  function renderLiveStudySetup() {
+    const subjects = state.subjects || [];
+    const subOpts = subjects.map(s =>
+      `<option value="${s.id}"${_lsSubjectId === s.id ? ' selected' : ''}>${escapeHTML(s.name)}</option>`
+    ).join('');
+    const todayMins = state.focusStats.minutesByDate[todayKey()] || 0;
+    const subMins = _lsSubjectId ? (state.focusStats.minutesBySubject[_lsSubjectId] || 0) : 0;
+    const curSub = _lsSubjectId ? findSubject(_lsSubjectId) : null;
+    const xpTot = (state.xp && state.xp.total) || 0;
+    const lvInfo = gamificationManager.calculateLevel(xpTot);
+    const streak = (state.streak && state.streak.count) || 0;
+    const mult = _isBoosterActive() ? 2 : 1;
+    return `<div class="ls-setup-wrap">
+      <div class="ls-setup-header">
+        <div class="ls-setup-title">Live Study Timer</div>
+        <div class="ls-setup-sub">Real-time tracking with Firebase sync</div>
+      </div>
+      <div class="ls-stat-row">
+        <div class="ls-stat-item"><div class="ls-stat-val">${minsToHrs(todayMins)}</div><div class="ls-stat-key">Today</div></div>
+        <div class="ls-stat-item"><div class="ls-stat-val">${focusSessions}</div><div class="ls-stat-key">Sessions</div></div>
+        <div class="ls-stat-item"><div class="ls-stat-val">${streak} 🔥</div><div class="ls-stat-key">Streak</div></div>
+        <div class="ls-stat-item"><div class="ls-stat-val" style="color:#ff7a1a">${mult}×</div><div class="ls-stat-key">Multiplier</div></div>
+      </div>
+      <div class="ls-subject-section">
+        <div class="ls-section-label">SELECT SUBJECT</div>
+        <select class="ls-subject-sel" id="ls-subject-sel" data-act="ls-subject-change">
+          <option value="">— Pick a subject —</option>
+          ${subOpts}
+        </select>
+        ${curSub ? `<div class="ls-sub-preview">
+          <span class="ls-sub-preview-dot" style="background:${curSub.color||'#ff7a1a'}"></span>
+          <span style="color:#f0f6ff;font-weight:600">${escapeHTML(curSub.name)}</span>
+          <span class="ls-sub-preview-time">${minsToHrs(subMins)} studied</span>
+        </div>` : ''}
+      </div>
+      <button class="ls-start-btn" data-act="ls-enter">▶ Start Live Study</button>
+      <div class="ls-hint">🔥 Progress syncs to Firebase · Visible to Study Group</div>
+    </div>`;
+  }
+
+  function _lsGetElapsed() {
+    if (!_lsRunning || _lsStartTime === null) return _lsElapsedBase;
+    return _lsElapsedBase + Math.floor((Date.now() - _lsStartTime) / 1000);
+  }
+
+  function _lsTick() {
+    if (!_lsRunning) return;
+    _lsFbTick++;
+    _lsUpdateDisplay();
+    if (_lsFbTick % 10 === 0) _lsBroadcastFb();
+    updateMiniTimer();
+  }
+
+  function _lsBroadcastFb() {
+    if (!_db || !_userId || typeof firebase === 'undefined') return;
+    const elapsed = _lsGetElapsed();
+    const curSub = _lsSubjectId ? findSubject(_lsSubjectId) : null;
+    _db.collection('users').doc(_userId).set({
+      liveSession: {
+        isStudying: true,
+        currentSubject: curSub ? curSub.name : null,
+        currentSubjectId: _lsSubjectId || null,
+        currentSessionSeconds: elapsed,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }
+    }, { merge: true }).catch(() => {});
+  }
+
+  function _lsUpdateDisplay() {
+    const overlay = document.getElementById('ls-overlay'); if (!overlay) return;
+    const elapsed = _lsGetElapsed();
+    const storedMin = state.focusStats.minutesByDate[todayKey()] || 0;
+    const todaySecs = storedMin * 60 + elapsed;
+    const subStoredMin = _lsSubjectId ? (state.focusStats.minutesBySubject[_lsSubjectId] || 0) : 0;
+    const subSecs = subStoredMin * 60 + elapsed;
+    const elEl = overlay.querySelector('#ls-elapsed');
+    if (elEl) elEl.textContent = _secsToHMS(elapsed);
+    const todayEl = overlay.querySelector('#ls-today-val');
+    if (todayEl) todayEl.textContent = _secsToHMS(todaySecs);
+    const subEl = overlay.querySelector('#ls-sub-val');
+    if (subEl) subEl.textContent = _secsToHMS(subSecs);
+    const subRowEl = overlay.querySelector('#ls-sub-row-time');
+    if (subRowEl) subRowEl.textContent = _secsToHMS(subSecs);
+    const logTotalEl = overlay.querySelector('#ls-log-total-val');
+    if (logTotalEl) logTotalEl.textContent = _secsToHMS(todaySecs);
+    if (_lsSubjectId) {
+      const logRowEl = overlay.querySelector(`[data-ls-log-sub="${_lsSubjectId}"]`);
+      if (logRowEl) {
+        const logTimeEl = logRowEl.querySelector('.lsf-log-time');
+        if (logTimeEl) logTimeEl.textContent = _secsToHMS(subSecs);
+        const barEl = logRowEl.querySelector('.lsf-log-bar');
+        if (barEl && todaySecs > 0) barEl.style.width = Math.min(100, Math.round((subSecs / todaySecs) * 100)) + '%';
+      }
+    }
+    document.title = `${_secsToHMS(elapsed)} — Live Study`;
+  }
+
+  function enterLiveSession() {
+    if (_lsOverlayActive) return;
+    _lsOverlayActive = true;
+    _lsRunning = true;
+    _lsStartTime = Date.now();
+    _lsElapsedBase = 0;
+    _lsFbTick = 0;
+    window._focusActive = true;
+    let overlay = document.getElementById('ls-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'ls-overlay';
+      document.body.appendChild(overlay);
+    }
+    renderLiveOverlay();
+    _lsTimer = setInterval(_lsTick, 1000);
+    if (_lsSubjectId && _db && _userId) {
+      focusSessions++;
+      state.focusStats.sessions[todayKey()] = (state.focusStats.sessions[todayKey()] || 0) + 1;
+      saveState();
+    }
+    if (typeof window._socialFocusUpdate === 'function') { try { window._socialFocusUpdate(); } catch(_) {} }
+    if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+    overlay.addEventListener('touchstart', e => { _fsSwipeStartX = e.touches[0].clientX; _fsSwipeStartY = e.touches[0].clientY; }, { passive: true });
+    overlay.addEventListener('touchend', e => {
+      const dx = e.changedTouches[0].clientX - _fsSwipeStartX;
+      const dy = e.changedTouches[0].clientY - _fsSwipeStartY;
+      if (Math.sqrt(dx * dx + dy * dy) >= 65) exitLiveSession(true);
+    }, { passive: true });
+    _lsBroadcastFb();
+  }
+
+  function exitLiveSession(save) {
+    if (!_lsOverlayActive) return;
+    clearInterval(_lsTimer); _lsTimer = null;
+    const elapsed = _lsGetElapsed();
+    _lsRunning = false;
+    _lsOverlayActive = false;
+    _lsElapsedBase = 0;
+    _lsStartTime = null;
+    window._focusActive = false;
+    const overlay = document.getElementById('ls-overlay'); if (overlay) overlay.remove();
+    document.title = 'Syllabus Tracker';
+    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    lockPortrait();
+    if (save !== false && elapsed >= 60) {
+      const elapsedMin = Math.round(elapsed / 60);
+      const todayStr = todayKey();
+      state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + elapsedMin;
+      if (_lsSubjectId) {
+        if (!state.focusStats.minutesBySubject) state.focusStats.minutesBySubject = {};
+        state.focusStats.minutesBySubject[_lsSubjectId] = (state.focusStats.minutesBySubject[_lsSubjectId] || 0) + elapsedMin;
+      }
+      awardXP(elapsedMin, todayStr);
+      _sContributeToGoals(elapsedMin).catch(() => {});
+      checkBadges({ sessionMinutes: elapsedMin });
+      saveState();
+      toast(`Saved ${elapsedMin}m live study session!`, 'success');
+      if (document.getElementById('view-stats') && document.getElementById('view-stats').classList.contains('active')) renderStats();
+    } else if (save !== false && elapsed > 0 && elapsed < 60) {
+      toast('Session under 1 min — not saved', 'warn');
+    }
+    _lsSaveToFirebase(elapsed);
+    if (typeof window._socialFocusUpdate === 'function') { try { window._socialFocusUpdate(); } catch(_) {} }
+    renderFocus();
+  }
+
+  function _lsSaveToFirebase(totalSecs) {
+    if (!_db || !_userId || typeof firebase === 'undefined') return;
+    const uid = _userId;
+    _db.collection('users').doc(uid).set({ liveSession: { isStudying: false, currentSessionSeconds: 0 } }, { merge: true }).catch(() => {});
+    const elapsedMin = Math.round(totalSecs / 60);
+    if (elapsedMin < 1) return;
+    const curSub = _lsSubjectId ? findSubject(_lsSubjectId) : null;
+    _db.collection('users').doc(uid).collection('syllabus_logs').doc().set({
+      date: todayKey(), subjectId: _lsSubjectId || null,
+      subjectName: curSub ? curSub.name : null,
+      minutes: elapsedMin, seconds: totalSecs,
+      type: 'live_study', createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    }).catch(() => {});
+    _db.collection('global_lb').doc(uid).set({
+      dailyStudyTime: firebase.firestore.FieldValue.increment(elapsedMin),
+      lastActive: todayKey(), updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true }).catch(() => {});
+  }
+
+  function renderLiveOverlay() {
+    const overlay = document.getElementById('ls-overlay'); if (!overlay) return;
+    const elapsed = _lsGetElapsed();
+    const storedMin = state.focusStats.minutesByDate[todayKey()] || 0;
+    const todaySecs = storedMin * 60 + elapsed;
+    const subStoredMin = _lsSubjectId ? (state.focusStats.minutesBySubject[_lsSubjectId] || 0) : 0;
+    const subSecs = subStoredMin * 60 + elapsed;
+    const curSub = _lsSubjectId ? findSubject(_lsSubjectId) : null;
+    const xpTot = (state.xp && state.xp.total) || 0;
+    const lvInfo = gamificationManager.calculateLevel(xpTot);
+    const streak = (state.streak && state.streak.count) || 0;
+    const mult = _isBoosterActive() ? 2 : 1;
+    const subjectLog = Object.entries(state.focusStats.minutesBySubject || {})
+      .map(([sid, mins]) => { const s = findSubject(sid); return s ? { id: sid, name: s.name, color: s.color || '#ff7a1a', mins: mins + (sid === _lsSubjectId ? Math.round(elapsed / 60) : 0) } : null; })
+      .filter(Boolean).sort((a, b) => b.mins - a.mins).slice(0, 5);
+    if (!subjectLog.length && curSub) subjectLog.push({ id: curSub.id, name: curSub.name, color: curSub.color || '#ff7a1a', mins: Math.round(elapsed / 60) });
+    const logTotalMins = Math.max(1, subjectLog.reduce((a, b) => a + b.mins, 0));
+    const _curSound = soundById(ambientMode);
+    const ambientIcon = _curSound.label.split(' ')[0];
+    overlay.className = _lsRunning ? 'ls-running' : '';
+    overlay.innerHTML = `<div class="fs-bg"><div class="fs-bg-earth"></div>${_genFsParticles()}</div>
+    <div class="lsf-wrap">
+      <div class="lsf-top-bar">
+        <span class="lsf-mode-label">Focusing</span>
+        <button class="lsf-exit-btn" data-act="ls-exit">✕ Exit</button>
+      </div>
+      <div class="lsf-clock-area">
+        <div class="lsf-elapsed" id="ls-elapsed">${_secsToHMS(elapsed)}</div>
+      </div>
+      <div class="lsf-split-row">
+        <div class="lsf-split-item">
+          <div class="lsf-split-label">${curSub ? escapeHTML(curSub.name.toUpperCase().slice(0, 14)) : 'SUBJECT'}</div>
+          <div class="lsf-split-val" id="ls-sub-val">${_secsToHMS(subSecs)}</div>
+        </div>
+        <div class="lsf-split-div"></div>
+        <div class="lsf-split-item">
+          <div class="lsf-split-label">TODAY</div>
+          <div class="lsf-split-val" id="ls-today-val">${_secsToHMS(todaySecs)}</div>
+        </div>
+      </div>
+      <div class="lsf-badges-row">
+        <div class="lsf-badge"><span class="lsf-badge-icon">⚡</span> XP <span class="lsf-badge-val">${xpTot}</span></div>
+        <div class="lsf-badge-sep">|</div>
+        <div class="lsf-badge"><span class="lsf-badge-icon">🏅</span> Lv <span class="lsf-badge-val">${lvInfo.level}</span></div>
+        <div class="lsf-badge-sep">|</div>
+        <div class="lsf-badge"><span class="lsf-badge-icon">🔥</span> Streak <span class="lsf-badge-val">${streak}</span></div>
+        <div class="lsf-badge-sep">|</div>
+        <div class="lsf-badge lsf-badge-mult"><span class="lsf-badge-icon">⚡</span> <span class="lsf-badge-val">${mult}×</span></div>
+      </div>
+      ${subjectLog.length ? `<div class="lsf-log-card">
+        <div class="lsf-log-title">📊 TODAY'S STUDY LOG</div>
+        ${subjectLog.map(s => {
+          const pct = Math.min(100, Math.round((s.mins / logTotalMins) * 100));
+          const sh = Math.floor(s.mins / 60), sm = s.mins % 60;
+          return `<div class="lsf-log-row" data-ls-log-sub="${s.id}">
+            <span class="lsf-log-color" style="background:${s.color}"></span>
+            <span class="lsf-log-name">${escapeHTML(s.name)}</span>
+            <div class="lsf-log-bar-wrap"><div class="lsf-log-bar" style="width:${pct}%;background:${s.color}"></div></div>
+            <span class="lsf-log-time">0:${String(sh).padStart(2,'0')}:${String(sm).padStart(2,'0')}</span>
+          </div>`;
+        }).join('')}
+        <div class="lsf-log-total"><span>Total</span><span id="ls-log-total-val">${_secsToHMS(todaySecs)}</span></div>
+      </div>` : ''}
+      ${curSub ? `<div class="lsf-subject-row">
+        <span class="lsf-sub-icon">📚</span>
+        <span class="lsf-sub-name">${escapeHTML(curSub.name)}</span>
+        <span class="lsf-sub-time" id="ls-sub-row-time">${_secsToHMS(subSecs)}</span>
+        <span class="lsf-sub-chev">›</span>
+      </div>` : ''}
+      <div class="lsf-illustration">
+        <svg viewBox="0 0 200 148" fill="none" class="lsf-figure-svg" aria-hidden="true">
+          <defs><filter id="lsf-glow-ov" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="2.5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+          <circle cx="154" cy="22" r="2.8" fill="#ff7a1a" opacity="0.75"/>
+          <circle cx="162" cy="11" r="2.2" fill="#ff7a1a" opacity="0.55"/>
+          <circle cx="168" cy="3"  r="1.6" fill="#ff7a1a" opacity="0.38"/>
+          <circle cx="149" cy="32" r="1.8" fill="#ff7a1a" opacity="0.45"/>
+          <circle cx="158" cy="36" r="1.2" fill="#ff7a1a" opacity="0.28"/>
+          <circle cx="100" cy="30" r="12" stroke="#ff7a1a" stroke-width="2.5" fill="none" filter="url(#lsf-glow-ov)"/>
+          <line x1="100" y1="42" x2="100" y2="82" stroke="#ff7a1a" stroke-width="2.5"/>
+          <line x1="100" y1="57" x2="76"  y2="70" stroke="#ff7a1a" stroke-width="2.5"/>
+          <line x1="76"  y1="70" x2="72"  y2="82" stroke="#ff7a1a" stroke-width="2.5"/>
+          <line x1="100" y1="57" x2="124" y2="70" stroke="#ff7a1a" stroke-width="2.5"/>
+          <line x1="124" y1="70" x2="130" y2="82" stroke="#ff7a1a" stroke-width="2.5"/>
+          <line x1="100" y1="82" x2="87"  y2="103" stroke="#ff7a1a" stroke-width="2.5"/>
+          <line x1="87"  y1="103" x2="80" y2="116" stroke="#ff7a1a" stroke-width="2.5"/>
+          <line x1="100" y1="82" x2="113" y2="103" stroke="#ff7a1a" stroke-width="2.5"/>
+          <line x1="113" y1="103" x2="120" y2="116" stroke="#ff7a1a" stroke-width="2.5"/>
+          <line x1="40"  y1="84" x2="168" y2="84"  stroke="#ff7a1a" stroke-width="2.5"/>
+          <rect x="50" y="74" width="32" height="10" rx="2" stroke="#ff7a1a" stroke-width="1.5" fill="rgba(255,122,26,0.1)"/>
+          <line x1="66" y1="74" x2="66" y2="84" stroke="#ff7a1a" stroke-width="1" opacity="0.5"/>
+          <line x1="45"  y1="84" x2="43"  y2="116" stroke="#ff7a1a" stroke-width="2"/>
+          <line x1="163" y1="84" x2="165" y2="116" stroke="#ff7a1a" stroke-width="2"/>
+          <line x1="148" y1="84" x2="148" y2="50"  stroke="#ff7a1a" stroke-width="2"/>
+          <line x1="148" y1="50" x2="136" y2="41"  stroke="#ff7a1a" stroke-width="2"/>
+          <path d="M130 35 L143 35 L139 44 L134 44 Z" stroke="#ff7a1a" stroke-width="1.5" fill="rgba(255,122,26,0.15)"/>
+        </svg>
+      </div>
+      <div class="lsf-aux-row">
+        <button class="lsf-aux-btn${ambientMode !== 'none' ? ' lsf-aux-btn--on' : ''}" data-act="fs-cycle-ambient" title="Cycle ambient">${ambientIcon}</button>
+      </div>
+      <button class="lsf-play-btn" id="ls-play-btn" data-act="ls-play-pause">${_lsRunning ? '⏸' : '▶'}</button>
     </div>`;
   }
 
@@ -7160,6 +7475,37 @@
     if (act === 'open-topic-notes') { closeDropdown(); const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) modalQuickNote(t, t.name, renderSyllabus); return; }
     if (act === 'open-topic-priority') { closeDropdown(); const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) modalQuickPriority(t, t.name, renderSyllabus); return; }
 
+    // Focus top-mode pills (Pomodoro / Live Study)
+    if (act === 'focus-top-mode') { focusTopMode = el.dataset.mode; renderFocus(); return; }
+
+    // Live Study Timer
+    if (act === 'ls-subject-change') {
+      const sel = document.getElementById('ls-subject-sel');
+      if (sel) { _lsSubjectId = sel.value || null; renderFocus(); }
+      return;
+    }
+    if (act === 'ls-enter') { enterLiveSession(); return; }
+    if (act === 'ls-exit') { exitLiveSession(true); return; }
+    if (act === 'ls-play-pause') {
+      if (_lsRunning) {
+        _lsElapsedBase = _lsGetElapsed();
+        _lsStartTime = null;
+        _lsRunning = false;
+        clearInterval(_lsTimer); _lsTimer = null;
+        const pb = document.getElementById('ls-play-btn');
+        if (pb) pb.textContent = '▶';
+        window._focusActive = false;
+      } else {
+        _lsRunning = true;
+        _lsStartTime = Date.now();
+        _lsTimer = setInterval(_lsTick, 1000);
+        const pb = document.getElementById('ls-play-btn');
+        if (pb) pb.textContent = '⏸';
+        window._focusActive = true;
+      }
+      return;
+    }
+
     // Focus sub-tab
     if (act === 'focus-subtab') { focusSubTab = el.dataset.stab; renderFocus(); return; }
 
@@ -8001,7 +8347,9 @@
     if (act === 'fs-cycle-ambient') {
       const modes = SOUNDS.filter(s => !s.premium || _itemOwned(s.shopId)).map(s => s.id);
       ambientMode = modes[(modes.indexOf(ambientMode) + 1) % modes.length];
-      startAmbient(ambientMode); renderFullSession(); return;
+      startAmbient(ambientMode);
+      if (_lsOverlayActive) { renderLiveOverlay(); } else { renderFullSession(); }
+      return;
     }
 
     // Classroom — quick launch

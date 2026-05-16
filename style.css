@@ -2240,9 +2240,81 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 }
 
 /* ================================================================
+   FOCUS TAB — Top Mode Pills
+   ================================================================ */
+.focus-top-pills {
+  display: flex; gap: 8px; padding: 14px 16px 0; flex-shrink: 0;
+}
+.ftp-pill {
+  flex: 1; padding: 10px 0; border-radius: 30px; font-size: 14px; font-weight: 700;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  color: rgba(148,163,184,0.8); cursor: pointer; transition: all 0.2s;
+  font-family: inherit; letter-spacing: 0.01em; -webkit-tap-highlight-color: transparent;
+}
+.ftp-pill--active {
+  background: rgba(56,189,248,0.15); border-color: rgba(56,189,248,0.45);
+  color: #7dd3fc; box-shadow: 0 0 18px rgba(56,189,248,0.18);
+}
+.ftp-pill--live {
+  background: rgba(255,122,26,0.18); border-color: rgba(255,122,26,0.55);
+  color: #ff7a1a; box-shadow: 0 0 18px rgba(255,122,26,0.22);
+}
+.ftp-pill:active { transform: scale(0.96); }
+
+/* ================================================================
+   LIVE STUDY — Setup Screen
+   ================================================================ */
+.ls-setup-wrap {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 20px 18px 32px; gap: 16px;
+}
+.ls-setup-header { text-align: center; }
+.ls-setup-title { font-size: 22px; font-weight: 800; color: #f0f6ff; letter-spacing: -0.02em; }
+.ls-setup-sub   { font-size: 13px; color: rgba(148,163,184,0.65); margin-top: 3px; }
+.ls-stat-row {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; width: 100%;
+}
+.ls-stat-item {
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 14px; padding: 10px 6px; text-align: center;
+}
+.ls-stat-val { font-size: 17px; font-weight: 800; color: #f0f6ff; font-variant-numeric: tabular-nums; }
+.ls-stat-key { font-size: 10px; color: rgba(148,163,184,0.55); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 2px; }
+.ls-subject-section { width: 100%; }
+.ls-section-label {
+  font-size: 10px; font-weight: 700; color: rgba(148,163,184,0.5);
+  text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 8px;
+}
+.ls-subject-sel {
+  width: 100%; padding: 13px 16px; border-radius: 16px;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+  color: #f0f6ff; font-size: 15px; font-weight: 600; font-family: inherit;
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23718096' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 14px center;
+}
+.ls-subject-sel option { background: #0d1b2a; color: #f0f6ff; }
+.ls-sub-preview {
+  display: flex; align-items: center; gap: 8px; margin-top: 10px;
+  padding: 9px 14px; background: rgba(255,122,26,0.07); border: 1px solid rgba(255,122,26,0.2);
+  border-radius: 100px;
+}
+.ls-sub-preview-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.ls-sub-preview-time { margin-left: auto; font-size: 12px; font-weight: 600; color: #ff7a1a; }
+.ls-start-btn {
+  width: 100%; padding: 16px; border-radius: 18px; font-size: 16px; font-weight: 800;
+  background: linear-gradient(135deg, #ff7a1a 0%, #e05800 100%);
+  border: none; color: #fff; cursor: pointer; letter-spacing: 0.02em;
+  box-shadow: 0 4px 28px rgba(255,122,26,0.38); font-family: inherit;
+  transition: transform 0.15s, box-shadow 0.15s; -webkit-tap-highlight-color: transparent;
+}
+.ls-start-btn:active { transform: scale(0.97); box-shadow: 0 2px 14px rgba(255,122,26,0.28); }
+.ls-hint { font-size: 12px; color: rgba(148,163,184,0.45); text-align: center; }
+
+/* ================================================================
    LIVE STUDY TIMER OVERLAY  (.lsf-*)
    ================================================================ */
-#fs-overlay {
+#fs-overlay, #ls-overlay {
   position: fixed; inset: 0; z-index: 9999;
   display: flex; align-items: center; justify-content: center; overflow: hidden;
 }

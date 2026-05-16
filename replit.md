@@ -40,6 +40,7 @@ An offline-capable Progressive Web App for tracking study progress with spaced r
 - Syllabus management: subjects → chapters → topics
 - Daily plan generation with spaced repetition revision scheduling (offsets: 1, 3, 7 days)
 - Pomodoro focus timer with ambient audio
+- Live Study Timer (Focus tab top-mode switch): count-up elapsed clock, subject selector, split counters (subject total | today total), gamification badges (XP/Lv/Streak/Multiplier), today's study log card with progress bars, neon-orange stick-figure animation, play/pause button, Firebase real-time sync (`users/{uid}/liveSession`), session persistence to `syllabus_logs` subcollection, leaderboard `dailyStudyTime` increment in `global_lb`
 - Streak and activity tracking
 - Weak-topic detection
 - Stats dashboard with Chart.js charts, daily efficiency score, focus-by-subject bars, and achievement badge grid
