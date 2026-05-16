@@ -7275,7 +7275,7 @@
         <div class="focus-task-bar">
           <label>Current Task</label>
           ${currentTask ? `<div class="focus-current-task"><span class="dot"></span>${escapeHTML(currentTask.text)}<button class="btn-link" data-act="focus-task-clear" style="margin-left:auto;font-size:12px">Clear</button></div>` :
-            tasks.length ? `<select data-act="focus-task-select"><option value="">— Pick a task —</option>${taskOptions}</select>` :
+            tasks.length ? `<button class="focus-task-pick-btn" data-act="focus-task-open">📌 Pick a task…</button>` :
             `<div style="color:var(--text-muted);font-size:13px">No tasks for today yet.</div>`}
         </div>
         <div class="focus-sessions-info">
@@ -7699,7 +7699,7 @@
         <!-- ── Task picker (grid-area: task) ── -->
         <div class="fs-task-box">
           <div class="fs-task-label">Current Task</div>
-          ${currentTask ? `<div class="fs-task-name">${escapeHTML(currentTask.text)}</div>${currentTask.meta ? `<div class="fs-task-meta">${escapeHTML(currentTask.meta)}</div>` : ''}` : (tasks.length ? `<select class="fs-task-select" data-act="focus-task-select"><option value="">— Pick a task —</option>${taskOpts}</select>` : `<div class="fs-task-empty">No tasks today</div>`)}
+          ${currentTask ? `<div class="fs-task-name">${escapeHTML(currentTask.text)}</div>${currentTask.meta ? `<div class="fs-task-meta">${escapeHTML(currentTask.meta)}</div>` : ''}` : (tasks.length ? `<button class="focus-task-pick-btn fs-task-pick-btn" data-act="focus-task-open">📌 Pick a task…</button>` : `<div class="fs-task-empty">No tasks today</div>`)}
         </div>
 
         <!-- ── Glowing ring timer (grid-area: ring) ── -->
@@ -10966,6 +10966,37 @@
       return;
     }
     if (act === 'focus-task-clear') { focusCurrentTaskKey = null; renderFocus(); return; }
+    if (act === 'focus-task-open') {
+      const tasks = getActivePlanTasks().filter(t => !t.done);
+      const modal = document.createElement('div');
+      modal.className = 'focus-task-modal-overlay';
+      modal.innerHTML = `
+        <div class="focus-task-modal">
+          <div class="focus-task-modal-header">
+            <span>Pick a Task</span>
+            <button class="focus-task-modal-close" aria-label="Close">✕</button>
+          </div>
+          <div class="focus-task-modal-list">
+            ${tasks.map(t => `
+              <div class="focus-task-modal-row ${focusCurrentTaskKey === t.key ? 'active' : ''}" data-key="${t.key}">
+                <span class="focus-task-modal-text">${escapeHTML(t.text)}</span>
+                ${focusCurrentTaskKey === t.key ? '<span class="focus-task-modal-check">✓</span>' : ''}
+              </div>`).join('')}
+          </div>
+        </div>`;
+      document.body.appendChild(modal);
+      const close = () => { modal.remove(); };
+      modal.querySelector('.focus-task-modal-close').addEventListener('click', close);
+      modal.addEventListener('click', e => { if (e.target === modal) close(); });
+      modal.querySelectorAll('.focus-task-modal-row').forEach(row => {
+        row.addEventListener('click', () => {
+          focusCurrentTaskKey = row.dataset.key || null;
+          close();
+          if (fsSessionActive) renderFullSession(); else renderFocus();
+        });
+      });
+      return;
+    }
 
     // Ambient sound
     if (act === 'ambient-select') { ambientMode = el.dataset.amode; startAmbient(ambientMode); renderFocus(); return; }
@@ -11259,7 +11290,7 @@
   // Focus duration change (input)
   document.addEventListener('change', e => {
     const el = e.target;
-    if (el.dataset.act === 'focus-task-select') { focusCurrentTaskKey = el.value || null; if (fsSessionActive) renderFullSession(); else renderFocus(); return; }
+    
     if (el.dataset.act === 'intensity-select') {
       const mode = el.value || 'none';
       startFocusIntensity(mode);

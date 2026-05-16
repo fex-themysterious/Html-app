@@ -1395,9 +1395,53 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 /* Focus task connector */
 .focus-task-bar { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 11px 14px; margin-bottom: 14px; text-align: left; }
 .focus-task-bar label { font-size: 10px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; display: block; margin-bottom: 7px; }
-.focus-task-bar select { width: 100%; background: var(--surface-2); border: 1px solid var(--border-strong); color: var(--text); padding: 9px 11px; border-radius: var(--radius-xs); font: inherit; font-size: 13.5px; outline: none; transition: border-color var(--t-fast); }
-.focus-task-bar select:focus { border-color: var(--border-focus); }
 .focus-current-task { font-size: 13px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 7px; }
+
+.focus-task-pick-btn {
+  width: 100%; background: var(--surface-2); border: 1px solid var(--border-strong);
+  color: var(--text-muted); padding: 9px 12px; border-radius: var(--radius-xs);
+  font: inherit; font-size: 13.5px; text-align: left; cursor: pointer;
+  transition: border-color var(--t-fast), color var(--t-fast), background var(--t-fast);
+  display: flex; align-items: center; gap: 8px;
+}
+.focus-task-pick-btn:hover { border-color: var(--border-focus); color: var(--text); background: rgba(255,255,255,0.06); }
+.fs-task-pick-btn { font-size: 12px; padding: 6px 10px; }
+
+.focus-task-modal-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,0.6); backdrop-filter: blur(6px);
+  display: flex; align-items: flex-end; justify-content: center;
+  animation: ftm-fade-in 0.15s ease;
+}
+@keyframes ftm-fade-in { from { opacity: 0; } to { opacity: 1; } }
+.focus-task-modal {
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: 16px 16px 0 0; width: 100%; max-width: 480px;
+  max-height: 70vh; display: flex; flex-direction: column;
+  animation: ftm-slide-up 0.2s ease;
+}
+@keyframes ftm-slide-up { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+.focus-task-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px 10px; border-bottom: 1px solid var(--border);
+  font-size: 13px; font-weight: 700; color: var(--text); flex-shrink: 0;
+}
+.focus-task-modal-close {
+  background: none; border: none; color: var(--text-muted);
+  font-size: 16px; cursor: pointer; padding: 2px 6px; border-radius: 6px;
+  transition: color var(--t-fast), background var(--t-fast);
+}
+.focus-task-modal-close:hover { color: var(--text); background: rgba(255,255,255,0.08); }
+.focus-task-modal-list { overflow-y: auto; padding: 8px 0 12px; }
+.focus-task-modal-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 11px 16px; cursor: pointer; transition: background var(--t-fast);
+  gap: 10px;
+}
+.focus-task-modal-row:hover { background: rgba(255,255,255,0.05); }
+.focus-task-modal-row.active { background: rgba(91,173,255,0.1); }
+.focus-task-modal-text { font-size: 13.5px; color: var(--text); flex: 1; line-height: 1.4; }
+.focus-task-modal-check { color: var(--primary); font-weight: 700; font-size: 14px; flex-shrink: 0; }
 .focus-current-task .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary); animation: taskPulse 1.5s ease-in-out infinite; box-shadow: 0 0 6px var(--primary-glow); }
 @keyframes taskPulse { 0%,100% { transform: scale(1); opacity: 0.9; } 50% { transform: scale(1.35); opacity: 0.5; } }
 
@@ -1827,7 +1871,7 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 
   .focus-task-bar                 { padding: 6px 10px; margin-bottom: 0; }
   .focus-task-bar label           { font-size: 9px; margin-bottom: 4px; }
-  .focus-task-bar select          { font-size: 11.5px; padding: 5px 8px; }
+  .focus-task-pick-btn            { font-size: 11.5px; padding: 5px 8px; }
   .focus-current-task             { font-size: 11.5px; }
 
   .ambient-panel                  { margin-bottom: 0; }
