@@ -2239,6 +2239,211 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   text-align: center; line-height: 1.6; overflow: visible;
 }
 
+/* ================================================================
+   LIVE STUDY TIMER OVERLAY  (.lsf-*)
+   ================================================================ */
+#fs-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+
+.lsf-wrap {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column; align-items: center;
+  width: 100%; max-width: 480px; height: 100dvh;
+  padding: 0 20px 26px; box-sizing: border-box; overflow: hidden;
+}
+
+/* Top bar */
+.lsf-top-bar {
+  width: 100%; display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 2px 0; flex-shrink: 0;
+}
+.lsf-mode-label {
+  font-size: 15px; font-weight: 700; color: rgba(176,202,240,0.55);
+  letter-spacing: 0.04em;
+}
+.lsf-exit-btn {
+  background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12);
+  color: #e2e8f0; font-size: 13px; font-weight: 600; padding: 6px 14px;
+  border-radius: 20px; cursor: pointer; letter-spacing: 0.03em;
+  transition: background 0.2s; font-family: inherit;
+}
+.lsf-exit-btn:hover { background: rgba(255,255,255,0.13); }
+
+/* Main count-up clock */
+.lsf-clock-area {
+  flex-shrink: 0; padding: 12px 0 8px; text-align: center;
+}
+.lsf-elapsed {
+  font-size: 72px; font-weight: 900; letter-spacing: -0.04em;
+  color: #f0f6ff; font-variant-numeric: tabular-nums; line-height: 1;
+  text-shadow: 0 0 48px rgba(255,200,100,0.22);
+  animation: lsf-clock-glow 2.6s ease-in-out infinite;
+}
+@keyframes lsf-clock-glow {
+  0%, 100% { opacity: 0.9; }
+  50%       { opacity: 1; filter: brightness(1.07); }
+}
+.lsf-overtime-clock {
+  color: #f87171 !important;
+  text-shadow: 0 0 40px rgba(248,113,113,0.55) !important;
+  animation: fs-overtime-glow 0.9s ease-in-out infinite !important;
+}
+
+/* Split row: subject | TODAY */
+.lsf-split-row {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; max-width: 340px; margin: 2px 0 8px;
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 18px; padding: 14px 20px; flex-shrink: 0; gap: 0;
+}
+.lsf-split-item {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+}
+.lsf-split-label {
+  font-size: 10px; font-weight: 700; color: rgba(148,163,184,0.6);
+  text-transform: uppercase; letter-spacing: 0.12em;
+}
+.lsf-split-val {
+  font-size: 22px; font-weight: 800; color: #f0f6ff;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+}
+.lsf-split-div {
+  width: 1px; height: 44px; background: rgba(255,255,255,0.1); flex-shrink: 0; margin: 0 10px;
+}
+
+/* Gamification badges row */
+.lsf-badges-row {
+  display: flex; align-items: center; gap: 4px;
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 100px; padding: 8px 16px; flex-shrink: 0;
+}
+.lsf-badge {
+  display: flex; align-items: center; gap: 3px;
+  font-size: 12px; font-weight: 600; color: rgba(176,202,240,0.75);
+}
+.lsf-badge-icon { font-size: 12px; }
+.lsf-badge-val  { color: #f0f6ff; font-weight: 800; }
+.lsf-badge-sep  { color: rgba(148,163,184,0.28); font-size: 14px; padding: 0 1px; }
+.lsf-badge-mult .lsf-badge-val {
+  background: rgba(255,122,26,0.2); color: #ff7a1a;
+  border: 1px solid rgba(255,122,26,0.35); padding: 1px 7px; border-radius: 100px;
+}
+
+/* Today's Study Log card */
+.lsf-log-card {
+  width: 100%; max-width: 340px;
+  background: rgba(8,16,28,0.55); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px; padding: 11px 14px; flex-shrink: 0; margin-top: 6px;
+}
+.lsf-log-title {
+  font-size: 10px; font-weight: 800; color: rgba(148,163,184,0.5);
+  text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 9px;
+}
+.lsf-log-row {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+}
+.lsf-log-color   { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.lsf-log-name    { font-size: 12px; font-weight: 600; color: #e2e8f0; min-width: 48px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 80px; }
+.lsf-log-bar-wrap{ flex: 1; height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden; }
+.lsf-log-bar     { height: 100%; border-radius: 2px; transition: width 0.6s ease; min-width: 2px; }
+.lsf-log-time    { font-size: 11px; font-weight: 700; color: #ff7a1a; font-variant-numeric: tabular-nums; flex-shrink: 0; min-width: 52px; text-align: right; }
+.lsf-log-total {
+  display: flex; justify-content: space-between;
+  border-top: 1px solid rgba(255,255,255,0.06); margin-top: 5px; padding-top: 5px;
+  font-size: 11px; font-weight: 700; color: rgba(148,163,184,0.65);
+}
+
+/* Current subject row */
+.lsf-subject-row {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; max-width: 340px;
+  background: rgba(255,122,26,0.07); border: 1px solid rgba(255,122,26,0.18);
+  border-radius: 100px; padding: 9px 18px; flex-shrink: 0; margin-top: 6px;
+}
+.lsf-sub-icon { font-size: 15px; }
+.lsf-sub-name { flex: 1; font-size: 14px; font-weight: 700; color: #f0f6ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lsf-sub-time { font-size: 13px; font-weight: 700; color: #ff7a1a; font-variant-numeric: tabular-nums; }
+.lsf-sub-chev { color: rgba(148,163,184,0.35); font-size: 18px; }
+
+/* Neon studying illustration */
+.lsf-illustration {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  min-height: 70px; max-height: 155px; width: 100%;
+}
+.lsf-figure-svg {
+  width: 170px; height: auto;
+  filter: drop-shadow(0 0 18px rgba(255,122,26,0.4));
+  animation: lsf-float 3.2s ease-in-out infinite;
+}
+@keyframes lsf-float {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-7px); }
+}
+
+/* Ambient + landscape row */
+.lsf-aux-row {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 12px; flex-shrink: 0;
+}
+.lsf-aux-btn {
+  width: 42px; height: 42px; border-radius: 50%;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  color: #f0f6ff; font-size: 18px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.2s; -webkit-tap-highlight-color: transparent;
+}
+.lsf-aux-btn:hover    { background: rgba(255,255,255,0.12); }
+.lsf-aux-btn--on      { background: rgba(56,189,248,0.14); border-color: rgba(56,189,248,0.45); }
+.lsf-aux-btn:active   { transform: scale(0.9); }
+
+/* Large Play/Pause button */
+.lsf-play-btn {
+  width: 76px; height: 76px; border-radius: 50%;
+  background: radial-gradient(circle, #ecf0f8 0%, #c8d6f0 100%);
+  color: #07111e; font-size: 28px;
+  border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 40px rgba(200,214,240,0.28), 0 4px 20px rgba(0,0,0,0.5);
+  transition: transform 0.15s, box-shadow 0.15s;
+  flex-shrink: 0; font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+.lsf-play-btn:active  { transform: scale(0.91); }
+.lsf-play-overtime {
+  background: radial-gradient(circle, #dc2626 0%, #b91c1c 100%) !important;
+  color: #fff !important;
+  box-shadow: 0 0 30px rgba(220,38,38,0.5) !important;
+}
+
+/* Running / overtime state colors on overlay wrapper */
+#fs-overlay.lsf-running .lsf-elapsed {
+  text-shadow: 0 0 50px rgba(255,200,100,0.38), 0 0 22px rgba(255,122,26,0.28);
+}
+#fs-overlay.lsf-overtime .lsf-elapsed {
+  color: #f87171 !important;
+  animation: fs-overtime-glow 0.9s ease-in-out infinite !important;
+}
+
+/* Compact layout for short screens */
+@media (max-height: 720px) {
+  .lsf-elapsed          { font-size: 58px; }
+  .lsf-illustration     { min-height: 50px; max-height: 110px; }
+  .lsf-figure-svg       { width: 130px; }
+  .lsf-play-btn         { width: 64px; height: 64px; font-size: 24px; }
+  .lsf-clock-area       { padding: 8px 0 4px; }
+}
+@media (max-height: 620px) {
+  .lsf-log-card         { display: none; }
+  .lsf-elapsed          { font-size: 48px; }
+}
+@media (max-width: 380px) {
+  .lsf-badges-row       { gap: 2px; padding: 6px 10px; }
+  .lsf-badge            { font-size: 11px; }
+  .lsf-split-val        { font-size: 18px; }
+}
+
 /* ── Enter full-focus button (on Focus tab, not in overlay) ── */
 .fs-enter-btn { width: 100%; margin-top: 4px; background: linear-gradient(135deg, rgba(77,168,255,0.1), rgba(124,100,230,0.1)); border: 1px solid rgba(77,168,255,0.22); color: #4da8ff; font-weight: 700; letter-spacing: 0.02em; font-size: 14px; padding: 13px; border-radius: 999px; }
 .fs-enter-btn:hover { background: rgba(77,168,255,0.16); border-color: rgba(77,168,255,0.4); box-shadow: 0 0 20px rgba(77,168,255,0.15); }
