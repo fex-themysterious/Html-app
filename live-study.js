@@ -15,17 +15,20 @@
   const STATUS_MSGS    = ['Focusing', 'Deep Work', 'Locked In', 'In The Zone', 'Grind Mode'];
   const DEEPWORK_MINS  = 25;
 
-  const DEFAULT_SUBJECTS = [
-    { id: 'math',    icon: '📐', name: 'Mathematics' },
-    { id: 'sci',     icon: '🔬', name: 'Science' },
-    { id: 'eng',     icon: '📖', name: 'English' },
-    { id: 'hist',    icon: '🏛️', name: 'History' },
-    { id: 'code',    icon: '💻', name: 'Coding' },
-    { id: 'art',     icon: '🎨', name: 'Art' },
-    { id: 'music',   icon: '🎵', name: 'Music' },
-    { id: 'lang',    icon: '🌏', name: 'Language' },
-    { id: 'free',    icon: '📝', name: 'Free Study' },
-  ];
+  function getSyllabusSubjects() {
+    try {
+      const raw = localStorage.getItem(MAIN_LS_KEY);
+      if (!raw) return [];
+      const ms = JSON.parse(raw);
+      if (!Array.isArray(ms.subjects) || ms.subjects.length === 0) return [];
+      return ms.subjects.map(s => ({
+        id:   s.id,
+        name: s.name,
+        icon: '📚',
+        color: s.color || '#ff7a1a',
+      }));
+    } catch (_) { return []; }
+  }
 
   const ALLOWED_APPS = [
     { id: 'notes',   icon: '📝', name: 'Notes' },
@@ -749,7 +752,7 @@
     const el = document.getElementById('lsm-today-log');
     if (!el) return;
     const times = state.subjectTimes || {};
-    const allSubjects = [...DEFAULT_SUBJECTS, ...(state.customSubjects || [])];
+    const allSubjects = [...getSyllabusSubjects(), ...(state.customSubjects || [])];
 
     // Only list subjects with non-zero time today
     const studied = allSubjects.filter(s => times[s.id] && times[s.id] > 0);
@@ -994,10 +997,15 @@
      SUBJECT PICKER
   ═══════════════════════════════════════════════════ */
   function openSubjectPicker() {
-    const all = [...DEFAULT_SUBJECTS, ...state.customSubjects];
+    const syllabusSubjects = getSyllabusSubjects();
+    const all = syllabusSubjects.length
+      ? [...syllabusSubjects, ...(state.customSubjects || [])]
+      : [...(state.customSubjects || [])];
     const rows = all.map(s => `
       <div class="lsm-modal-row ${state.subject?.id === s.id ? 'active' : ''}" data-subject-id="${s.id}">
-        <span class="lsm-modal-row-icon">${s.icon}</span>
+        <span class="lsm-modal-row-icon" style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:${s.color || '#ff7a1a'}22;flex-shrink:0;">
+          <span style="width:10px;height:10px;border-radius:50%;background:${s.color || '#ff7a1a'};display:inline-block;"></span>
+        </span>
         <div class="lsm-modal-row-body">
           <div class="lsm-modal-row-title">${s.name}</div>
           <div class="lsm-modal-row-sub">${formatHMS((state.subjectTimes && state.subjectTimes[s.id]) || 0)} today</div>
@@ -1006,7 +1014,12 @@
       </div>
     `).join('');
 
+    const emptyMsg = all.length === 0
+      ? `<div style="text-align:center;color:rgba(255,255,255,0.4);font-size:13px;padding:16px 0 8px">No subjects in your syllabus yet.<br>Add subjects from the Study tab first.</div>`
+      : '';
+
     const modal = createModal('Choose Subject', `
+      ${emptyMsg}
       ${rows}
       <div style="margin-top:14px;border-top:1px solid rgba(255,255,255,0.07);padding-top:14px">
         <input class="lsm-modal-input" type="text" id="lsm-new-subj" placeholder="➕ Add custom subject..."/>
