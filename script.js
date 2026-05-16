@@ -1019,6 +1019,11 @@
       focusStartTime:    function()       { return focusRunning ? focusStartTime : null; },
       getDb:             function()       { return _db; },
       getUserId:         function()       { return _userId; },
+      getUserName:       function()       {
+        return (state.profile && state.profile.name) ||
+          (typeof firebase !== 'undefined' && firebase.auth().currentUser && firebase.auth().currentUser.displayName) ||
+          'Anonymous';
+      },
     };
   }, 0);
 
@@ -4381,6 +4386,25 @@
     updateMiniTimer();
   }
 
+  function _weekStartKey() {
+    const d = new Date(), day = d.getDay() || 7;
+    d.setDate(d.getDate() - day + 1);
+    return d.toISOString().slice(0, 10);
+  }
+
+  function _computeWeekMins(todayOverride) {
+    const today = todayKey();
+    let total = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      total += (key === today && todayOverride !== undefined)
+        ? todayOverride
+        : (state.focusStats.minutesByDate[key] || 0);
+    }
+    return total;
+  }
+
   function _lsBroadcastFb() {
     if (!_db || !_userId || typeof firebase === 'undefined') return;
     const elapsed = _lsGetElapsed();
@@ -4393,6 +4417,24 @@
         currentSessionSeconds: elapsed,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       }
+    }, { merge: true }).catch(() => {});
+    // Also update global leaderboard with live running total
+    const today = todayKey();
+    const storedMins = state.focusStats.minutesByDate[today] || 0;
+    const liveMins   = Math.round(elapsed / 60);
+    const totalDaily = storedMins + liveMins;
+    const totalWeekly = _computeWeekMins(totalDaily);
+    const userName = (state.profile && state.profile.name) ||
+      (typeof firebase !== 'undefined' && firebase.auth().currentUser && firebase.auth().currentUser.displayName) ||
+      'Anonymous';
+    _db.collection('global_lb').doc(_userId).set({
+      dailyStudyTime:  totalDaily,
+      dailyResetDate:  today,
+      weeklyStudyTime: totalWeekly,
+      weeklyResetDate: _weekStartKey(),
+      name:            userName,
+      lastActive:      today,
+      updatedAt:       firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true }).catch(() => {});
   }
 
@@ -4505,9 +4547,20 @@
       minutes: elapsedMin, seconds: totalSecs,
       type: 'live_study', createdAt: firebase.firestore.FieldValue.serverTimestamp()
     }).catch(() => {});
+    const todayStr2 = todayKey();
+    const finalDailyMins  = state.focusStats.minutesByDate[todayStr2] || 0;
+    const finalWeeklyMins = _computeWeekMins(finalDailyMins);
+    const saveName = (state.profile && state.profile.name) ||
+      (typeof firebase !== 'undefined' && firebase.auth().currentUser && firebase.auth().currentUser.displayName) ||
+      'Anonymous';
     _db.collection('global_lb').doc(uid).set({
-      dailyStudyTime: firebase.firestore.FieldValue.increment(elapsedMin),
-      lastActive: todayKey(), updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      dailyStudyTime:  finalDailyMins,
+      dailyResetDate:  todayStr2,
+      weeklyStudyTime: finalWeeklyMins,
+      weeklyResetDate: _weekStartKey(),
+      name:            saveName,
+      lastActive:      todayStr2,
+      updatedAt:       firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true }).catch(() => {});
   }
 

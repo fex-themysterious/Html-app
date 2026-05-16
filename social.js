@@ -66,6 +66,8 @@
   let _publicGroupsUnsub   = null;
   let _memberUnsub         = null;
   let _liveMembers         = {};
+  let _globalLbData        = [];
+  let _globalLbUnsub       = null;
 
   const isStudying = () => { try { return window._focusActive === true; } catch(_) { return false; } };
 
@@ -122,6 +124,32 @@
     return cols[h % cols.length];
   }
 
+  // ── Global Leaderboard subscription ──────────────────────────────────────
+  function _weekStart() {
+    const d = new Date(), day = d.getDay() || 7;
+    d.setDate(d.getDate() - day + 1);
+    return d.toISOString().slice(0, 10);
+  }
+
+  function _subscribeGlobalLb() {
+    if (_globalLbUnsub) return;
+    const db = getDb();
+    if (!db) { setTimeout(_subscribeGlobalLb, 1500); return; }
+    try {
+      _globalLbUnsub = db.collection('global_lb')
+        .orderBy('dailyStudyTime', 'desc')
+        .limit(200)
+        .onSnapshot(snap => {
+          _globalLbData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          if (_tab === 'leaderboard' && window._currentTab === 'social') renderSocial();
+        }, () => { _globalLbUnsub = null; });
+    } catch(_) { _globalLbUnsub = null; }
+  }
+
+  function _unsubscribeGlobalLb() {
+    if (_globalLbUnsub) { try { _globalLbUnsub(); } catch(_) {} _globalLbUnsub = null; }
+  }
+
   // ── Main render ───────────────────────────────────────────────────────────
   function renderSocial() {
     if (_destroyed) return;
@@ -172,8 +200,6 @@
       { id:'rooms',       label:'Discover', emoji:'🌍' },
       { id:'groups',      label:'Groups',   emoji:'👥' },
       { id:'leaderboard', label:'Rankings', emoji:'🏆' },
-      { id:'tasks',       label:'Tasks',    emoji:'✅' },
-      { id:'notes',       label:'Notes',    emoji:'📝' },
     ];
     return `<nav class="sc-subnav" role="tablist">
       ${tabs.map(t => `
@@ -1055,42 +1081,93 @@
       weekMins += (mins[d.toISOString().slice(0,10)] || 0);
     }
     const displayMins = _lbPeriod === 'daily' ? todayMins : weekMins;
-    const sc = scLoad();
-    const studying = isStudying();
+    const studying    = isStudying();
+    const uid         = getUserId();
+    const weekStartKey = _weekStart();
+
+    // Kick off real-time subscription (idempotent)
+    _subscribeGlobalLb();
+
+    // Filter + sort for the selected period
+    const filtered = _globalLbData
+      .filter(u => {
+        if (_lbPeriod === 'daily')  return u.dailyResetDate  === today        && (u.dailyStudyTime  || 0) > 0;
+        return u.weeklyResetDate === weekStartKey && (u.weeklyStudyTime || 0) > 0;
+      })
+      .sort((a, b) => {
+        const aT = _lbPeriod === 'daily' ? (a.dailyStudyTime  || 0) : (a.weeklyStudyTime || 0);
+        const bT = _lbPeriod === 'daily' ? (b.dailyStudyTime  || 0) : (b.weeklyStudyTime || 0);
+        return bT - aT;
+      });
+
+    const topRows  = filtered.slice(0, 50);
+    const myRankIdx = uid ? filtered.findIndex(u => u.id === uid) : -1;
+    const myRank    = myRankIdx >= 0 ? myRankIdx + 1 : 0;
+
+    const rankBadge = rank => {
+      if (rank === 1) return `<span class="sc-glb-medal">🥇</span>`;
+      if (rank === 2) return `<span class="sc-glb-medal">🥈</span>`;
+      if (rank === 3) return `<span class="sc-glb-medal">🥉</span>`;
+      return `<span class="sc-glb-rank-num">#${rank}</span>`;
+    };
+
+    const avatar = (name, id) => {
+      const initial = (name || '?').charAt(0).toUpperCase();
+      const color   = _avatarColor(name || id || '');
+      return `<div class="sc-glb-avatar" style="background:${color}">${initial}</div>`;
+    };
 
     return `
-      <div class="sc-section">
+      <div class="sc-section sc-lb-global">
         <div class="sc-section-header">
-          <span class="sc-section-title">Rankings</span>
+          <span class="sc-section-title">🏆 Rankings</span>
           <div class="sc-toggle-row">
             <button class="sc-toggle-btn${_lbPeriod==='daily'?' sc-active':''}" data-sc="lb-period" data-period="daily">Daily</button>
             <button class="sc-toggle-btn${_lbPeriod==='weekly'?' sc-active':''}" data-sc="lb-period" data-period="weekly">Weekly</button>
           </div>
         </div>
+
         <div class="sc-lb-you-card">
-          <div class="sc-lb-you-label">Your Study Time ${_lbPeriod==='daily'?'Today':'This Week'}</div>
+          <div class="sc-lb-you-label">YOUR STUDY TIME ${_lbPeriod==='daily'?'TODAY':'THIS WEEK'}</div>
           <div class="sc-lb-you-time">${minsToHrs(displayMins)}</div>
           ${studying ? '<div class="sc-lb-studying-badge">● Currently Studying</div>' : ''}
           <div class="sc-lb-progress-wrap">
             <div class="sc-lb-progress-bar" style="width:${Math.min(100,(displayMins/(_lbPeriod==='daily'?480:3360))*100).toFixed(1)}%"></div>
           </div>
-          <div class="sc-lb-goal-label">Goal: ${_lbPeriod==='daily'?'8h / day':'56h / week'}</div>
+          <div class="sc-lb-goal-label">
+            Goal: ${_lbPeriod==='daily'?'8h / day':'56h / week'}
+            ${myRank > 0 ? ` &nbsp;·&nbsp; Your rank: <strong style="color:#a78bfa">#${myRank}</strong>` : ''}
+          </div>
         </div>
-        ${sc.groups.length > 0 ? `
-          <div class="sc-lb-groups">
-            <div class="sc-block-title" style="margin-bottom:10px">My Groups</div>
-            ${sc.groups.map((g,i) => `
-              <div class="sc-lb-row">
-                <span class="sc-lb-rank">#${i+1}</span>
-                <span class="sc-lb-gicon">${g.icon||'📚'}</span>
-                <span class="sc-lb-gname">${esc(g.name)}</span>
-                <span class="sc-lb-gmeta">${(g.members||[]).length} members</span>
-              </div>`).join('')}
-          </div>` : `
-          <div class="sc-lb-info-card">
-            <div class="sc-lb-info-icon">${ICON.trophy}</div>
-            <div class="sc-lb-info-text"><strong>Group leaderboards</strong><br>Create or join a group to compete.</div>
-          </div>`}
+
+        <div class="sc-glb-section">
+          <div class="sc-glb-header">
+            <span class="sc-block-title">🌍 Global Leaderboard</span>
+            <span class="sc-glb-count">${filtered.length} studier${filtered.length !== 1 ? 's' : ''}</span>
+          </div>
+          ${topRows.length === 0 ? `
+            <div class="sc-lb-info-card">
+              <div class="sc-lb-info-icon">${ICON.trophy}</div>
+              <div class="sc-lb-info-text">
+                <strong>No one ranked yet ${_lbPeriod === 'daily' ? 'today' : 'this week'}</strong><br>
+                Start a study session to claim the top spot!
+              </div>
+            </div>
+          ` : topRows.map((u, i) => {
+            const rank  = i + 1;
+            const isMe  = uid && u.id === uid;
+            const uTime = _lbPeriod === 'daily' ? (u.dailyStudyTime || 0) : (u.weeklyStudyTime || 0);
+            return `<div class="sc-glb-row${isMe ? ' sc-glb-row--me' : ''}${rank <= 3 ? ' sc-glb-row--top' : ''}">
+              <div class="sc-glb-rank">${rankBadge(rank)}</div>
+              ${avatar(u.name, u.id)}
+              <div class="sc-glb-info">
+                <div class="sc-glb-name">${esc(u.name || 'Anonymous')}${isMe ? ' <span class="sc-glb-you-tag">You</span>' : ''}</div>
+              </div>
+              <div class="sc-glb-time">${minsToHrs(uTime)}</div>
+            </div>`;
+          }).join('')}
+        </div>
+
         <div class="sc-lb-streaks">
           <div class="sc-block-title" style="margin-bottom:10px">Your Stats</div>
           <div class="sc-stats-grid">
@@ -2454,8 +2531,15 @@
     // Use a small delay to ensure the appUI bridge is ready
     setTimeout(() => {
       _subscribePublicGroups();
+      _subscribeGlobalLb();
       _restoreGroupsFromFirebase().catch(() => {});
     }, 500);
+
+    window._socialDestroy = () => {
+      _destroyed = true;
+      _unsubscribeGlobalLb();
+      if (_publicGroupsUnsub) { try { _publicGroupsUnsub(); } catch(_) {} _publicGroupsUnsub = null; }
+    };
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
