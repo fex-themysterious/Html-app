@@ -1316,3 +1316,202 @@
   transition: opacity .15s;
 }
 .sr-chat-send-btn:active { opacity: .8; }
+
+/* ── Group Leader Settings Panel (sgs-*) ─────────────────────────────── */
+.sgs-page {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  background: var(--sc-bg);
+  color: var(--sc-text);
+  overflow: hidden;
+}
+
+.sgs-topbar {
+  display: flex;
+  align-items: center;
+  padding: 10px 8px 10px 4px;
+  border-bottom: 1px solid var(--sc-border);
+  background: var(--sc-bg);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  flex-shrink: 0;
+}
+
+.sgs-back-btn {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--sc-text);
+  cursor: pointer;
+  border-radius: 50%;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .15s;
+}
+.sgs-back-btn:active { background: rgba(255,255,255,.07); }
+
+.sgs-topbar-title {
+  flex: 1;
+  text-align: center;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--sc-text);
+  margin-right: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sgs-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 12px 14px 32px;
+}
+.sgs-scroll::-webkit-scrollbar { width: 3px; }
+.sgs-scroll::-webkit-scrollbar-track { background: transparent; }
+.sgs-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 99px; }
+
+.sgs-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--sc-muted);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin: 20px 0 7px 6px;
+}
+.sgs-section-label:first-child { margin-top: 8px; }
+
+.sgs-card {
+  background: rgba(255,255,255,.04);
+  border: 1px solid var(--sc-border);
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.sgs-card-danger {
+  border-color: rgba(239,68,68,.18);
+  background: rgba(239,68,68,.04);
+}
+
+.sgs-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--sc-text);
+  padding: 14px 16px;
+  cursor: pointer;
+  text-align: left;
+  gap: 8px;
+  transition: background .12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.sgs-row:active { background: rgba(255,255,255,.06); }
+
+.sgs-row-label {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--sc-text);
+  min-width: 0;
+}
+.sgs-label-danger { color: #ef4444 !important; }
+
+.sgs-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--sc-muted);
+  font-size: 13px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.sgs-chevron {
+  color: rgba(255,255,255,.25);
+  flex-shrink: 0;
+}
+
+.sgs-row-hint {
+  color: var(--sc-muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.sgs-row-divider {
+  height: 1px;
+  background: var(--sc-border);
+  margin: 0 16px;
+}
+
+.sgs-toggle {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+.sgs-toggle-on  { color: #4ade80; }
+.sgs-toggle-off { color: var(--sc-muted); }
+
+.sgs-count {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--sc-muted);
+  min-width: 18px;
+  text-align: right;
+}
+
+/* ── Join Mode Radio Buttons ─────────────────────────────────────────── */
+.sgs-radio-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--sc-border);
+  background: rgba(255,255,255,.03);
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.sgs-radio-row:active { background: rgba(255,255,255,.06); }
+.sgs-radio-selected {
+  border-color: var(--sc-accent);
+  background: rgba(124,58,237,.1);
+}
+
+.sgs-radio-content { flex: 1; min-width: 0; }
+
+.sgs-radio-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--sc-muted);
+  flex-shrink: 0;
+  transition: border-color .15s, background .15s;
+  position: relative;
+}
+.sgs-radio-dot-on {
+  border-color: var(--sc-accent);
+  background: var(--sc-accent);
+}
+.sgs-radio-dot-on::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  background: #fff;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}

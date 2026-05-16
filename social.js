@@ -37,10 +37,11 @@
       const raw = localStorage.getItem(SC_KEY);
       const d = raw ? JSON.parse(raw) : {};
       return {
-        groups: Array.isArray(d.groups) ? d.groups : [],
-        tasks:  Array.isArray(d.tasks)  ? d.tasks  : [],
-        notes:  Array.isArray(d.notes)  ? d.notes  : [],
-        chats:  (d.chats && typeof d.chats === 'object') ? d.chats : {},
+        groups:   Array.isArray(d.groups) ? d.groups : [],
+        tasks:    Array.isArray(d.tasks)  ? d.tasks  : [],
+        notes:    Array.isArray(d.notes)  ? d.notes  : [],
+        chats:    (d.chats    && typeof d.chats    === 'object') ? d.chats    : {},
+        requests: (d.requests && typeof d.requests === 'object') ? d.requests : {},
       };
     } catch(_) { return { groups: [], tasks: [], notes: [], chats: {} }; }
   }
@@ -55,6 +56,7 @@
   let _roomWithSpace  = false;
   let _destroyed      = false;
   let _srTab          = 'home';
+  let _settingsView   = false;
   let _srTickInterval = null;
 
   const isStudying = () => { try { return window._focusActive === true; } catch(_) { return false; } };
@@ -122,7 +124,13 @@
       if (_groupView) {
         const sc = scLoad();
         const g  = sc.groups.find(x => x.id === _groupView);
-        if (!g) { _groupView = null; _stopSrTicker(); renderSocial(); return; }
+        if (!g) { _groupView = null; _settingsView = false; _stopSrTicker(); renderSocial(); return; }
+        if (_settingsView) {
+          _stopSrTicker();
+          view.innerHTML = _renderGroupSettings(g, sc);
+          _bindEvents(view);
+          return;
+        }
         view.innerHTML = _renderStudyRoom(g, sc);
         _bindEvents(view);
         if (_srTab === 'home') _startSrTicker(_groupView);
@@ -506,6 +514,122 @@
     invite:     `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>`,
     chat:       `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
   };
+
+  // ── Group Leader Settings Panel ───────────────────────────────────────────
+  function _renderGroupSettings(g, sc) {
+    const isAdmin      = g.role === 'admin';
+    const joinMode     = g.joinMode     || 'open';
+    const hasPassword  = !!(g.joinPassword && g.joinPassword.length);
+    const chatEnabled  = g.chatEnabled  !== false;
+    const nicknameReq  = !!g.nicknameRequired;
+    const signupQOn    = !!(g.joinQuestion && g.joinQuestion.length);
+    const maxMembers   = g.maxMembers   || 50;
+    const category     = g.category    || 'General';
+    const promotedAt   = g.promotedAt  || null;
+    const promotedAgo  = promotedAt ? _timeAgo(promotedAt) : null;
+    const requests     = (sc.requests && sc.requests[g.id]) || [];
+
+    const ch  = `<svg class="sgs-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>`;
+    const div = `<div class="sgs-row-divider"></div>`;
+
+    const row = (label, hint, act) => `
+      <button class="sgs-row" data-sc="${act}" data-gid="${esc(g.id)}">
+        <span class="sgs-row-label">${label}</span>
+        <span class="sgs-row-meta">${hint ? `<span class="sgs-row-hint">${hint}</span>` : ''}${ch}</span>
+      </button>`;
+
+    const toggleRow = (label, on, act) => `
+      <button class="sgs-row" data-sc="${act}" data-gid="${esc(g.id)}">
+        <span class="sgs-row-label">${label}</span>
+        <span class="sgs-row-meta"><span class="sgs-toggle ${on ? 'sgs-toggle-on' : 'sgs-toggle-off'}">${on ? 'ON' : 'OFF'}</span>${ch}</span>
+      </button>`;
+
+    return `
+      <div class="sgs-page">
+        <div class="sgs-topbar">
+          <button class="sgs-back-btn" data-sc="sgs-back" data-gid="${esc(g.id)}" aria-label="Back">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <span class="sgs-topbar-title">Group Info/Settings</span>
+          <div style="width:40px"></div>
+        </div>
+
+        <div class="sgs-scroll">
+
+          <div class="sgs-section-label">Personal Settings</div>
+          <div class="sgs-card">
+            ${row('Group Profile', '', 'sgs-group-profile')}
+            ${div}
+            ${row('Group notification settings', '', 'sgs-notif')}
+          </div>
+
+          <div class="sgs-card">
+            <button class="sgs-row" data-sc="sgs-challenges" data-gid="${esc(g.id)}">
+              <span class="sgs-row-label">Group Challenge</span>
+              <span class="sgs-row-meta"><span class="sgs-count">0</span>${ch}</span>
+            </button>
+            ${div}
+            <button class="sgs-row" data-sc="sgs-missions" data-gid="${esc(g.id)}">
+              <span class="sgs-row-label">Legacy Group missions</span>
+              <span class="sgs-row-meta"><span class="sgs-count">0</span>${ch}</span>
+            </button>
+          </div>
+
+          ${isAdmin ? `
+          <div class="sgs-section-label">Group Leader Menu</div>
+          <div class="sgs-card">
+            ${row('Change Group Name', '', 'sgs-change-name')}
+            ${div}
+            ${row('Group Introduction/Rules', g.description ? '' : 'No rules', 'sgs-change-rules')}
+            ${div}
+            ${row('Change Category', esc(category), 'sgs-change-category')}
+            ${div}
+            ${row('Change Daily Goal', (g.dailyGoalHrs || 8) + 'h', 'sgs-change-goal')}
+            ${div}
+            ${row('Change Capacity', maxMembers + ' people', 'sgs-change-capacity')}
+            ${div}
+            ${row('How to Join', joinMode === 'approval' ? 'Join after approval' : 'Join immediately', 'sgs-join-mode')}
+            ${div}
+            ${toggleRow('Sign Up Questions', signupQOn, 'sgs-signup-question')}
+            ${div}
+            ${toggleRow('Nickname Rules', nicknameReq, 'sgs-nickname-rules')}
+            ${div}
+            ${row('Change Password', hasPassword ? 'Protected' : 'Public', 'sgs-change-password')}
+          </div>
+
+          <div class="sgs-card">
+            ${row('Waiting Room', requests.length > 0 ? requests.length + ' pending' : '', 'sgs-waiting-room')}
+            ${div}
+            ${row('Manage Group Members', (g.members || []).length + ' member' + ((g.members||[]).length !== 1 ? 's' : ''), 'sgs-manage-members')}
+            ${div}
+            ${row('Nudge everyone at once', '', 'sgs-nudge-all')}
+            ${div}
+            <button class="sgs-row" data-sc="sgs-toggle-chat" data-gid="${esc(g.id)}">
+              <span class="sgs-row-label">Group Chat</span>
+              <span class="sgs-row-meta"><span class="sgs-toggle ${chatEnabled ? 'sgs-toggle-on' : 'sgs-toggle-off'}" style="font-size:13px;font-weight:600">${chatEnabled ? 'on' : 'off'}</span>${ch}</span>
+            </button>
+            ${div}
+            ${row('Promote group', promotedAgo || '', 'sgs-promote')}
+          </div>
+
+          <div class="sgs-card sgs-card-danger" style="margin-top:16px">
+            <button class="sgs-row" data-sc="sgs-delete-group" data-gid="${esc(g.id)}">
+              <span class="sgs-row-label sgs-label-danger">Delete Group</span>
+            </button>
+          </div>
+
+          ` : `
+          <div class="sgs-card sgs-card-danger" style="margin-top:16px">
+            <button class="sgs-row" data-sc="sgs-leave-group-settings" data-gid="${esc(g.id)}">
+              <span class="sgs-row-label sgs-label-danger">Leave Group</span>
+            </button>
+          </div>
+          `}
+
+          <div style="height:40px"></div>
+        </div>
+      </div>`;
+  }
 
   // ── Study Room Render ─────────────────────────────────────────────────────
   function _renderStudyRoom(g, sc) {
@@ -1182,8 +1306,9 @@
         break;
 
       case 'close-group':
-        _groupView = null;
-        _srTab = 'home';
+        _groupView    = null;
+        _settingsView = false;
+        _srTab        = 'home';
         _stopSrTicker();
         renderSocial();
         break;
@@ -1265,54 +1390,8 @@
         const sc = scLoad();
         const g  = sc.groups.find(x => x.id === el.dataset.gid);
         if (!g) break;
-        const isAdmin = g.role === 'admin';
-        const gidSnap = g.id;
-        openModal(`
-          <h3 class="sc-modal-title">Group Settings</h3>
-          <div class="sc-detail-meta" style="margin-bottom:16px">
-            <span class="sc-meta-chip">Code: <strong>${esc(g.code)}</strong></span>
-            <span class="sc-meta-chip">${g.isPrivate ? '🔒 Private' : '🌐 Public'}</span>
-            <span class="sc-meta-chip">${(g.members||[]).length} members</span>
-          </div>
-          ${isAdmin ? `
-          <div class="sc-field">
-            <label class="sc-label">Daily Goal (hours)</label>
-            <input id="sr-goal-inp" type="number" min="1" max="24" value="${g.dailyGoalHrs||8}" class="sc-input" style="text-align:center"/>
-          </div>
-          <div class="sc-field">
-            <label class="sc-label">Group Introduction / Rules</label>
-            <textarea id="sr-desc-inp" rows="3" maxlength="200" class="sc-textarea" placeholder="Group rules or intro…">${esc(g.description||'')}</textarea>
-          </div>` : `<p style="color:var(--sc-muted);font-size:14px;margin-bottom:8px">Only the group admin can change settings.</p>`}
-          <div class="actions" style="margin-top:16px;justify-content:space-between;flex-wrap:wrap;gap:8px">
-            <button class="btn btn-danger" id="sr-leave-btn">Leave Group</button>
-            ${isAdmin
-              ? `<button class="btn sc-modal-submit" id="sr-save-btn">Save</button>`
-              : `<button class="btn btn-ghost" data-close>Close</button>`}
-          </div>
-        `, root => {
-          root.querySelector('#sr-save-btn')?.addEventListener('click', () => {
-            const sc2 = scLoad();
-            const g2  = sc2.groups.find(x => x.id === gidSnap);
-            if (!g2) return;
-            const goalEl = root.querySelector('#sr-goal-inp');
-            const descEl = root.querySelector('#sr-desc-inp');
-            if (goalEl) g2.dailyGoalHrs = Math.max(1, Math.min(24, parseInt(goalEl.value) || 8));
-            if (descEl) g2.description  = descEl.value.trim();
-            scSave(sc2); closeModal(); toast('Settings saved!', 'success'); renderSocial();
-          });
-          root.querySelector('#sr-leave-btn')?.addEventListener('click', () => {
-            closeModal();
-            confirmModal(`Leave "${g.name}"? Local group data will be removed.`, () => {
-              const sc2 = scLoad();
-              sc2.groups = sc2.groups.filter(x => x.id !== gidSnap);
-              sc2.tasks  = sc2.tasks.filter(t => t.groupId !== gidSnap);
-              sc2.notes  = sc2.notes.filter(n => n.groupId !== gidSnap);
-              if (sc2.chats) delete sc2.chats[gidSnap];
-              scSave(sc2); _groupView = null; _srTab = 'home'; _stopSrTicker();
-              toast('Left group.', 'info'); renderSocial();
-            }, { title:'Leave Group?', yesLabel:'Leave', yesClass:'btn btn-danger', noLabel:'Cancel' });
-          });
-        });
+        _settingsView = true;
+        renderSocial();
         break;
       }
 
@@ -1323,6 +1402,639 @@
             .then(() => toast(`Code ${code} copied! 🔗`, 'success'))
             .catch(() => toast(`Invite code: ${code}`, 'info'));
         }
+        break;
+      }
+
+      // ── Settings Panel Navigation ─────────────────────────────────────────
+      case 'sgs-back': {
+        _settingsView = false;
+        renderSocial();
+        break;
+      }
+
+      // ── Personal Settings ─────────────────────────────────────────────────
+      case 'sgs-group-profile': {
+        const sc = scLoad();
+        const g  = sc.groups.find(x => x.id === el.dataset.gid);
+        if (!g) break;
+        const gid = g.id;
+        const catChips = CATEGORIES.map(c =>
+          `<button class="sc-cat-chip-pick${(g.category||'General')===c?' sc-cat-chip-active':''}" data-cat="${c}" type="button">${c}</button>`
+        ).join('');
+        openModal(`
+          <h3 class="sc-modal-title">Group Profile</h3>
+          <div class="sc-field">
+            <label class="sc-label">Group Name</label>
+            <input id="gp-name" type="text" maxlength="40" value="${esc(g.name||'')}" class="sc-input" autocomplete="off"/>
+          </div>
+          <div class="sc-field">
+            <label class="sc-label">Introduction / Rules</label>
+            <textarea id="gp-desc" rows="3" maxlength="300" class="sc-textarea" placeholder="Describe your group or add rules…">${esc(g.description||'')}</textarea>
+          </div>
+          <div class="sc-field">
+            <label class="sc-label">Category</label>
+            <div id="gp-cats" class="sc-cat-chips-row">${catChips}</div>
+          </div>
+          <div class="sc-field sc-field-row">
+            <div style="flex:1;min-width:0">
+              <label class="sc-label">Daily Goal (hrs)</label>
+              <input id="gp-goal" type="number" min="1" max="24" value="${g.dailyGoalHrs||8}" class="sc-input" style="text-align:center"/>
+            </div>
+            <div style="flex:1;min-width:0">
+              <label class="sc-label">Max Members</label>
+              <input id="gp-max" type="number" min="2" max="500" value="${g.maxMembers||50}" class="sc-input" style="text-align:center"/>
+            </div>
+          </div>
+          <div class="actions" style="margin-top:16px">
+            <button class="btn btn-ghost" data-close>Cancel</button>
+            <button class="btn sc-modal-submit" id="gp-save">Save</button>
+          </div>
+        `, root => {
+          let selCat = g.category || 'General';
+          root.querySelector('#gp-cats').addEventListener('click', e => {
+            const b = e.target.closest('.sc-cat-chip-pick');
+            if (!b) return;
+            selCat = b.dataset.cat;
+            root.querySelectorAll('.sc-cat-chip-pick').forEach(x => x.classList.toggle('sc-cat-chip-active', x.dataset.cat === selCat));
+          });
+          root.querySelector('#gp-save').addEventListener('click', () => {
+            const sc2 = scLoad();
+            const g2  = sc2.groups.find(x => x.id === gid);
+            if (!g2) return;
+            const name = root.querySelector('#gp-name').value.trim();
+            if (!name) { toast('Group name is required', 'warn'); return; }
+            g2.name        = name;
+            g2.description = root.querySelector('#gp-desc').value.trim();
+            g2.category    = selCat;
+            g2.dailyGoalHrs= Math.max(1, Math.min(24, parseInt(root.querySelector('#gp-goal').value)||8));
+            g2.maxMembers  = Math.max(2, Math.min(500, parseInt(root.querySelector('#gp-max').value)||50));
+            scSave(sc2); closeModal(); toast('Profile updated!', 'success'); renderSocial();
+          });
+        });
+        break;
+      }
+
+      case 'sgs-notif': {
+        const sc = scLoad();
+        const g  = sc.groups.find(x => x.id === el.dataset.gid);
+        if (!g) break;
+        const gid = g.id;
+        const curOn = g.notifEnabled !== false;
+        openModal(`
+          <h3 class="sc-modal-title">Group Notification Settings</h3>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.07)">
+            <div>
+              <div style="font-size:15px;font-weight:500;color:var(--text)">Group Notifications</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:3px">Receive alerts for group activity</div>
+            </div>
+            <label class="switch" style="flex-shrink:0">
+              <input type="checkbox" id="gn-toggle" ${curOn ? 'checked' : ''}/>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="actions" style="margin-top:16px">
+            <button class="btn btn-ghost" data-close>Cancel</button>
+            <button class="btn sc-modal-submit" id="gn-save">Save</button>
+          </div>
+        `, root => {
+          root.querySelector('#gn-save').addEventListener('click', () => {
+            const sc2 = scLoad();
+            const g2  = sc2.groups.find(x => x.id === gid);
+            if (!g2) return;
+            g2.notifEnabled = root.querySelector('#gn-toggle').checked;
+            scSave(sc2); closeModal();
+            toast(g2.notifEnabled ? '🔔 Notifications on' : '🔕 Notifications off', 'success');
+            renderSocial();
+          });
+        });
+        break;
+      }
+
+      case 'sgs-challenges':
+      case 'sgs-missions':
+        toast('Coming soon! 🚀 Challenges & Missions are in development.', 'info', 3000);
+        break;
+
+      // ── Group Leader Menu ─────────────────────────────────────────────────
+      case 'sgs-change-name': {
+        const sc = scLoad();
+        const g  = sc.groups.find(x => x.id === el.dataset.gid);
+        if (!g || g.role !== 'admin') break;
+        const gid = g.id;
+        openModal(`
+          <h3 class="sc-modal-title">Change Group Name</h3>
+          <div class="sc-field">
+            <input id="cn-name" type="text" maxlength="40" value="${esc(g.name||'')}" class="sc-input" autocomplete="off" placeholder="Enter group name"/>
+          </div>
+          <div class="actions" style="margin-top:16px">
+            <button class="btn btn-ghost" data-close>Cancel</button>
+            <button class="btn sc-modal-submit" id="cn-save">Save</button>
+          </div>
+        `, root => {
+          const inp = root.querySelector('#cn-name');
+          inp.focus(); inp.select();
+          const doSave = () => {
+            const name = inp.value.trim();
+            if (!name) { toast('Name cannot be empty', 'warn'); return; }
+            const sc2 = scLoad();
+            const g2  = sc2.groups.find(x => x.id === gid);
+            if (!g2) return;
+            g2.name = name;
+            scSave(sc2); closeModal(); toast('Group name updated!', 'success'); renderSocial();
+          };
+          root.querySelector('#cn-save').addEventListener('click', doSave);
+          inp.addEventListener('keydown', e => { if (e.key === 'Enter') doSave(); });
+        });
+        break;
+      }
+
+      case 'sgs-change-rules': {
+        const sc = scLoad();
+        const g  = sc.groups.find(x => x.id === el.dataset.gid);
+        if (!g || g.role !== 'admin') break;
+        const gid = g.id;
+        openModal(`
+          <h3 class="sc-modal-title">Group Introduction / Rules</h3>
+          <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px">Describe your group, set rules, or add an introduction visible to all members.</p>
+          <div class="sc-field">
+            <textarea id="cr-desc" rows="5" maxlength="500" class="sc-textarea" placeholder="e.g. Welcome! Study for 4h daily and stay active…">${esc(g.description||'')}</textarea>
+          </div>
+          <div class="actions" style="margin-top:16px">
+            <button class="btn btn-ghost" id="cr-clear" style="color:#ef4444">Remove</button>
+            <button class="btn btn-ghost" data-close>Cancel</button>
+            <button class="btn sc-modal-submit" id="cr-save">Save</button>
+          </div>
+        `, root => {
+          const ta = root.querySelector('#cr-desc');
+          const doSave = (val) => {
+            const sc2 = scLoad();
+            const g2  = sc2.groups.find(x => x.id === gid);
+            if (!g2) return;
+            g2.description = val;
+            scSave(sc2); closeModal(); toast(val ? 'Rules saved!' : 'Rules removed', 'success'); renderSocial();
+          };
+          root.querySelector('#cr-save').addEventListener('click', () => doSave(ta.value.trim()));
+          root.querySelector('#cr-clear').addEventListener('click', () => doSave(''));
+        });
+        break;
+      }
+
+      case 'sgs-change-category': {
+        const sc = scLoad();
+        const g  = sc.groups.find(x => x.id === el.dataset.gid);
+        if (!g || g.role !== 'admin') break;
+        const gid = g.id;
+        let selCat = g.category || 'General';
+        const chips = CATEGORIES.map(c =>
+          `<button class="sc-cat-chip-pick${selCat===c?' sc-cat-chip-active':''}" data-cat="${c}" type="button">${c}</button>`
+        ).join('');
+        openModal(`
+          <h3 class="sc-modal-title">Change Category</h3>
+          <div id="cc-chips" class="sc-cat-chips-row" style="margin:12px 0">${chips}</div>
+          <div class="actions" style="margin-top:16px">
+            <button class="btn btn-ghost" data-close>Cancel</button>
+            <button class="btn sc-modal-submit" id="cc-save">Save</button>
+          </div>
+        `, root => {
+          root.querySelector('#cc-chips').addEventListener('click', e => {
+            const b = e.target.closest('.sc-cat-chip-pick');
+            if (!b) return;
+            selCat = b.dataset.cat;
+            root.querySelectorAll('.sc-cat-chip-pick').forEach(x => x.classList.toggle('sc-cat-chip-active', x.dataset.cat === selCat));
+          });
+          root.querySelector('#cc-save').addEventListener('click', () => {
+            const sc2 = scLoad();
+            const g2  = sc2.groups.find(x => x.id === gid);
+            if (!g2) return;
+            g2.category = selCat;
+            scSave(sc2); closeModal(); toast('Category updated!', 'success'); renderSocial();
+          });
+        });
+        break;
+      }
+
+      case 'sgs-change-goal': {
+        const sc = scLoad();
+        const g  = sc.groups.find(x => x.id === el.dataset.gid);
+        if (!g || g.role !== 'admin') break;
+        const gid = g.id;
+        openModal(`
+          <h3 class="sc-modal-title">Change Daily Goal</h3>
+          <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px">Set the daily study target for all group members.</p>
+          <div class="sc-field" style="display:flex;align-items:center;gap:12px;justify-content:center">
+            <input id="cg-goal" type="number" min="1" max="24" value="${g.dailyGoalHrs||8}" class="sc-input" style="text-align:center;width:100px;font-size:22px;font-weight:700"/>
+            <span style="font-size:18px;color:var(--text-muted)">hours / day</span>
+          </div>
+          <div class="actions" style="margin-top:20px">
+            <button class="btn btn-ghost" data-close>Cancel</button>
+            <button class="btn sc-modal-submit" id="cg-save">Save</button>
+          </div>
+        `, root => {
+          root.querySelector('#cg-save').addEventListener('click', () => {
+            const val = Math.max(1, Math.min(24, parseInt(root.querySelector('#cg-goal').value)||8));
+            const sc2 = scLoad();
+            const g2  = sc2.groups.find(x => x.id === gid);
+            if (!g2) return;
+            g2.dailyGoalHrs = val;
+            scSave(sc2); closeModal(); toast(`Daily goal set to ${val}h`, 'success'); renderSocial();
+          });
+        });
+        break;
+      }
+
+      case 'sgs-change-capacity': {
+        const sc = scLoad();
+        const g  = sc.groups.find(x => x.id === el.dataset.gid);
+        if (!g || g.role !== 'admin') break;
+        const gid = g.id;
+        openModal(`
+          <h3 class="sc-modal-title">Change Capacity</h3>
+          <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px">Maximum number of members allowed in this group.</p>
+          <div class="sc-field" style="display:flex;align-items:center;gap:12px;justify-content:center">
+            <input id="cap-val" type="number" min="2" max="500" value="${g.maxMembers||50}" class="sc-input" style="text-align:center;width:100px;font-size:22px;font-weight:700"/>
+            <span style="font-size:18px;color:var(--text-muted)">people</span>
+          </div>
+          <div class="actions" style="margin-top:20px">
+            <button class="btn btn-ghost" data-close>Cancel</button>
+            <button class="btn sc-modal-submit" id="cap-save">Save</button>
+          </div>
+        `, root => {
+          root.querySelector('#cap-save').addEventListener('click', () => {
+            const val = Math.max(2, Math.min(500, parseInt(root.querySelector('#cap-val').value)||50));
+            const sc2 = scLoad();
+            const g2  = sc2.groups.find(x => x.id === gid);
+            if (!g2) return;
+            g2.maxMembers = val;
+            scSave(sc2); closeModal(); toast(`Capacity set to ${val}`, 'success'); renderSocial();
+          });
+        });
+        break;
+      }
+
+      case 'sgs-join-mode': {
+        const sc = scLoad();
+        const g  = sc.groups.find(x => x.id === el.dataset.gid);
+        if (!g || g.role !== 'admin') break;
+        const gid = g.id;
+        const cur = g.joinMode || 'open';
+        openModal(`
+          <h3 class="sc-modal-title">How to Join</h3>
+          <p style="font-size:13px;color:var(--text-muted);margin:0 0 16px">Choose how new members can enter this group.</p>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <label class="sgs-radio-row ${cur==='open'?'sgs-radio-selected':''}">
+              <input type="radio" name="jm" value="open" ${cur==='open'?'checked':''} style="display:none"/>
+              <div class="sgs-radio-content">
+                <div style="font-size:15px;font-weight:600">🚪 Join immediately</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:3px">Anyone with the code can join right away</div>
+              </div>
+              <div class="sgs-radio-dot ${cur==='open'?'sgs-radio-dot-on':''}"></div>
+            </label>
+            <label class="sgs-radio-row ${cur==='approval'?'sgs-radio-selected':''}">
+              <input type="radio" name="jm" value="approval" ${cur==='approval'?'checked':''} style="display:none"/>
+              <div class="sgs-radio-content">
+                <div style="font-size:15px;font-weight:600">⏳ Join after approval</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:3px">You review and approve each request</div>
+              </div>
+              <div class="sgs-radio-dot ${cur==='approval'?'sgs-radio-dot-on':''}"></div>
+            </label>
+          </div>
+          <div class="actions" style="margin-top:20px">
+            <button class="btn btn-ghost" data-close>Cancel</button>
+            <button class="btn sc-modal-submit" id="jm-save">Save</button>
+          </div>
+        `, root => {
+          root.querySelectorAll('.sgs-radio-row').forEach(row => {
+            row.addEventListener('click', () => {
+              root.querySelectorAll('.sgs-radio-row').forEach(r => r.classList.remove('sgs-radio-selected'));
+              root.querySelectorAll('.sgs-radio-dot').forEach(d => d.classList.remove('sgs-radio-dot-on'));
+              row.classList.add('sgs-radio-selected');
+              row.querySelector('.sgs-radio-dot').classList.add('sgs-radio-dot-on');
+              row.querySelector('input[type=radio]').checked = true;
+            });
+          });
+          root.querySelector('#jm-save').addEventListener('click', () => {
+            const val = root.querySelector('input[name=jm]:checked')?.value || 'open';
+            const sc2 = scLoad();
+            const g2  = sc2.groups.find(x => x.id === gid);
+            if (!g2) return;
+            g2.joinMode = val;
+            scSave(sc2); closeModal();
+            toast(val === 'approval' ? '⏳ Approval required to join' : '🚪 Open join enabled', 'success');
+            renderSocial();
+          });
+        });
+        break;
+      }
+
+      case 'sgs-signup-question': {
+        const sc = scLoad();
+        const g  = sc.groups.find(x => x.id === el.dataset.gid);
+        if (!g || g.role !== 'admin') break;
+        const gid = g.id;
+        const cur = g.joinQuestion || '';
+        openModal(`
+          <h3 class="sc-modal-title">Sign Up Questions</h3>
+          <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px">Ask new members a question when they request to join. Leave empty to disable.</p>
+          <div class="sc-field">
+            <label class="sc-label">Question</label>
+            <textarea id="sq-inp" rows="3" maxlength="200" class="sc-textarea" placeholder="e.g. What subject are you preparing for?">${esc(cur)}</textarea>
+          </div>
+          <div class="actions" style="margin-top:16px">
+            ${cur ? `<button class="btn btn-ghost" id="sq-clear" style="color:#ef4444">Turn Off</button>` : ''}
+            <button class="btn btn-ghost" data-close>Cancel</button>
+            <button class="btn sc-modal-submit" id="sq-save">Save</button>
+          </div>
+        `, root => {
+          root.querySelector('#sq-save').addEventListener('click', () => {
+            const val = root.querySelector('#sq-inp').value.trim();
+            const sc2 = scLoad();
+            const g2  = sc2.groups.find(x => x.id === gid);
+            if (!g2) return;
+            g2.joinQuestion = val;
+            scSave(sc2); closeModal();
+            toast(val ? '❓ Question saved & enabled' : 'Sign-up question disabled', 'success');
+            renderSocial();
+          });
+          root.querySelector('#sq-clear')?.addEventListener('click', () => {
+            const sc2 = scLoad();
+            const g2  = sc2.groups.find(x => x.id === gid);
+            if (!g2) return;
+            g2.joinQuestion = '';
+            scSave(sc2); closeModal(); toast('Sign-up question removed', 'info'); renderSocial();
+          });
+        });
+        break;
+      }
+
+      case 'sgs-nickname-rules': {
+        const sc = scLoad();
+        const g  = sc.groups.find(x => x.id === el.dataset.gid);
+        if (!g || g.role !== 'admin') break;
+        const gid = g.id;
+        const newVal = !g.nicknameRequired;
+        {
+          const sc2 = scLoad();
+          const g2  = sc2.groups.find(x => x.id === gid);
+          if (!g2) break;
+          g2.nicknameRequired = newVal;
+          scSave(sc2);
+          toast(newVal ? '📛 Nickname rules ON — display name required' : '📛 Nickname rules OFF', 'success');
+          renderSocial();
+        }
+        break;
+      }
+
+      case 'sgs-change-password': {
+        const sc = scLoad();
+        const g  = sc.groups.find(x => x.id === el.dataset.gid);
+        if (!g || g.role !== 'admin') break;
+        const gid = g.id;
+        const hasPass = !!(g.joinPassword && g.joinPassword.length);
+        openModal(`
+          <h3 class="sc-modal-title">Change Password</h3>
+          <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px">Set a password that members must enter to join. Leave empty to make the group public.</p>
+          <div class="sc-field">
+            <label class="sc-label">Password <span class="sc-opt">(leave empty for public)</span></label>
+            <input id="pw-inp" type="text" maxlength="30" value="${esc(g.joinPassword||'')}" class="sc-input" placeholder="e.g. study2026" autocomplete="off"/>
+          </div>
+          <div class="actions" style="margin-top:16px">
+            ${hasPass ? `<button class="btn btn-ghost" id="pw-clear" style="color:#ef4444">Make Public</button>` : ''}
+            <button class="btn btn-ghost" data-close>Cancel</button>
+            <button class="btn sc-modal-submit" id="pw-save">Save</button>
+          </div>
+        `, root => {
+          root.querySelector('#pw-save').addEventListener('click', () => {
+            const val = root.querySelector('#pw-inp').value.trim();
+            const sc2 = scLoad();
+            const g2  = sc2.groups.find(x => x.id === gid);
+            if (!g2) return;
+            g2.joinPassword = val;
+            scSave(sc2); closeModal();
+            toast(val ? '🔐 Password protected' : '🌐 Group is now public', 'success');
+            renderSocial();
+          });
+          root.querySelector('#pw-clear')?.addEventListener('click', () => {
+            const sc2 = scLoad();
+            const g2  = sc2.groups.find(x => x.id === gid);
+            if (!g2) return;
+            g2.joinPassword = '';
+            scSave(sc2); closeModal(); toast('🌐 Password removed', 'info'); renderSocial();
+          });
+        });
+        break;
+      }
+
+      // ── Management Section ────────────────────────────────────────────────
+      case 'sgs-waiting-room': {
+        const sc  = scLoad();
+        const g   = sc.groups.find(x => x.id === el.dataset.gid);
+        if (!g || g.role !== 'admin') break;
+        const gid  = g.id;
+        const reqs = (sc.requests && sc.requests[gid]) || [];
+        if (!reqs.length) {
+          openModal(`
+            <h3 class="sc-modal-title">⏳ Waiting Room</h3>
+            <div style="text-align:center;padding:28px 0;color:var(--text-muted)">
+              <div style="font-size:36px;margin-bottom:12px">✅</div>
+              <div>No pending join requests</div>
+            </div>
+            <div class="actions"><button class="btn btn-ghost" data-close>Close</button></div>
+          `);
+          break;
+        }
+        const rows = reqs.map(r => `
+          <div class="adm-member-row" data-req-id="${esc(r.id)}" style="margin-bottom:10px">
+            <div class="adm-member-av-wrap">
+              <div class="adm-member-av" style="width:36px;height:36px;border-radius:50%;background:#7c3aed;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex-shrink:0">${esc((r.name||'?').slice(0,2).toUpperCase())}</div>
+            </div>
+            <div class="adm-member-info" style="flex:1;min-width:0;margin-left:10px">
+              <div style="font-weight:600;font-size:14px">${esc(r.name||'Anonymous')}</div>
+              ${r.answer ? `<div style="font-size:12px;color:var(--text-muted);font-style:italic;margin-top:2px">"${esc(r.answer)}"</div>` : ''}
+              <div style="font-size:11px;color:var(--text-dim);margin-top:2px">${new Date(r.requestedAt||Date.now()).toLocaleString()}</div>
+            </div>
+            <div style="display:flex;gap:6px;flex-shrink:0">
+              <button class="btn" style="padding:6px 12px;font-size:12px;background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3)" data-sc="sgs-approve-req" data-gid="${esc(gid)}" data-rid="${esc(r.id)}" data-name="${esc(r.name||'Member')}">✓</button>
+              <button class="btn btn-danger" style="padding:6px 12px;font-size:12px" data-sc="sgs-reject-req" data-gid="${esc(gid)}" data-rid="${esc(r.id)}">✕</button>
+            </div>
+          </div>`).join('');
+        openModal(`
+          <h3 class="sc-modal-title">⏳ Waiting Room</h3>
+          <p style="font-size:13px;color:var(--text-muted);margin:0 0 14px">${reqs.length} pending request${reqs.length!==1?'s':''}</p>
+          <div id="wr-list">${rows}</div>
+          <div class="actions" style="margin-top:16px"><button class="btn btn-ghost" data-close>Close</button></div>
+        `);
+        break;
+      }
+
+      case 'sgs-approve-req': {
+        const sc  = scLoad();
+        const gid = el.dataset.gid;
+        const rid = el.dataset.rid;
+        const name= el.dataset.name || 'Member';
+        const g   = sc.groups.find(x => x.id === gid);
+        if (!g) break;
+        if (!sc.requests) sc.requests = {};
+        if (!sc.requests[gid]) sc.requests[gid] = [];
+        const req = sc.requests[gid].find(r => r.id === rid);
+        if (req) {
+          sc.requests[gid] = sc.requests[gid].filter(r => r.id !== rid);
+          g.members = g.members || [];
+          g.members.push({ id: rid, name, role: 'member', joinedAt: Date.now() });
+        }
+        scSave(sc);
+        toast(`✓ ${name} approved!`, 'success');
+        el.closest('.adm-member-row')?.remove();
+        renderSocial();
+        break;
+      }
+
+      case 'sgs-reject-req': {
+        const sc  = scLoad();
+        const gid = el.dataset.gid;
+        const rid = el.dataset.rid;
+        if (!sc.requests) sc.requests = {};
+        if (!sc.requests[gid]) sc.requests[gid] = [];
+        sc.requests[gid] = sc.requests[gid].filter(r => r.id !== rid);
+        scSave(sc);
+        toast('Request rejected', 'info');
+        el.closest('.adm-member-row')?.remove();
+        renderSocial();
+        break;
+      }
+
+      case 'sgs-manage-members': {
+        const sc = scLoad();
+        const g  = sc.groups.find(x => x.id === el.dataset.gid);
+        if (!g || g.role !== 'admin') break;
+        const gid = g.id;
+        const members = (g.members || []);
+        if (!members.length) {
+          toast('No members in this group yet', 'info');
+          break;
+        }
+        const rows = members.map(m => {
+          const isMe = m.id === 'me';
+          return `
+            <div class="adm-member-row" style="margin-bottom:10px;display:flex;align-items:center;gap:10px">
+              <div style="width:36px;height:36px;border-radius:50%;background:#7c3aed;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex-shrink:0">${esc((m.name||'?').slice(0,2).toUpperCase())}</div>
+              <div style="flex:1;min-width:0">
+                <div style="font-weight:600;font-size:14px">${esc(m.name||'Unknown')} ${isMe ? '<span style="color:#7c3aed;font-size:11px">(you)</span>' : ''}</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${m.role === 'admin' ? '👑 Admin' : '✓ Member'}</div>
+              </div>
+              ${!isMe && m.role !== 'admin' ? `<button class="btn btn-danger" style="padding:5px 12px;font-size:12px" data-sc="sgs-kick" data-gid="${esc(gid)}" data-uid="${esc(m.id)}" data-name="${esc(m.name||'Member')}">Kick</button>` : ''}
+            </div>`;
+        }).join('');
+        openModal(`
+          <h3 class="sc-modal-title">👥 Manage Members</h3>
+          <p style="font-size:13px;color:var(--text-muted);margin:0 0 14px">${members.length} member${members.length!==1?'s':''}</p>
+          <div id="mm-list">${rows}</div>
+          <div class="actions" style="margin-top:16px"><button class="btn btn-ghost" data-close>Close</button></div>
+        `);
+        break;
+      }
+
+      case 'sgs-kick': {
+        const sc   = scLoad();
+        const gid  = el.dataset.gid;
+        const uid  = el.dataset.uid;
+        const name = el.dataset.name || 'Member';
+        const g    = sc.groups.find(x => x.id === gid);
+        if (!g || g.role !== 'admin') break;
+        confirmModal(`Remove ${name} from the group?`, () => {
+          const sc2 = scLoad();
+          const g2  = sc2.groups.find(x => x.id === gid);
+          if (!g2) return;
+          g2.members = (g2.members||[]).filter(m => m.id !== uid);
+          scSave(sc2);
+          toast(`${name} removed from group`, 'info');
+          closeModal();
+          renderSocial();
+        }, { title:`Kick ${name}?`, yesLabel:'Remove', yesClass:'btn btn-danger', noLabel:'Cancel' });
+        break;
+      }
+
+      case 'sgs-nudge-all': {
+        const sc = scLoad();
+        const g  = sc.groups.find(x => x.id === el.dataset.gid);
+        if (!g || g.role !== 'admin') break;
+        const others = (g.members||[]).filter(m => m.id !== 'me');
+        if (!others.length) { toast('No other members to nudge yet', 'info'); break; }
+        toast(`📣 Nudged ${others.length} member${others.length!==1?'s':''}! They'll be notified to study.`, 'success', 3500);
+        break;
+      }
+
+      case 'sgs-toggle-chat': {
+        const sc = scLoad();
+        const g  = sc.groups.find(x => x.id === el.dataset.gid);
+        if (!g || g.role !== 'admin') break;
+        const gid = g.id;
+        {
+          const sc2 = scLoad();
+          const g2  = sc2.groups.find(x => x.id === gid);
+          if (!g2) break;
+          g2.chatEnabled = g2.chatEnabled === false ? true : false;
+          scSave(sc2);
+          toast(g2.chatEnabled ? '💬 Group chat enabled' : '💬 Group chat disabled', 'success');
+          renderSocial();
+        }
+        break;
+      }
+
+      case 'sgs-promote': {
+        const sc = scLoad();
+        const g  = sc.groups.find(x => x.id === el.dataset.gid);
+        if (!g || g.role !== 'admin') break;
+        const gid      = g.id;
+        const shareText= `Join my study group "${g.name}" on Syllabus Tracker!\nCode: ${g.code}${g.description ? '\n' + g.description : ''}`;
+        const sc2      = scLoad();
+        const g2       = sc2.groups.find(x => x.id === gid);
+        if (g2) { g2.promotedAt = Date.now(); scSave(sc2); }
+        if (navigator.share) {
+          navigator.share({ title: g.name, text: shareText }).catch(() => {});
+        } else {
+          navigator.clipboard.writeText(shareText)
+            .then(() => toast('📣 Invite text copied to clipboard!', 'success'))
+            .catch(() => toast(`📣 Share code: ${g.code}`, 'info'));
+        }
+        renderSocial();
+        break;
+      }
+
+      case 'sgs-delete-group': {
+        const sc = scLoad();
+        const g  = sc.groups.find(x => x.id === el.dataset.gid);
+        if (!g || g.role !== 'admin') break;
+        const gid = g.id;
+        confirmModal(`Permanently delete "${g.name}"? This cannot be undone. All group data will be removed.`, () => {
+          const sc2 = scLoad();
+          sc2.groups   = sc2.groups.filter(x => x.id !== gid);
+          sc2.tasks    = sc2.tasks.filter(t => t.groupId !== gid);
+          sc2.notes    = sc2.notes.filter(n => n.groupId !== gid);
+          if (sc2.chats)    delete sc2.chats[gid];
+          if (sc2.requests) delete sc2.requests[gid];
+          scSave(sc2);
+          _groupView = null; _settingsView = false; _srTab = 'home'; _stopSrTicker();
+          toast(`"${g.name}" deleted`, 'info');
+          renderSocial();
+        }, { title:'Delete Group?', yesLabel:'Delete', yesClass:'btn btn-danger', noLabel:'Cancel' });
+        break;
+      }
+
+      case 'sgs-leave-group-settings': {
+        const sc  = scLoad();
+        const gid = el.dataset.gid;
+        const g   = sc.groups.find(x => x.id === gid);
+        if (!g) break;
+        confirmModal(`Leave "${g.name}"? Your local group data will be removed.`, () => {
+          const sc2 = scLoad();
+          sc2.groups = sc2.groups.filter(x => x.id !== gid);
+          sc2.tasks  = sc2.tasks.filter(t => t.groupId !== gid);
+          sc2.notes  = sc2.notes.filter(n => n.groupId !== gid);
+          if (sc2.chats) delete sc2.chats[gid];
+          scSave(sc2);
+          _groupView = null; _settingsView = false; _srTab = 'home'; _stopSrTicker();
+          toast('Left group.', 'info'); renderSocial();
+        }, { title:'Leave Group?', yesLabel:'Leave', yesClass:'btn btn-danger', noLabel:'Cancel' });
         break;
       }
 
