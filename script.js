@@ -4675,25 +4675,25 @@
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const resize = () => {
-      canvas.width  = window.innerWidth;
-      canvas.height = window.innerHeight;
-    };
+    const resize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
     resize();
 
-    // Create glowing floating particles
+    // Premium ember particles — varied sizes, hues, speeds
     const particles = [];
-    const N = 40;
+    const N = 55;
     for (let i = 0; i < N; i++) {
+      const big = Math.random() < 0.18; // rare large glows
       particles.push({
         x:       Math.random() * canvas.width,
         y:       Math.random() * canvas.height,
-        r:       Math.random() * 2.2 + 0.6,
-        speed:   Math.random() * 0.35 + 0.12,
-        opacity: Math.random() * 0.55 + 0.15,
-        drift:   (Math.random() - 0.5) * 0.28,
-        hue:     Math.random() > 0.35 ? 28 : 43,  // orange or amber
-        phase:   Math.random() * Math.PI * 2
+        r:       big ? (Math.random() * 4 + 4) : (Math.random() * 2.4 + 0.5),
+        speed:   big ? (Math.random() * 0.22 + 0.06) : (Math.random() * 0.42 + 0.10),
+        opacity: Math.random() * 0.5 + 0.08,
+        opTarget:Math.random() * 0.6 + 0.15,
+        drift:   (Math.random() - 0.5) * 0.30,
+        hue:     [28, 33, 38, 45, 18][Math.floor(Math.random() * 5)], // orange/amber palette
+        phase:   Math.random() * Math.PI * 2,
+        big
       });
     }
 
@@ -4702,28 +4702,28 @@
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       frame++;
       for (const p of particles) {
+        // Float upward with sinusoidal drift
         p.y -= p.speed;
-        p.x += p.drift + Math.sin(frame * 0.018 + p.phase) * 0.18;
-        p.opacity += (Math.random() - 0.5) * 0.018;
-        p.opacity = Math.max(0.08, Math.min(0.72, p.opacity));
+        p.x += p.drift + Math.sin(frame * 0.016 + p.phase) * 0.22;
+        // Smooth opacity breathing toward target
+        p.opacity += (p.opTarget - p.opacity) * 0.022;
+        if (Math.abs(p.opacity - p.opTarget) < 0.02) p.opTarget = Math.random() * 0.6 + 0.1;
 
-        if (p.y < -12) {
-          p.y = canvas.height + 5;
-          p.x = Math.random() * canvas.width;
-        }
-        if (p.x < -12 || p.x > canvas.width + 12) {
-          p.x = Math.random() * canvas.width;
-        }
+        // Recycle when off-screen
+        if (p.y < -16) { p.y = canvas.height + 8; p.x = Math.random() * canvas.width; }
+        if (p.x < -16 || p.x > canvas.width + 16) { p.x = Math.random() * canvas.width; }
 
         ctx.save();
-        ctx.globalAlpha = p.opacity;
-        const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 3.5);
-        grad.addColorStop(0,   `hsla(${p.hue}, 100%, 72%, 1)`);
-        grad.addColorStop(0.45, `hsla(${p.hue}, 92%, 55%, 0.5)`);
-        grad.addColorStop(1,   `hsla(${p.hue}, 80%, 40%, 0)`);
+        ctx.globalAlpha = Math.max(0.04, Math.min(0.85, p.opacity));
+        const gR = p.big ? p.r * 5 : p.r * 4;
+        const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, gR);
+        grad.addColorStop(0,    `hsla(${p.hue}, 100%, 74%, 1)`);
+        grad.addColorStop(0.30, `hsla(${p.hue}, 96%, 58%, 0.65)`);
+        grad.addColorStop(0.65, `hsla(${p.hue}, 88%, 42%, 0.22)`);
+        grad.addColorStop(1,    `hsla(${p.hue}, 80%, 30%, 0)`);
         ctx.fillStyle = grad;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r * 3.5, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, gR, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
       }
