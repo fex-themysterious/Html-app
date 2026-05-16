@@ -2743,8 +2743,12 @@
       view.innerHTML = `<div class="social-gate"><div class="social-gate-icon">👥</div><h2 class="social-gate-title">Social Study Rooms</h2><p class="social-gate-sub">Sign in to join a room and study with friends, compete in duels, and hit group goals together.</p><button class="btn" data-act="auth-show-modal">Sign In to Continue</button></div>`;
       return;
     }
-    if (!_socialRoomCode && (!_globalLbData || !_globalLbData.length)) {
-      _loadGlobalLeaderboard().catch(() => {});
+    if (!_socialRoomCode) {
+      // Always push own latest stats so the leaderboard reflects current session
+      _updateGlobalLb();
+      if (!_globalLbUnsub) {
+        _loadGlobalLeaderboard().catch(() => {});
+      }
     }
     if (!_socialRoomCode && _myGroupCodes.length) {
       _fetchMyGroupsMeta();
@@ -4053,16 +4057,30 @@
       );
     } catch(_) {}
   }
+  let _lbRefreshTimer = null;
   function _loadGlobalLeaderboard() {
-    if (!_db) return;
-    // Replace one-shot .get() with a real-time listener so the global LB tab
-    // auto-updates whenever any user writes a new XP entry — no page refresh needed.
-    if (_globalLbUnsub) { _globalLbUnsub(); _globalLbUnsub = null; }
-    _globalLbUnsub = _db.collection('global_lb').orderBy('weeklyXP', 'desc').limit(50)
-      .onSnapshot(snap => {
-        _globalLbData = snap.docs.map(d => d.data());
-        if (_currentTab === 'social') renderSocial();
-      }, e => { console.warn('[Global LB]', e.message); });
+    if (!_db) return Promise.resolve();
+    // Push own latest stats first so the caller always sees fresh data
+    _updateGlobalLb();
+    // Tear down any existing listener before creating a new one
+    if (_globalLbUnsub) { try { _globalLbUnsub(); } catch(_) {} _globalLbUnsub = null; }
+    return new Promise((resolve, reject) => {
+      let resolved = false;
+      _globalLbUnsub = _db.collection('global_lb').orderBy('weeklyXP', 'desc').limit(50)
+        .onSnapshot(snap => {
+          _globalLbData = snap.docs.map(d => d.data()).filter(d => d.name && d.name.trim());
+          if (_currentTab === 'social') renderSocial();
+          if (!resolved) { resolved = true; resolve(); }
+        }, e => {
+          console.warn('[Global LB]', e.message);
+          if (!resolved) { resolved = true; reject(e); }
+          // Retry after 5 s on transient errors
+          clearTimeout(_lbRefreshTimer);
+          _lbRefreshTimer = setTimeout(() => {
+            if (_userId && _db) _loadGlobalLeaderboard().catch(() => {});
+          }, 5000);
+        });
+    });
   }
 
   function _loadPublicRooms() {
@@ -10476,7 +10494,18 @@
       }
       return;
     }
-    if (act === 'social-lb-refresh') { _loadGlobalLeaderboard().catch(() => {}); return; }
+    if (act === 'social-lb-refresh') {
+      const btn = el;
+      btn.disabled = true;
+      btn.style.opacity = '0.5';
+      btn.classList.add('spin');
+      _updateGlobalLb();
+      _loadGlobalLeaderboard()
+        .then(() => { toast('Leaderboard updated ✓', 'success', 2000); })
+        .catch(() => { toast('Failed to refresh. Try again.', 'warn', 3000); })
+        .finally(() => { btn.disabled = false; btn.style.opacity = ''; btn.classList.remove('spin'); });
+      return;
+    }
     if (act === 'social-pub-refresh') { _publicRooms = []; _publicRoomsLoading = false; _loadPublicRooms(); return; }
     if (act === 'social-join-pub') { _sJoinRoom(el.dataset.code).catch(() => {}); return; }
     if (act === 'social-copy-lobby-code') {

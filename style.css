@@ -4573,6 +4573,7 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   transform: scale(1.04);
 }
 .slob-refresh-btn:active { transform: scale(0.97); }
+.slob-refresh-btn.spin svg { animation: spin 0.7s linear infinite; }
 
 .slob-lb-empty {
   text-align: center; color: rgba(244,247,255,0.42); font-size: 14px;
