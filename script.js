@@ -403,12 +403,14 @@
   function _scheduledCloudSync() {
     if (!_db || !_userId || !(_auth && _auth.currentUser)) return;
     clearTimeout(_cloudSyncTimer);
+    const uid = _userId;
     _cloudSyncTimer = setTimeout(() => {
-      _db.collection('users').doc(_userId).set({
-        data:       JSON.stringify(state),
-        uid:        _userId,
-        updatedAt:  firebase.firestore.FieldValue.serverTimestamp()
-      }).then(() => {
+      if (!uid) return;
+      _db.collection('users').doc(uid).set({
+        data:        JSON.stringify(state),
+        uid:         uid,
+        joinedRooms: _myGroupCodes,
+        updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
       }).catch(e => {
         console.warn('[Firestore] Write failed:', e.message);
       });
@@ -849,13 +851,21 @@
   async function _authSignOut() {
     if (!_auth) return;
     try {
-      // Persist joined rooms to Firestore before signing out so they're restored on next login
-      if (_db && _userId && _myGroupCodes.length) {
-        _db.collection('users').doc(_userId).set({ joinedRooms: _myGroupCodes }, { merge: true }).catch(() => {});
+      // Save full state to Firestore before signing out so data is never lost
+      if (_db && _userId) {
+        clearTimeout(_cloudSyncTimer);
+        const uid = _userId;
+        try {
+          await _db.collection('users').doc(uid).set({
+            data:        JSON.stringify(state),
+            uid:         uid,
+            joinedRooms: _myGroupCodes,
+            updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
+          });
+        } catch (e) { console.warn('[Auth] Pre-signout sync failed:', e.message); }
       }
       try { localStorage.removeItem('stk_logged_in'); } catch(_) {}
       await _auth.signOut();
-      // sign-out toast removed (user can see they're signed out)
     } catch (e) { console.warn('[Auth] Sign out error:', e.message); }
   }
 
