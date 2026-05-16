@@ -6557,9 +6557,6 @@
 
   function switchTab(tab) {
     if (tab === 'social') return;
-    if (focusLocked && !focusMultitaskMode && focusRunning && tab !== 'focus') {
-      if (!confirm('Lock Mode is on and timer is running. Leave Focus tab?')) return;
-    }
     document.querySelectorAll('.view').forEach(v => {
       v.classList.remove('active');
       v.style.setProperty('display', 'none', 'important');
@@ -7272,16 +7269,9 @@
         <div class="focus-buttons">
           <button class="btn btn-ghost" data-act="focus-reset">Reset</button>
           <button class="btn${focusOvertime ? ' btn-overtime' : ''}" style="min-width:110px" data-act="focus-toggle">${focusRunning ? '⏸ Pause' : (focusOvertime ? '⏹ End Session' : '▶ Start')}</button>
-          <button class="focus-lock-btn ${focusMultitaskMode ? 'multitask' : focusLocked ? 'locked' : ''}" data-act="${focusMultitaskMode ? 'focus-multitask' : 'focus-lock'}">${focusMultitaskMode ? '🗒️ Multitask' : focusLocked ? ic('lock') + ' Locked' : ic('unlock') + ' Lock'}</button>
         </div>
       </div>
       <div class="focus-col-right">
-        ${focusRunning && !focusMultitaskMode ? `<button class="focus-multitask-toggle" data-act="focus-multitask">🗒️ Enable Multitask Mode</button>` : ''}
-        ${focusMultitaskMode ? `<div class="focus-multitask-card">
-          <div class="fmt-card-title">📱 Multitask Mode Active</div>
-          <div class="fmt-card-body">Timer keeps running while you use another app. A floating bubble appears on other tabs, and your browser tab title shows the countdown. You'll get a notification when done.</div>
-          <div class="fmt-card-tip">💡 Open your notes app freely — this timer won't stop.</div>
-        </div>` : ''}
         <div class="focus-task-bar">
           <label>Current Task</label>
           ${currentTask ? `<div class="focus-current-task"><span class="dot"></span>${escapeHTML(currentTask.text)}<button class="btn-link" data-act="focus-task-clear" style="margin-left:auto;font-size:12px">Clear</button></div>` :
@@ -10975,8 +10965,6 @@
       if (document.getElementById('view-stats') && document.getElementById('view-stats').classList.contains('active')) renderStats();
       return;
     }
-    if (act === 'focus-lock') { focusMultitaskMode = false; focusLocked = !focusLocked; renderFocus(); return; }
-    if (act === 'focus-multitask') { focusMultitaskMode = !focusMultitaskMode; if (focusMultitaskMode) { focusLocked = false; } renderFocus(); return; }
     if (act === 'focus-task-clear') { focusCurrentTaskKey = null; renderFocus(); return; }
 
     // Ambient sound
@@ -11389,9 +11377,9 @@
   });
 
   window.addEventListener('beforeunload', e => {
-    if ((focusRunning && focusLocked) || (_vfmActive && !_vfmComplete)) {
+    if (focusRunning || (_vfmActive && !_vfmComplete)) {
       e.preventDefault();
-      e.returnValue = '';
+      e.returnValue = 'Timer is running! Your progress will be saved, but are you sure you want to leave?';
     }
   });
 
