@@ -4496,14 +4496,33 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
     radial-gradient(ellipse at 50% 95%, rgba(71,183,107,0.04) 0%, transparent 45%),
     #050816;
   position: relative;
+  /* overflow:hidden keeps the ::after vignette clipped to this view on all browsers */
+  overflow: hidden;
 }
 #view-social::after {
   content: '';
-  position: fixed;
+  /* Use absolute (not fixed) so the vignette is clipped by #view-social
+     and cannot bleed onto other tabs even on Android GPU compositing bugs */
+  position: absolute;
   inset: 0;
   background: radial-gradient(ellipse at 50% 50%, transparent 60%, rgba(0,0,0,0.45) 100%);
   pointer-events: none;
   z-index: 0;
+}
+
+/* Safety guard: forcibly hide the fixed-position room overlay whenever the
+   social tab is not active. Prevents GPU-composited fixed children from
+   bleeding through display:none on Android Chrome. */
+body:not(.tab-social) .grm2-room {
+  display: none !important;
+  pointer-events: none !important;
+}
+
+/* Also hide any stray chat context menu backdrop left on body */
+body:not(.tab-social) #chat-ctx-backdrop,
+body:not(.tab-social) .chat-ctx-menu {
+  display: none !important;
+  pointer-events: none !important;
 }
 
 @keyframes slob-float-crown {

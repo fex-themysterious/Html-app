@@ -2733,6 +2733,10 @@
   }
 
   function renderSocial() {
+    // Guard: never render social content when the user has navigated away.
+    // _sJoinRoom / _sLeaveRoom can fire renderSocial after an async operation
+    // completes, by which time the user may already be on a different tab.
+    if (_currentTab !== 'social') return;
     const view = document.getElementById('view-social');
     if (!view) return;
     if (SOCIAL_DISABLED) {
@@ -2759,7 +2763,13 @@
       const _prevJoin = document.getElementById('social-join-input');
       const _joinVal  = _prevJoin ? _prevJoin.value : '';
       const _joinFocused = _prevJoin && document.activeElement === _prevJoin;
-      view.innerHTML = _renderSocialLobby();
+      try {
+        view.innerHTML = _renderSocialLobby();
+      } catch(e) {
+        console.warn('[Social] Lobby render error:', e.message);
+        view.innerHTML = '<div class="social-gate"><div class="social-gate-icon">⚠️</div><h2 class="social-gate-title">Something went wrong</h2><p class="social-gate-sub">Tap the Social tab again to reload.</p></div>';
+        return;
+      }
       const _newJoin = document.getElementById('social-join-input');
       if (_newJoin && _joinVal) _newJoin.value = _joinVal;
       if (_newJoin && _joinFocused) _newJoin.focus();
@@ -2787,7 +2797,13 @@
     const _momPct = Math.min(100, Math.round(_momXpScore + _momFocusScore + _momTodayScore + _momStreakScore));
     if (_momPct >= 100 && !_momentumConfettiFired) { _momentumConfettiFired = true; setTimeout(_sFireConfetti, 700); }
     if (_momPct < 90) _momentumConfettiFired = false;
-    view.innerHTML = _renderSocialRoom();
+    try {
+      view.innerHTML = _renderSocialRoom();
+    } catch(e) {
+      console.warn('[Social] Room render error:', e.message);
+      view.innerHTML = '<div class="social-gate"><div class="social-gate-icon">⚠️</div><h2 class="social-gate-title">Something went wrong</h2><p class="social-gate-sub">Tap the Social tab again to reload.</p><button class="btn" data-act="social-leave">← Back to Lobby</button></div>';
+      return;
+    }
     _startSocialLiveTimers();
 
     // ── Chat scroll & listeners ──
@@ -6778,6 +6794,12 @@
     document.body.className = 'tab-' + tab;
     _currentTab = tab;
     closeDropdown();
+    // Remove any stray body-level overlays that social/chat code appends directly to document.body.
+    // If the user navigates away rapidly before a pointerdown-once handler fires, these get stuck.
+    document.getElementById('chat-ctx-backdrop')?.remove();
+    document.querySelectorAll('.chat-ctx-menu').forEach(el => el.remove());
+    // Stop social live timers when leaving the social tab to prevent ghost DOM queries
+    if (tab !== 'social') _stopSocialLiveTimers();
     updateMiniTimer();
   }
   function closeDropdown() {
