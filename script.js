@@ -4435,75 +4435,38 @@
 
   function updateFocusDisplay() {
     const overlay = document.getElementById('fs-overlay');
-
-    // ── Set window._focusActive for social.js isStudying() ──────────────
+    // Keep social.js isStudying() in sync
     window._focusActive = focusRunning && focusMode === 'work';
-
     if (focusOvertime) {
       const om = Math.floor(focusOvertimeSeconds / 60), os = focusOvertimeSeconds % 60;
       const otStr = `+${String(om).padStart(2,'0')}:${String(os).padStart(2,'0')}`;
       document.title = `${otStr} — Overtime`;
       const el = document.getElementById('focus-time-display');
       if (el) { el.textContent = otStr; el.classList.add('fs-overtime-text'); }
-      // Live Study Timer overlay: overtime display
-      const elEl = document.getElementById('fs-elapsed-display');
-      if (elEl) { elEl.textContent = otStr; elEl.classList.add('lsf-overtime-clock'); }
-      const fsPlayBtn = document.getElementById('fs-play-btn');
-      if (fsPlayBtn) { fsPlayBtn.textContent = '⏹'; fsPlayBtn.classList.add('lsf-play-overtime'); }
-      if (overlay) { overlay.className = 'lsf-overtime'; }
+      const fsEl = document.getElementById('fs-time-display');
+      if (fsEl) { fsEl.textContent = otStr; fsEl.classList.add('fs-overtime-text'); }
+      if (overlay) { overlay.classList.remove('fs-is-running'); overlay.classList.add('fs-overtime'); }
       return;
     }
-
     const formatted = formatFocusTime(focusSeconds);
     const total = customDurations[focusMode] * 60;
     const m = Math.floor(focusSeconds / 60), s = focusSeconds % 60;
     document.title = focusRunning ? `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')} — Focus` : 'Syllabus Tracker';
-
-    // Pomodoro ring on main focus tab
     const el = document.getElementById('focus-time-display');
-    if (el) { el.textContent = formatted; el.className = 'focus-ring-time' + _timeSizeClass(formatted); }
+    if (el) {
+      el.textContent = formatted;
+      el.className = 'focus-ring-time' + _timeSizeClass(formatted);
+    }
     const ring = document.getElementById('focus-ring-circle');
     if (ring) { const r = 96, c = 2 * Math.PI * r; ring.style.strokeDashoffset = (c * (1 - _ringFillPct(focusSeconds, total))).toFixed(2); }
-
-    // ── Live Study Timer overlay — patch count-up clock + today + subject ─
-    if (overlay && fsSessionActive) {
-      if (focusStartTime !== null) {
-        const liveElapsed = Math.floor((Date.now() - focusStartTime) / 1000);
-
-        // Count-up elapsed clock
-        const elEl = document.getElementById('fs-elapsed-display');
-        if (elEl) elEl.textContent = _secsToHMS(liveElapsed);
-
-        // Today's total (stored + live session elapsed)
-        const todayEl = document.getElementById('fs-today-val');
-        if (todayEl) {
-          const storedMin2 = state.focusStats.minutesByDate[todayKey()] || 0;
-          todayEl.textContent = _secsToHMS(storedMin2 * 60 + liveElapsed);
-        }
-
-        // Subject time (stored + live session elapsed)
-        const subEl = document.getElementById('fs-sub-val');
-        const subRowEl = document.getElementById('fs-sub-row-time');
-        if (subEl || subRowEl) {
-          const cTask2 = focusCurrentTaskKey
-            ? getActivePlanTasks().find(t => t.key === focusCurrentTaskKey) : null;
-          if (cTask2 && cTask2.subId) {
-            const sSecs = ((state.focusStats.minutesBySubject || {})[cTask2.subId] || 0) * 60 + liveElapsed;
-            const sStr  = _secsToHMS(sSecs);
-            if (subEl) subEl.textContent = sStr;
-            if (subRowEl) subRowEl.textContent = sStr;
-          }
-        }
-      }
-
-      // Play/pause button state
-      const fsPlayBtn = document.getElementById('fs-play-btn');
-      if (fsPlayBtn) {
-        fsPlayBtn.textContent = focusRunning ? '⏸' : '▶';
-        fsPlayBtn.classList.toggle('lsf-play-overtime', false);
-      }
-      overlay.className = focusRunning ? 'lsf-running' : '';
+    const fsEl = document.getElementById('fs-time-display');
+    if (fsEl) {
+      fsEl.textContent = formatted;
+      el.className = 'fs-time' + _timeSizeClass(formatted);
     }
+    const fsRing = document.getElementById('fs-ring-circle');
+    if (fsRing) { const rr = 120, cc = 2 * Math.PI * rr; fsRing.style.strokeDashoffset = (cc * (1 - _ringFillPct(focusSeconds, total))).toFixed(2); }
+    if (overlay) { overlay.classList.toggle('fs-is-running', focusRunning); overlay.classList.remove('fs-overtime'); }
   }
 
   function focusTick() {
@@ -4681,182 +4644,59 @@
     return out.join('');
   }
 
-  function _secsToHMS(secs) {
-    const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
-    return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-  }
-
   function renderFullSession() {
     const overlay = document.getElementById('fs-overlay'); if (!overlay) return;
-
-    const isBreak  = focusMode !== 'work';
-    const isOT     = focusOvertime;
-
-    // ── Elapsed time (count-up from session start) ──────────────────────
-    const elapsed  = (focusStartTime !== null && !isOT)
-      ? Math.floor((Date.now() - focusStartTime) / 1000) : 0;
-    const elapsedStr = isOT
-      ? `+${String(Math.floor(focusOvertimeSeconds/60)).padStart(2,'0')}:${String(focusOvertimeSeconds%60).padStart(2,'0')}`
-      : _secsToHMS(elapsed);
-
-    // ── Gamification ────────────────────────────────────────────────────
-    const _xpTot  = (state.xp && state.xp.total) || 0;
-    const _lvInfo = gamificationManager.calculateLevel(_xpTot);
-    const _streak = (state.streak && state.streak.count) || 0;
-    const _mult   = _isBoosterActive() ? 2 : 1;
-
-    // ── Today totals ─────────────────────────────────────────────────────
-    const storedMin    = state.focusStats.minutesByDate[todayKey()] || 0;
-    const todayTotSecs = storedMin * 60 + elapsed;
-    const todayStr     = _secsToHMS(todayTotSecs);
-
-    // ── Current subject ──────────────────────────────────────────────────
-    const curTask = focusCurrentTaskKey
-      ? getActivePlanTasks().find(t => t.key === focusCurrentTaskKey) : null;
-    const curSub  = curTask && curTask.subId ? findSubject(curTask.subId) : null;
-    const subName = curSub ? curSub.name
-      : (isBreak ? (focusMode === 'short' ? 'Short Break' : 'Long Break') : '—');
-    const subStoredMin = curSub ? ((state.focusStats.minutesBySubject || {})[curSub.id] || 0) : 0;
-    const subTotSecs   = subStoredMin * 60 + (curSub ? elapsed : 0);
-    const subTimeStr   = _secsToHMS(subTotSecs);
-
-    // ── Today's Study Log ────────────────────────────────────────────────
-    const subjectLog = Object.entries(state.focusStats.minutesBySubject || {})
-      .map(([sid, mins]) => { const s = findSubject(sid); return s ? { name: s.name, color: s.color || '#ff7a1a', mins } : null; })
-      .filter(Boolean).sort((a,b) => b.mins - a.mins).slice(0, 5);
-    const logTotal = Math.max(1, subjectLog.reduce((a,b) => a + b.mins, 0));
-
-    // ── Mode label / ambient icon ────────────────────────────────────────
-    const modeLabel = isBreak
-      ? (focusMode === 'short' ? '☕ Short Break' : '🛌 Long Break') : 'Focusing';
+    const total = customDurations[focusMode] * 60;
+    const r = 120, c = 2 * Math.PI * r, off = c * (1 - _ringFillPct(focusSeconds, total));
+    const isBreak = focusMode !== 'work';
     const _curSound = soundById(ambientMode);
     const ambientIcon = _curSound.label.split(' ')[0];
+    const sessionDots = Array.from({length: Math.min(focusSessions, 8)}, () => `<span class="fs-dot"></span>`).join('');
+    overlay.className = focusRunning ? 'fs-is-running' : (focusOvertime ? 'fs-overtime' : '');
+    const orientIcon = (screen.orientation && screen.orientation.type && screen.orientation.type.startsWith('landscape')) ? SVG_ORIENT_PORTRAIT : SVG_ORIENT_LANDSCAPE;
+    const _otM = Math.floor(focusOvertimeSeconds / 60), _otS = focusOvertimeSeconds % 60;
+    const _fsTimeStr = focusOvertime ? `+${String(_otM).padStart(2,'0')}:${String(_otS).padStart(2,'0')}` : formatFocusTime(focusSeconds);
+    const _fsRingSub = focusOvertime ? `+${String(_otM).padStart(2,'0')}:${String(_otS).padStart(2,'0')} overtime` : `${formatFocusTime(customDurations[focusMode] * 60)} total`;
+    overlay.innerHTML = `<div class="fs-bg"><div class="fs-bg-earth"></div>${_genFsParticles()}</div>
+      <div class="fs-content">
 
-    overlay.className = focusRunning ? 'lsf-running' : (isOT ? 'lsf-overtime' : '');
-
-    overlay.innerHTML = `
-    <div class="fs-bg"><div class="fs-bg-earth"></div>${_genFsParticles()}</div>
-    <div class="lsf-wrap">
-
-      <!-- Top bar: mode label + exit -->
-      <div class="lsf-top-bar">
-        <span class="lsf-mode-label">${modeLabel}</span>
-        <button class="lsf-exit-btn" data-act="exit-full-session">✕ Exit</button>
-      </div>
-
-      <!-- Main clock (count-up elapsed OR overtime) -->
-      <div class="lsf-clock-area">
-        <div class="lsf-elapsed${isOT ? ' lsf-overtime-clock' : ''}" id="fs-elapsed-display">${elapsedStr}</div>
-      </div>
-
-      <!-- Split counters: subject | today -->
-      <div class="lsf-split-row">
-        <div class="lsf-split-item">
-          <div class="lsf-split-label">${escapeHTML(subName.toUpperCase().slice(0,16))}</div>
-          <div class="lsf-split-val" id="fs-sub-val">${subTimeStr}</div>
+        <!-- ── Badge + session dots (grid-area: top) ── -->
+        <div class="fs-top">
+          <div class="fs-mode-badge ${isBreak ? 'fs-mode-break' : ''}">${focusMode === 'work' ? '🎯 Focus Time' : focusMode === 'short' ? '☕ Short Break' : '🛌 Long Break'}</div>
+          ${focusSessions > 0 ? `<div class="fs-session-dots">${sessionDots}<span class="fs-sessions-label">${focusSessions} session${focusSessions !== 1 ? 's' : ''}</span></div>` : ''}
         </div>
-        <div class="lsf-split-div"></div>
-        <div class="lsf-split-item">
-          <div class="lsf-split-label">TODAY</div>
-          <div class="lsf-split-val" id="fs-today-val">${todayStr}</div>
+
+        <!-- ── Glowing ring timer (grid-area: ring) ── -->
+        <div class="fs-timer-wrap">
+          <svg class="fs-ring-svg" viewBox="0 0 290 290" aria-hidden="true">
+            <defs><linearGradient id="fsRingGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="${isBreak ? '#34d399' : '#38bdf8'}"/><stop offset="100%" stop-color="${isBreak ? '#86efac' : '#a78bfa'}"/></linearGradient></defs>
+            <circle class="fs-ring-track" cx="145" cy="145" r="${r}"/>
+            <circle class="fs-ring-fill" id="fs-ring-circle" cx="145" cy="145" r="${r}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/>
+          </svg>
+          <div class="fs-ring-center">
+            <div class="fs-time${focusOvertime ? ' fs-overtime-text' : _timeSizeClass(_fsTimeStr)}" id="fs-time-display">${_fsTimeStr}</div>
+            <div class="fs-ring-sub">${_fsRingSub}</div>
+          </div>
         </div>
+
+        <!-- ── Vertical controls: Play · Sound · Landscape · Exit (grid-area: ctrl) ── -->
+        <div class="fs-ctrl-col">
+          <button class="fs-ctrl-btn fs-main-btn${focusOvertime ? ' fs-overtime-btn' : ''}" data-act="fs-toggle">${focusRunning ? '⏸' : (focusOvertime ? '⏹' : '▶')}</button>
+          <button class="fs-ctrl-btn fs-side-btn fs-sound-btn${ambientMode !== 'none' ? ' fs-sound-btn--on' : ''}" data-act="fs-cycle-ambient" title="Cycle ambient sound">${ambientIcon}</button>
+          <button class="fs-ctrl-btn fs-side-btn fs-orient-btn" data-act="fs-toggle-landscape" title="Toggle landscape">${orientIcon}</button>
+          <button class="fs-ctrl-btn fs-side-btn fs-exit-btn" data-act="exit-full-session" title="Exit">✕</button>
+        </div>
+
+        <!-- ── Motivation quote (grid-area: moti) ── -->
+        <div class="fs-motivation-box">${escapeHTML(_fsMotiQuote)}</div>
+
+        <!-- ── Footer: swipe hint (grid-area: foot) ── -->
+        <div class="fs-footer">
+          <div class="fs-hint">${('ontouchstart' in window) ? 'Swipe to exit' : 'Press Esc to exit'}</div>
+        </div>
+
       </div>
-
-      <!-- Gamification badges: XP | Lv | Streak | Multiplier -->
-      <div class="lsf-badges-row">
-        <div class="lsf-badge"><span class="lsf-badge-icon">⚡</span> XP <span class="lsf-badge-val">${_xpTot}</span></div>
-        <div class="lsf-badge-sep">|</div>
-        <div class="lsf-badge"><span class="lsf-badge-icon">🥇</span> Lv <span class="lsf-badge-val">${_lvInfo.level}</span></div>
-        <div class="lsf-badge-sep">|</div>
-        <div class="lsf-badge"><span class="lsf-badge-icon">🔥</span> Streak <span class="lsf-badge-val">${_streak}</span></div>
-        <div class="lsf-badge-sep">|</div>
-        <div class="lsf-badge lsf-badge-mult"><span class="lsf-badge-icon">⚡</span> <span class="lsf-badge-val">${_mult}×</span></div>
-      </div>
-
-      <!-- Today's Study Log card -->
-      ${subjectLog.length > 0 ? `<div class="lsf-log-card">
-        <div class="lsf-log-title">📊 TODAY'S STUDY LOG</div>
-        ${subjectLog.map(s => {
-          const pct = Math.min(100, Math.round((s.mins / logTotal) * 100));
-          const sh = Math.floor(s.mins/60), sm2 = s.mins%60;
-          const tl = `0:${String(sh).padStart(2,'0')}:${String(sm2).padStart(2,'0')}`;
-          return `<div class="lsf-log-row">
-            <span class="lsf-log-color" style="background:${s.color}"></span>
-            <span class="lsf-log-name">${escapeHTML(s.name)}</span>
-            <div class="lsf-log-bar-wrap"><div class="lsf-log-bar" style="width:${pct}%;background:${s.color}"></div></div>
-            <span class="lsf-log-time">${tl}</span>
-          </div>`;
-        }).join('')}
-        <div class="lsf-log-total"><span>Total</span><span>${todayStr}</span></div>
-      </div>` : ''}
-
-      <!-- Current subject row (if task selected) -->
-      ${curSub ? `<div class="lsf-subject-row">
-        <span class="lsf-sub-icon">📚</span>
-        <span class="lsf-sub-name">${escapeHTML(curSub.name)}</span>
-        <span class="lsf-sub-time" id="fs-sub-row-time">${subTimeStr}</span>
-        <span class="lsf-sub-chev">›</span>
-      </div>` : ''}
-
-      <!-- Neon orange studying stick-figure illustration -->
-      <div class="lsf-illustration">
-        <svg viewBox="0 0 200 148" fill="none" class="lsf-figure-svg" aria-hidden="true">
-          <defs>
-            <filter id="lsf-glow" x="-30%" y="-30%" width="160%" height="160%">
-              <feGaussianBlur stdDeviation="2.5" result="blur"/>
-              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-            </filter>
-          </defs>
-          <!-- Floating lamp dots -->
-          <circle cx="154" cy="22" r="2.8" fill="#ff7a1a" opacity="0.75"/>
-          <circle cx="162" cy="11" r="2.2" fill="#ff7a1a" opacity="0.55"/>
-          <circle cx="168" cy="3"  r="1.6" fill="#ff7a1a" opacity="0.38"/>
-          <circle cx="149" cy="32" r="1.8" fill="#ff7a1a" opacity="0.45"/>
-          <circle cx="158" cy="36" r="1.2" fill="#ff7a1a" opacity="0.28"/>
-          <!-- Head -->
-          <circle cx="100" cy="30" r="12" stroke="#ff7a1a" stroke-width="2.5" fill="none" filter="url(#lsf-glow)"/>
-          <!-- Body -->
-          <line x1="100" y1="42" x2="100" y2="82" stroke="#ff7a1a" stroke-width="2.5"/>
-          <!-- Left arm (resting on desk) -->
-          <line x1="100" y1="57" x2="76"  y2="70" stroke="#ff7a1a" stroke-width="2.5"/>
-          <line x1="76"  y1="70" x2="72"  y2="82" stroke="#ff7a1a" stroke-width="2.5"/>
-          <!-- Right arm (resting on desk) -->
-          <line x1="100" y1="57" x2="124" y2="70" stroke="#ff7a1a" stroke-width="2.5"/>
-          <line x1="124" y1="70" x2="130" y2="82" stroke="#ff7a1a" stroke-width="2.5"/>
-          <!-- Left leg -->
-          <line x1="100" y1="82" x2="87"  y2="103" stroke="#ff7a1a" stroke-width="2.5"/>
-          <line x1="87"  y1="103" x2="80" y2="116" stroke="#ff7a1a" stroke-width="2.5"/>
-          <!-- Right leg -->
-          <line x1="100" y1="82" x2="113" y2="103" stroke="#ff7a1a" stroke-width="2.5"/>
-          <line x1="113" y1="103" x2="120" y2="116" stroke="#ff7a1a" stroke-width="2.5"/>
-          <!-- Desk surface -->
-          <line x1="40" y1="84" x2="168" y2="84" stroke="#ff7a1a" stroke-width="2.5"/>
-          <!-- Book/notes on desk -->
-          <rect x="50" y="74" width="32" height="10" rx="2" stroke="#ff7a1a" stroke-width="1.5" fill="rgba(255,122,26,0.1)"/>
-          <line x1="66" y1="74" x2="66" y2="84" stroke="#ff7a1a" stroke-width="1" opacity="0.5"/>
-          <!-- Desk legs -->
-          <line x1="45"  y1="84" x2="43"  y2="116" stroke="#ff7a1a" stroke-width="2"/>
-          <line x1="163" y1="84" x2="165" y2="116" stroke="#ff7a1a" stroke-width="2"/>
-          <!-- Lamp post -->
-          <line x1="148" y1="84" x2="148" y2="50" stroke="#ff7a1a" stroke-width="2"/>
-          <line x1="148" y1="50" x2="136" y2="41" stroke="#ff7a1a" stroke-width="2"/>
-          <!-- Lamp shade -->
-          <path d="M130 35 L143 35 L139 44 L134 44 Z" stroke="#ff7a1a" stroke-width="1.5" fill="rgba(255,122,26,0.15)"/>
-        </svg>
-      </div>
-
-      <!-- Ambient + landscape controls row -->
-      <div class="lsf-aux-row">
-        <button class="lsf-aux-btn${ambientMode !== 'none' ? ' lsf-aux-btn--on' : ''}" data-act="fs-cycle-ambient" title="Cycle ambient sound">${ambientIcon}</button>
-        <button class="lsf-aux-btn" data-act="fs-toggle-landscape" title="Toggle landscape">⤢</button>
-      </div>
-
-      <!-- Large Play/Pause button -->
-      <button class="lsf-play-btn${isOT ? ' lsf-play-overtime' : ''}" id="fs-play-btn" data-act="fs-toggle">
-        ${focusRunning ? '⏸' : (isOT ? '⏹' : '▶')}
-      </button>
-
-    </div>`;
+      <div class="fs-swipe-bar"><div class="fs-swipe-handle"></div></div>`;
   }
 
   // ========== Classroom ==========
