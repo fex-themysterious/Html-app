@@ -743,7 +743,7 @@
 .sr-room {
   display: flex;
   flex-direction: column;
-  height: 100dvh;
+  height: calc(100dvh - var(--nav-h, 68px));
   background: #0d0d0d;
   color: #f1f5f9;
   overflow: hidden;
