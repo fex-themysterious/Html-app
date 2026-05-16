@@ -68,6 +68,12 @@
   let _liveMembers         = {};
   let _globalLbData        = [];
   let _globalLbUnsub       = null;
+  // Chat state
+  let _chatUnsub           = null;
+  let _chatMessages        = {};   // { groupCode: Message[] }
+  let _chatGid             = null; // group code currently subscribed to chat
+  let _replyTo             = null; // { id, text, author } — message being replied to
+  let _editMsgId           = null; // string msgId currently being edited
 
   const isStudying = () => { try { return window._focusActive === true; } catch(_) { return false; } };
 
@@ -170,10 +176,14 @@
         view.innerHTML = _renderStudyRoom(g, sc);
         _bindEvents(view);
         if (_srTab === 'home') _startSrTicker(_groupView);
-        if (_srTab === 'chat') setTimeout(() => {
-          const msgs = document.getElementById('sr-chat-msgs');
-          if (msgs) msgs.scrollTop = msgs.scrollHeight;
-        }, 60);
+        if (_srTab === 'chat') {
+          if (g.code) _subscribeChatMessages(g.code);
+          const msgsEl = document.getElementById('sr-chat-msgs');
+          if (msgsEl) {
+            _bindChatLongPress(msgsEl, g.code, g);
+            setTimeout(() => { msgsEl.scrollTop = msgsEl.scrollHeight; }, 60);
+          }
+        }
         return;
       }
       // ── Normal tab mode ───────────────────────────────────────────────────
@@ -670,6 +680,161 @@
   function _unsubscribeRoomMembers() {
     if (_memberUnsub) { _memberUnsub(); _memberUnsub = null; }
     _liveMembers = {};
+    _unsubscribeChatMessages();
+  }
+
+  // ── Off Day helpers ───────────────────────────────────────────────────────
+  function _isOffDayToday(uid) {
+    if (!uid) return false;
+    const lm = _liveMembers[uid];
+    return !!(lm && lm.isOffDay === true && lm.offDayDate === todayKey());
+  }
+
+  function _setOffDay(code, isOff) {
+    const db = getDb(), uid = getUserId(), fb = getFb();
+    if (!db || !uid || !code || !fb) return;
+    const update = {
+      isOffDay:    isOff,
+      offDayDate:  todayKey(),
+      lastUpdated: fb.firestore.FieldValue.serverTimestamp(),
+    };
+    if (isOff) update.isStudying = false;
+    db.collection('groups').doc(code).collection('members').doc(uid)
+      .set(update, { merge: true }).catch(() => {});
+  }
+
+  // ── Firebase-backed Chat ──────────────────────────────────────────────────
+  function _subscribeChatMessages(code) {
+    if (_chatGid === code && _chatUnsub) return; // already subscribed
+    if (_chatUnsub) { try { _chatUnsub(); } catch(_) {} _chatUnsub = null; }
+    _chatGid = code;
+    if (!_chatMessages[code]) _chatMessages[code] = [];
+    const db = getDb();
+    if (!db || !code) return;
+    try {
+      _chatUnsub = db.collection('groups').doc(code)
+        .collection('messages')
+        .orderBy('ts', 'asc')
+        .limit(100)
+        .onSnapshot(snap => {
+          _chatMessages[code] = snap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .filter(m => !m._deleted);
+          // Patch chat DOM without full re-render when chat view is active
+          const msgsEl = document.getElementById('sr-chat-msgs');
+          if (!msgsEl) return;
+          const uid     = getUserId();
+          const ms      = getMainState();
+          const myName  = ms.profile?.name || 'You';
+          const sc      = scLoad();
+          const g       = sc.groups.find(x => x.code === code);
+          if (!g) return;
+          msgsEl.innerHTML = _renderChatMessages(code, uid, myName);
+          _bindChatLongPress(msgsEl, code, g);
+          setTimeout(() => { msgsEl.scrollTop = msgsEl.scrollHeight; }, 30);
+        }, () => {});
+    } catch(_) {}
+  }
+
+  function _unsubscribeChatMessages() {
+    if (_chatUnsub) { try { _chatUnsub(); } catch(_) {} _chatUnsub = null; }
+    _chatGid  = null;
+    _replyTo  = null;
+    _editMsgId = null;
+  }
+
+  // ── Chat rendering helpers ────────────────────────────────────────────────
+  function _renderReactions(msg, myUid, code) {
+    const reactions = msg.reactions || {};
+    const pills = Object.entries(reactions)
+      .filter(([, uids]) => Array.isArray(uids) && uids.length > 0)
+      .map(([emoji, uids]) => {
+        const reacted = myUid && uids.includes(myUid);
+        return `<button class="sr-reaction-pill${reacted ? ' sr-reaction-mine' : ''}"
+          data-sc="sr-chat-react" data-code="${esc(code)}" data-mid="${esc(msg.id)}" data-emoji="${esc(emoji)}"
+          >${emoji} <span>${uids.length}</span></button>`;
+      }).join('');
+    return pills ? `<div class="sr-reactions-row">${pills}</div>` : '';
+  }
+
+  function _renderChatMessages(code, myUid, myName) {
+    const msgs = _chatMessages[code] || [];
+    if (!msgs.length) return `<div class="sr-chat-empty">No messages yet — say hello! 👋</div>`;
+    return msgs.map(msg => {
+      const isMe = msg.authorId === myUid || msg.authorId === 'me';
+      const replyHtml = msg.replyToId ? `
+        <div class="sr-chat-reply-quote">
+          <span class="sr-chat-reply-author">${esc(msg.replyToAuthor || 'Unknown')}</span>
+          <span class="sr-chat-reply-text">${esc((msg.replyToText || '').slice(0, 60))}${(msg.replyToText || '').length > 60 ? '…' : ''}</span>
+        </div>` : '';
+      const reactionsHtml = _renderReactions(msg, myUid, code);
+      const tsVal = msg.ts?.toMillis?.() ?? (typeof msg.ts === 'number' ? msg.ts : 0);
+      return `
+        <div class="sr-chat-row ${isMe ? 'sr-chat-mine' : 'sr-chat-theirs'}" data-msg-id="${esc(msg.id)}">
+          ${!isMe ? `<div class="sr-chat-av" style="background:${_avatarColor(msg.author||'')}">${(msg.author||'?')[0].toUpperCase()}</div>` : ''}
+          <div class="sr-chat-col">
+            ${!isMe ? `<div class="sr-chat-author">${esc(msg.author || 'Unknown')}</div>` : ''}
+            ${replyHtml}
+            <div class="sr-chat-bubble" data-msg-id="${esc(msg.id)}">${esc(msg.text)}${msg.isEdited ? ' <span class="sr-edited-tag">edited</span>' : ''}</div>
+            ${reactionsHtml}
+            <div class="sr-chat-ts">${_chatTimeAgo(tsVal)}</div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  function _bindChatLongPress(el, code, g) {
+    let pressTimer = null;
+    el.addEventListener('touchstart', e => {
+      const bubble = e.target.closest('[data-msg-id]');
+      if (!bubble) return;
+      const msgId = bubble.dataset.msgId;
+      pressTimer = setTimeout(() => { _openChatContextMenu(code, g, msgId); }, 500);
+    }, { passive: true });
+    el.addEventListener('touchend',  () => clearTimeout(pressTimer), { passive: true });
+    el.addEventListener('touchmove', () => clearTimeout(pressTimer), { passive: true });
+    // Desktop right-click for testing
+    el.addEventListener('contextmenu', e => {
+      const bubble = e.target.closest('[data-msg-id]');
+      if (!bubble) return;
+      e.preventDefault();
+      _openChatContextMenu(code, g, bubble.dataset.msgId);
+    });
+  }
+
+  function _openChatContextMenu(code, g, msgId) {
+    const msgs = _chatMessages[code] || [];
+    const msg  = msgs.find(m => m.id === msgId);
+    if (!msg) return;
+    const uid     = getUserId();
+    const isMe    = msg.authorId === uid || msg.authorId === 'me';
+    const isAdmin = g.role === 'admin';
+    const EMOJIS  = ['👍','❤️','😂','😮','😢','🔥'];
+    const emojiRow = EMOJIS.map(e =>
+      `<button class="sr-ctx-emoji" data-sc="sr-chat-react" data-code="${esc(code)}" data-mid="${esc(msgId)}" data-emoji="${esc(e)}" data-close>${e}</button>`
+    ).join('');
+    openModal(`
+      <div class="sr-ctx-menu">
+        <div class="sr-ctx-preview">${esc((msg.text || '').slice(0, 80))}${(msg.text||'').length > 80 ? '…' : ''}</div>
+        <div class="sr-ctx-emoji-row">${emojiRow}</div>
+        <div class="sr-ctx-actions">
+          <button class="sr-ctx-action" data-sc="sr-chat-reply" data-code="${esc(code)}" data-mid="${esc(msgId)}" data-close>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
+            Reply
+          </button>
+          ${isMe ? `
+          <button class="sr-ctx-action" data-sc="sr-chat-edit-ctx" data-code="${esc(code)}" data-mid="${esc(msgId)}" data-text="${esc(msg.text)}" data-close>
+            ${ICON.edit} Edit
+          </button>
+          <button class="sr-ctx-action sr-ctx-danger" data-sc="sr-chat-delete" data-code="${esc(code)}" data-mid="${esc(msgId)}" data-close>
+            ${ICON.trash} Delete for Everyone
+          </button>` : (isAdmin ? `
+          <button class="sr-ctx-action sr-ctx-danger" data-sc="sr-chat-delete" data-code="${esc(code)}" data-mid="${esc(msgId)}" data-close>
+            ${ICON.trash} Delete (Admin)
+          </button>` : '')}
+        </div>
+      </div>
+    `);
   }
 
   function _writeSelfPresence(code, isStudying, todayMins, subjectName) {
@@ -947,16 +1112,22 @@
     const activeCount = meActive ? Math.max(1, fbOnline) : fbOnline;
 
     const memberCards = allMembers.map(m => {
-      const active      = m.id === 'me' ? meActive : _srMemberIsActive(m);
-      const secs        = _srMemberSeconds(m);
+      const realUid     = m.id === 'me' ? myUid : (m.id || m.uid);
+      const isOff       = _isOffDayToday(realUid);
+      const active      = !isOff && (m.id === 'me' ? meActive : _srMemberIsActive(m));
+      const secs        = isOff ? 0 : _srMemberSeconds(m);
       const name        = m.name || 'Unknown';
       const displayName = name.length > 10 ? name.slice(0, 9) + '…' : name;
       const timerId     = m.id === 'me' ? 'me' : (m.id || m.uid);
+      const cardClass   = isOff ? 'sr-card-off' : (active ? 'sr-card-active' : 'sr-card-idle');
       return `
-        <div class="sr-member-card ${active ? 'sr-card-active' : 'sr-card-idle'}" data-sr-card="${esc(m.id)}">
-          <div class="sr-card-icon">${active ? SR_ACTIVE_DESK : SR_IDLE_DESK}</div>
+        <div class="sr-member-card ${cardClass}" data-sr-card="${esc(m.id)}">
+          <div class="sr-card-icon-wrap">
+            <div class="sr-card-icon">${active ? SR_ACTIVE_DESK : SR_IDLE_DESK}</div>
+            ${isOff ? `<div class="sr-off-badge">OFF</div>` : ''}
+          </div>
           <div class="sr-card-name">${esc(displayName)}</div>
-          <div class="sr-card-timer${active ? ' sr-timer-live' : ''}" data-sr-timer="${esc(timerId)}">${_fmtSecs(secs)}</div>
+          <div class="sr-card-timer${active ? ' sr-timer-live' : ''}" data-sr-timer="${esc(timerId)}">${isOff ? '—' : _fmtSecs(secs)}</div>
         </div>`;
     });
     return `
@@ -986,8 +1157,19 @@
       const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
       days.push({ key, label: String(d.getDate()).padStart(2,'0') });
     }
+    const myUid   = getUserId();
+    const amOff   = _isOffDayToday(myUid);
     return `
       <div class="sr-att-view">
+        <div class="sr-att-offday-row">
+          <div class="sr-att-offday-info">
+            <div class="sr-att-offday-title">Off Day</div>
+            <div class="sr-att-offday-sub">${amOff ? 'You\'re off today — rest up! 🛋️' : 'Mark today as a rest day for this group'}</div>
+          </div>
+          <button class="sr-att-offday-btn${amOff ? ' sr-att-offday-active' : ''}" data-sc="sr-set-offday">
+            ${amOff ? '✓ Off Day' : 'Set Off Day'}
+          </button>
+        </div>
         <div class="sr-section-head">Attendance — Last 14 Days</div>
         ${members.length === 0
           ? `<div class="sr-empty-grid">No members yet.</div>`
@@ -1078,31 +1260,42 @@
   function _renderSrChat(g, sc) {
     const ms     = getMainState();
     const myName = ms.profile?.name || 'You';
-    const msgs   = (sc.chats || {})[g.id] || [];
+    const uid    = getUserId();
+    const code   = g.code;
+    // Kick off Firebase subscription (idempotent)
+    if (code) _subscribeChatMessages(code);
+
+    const replyBar = _replyTo ? `
+      <div class="sr-reply-preview">
+        <div class="sr-reply-line"></div>
+        <div class="sr-reply-body">
+          <span class="sr-reply-author">${esc(_replyTo.author)}</span>
+          <span class="sr-reply-text">${esc(_replyTo.text.slice(0, 60))}${_replyTo.text.length > 60 ? '…' : ''}</span>
+        </div>
+        <button class="sr-preview-cancel" data-sc="sr-chat-cancel-reply">✕</button>
+      </div>` : '';
+
+    const editBar = _editMsgId ? `
+      <div class="sr-edit-preview">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        <span>Editing message</span>
+        <button class="sr-preview-cancel" data-sc="sr-chat-cancel-edit">✕</button>
+      </div>` : '';
+
     return `
       <div class="sr-chat-view">
         <div class="sr-chat-messages" id="sr-chat-msgs">
-          ${msgs.length === 0
-            ? `<div class="sr-chat-empty">No messages yet — say hello! 👋</div>`
-            : msgs.map(msg => {
-                const isMe = msg.authorId === 'me';
-                return `
-                  <div class="sr-chat-row ${isMe ? 'sr-chat-mine' : 'sr-chat-theirs'}">
-                    ${!isMe ? `<div class="sr-chat-av" style="background:${_avatarColor(msg.author||'')}">${(msg.author||'?')[0].toUpperCase()}</div>` : ''}
-                    <div class="sr-chat-col">
-                      ${!isMe ? `<div class="sr-chat-author">${esc(msg.author||'Unknown')}</div>` : ''}
-                      <div class="sr-chat-bubble">${esc(msg.text)}</div>
-                      <div class="sr-chat-ts">${_chatTimeAgo(msg.ts)}</div>
-                    </div>
-                  </div>`;
-              }).join('')}
+          ${_renderChatMessages(code, uid, myName)}
         </div>
-        <div class="sr-chat-input-area">
-          <input class="sr-chat-input" id="sr-chat-input" type="text" placeholder="Type a message…"
-                 maxlength="300" autocomplete="off"/>
-          <button class="sr-chat-send-btn" data-sc="sr-send-chat" data-gid="${esc(g.id)}" data-author="${esc(myName)}">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-          </button>
+        <div class="sr-chat-compose">
+          ${replyBar}${editBar}
+          <div class="sr-chat-input-area">
+            <input class="sr-chat-input" id="sr-chat-input" type="text" placeholder="Type a message…"
+                   maxlength="500" autocomplete="off"/>
+            <button class="sr-chat-send-btn" data-sc="sr-send-chat" data-gid="${esc(g.id)}" data-code="${esc(code)}" data-author="${esc(myName)}">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+          </div>
         </div>
       </div>`;
   }
@@ -1814,13 +2007,20 @@
         }, { title:'Delete Note', yesLabel:'Delete', yesClass:'btn btn-danger', noLabel:'Cancel' });
         break;
 
-      case 'sr-tab':
-        if (_srTab !== (el.dataset.tab || 'home')) {
-          _srTab = el.dataset.tab || 'home';
+      case 'sr-tab': {
+        const newTab = el.dataset.tab || 'home';
+        if (_srTab !== newTab) {
+          _srTab = newTab;
           _stopSrTicker();
+          if (_srTab === 'chat' && _groupView) {
+            const sc0 = scLoad();
+            const g0  = sc0.groups.find(x => x.id === _groupView);
+            if (g0 && g0.code) _subscribeChatMessages(g0.code);
+          }
           renderSocial();
         }
         break;
+      }
 
       case 'sr-rules': {
         const sc = scLoad();
@@ -2522,19 +2722,149 @@
         const text   = input ? input.value.trim() : '';
         if (!text) break;
         const gid    = el.dataset.gid;
+        const code   = el.dataset.code;
         const author = el.dataset.author || 'You';
-        const sc = scLoad();
-        if (!sc.chats) sc.chats = {};
-        if (!sc.chats[gid]) sc.chats[gid] = [];
-        sc.chats[gid].push({ id: genId(), authorId: 'me', author, text, ts: Date.now() });
-        if (sc.chats[gid].length > 100) sc.chats[gid] = sc.chats[gid].slice(-100);
-        scSave(sc); renderSocial();
+        const uid    = getUserId();
+        const db     = getDb(), fb = getFb();
+        if (input) input.value = '';
+
+        if (_editMsgId && code && db) {
+          // ── Update existing message ──────────────────────────────────────
+          db.collection('groups').doc(code).collection('messages').doc(_editMsgId)
+            .update({ text, isEdited: true }).catch(() => {});
+          _editMsgId = null;
+          renderSocial();
+          break;
+        }
+
+        // ── Send new message ─────────────────────────────────────────────
+        const payload = {
+          authorId:      uid || 'me',
+          author,
+          text,
+          replyToId:     _replyTo?.id    || null,
+          replyToText:   _replyTo?.text  || null,
+          replyToAuthor: _replyTo?.author || null,
+          reactions:     {},
+          isEdited:      false,
+        };
+        _replyTo = null;
+
+        if (db && code && fb) {
+          payload.ts = fb.firestore.FieldValue.serverTimestamp();
+          db.collection('groups').doc(code).collection('messages').add(payload).catch(() => {});
+        } else {
+          // Offline fallback — local storage only
+          payload.ts = Date.now();
+          const sc2 = scLoad();
+          if (!sc2.chats) sc2.chats = {};
+          if (!sc2.chats[gid]) sc2.chats[gid] = [];
+          sc2.chats[gid].push({ id: genId(), ...payload });
+          if (sc2.chats[gid].length > 100) sc2.chats[gid] = sc2.chats[gid].slice(-100);
+          scSave(sc2);
+          if (!_chatMessages[code]) _chatMessages[code] = [];
+          _chatMessages[code].push({ id: genId(), ...payload });
+          renderSocial();
+        }
+        // Clear reply bar & scroll
+        renderSocial();
         setTimeout(() => {
           const msgs = document.getElementById('sr-chat-msgs');
           if (msgs) msgs.scrollTop = msgs.scrollHeight;
         }, 60);
         break;
       }
+
+      // ── Off Day toggle ───────────────────────────────────────────────────
+      case 'sr-set-offday': {
+        const sc = scLoad();
+        const g  = sc.groups.find(x => x.id === _groupView);
+        if (!g || !g.code) break;
+        const uid2  = getUserId();
+        const wasOff = _isOffDayToday(uid2);
+        _setOffDay(g.code, !wasOff);
+        // Optimistic local update
+        if (_liveMembers[uid2]) {
+          _liveMembers[uid2].isOffDay   = !wasOff;
+          _liveMembers[uid2].offDayDate = todayKey();
+        }
+        toast(!wasOff ? '🛋️ Off Day set — rest well!' : '📚 Back to studying!', 'info');
+        renderSocial();
+        break;
+      }
+
+      // ── Chat: react (from pill or context menu) ──────────────────────────
+      case 'sr-chat-react': {
+        const code2 = el.dataset.code;
+        const mid   = el.dataset.mid;
+        const emoji = el.dataset.emoji;
+        const uid3  = getUserId();
+        if (!code2 || !mid || !emoji || !uid3) break;
+        const db2 = getDb();
+        if (!db2) break;
+        const msgRef = db2.collection('groups').doc(code2).collection('messages').doc(mid);
+        msgRef.get().then(snap => {
+          if (!snap.exists) return;
+          const reacs  = { ...(snap.data().reactions || {}) };
+          const arr    = [...(reacs[emoji] || [])];
+          const idx    = arr.indexOf(uid3);
+          if (idx >= 0) arr.splice(idx, 1); else arr.push(uid3);
+          reacs[emoji] = arr;
+          return msgRef.update({ reactions: reacs });
+        }).catch(() => {});
+        break;
+      }
+
+      // ── Chat: reply ──────────────────────────────────────────────────────
+      case 'sr-chat-reply': {
+        const code3 = el.dataset.code;
+        const mid2  = el.dataset.mid;
+        const msgs2 = _chatMessages[code3] || [];
+        const msg2  = msgs2.find(m => m.id === mid2);
+        if (!msg2) break;
+        _replyTo   = { id: mid2, text: msg2.text || '', author: msg2.author || 'Unknown' };
+        _editMsgId = null;
+        renderSocial();
+        setTimeout(() => document.getElementById('sr-chat-input')?.focus(), 80);
+        break;
+      }
+
+      // ── Chat: start edit (from context menu) ────────────────────────────
+      case 'sr-chat-edit-ctx': {
+        const mid3 = el.dataset.mid;
+        const txt  = el.dataset.text || '';
+        _editMsgId = mid3;
+        _replyTo   = null;
+        renderSocial();
+        setTimeout(() => {
+          const inp = document.getElementById('sr-chat-input');
+          if (inp) { inp.value = txt; inp.focus(); }
+        }, 80);
+        break;
+      }
+
+      // ── Chat: delete message ─────────────────────────────────────────────
+      case 'sr-chat-delete': {
+        const code4 = el.dataset.code;
+        const mid4  = el.dataset.mid;
+        if (!code4 || !mid4) break;
+        const db3 = getDb();
+        if (!db3) break;
+        db3.collection('groups').doc(code4).collection('messages').doc(mid4)
+          .update({ _deleted: true, text: '' }).catch(() => {});
+        break;
+      }
+
+      // ── Chat: cancel reply / edit ────────────────────────────────────────
+      case 'sr-chat-cancel-reply':
+        _replyTo = null;
+        renderSocial();
+        break;
+
+      case 'sr-chat-cancel-edit':
+        _editMsgId = null;
+        renderSocial();
+        break;
 
       default: break;
     }
