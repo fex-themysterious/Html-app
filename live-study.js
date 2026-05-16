@@ -350,6 +350,14 @@
         <!-- TODAY LOG — per-subject accumulated time -->
         <div class="lsm-today-log" id="lsm-today-log"></div>
 
+        <!-- SUBJECT CHIP -->
+        <div class="lsm-subject-chip" id="lsm-subject-chip">
+          <span class="lsm-subject-chip-icon" id="lsm-subject-chip-icon">📚</span>
+          <span class="lsm-subject-chip-text" id="lsm-subject-chip-text">Tap to select subject</span>
+          <span class="lsm-subject-chip-time" id="lsm-subject-chip-time"></span>
+          <span class="lsm-task-chip-arrow">›</span>
+        </div>
+
         <!-- CURRENT TASK CHIP -->
         <div class="lsm-task-chip" id="lsm-task-chip">
           <span class="lsm-task-chip-icon">📋</span>
@@ -393,10 +401,12 @@
     /* Events */
     pauseBtn.addEventListener('click', onPauseClick);
     document.getElementById('lsm-exit-btn').addEventListener('click', onExitClick);
+    document.getElementById('lsm-subject-chip').addEventListener('click', openSubjectPicker);
     document.getElementById('lsm-task-chip').addEventListener('click', openTaskPicker);
 
     /* Restore task chip label if a task was previously selected */
     updateTaskChip();
+    updateSubjectChip();
 
     /* Canvas resize */
     resizeCanvas();
@@ -506,6 +516,7 @@
     updateTimerDisplay();
     updateXPDisplay();
     updateTodayLog();
+    updateSubjectChip();
   }
 
   // Exit: save progress, switch mode back to pomodoro, update switcher UI
@@ -582,6 +593,9 @@
     updateTimerRaw(totalSession);
     if (subjectTimeEl) subjectTimeEl.textContent = formatHMS(totalSubject);
     if (todayTimeEl)   todayTimeEl.textContent   = formatHMS(totalToday);
+    // Keep subject chip time live
+    const chipTimeEl = document.getElementById('lsm-subject-chip-time');
+    if (chipTimeEl && state.subject) chipTimeEl.textContent = formatHMS(totalSubject);
 
     // XP: award every complete minute of SESSION time (doubled if XP Boost active)
     const elapsedMins = Math.floor(totalSession / 60000);
@@ -812,6 +826,30 @@
   }
 
   /* ═══════════════════════════════════════════════════
+     SUBJECT CHIP DISPLAY
+  ═══════════════════════════════════════════════════ */
+  function updateSubjectChip() {
+    const iconEl = document.getElementById('lsm-subject-chip-icon');
+    const textEl = document.getElementById('lsm-subject-chip-text');
+    const timeEl = document.getElementById('lsm-subject-chip-time');
+    const chip   = document.getElementById('lsm-subject-chip');
+    if (!textEl) return;
+    if (state.subject) {
+      if (iconEl) iconEl.textContent = state.subject.icon || '📚';
+      textEl.textContent = state.subject.name;
+      const sid = state.subject.id || state.subject.name;
+      const ms  = state.subjectElapsed || (state.subjectTimes && state.subjectTimes[sid]) || 0;
+      if (timeEl) timeEl.textContent = ms > 0 ? formatHMS(ms) : '';
+      if (chip) chip.classList.add('lsm-subject-chip--active');
+    } else {
+      if (iconEl) iconEl.textContent = '📚';
+      textEl.textContent = 'Tap to select subject';
+      if (timeEl) timeEl.textContent = '';
+      if (chip) chip.classList.remove('lsm-subject-chip--active');
+    }
+  }
+
+  /* ═══════════════════════════════════════════════════
      TASK CHIP DISPLAY
   ═══════════════════════════════════════════════════ */
   function updateTaskChip() {
@@ -981,12 +1019,27 @@
         const subj = all.find(s => s.id === row.dataset.subjectId);
         if (!subj) return;
         if (!state.subject || state.subject.id !== subj.id) {
-          // Restore accumulated time for this subject (0 if never studied today)
+          // If timer is running, flush current delta to the old subject first,
+          // then reset sessionStart so the new subject starts counting from now.
+          if (state.running && state.sessionStart) {
+            const now   = Date.now();
+            const delta = now - state.sessionStart;
+            state.sessionElapsed += delta;
+            state.subjectElapsed += delta;
+            state.todayElapsed   += delta;
+            if (state.subject) {
+              const oldSid = state.subject.id || state.subject.name;
+              state.subjectTimes[oldSid] = state.subjectElapsed;
+            }
+            state.sessionStart = now;   // reset reference — new subject counts from here
+          }
+          // Restore accumulated time for the new subject (0 if never studied today)
           state.subjectElapsed = (state.subjectTimes && state.subjectTimes[subj.id]) || 0;
         }
         state.subject = subj;
         const lbl = document.getElementById('lsm-subject-label');
         if (lbl) lbl.textContent = subj.name;
+        updateSubjectChip();
         saveState();
         closeModal(modal);
       });
