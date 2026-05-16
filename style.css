@@ -4518,6 +4518,15 @@ body:not(.tab-social) .grm2-room {
   pointer-events: none !important;
 }
 
+/* Hide vault celebration overlays and confetti on non-social tabs.
+   These are appended to <body> with async auto-remove timers (up to 9s),
+   so they can linger after the user switches away. */
+body:not(.tab-social) .vault-celeb-overlay,
+body:not(.tab-social) .confetti-piece {
+  display: none !important;
+  pointer-events: none !important;
+}
+
 /* Also hide any stray chat context menu backdrop left on body */
 body:not(.tab-social) #chat-ctx-backdrop,
 body:not(.tab-social) .chat-ctx-menu {
@@ -5021,7 +5030,8 @@ body:not(.tab-social) .chat-ctx-menu {
 .sroom-page {
   display: flex; flex-direction: column;
   width: 100%; max-width: 100%; box-sizing: border-box;
-  height: calc(var(--vh, 1vh) * 100 - 56px);
+  height: calc(var(--vh, 1vh) * 100 - 56px); /* JS-computed fallback */
+  height: calc(100dvh - 56px); /* dvh accounts for Android Chrome address bar show/hide */
   overflow: hidden; overflow-x: hidden;
 }
 
@@ -7741,6 +7751,13 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
 @keyframes grm2-room-in {
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+/* JS adds grm2-no-anim on re-renders so the fill-mode:both opacity:0 start frame
+   never blanks the screen on Firestore-triggered re-renders. */
+.grm2-room.grm2-no-anim {
+  animation: none !important;
+  opacity: 1 !important;
+  transform: none !important;
 }
 .grm2-pane.grm2-pane-active { animation: grm2-pane-in 0.2s ease both; }
 @keyframes grm2-pane-in {

@@ -960,6 +960,8 @@
   let _chatTypingTimeout  = null;
   let _chatReplyTarget    = null; // { id, name, text }
   let _pendingRenderSocial = false;  // deferred full re-render when chat input is focused
+  let _socialRoomAnimPlayed = false; // true once room entry animation has played; suppressed on re-renders
+  let _lastSocialRoomRender = 0;     // timestamp of last full room re-render (used to rate-limit Firestore-triggered re-renders)
   let _voiceRemoteAudios = {};
   let _processedDuelIds  = new Set(); // guard: don't toast/write the same completed duel twice
   let _socialIdleBump    = null;      // stored ref so we can removeEventListener on leave
@@ -1176,8 +1178,10 @@
   }
 
   // Smart re-render gate — skips full re-render while chat or join input is focused.
-  // Also debounces rapid Firestore updates to max one re-render per 800ms.
+  // Also debounces rapid Firestore updates and rate-limits full room re-renders to
+  // prevent the grm2-room-in animation from restarting and flashing blank on every heartbeat.
   let _renderSocialDebounceTimer = null;
+  const _SOCIAL_ROOM_RENDER_MIN_MS = 4000; // minimum ms between full room DOM replacements
   function _renderSocialSafe() {
     if (_isChatFocused()) {
       _updateSocialInPlace();
@@ -1188,6 +1192,14 @@
       // Don't destroy the join input while user is typing a room code
       _pendingRenderSocial = true;
       return;
+    }
+    // When already inside a room: do an immediate lightweight in-place update (status
+    // chips, typing indicator, stat bars) and then only allow a full DOM replacement
+    // once every _SOCIAL_ROOM_RENDER_MIN_MS.  This prevents the entry animation from
+    // restarting on every presence heartbeat, which was the primary blank-screen cause.
+    if (_socialRoomCode && document.querySelector('#view-social .grm2-room')) {
+      _updateSocialInPlace();
+      if (Date.now() - _lastSocialRoomRender < _SOCIAL_ROOM_RENDER_MIN_MS) return;
     }
     if (_renderSocialDebounceTimer) return; // already queued
     _renderSocialDebounceTimer = setTimeout(() => {
@@ -1602,6 +1614,9 @@
     // Clear debounce timer and pending render flag
     if (_renderSocialDebounceTimer) { clearTimeout(_renderSocialDebounceTimer); _renderSocialDebounceTimer = null; }
     _pendingRenderSocial = false;
+    // Reset animation-played flag so next room join plays the slide-in animation fresh
+    _socialRoomAnimPlayed = false;
+    _lastSocialRoomRender = 0;
     // Remove accumulated visualViewport listener
     if (_vpResizeHandler && window.visualViewport) {
       window.visualViewport.removeEventListener('resize', _vpResizeHandler);
@@ -2804,6 +2819,19 @@
       view.innerHTML = '<div class="social-gate"><div class="social-gate-icon">⚠️</div><h2 class="social-gate-title">Something went wrong</h2><p class="social-gate-sub">Tap the Social tab again to reload.</p><button class="btn" data-act="social-leave">← Back to Lobby</button></div>';
       return;
     }
+    // Suppress the entry animation on re-renders.  The grm2-room-in keyframe starts at
+    // opacity:0 with fill-mode:both, so every DOM replacement blanks the screen for 280ms.
+    // Only play the slide-in on the very first render after joining; subsequent Firestore-
+    // triggered re-renders get grm2-no-anim so the room is immediately visible at opacity:1.
+    const _rroomEl = view.querySelector('.grm2-room');
+    if (_rroomEl) {
+      if (_socialRoomAnimPlayed) {
+        _rroomEl.classList.add('grm2-no-anim');
+      } else {
+        _socialRoomAnimPlayed = true;
+      }
+    }
+    _lastSocialRoomRender = Date.now();
     _startSocialLiveTimers();
 
     // ── Chat scroll & listeners ──
@@ -6798,6 +6826,12 @@
     // If the user navigates away rapidly before a pointerdown-once handler fires, these get stuck.
     document.getElementById('chat-ctx-backdrop')?.remove();
     document.querySelectorAll('.chat-ctx-menu').forEach(el => el.remove());
+    // Remove celebration/confetti overlays — these have async auto-remove timeouts (up to 9s)
+    // and will block interaction on other tabs if the user navigates away before they expire.
+    if (tab !== 'social') {
+      document.querySelectorAll('.vault-celeb-overlay').forEach(el => el.remove());
+      document.querySelectorAll('.confetti-piece').forEach(el => el.remove());
+    }
     // Stop social live timers when leaving the social tab to prevent ghost DOM queries
     if (tab !== 'social') _stopSocialLiveTimers();
     updateMiniTimer();
