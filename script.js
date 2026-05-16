@@ -479,6 +479,8 @@
             } catch(_) {}
             renderAll();
             if (_currentTab === 'social') renderSocial();
+            // Check for duplicate username and force re-entry if clashing
+            setTimeout(() => _checkAndEnforceUniqueUsername().catch(() => {}), 2500);
             return;
           }
         }
@@ -507,6 +509,8 @@
           updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
         });
         toast('\u2705 Account linked! Data saved to cloud.', 'success', 4000);
+        // Check for duplicate username even for new accounts
+        setTimeout(() => _checkAndEnforceUniqueUsername().catch(() => {}), 2500);
       } catch (e) {
         console.warn('[Auth] Sync error:', e.message);
       }
@@ -3950,9 +3954,11 @@
   function _updateGlobalLb() {
     if (!_db || !_userId) return;
     try {
+      const n = _sDisplayName();
       _db.collection('global_lb').doc(_userId).set({
         uid:           _userId,
-        name:          _sDisplayName(),
+        name:          n,
+        nameLower:     n.toLowerCase(),
         weeklyXP:      _sWeeklyXP(),
         weeklyMinutes: _sWeeklyMinutes(),
         equippedItems: state.equippedItems || {},
@@ -3962,6 +3968,89 @@
         totalFocusMinutes: Object.values((state.focusStats && state.focusStats.minutesByDate) || {}).reduce((a, b) => a + b, 0),
         updatedAt:     firebase.firestore.FieldValue.serverTimestamp()
       }, { merge: true }).catch(() => {});
+    } catch(_) {}
+  }
+
+  // Shows a blocking modal that forces the user to pick a unique name.
+  // Called automatically when a duplicate is detected on login.
+  function _forceUniqueNameModal(reason) {
+    openModal(`
+      <h3>Choose a Unique Name</h3>
+      <p style="font-size:13px;color:var(--text-muted);margin:0 0 14px">${escapeHTML(reason)}</p>
+      <div class="stg-field">
+        <label class="stg-lbl">Your Name</label>
+        <input class="stg-input" id="force-name-input" placeholder="Enter a unique name…" maxlength="40" autocomplete="off"/>
+      </div>
+      <div id="force-name-status" style="font-size:12px;margin-top:6px;display:none"></div>
+      <div class="actions" style="margin-top:14px">
+        <button class="btn" id="force-name-save-btn">Save Name</button>
+      </div>`,
+      root => {
+        const inp = root.querySelector('#force-name-input');
+        const statusEl = root.querySelector('#force-name-status');
+        const saveBtn = root.querySelector('#force-name-save-btn');
+        const setStatus = (msg, color) => {
+          statusEl.textContent = msg; statusEl.style.color = color || 'var(--text-muted)';
+          statusEl.style.display = msg ? '' : 'none';
+        };
+        const doSave = async () => {
+          const name = inp.value.trim();
+          if (!name) { setStatus('Name cannot be empty.', '#ef4444'); return; }
+          saveBtn.disabled = true; saveBtn.textContent = 'Checking…';
+          setStatus('Checking availability…');
+          try {
+            const snap = await _db.collection('global_lb').where('nameLower', '==', name.toLowerCase()).limit(5).get();
+            const conflict = snap.docs.find(d => d.id !== _userId);
+            if (conflict) {
+              setStatus(`"${name}" is already taken. Try a different name.`, '#ef4444');
+              saveBtn.disabled = false; saveBtn.textContent = 'Save Name';
+              return;
+            }
+            state.profile.name = name;
+            saveState();
+            _updateGlobalLb();
+            if (_socialRoomCode) _sUpdatePresence('break').catch(() => {});
+            renderAll();
+            closeModal();
+            toast('Name saved ✓', 'success');
+          } catch(_) {
+            state.profile.name = name;
+            saveState();
+            _updateGlobalLb();
+            renderAll();
+            closeModal();
+            toast('Name saved ✓', 'success');
+          }
+        };
+        saveBtn.onclick = doSave;
+        inp.addEventListener('keydown', e => { if (e.key === 'Enter') doSave(); });
+        inp.focus();
+      },
+      { unclosable: true }   // user MUST pick a name — no close/Cancel
+    );
+  }
+
+  // On login: if another user already has the same name (case-insensitive),
+  // clear the name from state + Firestore and force the user to choose a new one.
+  async function _checkAndEnforceUniqueUsername() {
+    if (!_db || !_userId || !state.profile.name) return;
+    try {
+      const name = state.profile.name.trim();
+      if (!name) return;
+      const snap = await _db.collection('global_lb')
+        .where('nameLower', '==', name.toLowerCase()).limit(5).get();
+      const conflict = snap.docs.find(d => d.id !== _userId);
+      if (!conflict) return; // name is unique — nothing to do
+      // Duplicate found — wipe name and force re-entry
+      state.profile.name = '';
+      saveState();
+      // Remove nameLower + name from our own global_lb doc so the slot is freed
+      _db.collection('global_lb').doc(_userId).update({
+        name: '', nameLower: ''
+      }).catch(() => {});
+      _forceUniqueNameModal(
+        `"${name}" is already taken by another user. Please choose a unique name to continue.`
+      );
     } catch(_) {}
   }
   function _loadGlobalLeaderboard() {
@@ -6288,11 +6377,13 @@
   }
 
   // ========== Modal ==========
-  function openModal(html, onMount) {
+  function openModal(html, onMount, opts) {
     const root = document.getElementById('modal-root');
     root.innerHTML = `<div class="modal-backdrop"><div class="modal" role="dialog" aria-modal="true">${html}</div></div>`;
     const backdrop = root.firstElementChild;
-    backdrop.addEventListener('click', e => { if (e.target === backdrop) closeModal(); });
+    if (!(opts && opts.unclosable)) {
+      backdrop.addEventListener('click', e => { if (e.target === backdrop) closeModal(); });
+    }
     if (onMount) onMount(backdrop.querySelector('.modal'));
   }
   function closeModal() { const r = document.getElementById('modal-root'); if (r) r.innerHTML = ''; }
@@ -10101,7 +10192,8 @@
         if (nameChanged && _db && _userId) {
           const saveBtn = root.querySelector('[data-act="save-profile"]');
           if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Checking…'; }
-          _db.collection('global_lb').where('name', '==', name).limit(5).get()
+          // Use nameLower field for case-insensitive uniqueness check
+          _db.collection('global_lb').where('nameLower', '==', name.toLowerCase()).limit(5).get()
             .then(snap => {
               const conflict = snap.docs.find(d => d.id !== _userId);
               if (conflict) {
