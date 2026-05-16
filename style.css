@@ -8580,6 +8580,15 @@ body.kb-open .sroom-chat-composer { padding-bottom: calc(8px + var(--kb-h, 0px))
   display: flex; flex-wrap: wrap; gap: 6px;
   margin-bottom: 6px;
 }
+.ambient-btn--off {
+  border-color: var(--border-strong);
+  color: var(--text-muted);
+}
+.ambient-btn--off.active {
+  border-color: #e05555;
+  color: #e05555;
+  background: rgba(224, 85, 85, 0.15);
+}
 .ambient-btn--locked {
   opacity: 0.38;
   cursor: not-allowed !important;

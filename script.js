@@ -7312,8 +7312,12 @@
           </div>
         </div>
         ${(()=>{
+          const offSound    = SOUNDS.find(s => s.id === 'none');
           const freeSounds  = SOUNDS.filter(s => s.cat && !s.premium);
           const premSounds  = SOUNDS.filter(s => s.premium);
+          const offBtn = offSound
+            ? `<button class="ambient-btn ambient-btn--off${ambientMode === 'none' ? ' active' : ''}" data-act="ambient-select" data-amode="none">${offSound.label}</button>`
+            : '';
           const freeBtns = freeSounds.map(s =>
             `<button class="ambient-btn${ambientMode === s.id ? ' active' : ''}" data-act="ambient-select" data-amode="${s.id}">${s.label}</button>`
           ).join('');
@@ -7331,7 +7335,7 @@
           const shopHint = lockedCount
             ? `<div class="fac-premium-hint">🔒 ${lockedCount} premium track${lockedCount > 1 ? 's' : ''} — <button class="btn-link" data-act="open-music-shop">unlock in XP Shop ⚡ 10,000 XP each</button></div>`
             : '';
-          return `<div class="focus-ambient-card"><div class="fac-title">🎵 Ambient Sound</div><div class="ambient-grid">${freeBtns}${premBtns}</div>${volRow}${shopHint}</div>`;
+          return `<div class="focus-ambient-card"><div class="fac-title">🎵 Ambient Sound</div><div class="ambient-grid">${offBtn}${freeBtns}${premBtns}</div>${volRow}${shopHint}</div>`;
         })()}
         <button class="btn fs-enter-btn" data-act="enter-full-session">🚀 Enter Full Focus Mode</button>
       </div>
