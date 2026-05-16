@@ -2545,6 +2545,57 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   flex: 1; min-height: 20px; max-height: 80px;
 }
 
+/* ── Subject picker nav header (back + step label) ── */
+.lsf-sub-picker-nav {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 14px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); margin-bottom: 6px;
+}
+.lsf-sub-picker-back {
+  background: none; border: none; color: rgba(255,122,26,0.85); font-size: 13px;
+  font-weight: 700; font-family: inherit; cursor: pointer; padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.lsf-sub-picker-step {
+  font-size: 9px; font-weight: 900; letter-spacing: 0.20em; text-transform: uppercase;
+  color: rgba(148,163,184,0.55); margin-left: auto;
+}
+.lsf-pick-chev {
+  margin-left: auto; color: rgba(255,122,26,0.5); font-size: 16px;
+}
+.lsf-sub-info {
+  flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0;
+}
+.lsf-sub-breadcrumb {
+  font-size: 10px; color: rgba(255,122,26,0.7); font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ── Pomodoro Subject→Chapter→Topic selector card ── */
+.focus-sct-card {
+  background: rgba(255,122,26,0.04); border: 1px solid rgba(255,122,26,0.18);
+  border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
+  margin-bottom: 4px;
+}
+.focus-sct-label {
+  font-size: 10px; font-weight: 900; letter-spacing: 0.12em; text-transform: uppercase;
+  color: rgba(255,122,26,0.7);
+}
+.focus-sct-sel {
+  width: 100%; background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px; color: #e2e8f0; font-size: 13px; font-weight: 600;
+  padding: 8px 12px; font-family: inherit; cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23ff7a1a' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center;
+  padding-right: 32px;
+}
+.focus-sct-sel:focus { outline: none; border-color: rgba(255,122,26,0.4); }
+.focus-sct-sel option { background: #0a0a0f; color: #e2e8f0; }
+.focus-sct-crumb {
+  font-size: 11px; font-weight: 700; color: rgba(255,122,26,0.75);
+  padding-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 /* ── Play / Pause button ── */
 .lsf-play-wrap {
   position: relative; flex-shrink: 0; margin-top: 8px;

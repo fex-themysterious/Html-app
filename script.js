@@ -3251,6 +3251,8 @@
   let _lsStartTime    = null;       // Date.now() when current run segment began
   let _lsElapsedBase  = 0;          // seconds accumulated before current segment
   let _lsSubjectId    = null;       // selected subject id
+  let _lsChapterId    = null;       // selected chapter id
+  let _lsTopicId      = null;       // selected topic id
   let _lsOverlayActive = false;
   let _lsFbTick       = 0;          // throttle counter for Firebase writes
   let _lsParticleRAF  = null;       // requestAnimationFrame handle for particle canvas
@@ -4242,6 +4244,33 @@
     }
   }
 
+  function _renderSCTSelector() {
+    const subjects = (state.syllabus || []).filter(s => !s._deleted);
+    const curSubObj = _lsSubjectId ? subjects.find(s => s.id === _lsSubjectId) : null;
+    const chapters = curSubObj && curSubObj.chapters ? curSubObj.chapters.filter(c => !c._deleted) : [];
+    const curChapObj = _lsChapterId ? chapters.find(c => c.id === _lsChapterId) : null;
+    const topics = curChapObj && curChapObj.topics ? curChapObj.topics.filter(t => !t._deleted) : [];
+    const subLabel = curSubObj ? escapeHTML(curSubObj.name) : '';
+    const chapLabel = curChapObj ? escapeHTML(curChapObj.name) : '';
+    const topicLabel = (curChapObj && _lsTopicId) ? (() => { const t = curChapObj.topics.find(t => t.id === _lsTopicId); return t ? escapeHTML(t.name) : ''; })() : '';
+    return `<div class="focus-sct-card">
+      <div class="focus-sct-label">📚 Studying</div>
+      <select class="focus-sct-sel" data-act="focus-sct-sub">
+        <option value="">— Subject —</option>
+        ${subjects.map(s => `<option value="${escapeHTML(s.id)}"${_lsSubjectId===s.id?' selected':''}>${escapeHTML(s.name)}</option>`).join('')}
+      </select>
+      ${chapters.length ? `<select class="focus-sct-sel" data-act="focus-sct-chap">
+        <option value="">— Chapter —</option>
+        ${chapters.map(c => `<option value="${escapeHTML(c.id)}"${_lsChapterId===c.id?' selected':''}>${escapeHTML(c.name)}</option>`).join('')}
+      </select>` : ''}
+      ${(topics.length && _lsChapterId) ? `<select class="focus-sct-sel" data-act="focus-sct-topic">
+        <option value="">— Topic —</option>
+        ${topics.map(t => `<option value="${escapeHTML(t.id)}"${_lsTopicId===t.id?' selected':''}>${escapeHTML(t.name)}</option>`).join('')}
+      </select>` : ''}
+      ${subLabel ? `<div class="focus-sct-crumb">${subLabel}${chapLabel ? ' › ' + chapLabel : ''}${topicLabel ? ' › ' + topicLabel : ''}</div>` : ''}
+    </div>`;
+  }
+
   function renderFocusTimer() {
     if (!_currentQuote) pickNewQuote();
     const total = customDurations[focusMode] * 60;
@@ -4324,6 +4353,7 @@
             : '';
           return `<div class="focus-ambient-card"><div class="fac-title">🎵 Ambient Sound</div><div class="ambient-grid">${offBtn}${freeBtns}${premBtns}</div>${volRow}${shopHint}</div>`;
         })()}
+        ${_renderSCTSelector()}
         <button class="btn fs-enter-btn" data-act="enter-full-session">🚀 Enter Full Focus Mode</button>
       </div>
     </div>`;
@@ -4736,6 +4766,76 @@
     if (_lsParticleRAF) { cancelAnimationFrame(_lsParticleRAF); _lsParticleRAF = null; }
   }
 
+  // ── Cascading Subject→Chapter→Topic picker for the live overlay ──────────
+  function _buildLSPicker(ov, step) {
+    const existing = ov.querySelector('.lsf-sub-picker');
+    if (existing) existing.remove();
+    const subjects = (state.syllabus || []).filter(s => !s._deleted);
+    const picker = document.createElement('div');
+    picker.className = 'lsf-sub-picker';
+
+    const addTouchClick = (el, fn) => {
+      let touched = false;
+      el.addEventListener('touchend', (ev) => { ev.preventDefault(); ev.stopPropagation(); touched = true; fn(ev); setTimeout(() => { touched = false; }, 400); }, { passive: false });
+      el.addEventListener('click', (ev) => { ev.stopPropagation(); if (!touched) fn(ev); });
+    };
+
+    if (step === 'subject' || !step) {
+      if (!subjects.length) { toast('Add subjects in the Study tab first', 'info'); return; }
+      picker.innerHTML = `
+        <div class="lsf-sub-picker-title">Select Subject</div>
+        ${subjects.map(s => `<button class="lsf-sub-picker-item${_lsSubjectId === s.id ? ' lsf-sub-picker-active' : ''}" data-sid="${escapeHTML(s.id)}" style="border-left:3px solid ${s.color||'#ff7a1a'}"><span>${escapeHTML(s.name)}</span><span class="lsf-pick-chev">›</span></button>`).join('')}
+      `;
+      picker.querySelectorAll('button[data-sid]').forEach(btn => {
+        addTouchClick(btn, () => {
+          const newSub = btn.dataset.sid;
+          if (newSub !== _lsSubjectId) { _lsChapterId = null; _lsTopicId = null; }
+          _lsSubjectId = newSub;
+          const sub = findSubject(_lsSubjectId);
+          const chaps = sub && sub.chapters ? sub.chapters.filter(c => !c._deleted) : [];
+          if (chaps.length) { _buildLSPicker(ov, 'chapter'); } else { picker.remove(); renderLiveOverlay(); }
+        });
+      });
+    } else if (step === 'chapter') {
+      const sub = findSubject(_lsSubjectId);
+      const chaps = sub && sub.chapters ? sub.chapters.filter(c => !c._deleted) : [];
+      picker.innerHTML = `
+        <div class="lsf-sub-picker-nav"><button class="lsf-sub-picker-back" id="lsf-back">‹ ${sub ? escapeHTML(sub.name.slice(0,14)) : 'Back'}</button><span class="lsf-sub-picker-step">Chapter</span></div>
+        <button class="lsf-sub-picker-item${!_lsChapterId ? ' lsf-sub-picker-active' : ''}" data-cid="">— All chapters —</button>
+        ${chaps.map(c => `<button class="lsf-sub-picker-item${_lsChapterId === c.id ? ' lsf-sub-picker-active' : ''}" data-cid="${escapeHTML(c.id)}"><span>${escapeHTML(c.name)}</span><span class="lsf-pick-chev">›</span></button>`).join('')}
+      `;
+      addTouchClick(picker.querySelector('#lsf-back'), () => _buildLSPicker(ov, 'subject'));
+      picker.querySelectorAll('button[data-cid]').forEach(btn => {
+        addTouchClick(btn, () => {
+          const newChap = btn.dataset.cid || null;
+          if (newChap !== _lsChapterId) _lsTopicId = null;
+          _lsChapterId = newChap;
+          if (!_lsChapterId) { picker.remove(); renderLiveOverlay(); return; }
+          const chap = findChapter(_lsSubjectId, _lsChapterId);
+          const tops = chap && chap.topics ? chap.topics.filter(t => !t._deleted) : [];
+          if (tops.length) { _buildLSPicker(ov, 'topic'); } else { picker.remove(); renderLiveOverlay(); }
+        });
+      });
+    } else if (step === 'topic') {
+      const chap = findChapter(_lsSubjectId, _lsChapterId);
+      const tops = chap && chap.topics ? chap.topics.filter(t => !t._deleted) : [];
+      picker.innerHTML = `
+        <div class="lsf-sub-picker-nav"><button class="lsf-sub-picker-back" id="lsf-back">‹ ${chap ? escapeHTML(chap.name.slice(0,14)) : 'Back'}</button><span class="lsf-sub-picker-step">Topic</span></div>
+        <button class="lsf-sub-picker-item${!_lsTopicId ? ' lsf-sub-picker-active' : ''}" data-tid="">— All topics —</button>
+        ${tops.map(t => `<button class="lsf-sub-picker-item${_lsTopicId === t.id ? ' lsf-sub-picker-active' : ''}" data-tid="${escapeHTML(t.id)}">${escapeHTML(t.name)}</button>`).join('')}
+      `;
+      addTouchClick(picker.querySelector('#lsf-back'), () => _buildLSPicker(ov, 'chapter'));
+      picker.querySelectorAll('button[data-tid]').forEach(btn => {
+        addTouchClick(btn, () => {
+          _lsTopicId = btn.dataset.tid || null;
+          picker.remove();
+          renderLiveOverlay();
+        });
+      });
+    }
+    ov.appendChild(picker);
+  }
+
   function renderLiveOverlay() {
     const overlay = document.getElementById('ls-overlay'); if (!overlay) return;
     const elapsed = _lsGetElapsed();
@@ -4744,6 +4844,8 @@
     const subStoredMin = _lsSubjectId ? (state.focusStats.minutesBySubject[_lsSubjectId] || 0) : 0;
     const subSecs = subStoredMin * 60 + elapsed;
     const curSub = _lsSubjectId ? findSubject(_lsSubjectId) : null;
+    const curChap = (curSub && _lsChapterId) ? findChapter(_lsSubjectId, _lsChapterId) : null;
+    const curTopic = (curChap && _lsTopicId) ? findTopic(_lsSubjectId, _lsChapterId, _lsTopicId) : null;
     const xpTot = (state.xp && state.xp.total) || 0;
     const lvInfo = gamificationManager.calculateLevel(xpTot);
     const streak = (state.streak && state.streak.count) || 0;
@@ -4799,12 +4901,16 @@
         }).join('') : `<div class="lsf-log-empty">No sessions logged today yet.</div>`}
         <div class="lsf-log-total"><span>Total</span><span id="ls-log-total-val">${_secsToHMS(todaySecs)}</span></div>
       </div>
-      ${curSub ? `<div class="lsf-subject-row" id="ls-sub-row">
+      <div class="lsf-subject-row" id="ls-sub-row">
         <span class="lsf-sub-icon">📚</span>
-        <span class="lsf-sub-name">${escapeHTML(curSub.name)}</span>
-        <span class="lsf-sub-time" id="ls-sub-row-time">${_secsToHMS(subSecs)}</span>
+        <div class="lsf-sub-info">
+          ${curSub
+            ? `<span class="lsf-sub-name">${escapeHTML(curSub.name)}</span>${curChap ? `<span class="lsf-sub-breadcrumb">${escapeHTML(curChap.name)}${curTopic ? ' › ' + escapeHTML(curTopic.name) : ''}</span>` : ''}`
+            : `<span class="lsf-sub-name lsf-sub-placeholder">Tap to select subject</span>`}
+        </div>
+        ${curSub ? `<span class="lsf-sub-time" id="ls-sub-row-time">${_secsToHMS(subSecs)}</span>` : ''}
         <span class="lsf-sub-chev">›</span>
-      </div>` : ''}
+      </div>
       <div class="lsf-spacer"></div>
       <div class="lsf-play-wrap">
         <button class="lsf-play-btn" id="ls-play-btn" data-act="ls-play-pause">
@@ -4814,31 +4920,12 @@
       </div>
     </div>`;
 
-    // Subject picker — defined before attaching listener so it's always fresh
+    // Use the cascading picker
     const _openPickerFn = () => {
       const ov = document.getElementById('ls-overlay'); if (!ov) return;
       const existing = ov.querySelector('.lsf-sub-picker');
       if (existing) { existing.remove(); return; }
-      const subjects = (state.syllabus || []).filter(s => !s._deleted);
-      if (!subjects.length) { toast('Add subjects in the Study tab first', 'info'); return; }
-      const picker = document.createElement('div');
-      picker.className = 'lsf-sub-picker';
-      picker.innerHTML = `
-        <div class="lsf-sub-picker-title">Select Subject</div>
-        <button class="lsf-sub-picker-item${!_lsSubjectId ? ' lsf-sub-picker-active' : ''}" data-sid="">— No subject —</button>
-        ${subjects.map(s => `<button class="lsf-sub-picker-item${_lsSubjectId === s.id ? ' lsf-sub-picker-active' : ''}" data-sid="${escapeHTML(s.id)}" style="border-left:3px solid ${s.color||'#ff7a1a'}">${escapeHTML(s.name)}</button>`).join('')}
-      `;
-      picker.querySelectorAll('button').forEach(btn => {
-        const selectSub = (ev) => {
-          ev.stopPropagation();
-          _lsSubjectId = btn.dataset.sid || null;
-          picker.remove();
-          renderLiveOverlay();
-        };
-        btn.addEventListener('click', selectSub);
-        btn.addEventListener('touchend', (ev) => { ev.preventDefault(); selectSub(ev); }, { passive: false });
-      });
-      ov.appendChild(picker);
+      _buildLSPicker(ov, 'subject');
     };
     window._lsOpenPicker = _openPickerFn;
 
@@ -7727,6 +7814,17 @@
 
     // Focus top-mode pills (Pomodoro / Live Study)
     if (act === 'focus-top-mode') { focusTopMode = el.dataset.mode; renderFocus(); return; }
+
+    // Subject→Chapter→Topic selectors in Pomodoro timer
+    if (act === 'focus-sct-sub') {
+      _lsSubjectId = el.value || null; _lsChapterId = null; _lsTopicId = null; renderFocus(); return;
+    }
+    if (act === 'focus-sct-chap') {
+      _lsChapterId = el.value || null; _lsTopicId = null; renderFocus(); return;
+    }
+    if (act === 'focus-sct-topic') {
+      _lsTopicId = el.value || null; renderFocus(); return;
+    }
 
     // Live Study Timer
     if (act === 'ls-subject-change') {
