@@ -6651,7 +6651,6 @@
   let _currentTab = 'home';
 
   function switchTab(tab) {
-    if (tab === 'social') return;
     document.querySelectorAll('.view').forEach(v => {
       v.classList.remove('active');
       v.style.setProperty('display', 'none', 'important');
