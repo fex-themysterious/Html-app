@@ -1007,14 +1007,16 @@
   // Expose app utilities to social.js
   setTimeout(function() {
     window.appUI = {
-      toast:        function(m,t,d)  { toast(m,t,d); },
-      openModal:    function(h,cb)   { openModal(h,cb); },
-      closeModal:   function()       { closeModal(); },
-      confirmModal: function(m,cb,o) { confirmModal(m,cb,o); },
-      html:         function(s)      { return escapeHTML(s); },
-      state:        function()       { return state; },
-      todayKey:     function()       { return todayKey(); },
-      minsToHrs:    function(m)      { return minsToHrs(m); },
+      toast:             function(m,t,d)  { toast(m,t,d); },
+      openModal:         function(h,cb)   { openModal(h,cb); },
+      closeModal:        function()       { closeModal(); },
+      confirmModal:      function(m,cb,o) { confirmModal(m,cb,o); },
+      html:              function(s)      { return escapeHTML(s); },
+      state:             function()       { return state; },
+      todayKey:          function()       { return todayKey(); },
+      minsToHrs:         function(m)      { return minsToHrs(m); },
+      focusIsRunning:    function()       { return focusRunning === true; },
+      focusStartTime:    function()       { return focusRunning ? focusStartTime : null; },
     };
   }, 0);
 

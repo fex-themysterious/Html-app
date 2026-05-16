@@ -40,8 +40,9 @@
         groups: Array.isArray(d.groups) ? d.groups : [],
         tasks:  Array.isArray(d.tasks)  ? d.tasks  : [],
         notes:  Array.isArray(d.notes)  ? d.notes  : [],
+        chats:  (d.chats && typeof d.chats === 'object') ? d.chats : {},
       };
-    } catch(_) { return { groups: [], tasks: [], notes: [] }; }
+    } catch(_) { return { groups: [], tasks: [], notes: [], chats: {} }; }
   }
   function scSave(d) { try { localStorage.setItem(SC_KEY, JSON.stringify(d)); } catch(_) {} }
 
@@ -52,7 +53,9 @@
   let _roomFilter    = 'new';
   let _roomPublicOnly = false;
   let _roomWithSpace  = false;
-  let _destroyed     = false;
+  let _destroyed      = false;
+  let _srTab          = 'home';
+  let _srTickInterval = null;
 
   const isStudying = () => { try { return window._focusActive === true; } catch(_) { return false; } };
 
@@ -115,6 +118,22 @@
     const view = document.getElementById('view-social');
     if (!view) return;
     try {
+      // ── Study Room mode (full-screen, own layout) ─────────────────────────
+      if (_groupView) {
+        const sc = scLoad();
+        const g  = sc.groups.find(x => x.id === _groupView);
+        if (!g) { _groupView = null; _stopSrTicker(); renderSocial(); return; }
+        view.innerHTML = _renderStudyRoom(g, sc);
+        _bindEvents(view);
+        if (_srTab === 'home') _startSrTicker(_groupView);
+        if (_srTab === 'chat') setTimeout(() => {
+          const msgs = document.getElementById('sr-chat-msgs');
+          if (msgs) msgs.scrollTop = msgs.scrollHeight;
+        }, 60);
+        return;
+      }
+      // ── Normal tab mode ───────────────────────────────────────────────────
+      _stopSrTicker();
       view.innerHTML = `
         <div class="sc-page" role="main">
           ${_renderSubNav()}
@@ -405,6 +424,309 @@
           </div>
         </div>
       </div>`;
+  }
+
+  // ── Study Room Helpers ────────────────────────────────────────────────────
+  function _fmtSecs(s) {
+    s = Math.max(0, Math.floor(s));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+  }
+
+  function _srMemberIsActive(m) {
+    if (m.id === 'me') return ui().focusIsRunning?.() === true;
+    return false;
+  }
+
+  function _srMemberSeconds(m) {
+    const ms = getMainState(), tk = todayKey();
+    if (m.id === 'me') {
+      const storedMins = ((ms.focusStats || {}).minutesByDate || {})[tk] || 0;
+      const ft = ui().focusStartTime?.();
+      const elapsed = ft ? Math.floor((Date.now() - ft) / 1000) : 0;
+      return storedMins * 60 + elapsed;
+    }
+    return (m.todayKey === tk ? (m.todayMins || 0) : 0) * 60;
+  }
+
+  function _startSrTicker(gid) {
+    _stopSrTicker();
+    _srTickInterval = setInterval(() => {
+      const view = document.getElementById('view-social');
+      if (!view || !view.querySelector('.sr-room')) { _stopSrTicker(); return; }
+      const sc = scLoad();
+      const g  = sc.groups.find(x => x.id === gid);
+      if (!g) { _stopSrTicker(); return; }
+      (g.members || []).forEach(m => {
+        const el = view.querySelector(`[data-sr-timer="${m.id}"]`);
+        if (el) el.textContent = _fmtSecs(_srMemberSeconds(m));
+      });
+      const me = (g.members || []).find(x => x.id === 'me');
+      const activeCnt = (me && _srMemberIsActive(me)) ? 1 : 0;
+      const cntEl = view.querySelector('.sr-studying-count');
+      if (cntEl) cntEl.textContent = activeCnt;
+      if (me) {
+        const myCard = view.querySelector(`[data-sr-card="${me.id}"]`);
+        if (myCard) {
+          const isActive     = myCard.classList.contains('sr-card-active');
+          const shouldActive = _srMemberIsActive(me);
+          if (isActive !== shouldActive) { _stopSrTicker(); renderSocial(); }
+        }
+      }
+    }, 1000);
+  }
+
+  function _stopSrTicker() {
+    if (_srTickInterval !== null) { clearInterval(_srTickInterval); _srTickInterval = null; }
+  }
+
+  // ── Study Room SVG constants ──────────────────────────────────────────────
+  const SR_ACTIVE_DESK = `<svg class="sr-desk-svg" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="28" cy="10" r="5" stroke="currentColor" stroke-width="2.2"/>
+    <path d="M20 22 C20 17 23 16 28 16 C33 16 36 17 36 22 L36 26" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+    <path d="M20 25 C24 27 32 27 36 26" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    <rect x="10" y="30" width="36" height="4" rx="2" fill="currentColor"/>
+    <line x1="15" y1="34" x2="15" y2="44" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="41" y1="34" x2="41" y2="44" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+  </svg>`;
+
+  const SR_IDLE_DESK = `<svg class="sr-desk-svg" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="28" cy="18" r="10" stroke="currentColor" stroke-width="2.2"/>
+    <line x1="28" y1="18" x2="28" y2="11.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <line x1="28" y1="18" x2="33.5" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <rect x="10" y="32" width="36" height="4" rx="2" fill="currentColor"/>
+    <line x1="15" y1="36" x2="15" y2="46" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="41" y1="36" x2="41" y2="46" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+  </svg>`;
+
+  const SR_NAV_ICONS = {
+    home:       `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
+    attendance: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`,
+    rankings:   `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>`,
+    invite:     `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>`,
+    chat:       `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
+  };
+
+  // ── Study Room Render ─────────────────────────────────────────────────────
+  function _renderStudyRoom(g, sc) {
+    const SR_TABS = [
+      { id:'home',       icon: SR_NAV_ICONS.home,       label:'Home' },
+      { id:'attendance', icon: SR_NAV_ICONS.attendance, label:'Attendance' },
+      { id:'rankings',   icon: SR_NAV_ICONS.rankings,   label:'Rankings' },
+      { id:'invite',     icon: SR_NAV_ICONS.invite,     label:'Invite' },
+      { id:'chat',       icon: SR_NAV_ICONS.chat,       label:'Chat' },
+    ];
+    const tabContent = (() => {
+      switch (_srTab) {
+        case 'attendance': return _renderSrAttendance(g, sc);
+        case 'rankings':   return _renderSrRankings(g, sc);
+        case 'invite':     return _renderSrInvite(g);
+        case 'chat':       return _renderSrChat(g, sc);
+        default:           return _renderSrHome(g, sc);
+      }
+    })();
+    return `
+      <div class="sr-room${_srTab === 'chat' ? ' sr-room--chat' : ''}">
+        <div class="sr-top-bar">
+          <button class="sr-back-btn" data-sc="close-group" aria-label="Back">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <div class="sr-top-title">${esc(g.name)}</div>
+          <button class="sr-gear-btn" data-sc="sr-settings" data-gid="${esc(g.id)}" aria-label="Settings">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+        </div>
+        <button class="sr-rules-banner" data-sc="sr-rules" data-gid="${esc(g.id)}">
+          <span class="sr-rules-icon">📢</span>
+          <span class="sr-rules-text">${g.description ? esc(g.description.slice(0,80)) + (g.description.length > 80 ? '…' : '') : 'Group Introduction / Rules'}</span>
+          <span class="sr-rules-chevron">›</span>
+        </button>
+        <div class="sr-scroll-area">
+          ${tabContent}
+        </div>
+        <nav class="sr-bottom-nav">
+          ${SR_TABS.map(t => `
+            <button class="sr-nav-btn${_srTab === t.id ? ' sr-nav-active' : ''}" data-sc="sr-tab" data-tab="${t.id}">
+              <span class="sr-nav-icon">${t.icon}</span>
+              <span class="sr-nav-label">${t.label}</span>
+            </button>`).join('')}
+        </nav>
+      </div>`;
+  }
+
+  function _renderSrHome(g, sc) {
+    const members  = g.members || [];
+    const me       = members.find(x => x.id === 'me');
+    const meActive = me ? _srMemberIsActive(me) : false;
+    const activeCount = meActive ? 1 : 0;
+    const memberCards = members.map(m => {
+      const active      = m.id === 'me' ? meActive : false;
+      const secs        = _srMemberSeconds(m);
+      const name        = m.name || 'Unknown';
+      const displayName = name.length > 10 ? name.slice(0, 9) + '…' : name;
+      return `
+        <div class="sr-member-card ${active ? 'sr-card-active' : 'sr-card-idle'}" data-sr-card="${esc(m.id)}">
+          <div class="sr-card-icon">${active ? SR_ACTIVE_DESK : SR_IDLE_DESK}</div>
+          <div class="sr-card-name">${esc(displayName)}</div>
+          <div class="sr-card-timer${active ? ' sr-timer-live' : ''}" data-sr-timer="${esc(m.id)}">${_fmtSecs(secs)}</div>
+        </div>`;
+    });
+    return `
+      <div class="sr-home-view">
+        <div class="sr-studying-header">
+          <span class="sr-studying-label">Studying</span>
+          <span class="sr-studying-badge">
+            <span class="sr-studying-count">${activeCount}</span> member${activeCount !== 1 ? 's' : ''}
+          </span>
+        </div>
+        <div class="sr-members-grid">
+          ${memberCards.length
+            ? memberCards.join('')
+            : `<div class="sr-empty-grid">No members in this group yet.</div>`}
+        </div>
+      </div>`;
+  }
+
+  function _renderSrAttendance(g, sc) {
+    const ms      = getMainState();
+    const mbd     = ((ms.focusStats || {}).minutesByDate) || {};
+    const members = g.members || [];
+    const days    = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      days.push({ key, label: String(d.getDate()).padStart(2,'0') });
+    }
+    return `
+      <div class="sr-att-view">
+        <div class="sr-section-head">Attendance — Last 14 Days</div>
+        ${members.length === 0
+          ? `<div class="sr-empty-grid">No members yet.</div>`
+          : members.map(m => {
+              const shortName = (m.name||'?').length > 9 ? (m.name||'?').slice(0,8)+'…' : (m.name||'?');
+              const cells = days.map(day => {
+                const mins    = m.id === 'me' ? (mbd[day.key] || 0) : 0;
+                const present = mins > 0;
+                const tip     = present ? `${Math.floor(mins/60)}h${mins%60}m` : '—';
+                return `<div class="sr-att-cell${present ? ' sr-att-present' : ''}" title="${day.key}: ${tip}">${day.label}</div>`;
+              }).join('');
+              return `
+                <div class="sr-att-member-row">
+                  <div class="sr-att-member-av" style="background:${_avatarColor(m.name||'')}">${(m.name||'?')[0].toUpperCase()}</div>
+                  <div class="sr-att-member-name">${esc(shortName)}</div>
+                  <div class="sr-att-cells">${cells}</div>
+                </div>`;
+            }).join('')}
+      </div>`;
+  }
+
+  function _renderSrRankings(g, sc) {
+    const ms      = getMainState(), tk = todayKey();
+    const members = g.members || [];
+    const ft      = ui().focusStartTime?.();
+    const ranked  = members.map(m => {
+      let secs = 0;
+      if (m.id === 'me') {
+        const storedMins = (((ms.focusStats || {}).minutesByDate) || {})[tk] || 0;
+        const elapsed    = ft ? Math.floor((Date.now() - ft) / 1000) : 0;
+        secs = storedMins * 60 + elapsed;
+      } else {
+        secs = (m.todayKey === tk ? (m.todayMins || 0) : 0) * 60;
+      }
+      return { ...m, secs };
+    }).sort((a, b) => b.secs - a.secs);
+    const topSecs = ranked[0]?.secs || 1;
+    return `
+      <div class="sr-rank-view">
+        <div class="sr-section-head">Today's Rankings</div>
+        ${ranked.length === 0
+          ? `<div class="sr-empty-grid">No members yet.</div>`
+          : ranked.map((m, i) => {
+              const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i+1}`;
+              const pct   = Math.round((m.secs / topSecs) * 100);
+              return `
+                <div class="sr-rank-row${i === 0 ? ' sr-rank-first' : ''}">
+                  <div class="sr-rank-medal">${medal}</div>
+                  <div class="sr-rank-av" style="background:${_avatarColor(m.name||'')}">${(m.name||'?')[0].toUpperCase()}</div>
+                  <div class="sr-rank-info">
+                    <div class="sr-rank-name">${esc(m.name||'Unknown')}${m.id==='me' ? ` <span class="sr-rank-you">you</span>` : ''}</div>
+                    <div class="sr-rank-bar-wrap"><div class="sr-rank-bar" style="width:${pct}%"></div></div>
+                  </div>
+                  <div class="sr-rank-time">${_fmtSecs(m.secs)}</div>
+                </div>`;
+            }).join('')}
+      </div>`;
+  }
+
+  function _renderSrInvite(g) {
+    return `
+      <div class="sr-invite-view">
+        <div class="sr-invite-icon-big">${g.icon || '📚'}</div>
+        <div class="sr-invite-group-name">${esc(g.name)}</div>
+        <div class="sr-invite-label">Invite Code</div>
+        <div class="sr-invite-code-wrap">
+          <div class="sr-invite-code">${esc(g.code)}</div>
+          <button class="sr-invite-copy-btn" data-sc="sr-copy-invite" data-code="${esc(g.code)}">Copy</button>
+        </div>
+        <div class="sr-invite-hint">Share this code with friends to invite them to the group</div>
+        <div class="sr-invite-stats">
+          <div class="sr-invite-stat">
+            <div class="sr-invite-stat-val">${(g.members||[]).length}</div>
+            <div class="sr-invite-stat-lbl">Members</div>
+          </div>
+          <div class="sr-invite-stat">
+            <div class="sr-invite-stat-val">${g.maxMembers || 50}</div>
+            <div class="sr-invite-stat-lbl">Capacity</div>
+          </div>
+          <div class="sr-invite-stat">
+            <div class="sr-invite-stat-val">${g.dailyGoalHrs || 8}h</div>
+            <div class="sr-invite-stat-lbl">Daily Goal</div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function _renderSrChat(g, sc) {
+    const ms     = getMainState();
+    const myName = ms.profile?.name || 'You';
+    const msgs   = (sc.chats || {})[g.id] || [];
+    return `
+      <div class="sr-chat-view">
+        <div class="sr-chat-messages" id="sr-chat-msgs">
+          ${msgs.length === 0
+            ? `<div class="sr-chat-empty">No messages yet — say hello! 👋</div>`
+            : msgs.map(msg => {
+                const isMe = msg.authorId === 'me';
+                return `
+                  <div class="sr-chat-row ${isMe ? 'sr-chat-mine' : 'sr-chat-theirs'}">
+                    ${!isMe ? `<div class="sr-chat-av" style="background:${_avatarColor(msg.author||'')}">${(msg.author||'?')[0].toUpperCase()}</div>` : ''}
+                    <div class="sr-chat-col">
+                      ${!isMe ? `<div class="sr-chat-author">${esc(msg.author||'Unknown')}</div>` : ''}
+                      <div class="sr-chat-bubble">${esc(msg.text)}</div>
+                      <div class="sr-chat-ts">${_chatTimeAgo(msg.ts)}</div>
+                    </div>
+                  </div>`;
+              }).join('')}
+        </div>
+        <div class="sr-chat-input-area">
+          <input class="sr-chat-input" id="sr-chat-input" type="text" placeholder="Type a message…"
+                 maxlength="300" autocomplete="off"/>
+          <button class="sr-chat-send-btn" data-sc="sr-send-chat" data-gid="${esc(g.id)}" data-author="${esc(myName)}">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+      </div>`;
+  }
+
+  function _chatTimeAgo(ts) {
+    if (!ts) return '';
+    const diff = Date.now() - ts, m = Math.floor(diff / 60000);
+    if (m < 1) return 'just now';
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.floor(h/24)}d ago`;
   }
 
   // ── Leaderboard ───────────────────────────────────────────────────────────
@@ -861,6 +1183,8 @@
 
       case 'close-group':
         _groupView = null;
+        _srTab = 'home';
+        _stopSrTicker();
         renderSocial();
         break;
 
@@ -874,7 +1198,8 @@
           sc2.groups = sc2.groups.filter(x => x.id !== gid);
           sc2.tasks  = sc2.tasks.filter(t => t.groupId !== gid);
           sc2.notes  = sc2.notes.filter(n => n.groupId !== gid);
-          scSave(sc2); _groupView = null;
+          if (sc2.chats) delete sc2.chats[gid];
+          scSave(sc2); _groupView = null; _srTab = 'home'; _stopSrTicker();
           toast('Left group.', 'info'); renderSocial();
         }, { title:'Leave Group?', yesLabel:'Leave', yesClass:'btn btn-danger', noLabel:'Cancel' });
         break;
@@ -912,6 +1237,114 @@
         }, { title:'Delete Note', yesLabel:'Delete', yesClass:'btn btn-danger', noLabel:'Cancel' });
         break;
 
+      case 'sr-tab':
+        if (_srTab !== (el.dataset.tab || 'home')) {
+          _srTab = el.dataset.tab || 'home';
+          _stopSrTicker();
+          renderSocial();
+        }
+        break;
+
+      case 'sr-rules': {
+        const sc = scLoad();
+        const g  = sc.groups.find(x => x.id === el.dataset.gid);
+        if (!g) break;
+        openModal(`
+          <h3 class="sc-modal-title">📢 Group Introduction / Rules</h3>
+          <div style="color:var(--sc-text);line-height:1.7;white-space:pre-wrap;font-size:15px;margin:12px 0">${
+            g.description
+              ? esc(g.description)
+              : `<span style="color:var(--sc-muted)">No rules or introduction set yet.<br>Admins can add one in Group Settings.</span>`
+          }</div>
+          <div class="actions" style="margin-top:16px"><button class="btn btn-ghost" data-close>Close</button></div>
+        `);
+        break;
+      }
+
+      case 'sr-settings': {
+        const sc = scLoad();
+        const g  = sc.groups.find(x => x.id === el.dataset.gid);
+        if (!g) break;
+        const isAdmin = g.role === 'admin';
+        const gidSnap = g.id;
+        openModal(`
+          <h3 class="sc-modal-title">Group Settings</h3>
+          <div class="sc-detail-meta" style="margin-bottom:16px">
+            <span class="sc-meta-chip">Code: <strong>${esc(g.code)}</strong></span>
+            <span class="sc-meta-chip">${g.isPrivate ? '🔒 Private' : '🌐 Public'}</span>
+            <span class="sc-meta-chip">${(g.members||[]).length} members</span>
+          </div>
+          ${isAdmin ? `
+          <div class="sc-field">
+            <label class="sc-label">Daily Goal (hours)</label>
+            <input id="sr-goal-inp" type="number" min="1" max="24" value="${g.dailyGoalHrs||8}" class="sc-input" style="text-align:center"/>
+          </div>
+          <div class="sc-field">
+            <label class="sc-label">Group Introduction / Rules</label>
+            <textarea id="sr-desc-inp" rows="3" maxlength="200" class="sc-textarea" placeholder="Group rules or intro…">${esc(g.description||'')}</textarea>
+          </div>` : `<p style="color:var(--sc-muted);font-size:14px;margin-bottom:8px">Only the group admin can change settings.</p>`}
+          <div class="actions" style="margin-top:16px;justify-content:space-between;flex-wrap:wrap;gap:8px">
+            <button class="btn btn-danger" id="sr-leave-btn">Leave Group</button>
+            ${isAdmin
+              ? `<button class="btn sc-modal-submit" id="sr-save-btn">Save</button>`
+              : `<button class="btn btn-ghost" data-close>Close</button>`}
+          </div>
+        `, root => {
+          root.querySelector('#sr-save-btn')?.addEventListener('click', () => {
+            const sc2 = scLoad();
+            const g2  = sc2.groups.find(x => x.id === gidSnap);
+            if (!g2) return;
+            const goalEl = root.querySelector('#sr-goal-inp');
+            const descEl = root.querySelector('#sr-desc-inp');
+            if (goalEl) g2.dailyGoalHrs = Math.max(1, Math.min(24, parseInt(goalEl.value) || 8));
+            if (descEl) g2.description  = descEl.value.trim();
+            scSave(sc2); closeModal(); toast('Settings saved!', 'success'); renderSocial();
+          });
+          root.querySelector('#sr-leave-btn')?.addEventListener('click', () => {
+            closeModal();
+            confirmModal(`Leave "${g.name}"? Local group data will be removed.`, () => {
+              const sc2 = scLoad();
+              sc2.groups = sc2.groups.filter(x => x.id !== gidSnap);
+              sc2.tasks  = sc2.tasks.filter(t => t.groupId !== gidSnap);
+              sc2.notes  = sc2.notes.filter(n => n.groupId !== gidSnap);
+              if (sc2.chats) delete sc2.chats[gidSnap];
+              scSave(sc2); _groupView = null; _srTab = 'home'; _stopSrTicker();
+              toast('Left group.', 'info'); renderSocial();
+            }, { title:'Leave Group?', yesLabel:'Leave', yesClass:'btn btn-danger', noLabel:'Cancel' });
+          });
+        });
+        break;
+      }
+
+      case 'sr-copy-invite': {
+        const code = el.dataset.code || '';
+        if (code) {
+          navigator.clipboard.writeText(code)
+            .then(() => toast(`Code ${code} copied! 🔗`, 'success'))
+            .catch(() => toast(`Invite code: ${code}`, 'info'));
+        }
+        break;
+      }
+
+      case 'sr-send-chat': {
+        const input  = document.getElementById('sr-chat-input');
+        const text   = input ? input.value.trim() : '';
+        if (!text) break;
+        const gid    = el.dataset.gid;
+        const author = el.dataset.author || 'You';
+        const sc = scLoad();
+        if (!sc.chats) sc.chats = {};
+        if (!sc.chats[gid]) sc.chats[gid] = [];
+        sc.chats[gid].push({ id: genId(), authorId: 'me', author, text, ts: Date.now() });
+        if (sc.chats[gid].length > 100) sc.chats[gid] = sc.chats[gid].slice(-100);
+        scSave(sc); renderSocial();
+        setTimeout(() => {
+          const msgs = document.getElementById('sr-chat-msgs');
+          if (msgs) msgs.scrollTop = msgs.scrollHeight;
+        }, 60);
+        break;
+      }
+
       default: break;
     }
   }
@@ -919,7 +1352,24 @@
   // ── Init ──────────────────────────────────────────────────────────────────
   function init() {
     window._socialRender = renderSocial;
-    window._socialFocusUpdate = () => { if (window._currentTab === 'social') renderSocial(); };
+    window._socialFocusUpdate = () => {
+      const ms = getMainState(), tk = todayKey();
+      const todayMins = (((ms.focusStats || {}).minutesByDate) || {})[tk] || 0;
+      if (todayMins > 0) {
+        const sc = scLoad();
+        let dirty = false;
+        sc.groups.forEach(g => {
+          const me = (g.members || []).find(m => m.id === 'me');
+          if (me && (me.todayMins !== todayMins || me.todayKey !== tk)) {
+            me.todayMins = todayMins;
+            me.todayKey  = tk;
+            dirty = true;
+          }
+        });
+        if (dirty) scSave(sc);
+      }
+      if (window._currentTab === 'social') renderSocial();
+    };
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
