@@ -4367,113 +4367,30 @@
   }
 
   function renderLiveStudySetup() {
+    const subjects = state.subjects || [];
+    const subOpts = subjects.map(s =>
+      `<option value="${s.id}"${_lsSubjectId === s.id ? ' selected' : ''}>${escapeHTML(s.name)}</option>`
+    ).join('');
     const todayMins = state.focusStats.minutesByDate[todayKey()] || 0;
+    const subMins = _lsSubjectId ? (state.focusStats.minutesBySubject[_lsSubjectId] || 0) : 0;
     const curSub = _lsSubjectId ? findSubject(_lsSubjectId) : null;
-    const curChap = (curSub && _lsChapterId) ? findChapter(_lsSubjectId, _lsChapterId) : null;
-    const curTopic = (curChap && _lsTopicId) ? findTopic(_lsSubjectId, _lsChapterId, _lsTopicId) : null;
     const xpTot = (state.xp && state.xp.total) || 0;
+    const lvInfo = gamificationManager.calculateLevel(xpTot);
     const streak = (state.streak && state.streak.count) || 0;
     const mult = _isBoosterActive() ? 2 : 1;
-    const subLabel = curSub
-      ? `<span class="lss-sub-selected">${escapeHTML(curSub.name)}${curChap ? ' › ' + escapeHTML(curChap.name) : ''}${curTopic ? ' › ' + escapeHTML(curTopic.name) : ''}</span>`
-      : `<span class="lss-sub-placeholder">Tap to select subject</span>`;
-    return `<div class="lss-wrap">
-      <!-- Broadcast indicator -->
-      <div class="lss-broadcast-card">
-        <div class="lss-bc-left">
-          <span class="lss-bc-dot"></span>
-          <div>
-            <div class="lss-bc-title">Live Study Timer</div>
-            <div class="lss-bc-sub">Real-time tracking with Firebase sync</div>
-          </div>
-        </div>
-        <div class="lss-bc-active">
-          <span class="lss-bc-users">👥 ${(1380 + Math.floor(Math.random()*120)).toLocaleString()} Active</span>
-        </div>
+    return `<div class="ls-setup-wrap">
+      <div class="ls-setup-header">
+        <div class="ls-setup-title">Live Study Timer</div>
+        <div class="ls-setup-sub">Real-time tracking with Firebase sync</div>
       </div>
-
-      <!-- 4-col metrics -->
-      <div class="lss-metrics-grid">
-        <div class="lss-metric-card">
-          <div class="lss-metric-val">${minsToHrs(todayMins)}</div>
-          <div class="lss-metric-key">TODAY</div>
-        </div>
-        <div class="lss-metric-card">
-          <div class="lss-metric-val">${focusSessions}</div>
-          <div class="lss-metric-key">SESSIONS</div>
-        </div>
-        <div class="lss-metric-card">
-          <div class="lss-metric-val lss-streak-val">${streak}<span class="lss-fire">🔥</span></div>
-          <div class="lss-metric-key">STREAK</div>
-        </div>
-        <div class="lss-metric-card lss-metric-card--gold">
-          <div class="lss-metric-val lss-mult-val">${mult}×</div>
-          <div class="lss-metric-key">BOOST</div>
-        </div>
+      <div class="ls-stat-row">
+        <div class="ls-stat-item"><div class="ls-stat-val">${minsToHrs(todayMins)}</div><div class="ls-stat-key">Today</div></div>
+        <div class="ls-stat-item"><div class="ls-stat-val">${focusSessions}</div><div class="ls-stat-key">Sessions</div></div>
+        <div class="ls-stat-item"><div class="ls-stat-val">${streak} 🔥</div><div class="ls-stat-key">Streak</div></div>
+        <div class="ls-stat-item"><div class="ls-stat-val" style="color:#ff7a1a">${mult}×</div><div class="ls-stat-key">Multiplier</div></div>
       </div>
-
-      <!-- Subject selector bar -->
-      <div class="lss-sub-bar" id="lss-sub-bar" data-act="ls-open-subject-sheet">
-        <span class="lss-sub-icon">📚</span>
-        <div class="lss-sub-text">${subLabel}</div>
-        <span class="lss-sub-chev">›</span>
-      </div>
-
-      <!-- SCT dropdowns shown when subject is selected -->
-      ${curSub ? _renderSCTSelector() : ''}
-
-      <!-- Start button -->
-      <button class="lss-start-btn" data-act="ls-enter">
-        <span class="lss-btn-icon">▶</span>
-        <span>Start Live Study</span>
-      </button>
-
-      <div class="lss-hint">Swipe anywhere to exit while studying</div>
+      <button class="ls-start-btn" data-act="ls-enter">▶ Start Live Study</button>
     </div>`;
-  }
-
-  function _openLSSubjectSheet() {
-    const existing = document.getElementById('lss-sheet-overlay');
-    if (existing) { existing.remove(); return; }
-    const subjects = (state.syllabus || []).filter(s => !s._deleted);
-    if (!subjects.length) { toast('Add subjects in the Study tab first', 'info'); return; }
-    const overlay = document.createElement('div');
-    overlay.id = 'lss-sheet-overlay';
-    overlay.className = 'lss-sheet-overlay';
-    overlay.innerHTML = `
-      <div class="lss-sheet" id="lss-sheet">
-        <div class="lss-sheet-handle"></div>
-        <div class="lss-sheet-title">Select Subject</div>
-        <div class="lss-sheet-list">
-          ${subjects.map(s => `
-            <button class="lss-sheet-item${_lsSubjectId === s.id ? ' lss-sheet-item--active' : ''}" data-sid="${escapeHTML(s.id)}">
-              <span class="lss-sheet-dot" style="background:${s.color||'#ff7a1a'}"></span>
-              <span class="lss-sheet-name">${escapeHTML(s.name)}</span>
-              ${_lsSubjectId === s.id ? '<span class="lss-sheet-check">✓</span>' : '<span class="lss-sheet-chev">›</span>'}
-            </button>`).join('')}
-        </div>
-      </div>`;
-    // Tap backdrop to close
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-    overlay.addEventListener('touchend', (e) => { if (e.target === overlay) { e.preventDefault(); overlay.remove(); } }, { passive: false });
-    document.body.appendChild(overlay);
-    requestAnimationFrame(() => overlay.classList.add('lss-sheet-overlay--in'));
-
-    const addTC = (el, fn) => {
-      let t = false;
-      el.addEventListener('touchend', (ev) => { ev.preventDefault(); ev.stopPropagation(); t = true; fn(); setTimeout(() => { t = false; }, 400); }, { passive: false });
-      el.addEventListener('click', (ev) => { ev.stopPropagation(); if (!t) fn(); });
-    };
-
-    overlay.querySelectorAll('.lss-sheet-item').forEach(btn => {
-      addTC(btn, () => {
-        const newSub = btn.dataset.sid;
-        if (newSub !== _lsSubjectId) { _lsChapterId = null; _lsTopicId = null; }
-        _lsSubjectId = newSub;
-        overlay.remove();
-        renderFocus();
-      });
-    });
   }
 
   function _lsGetElapsed() {
@@ -7897,9 +7814,6 @@
 
     // Focus top-mode pills (Pomodoro / Live Study)
     if (act === 'focus-top-mode') { focusTopMode = el.dataset.mode; renderFocus(); return; }
-
-    // Live Study subject bottom-sheet
-    if (act === 'ls-open-subject-sheet') { _openLSSubjectSheet(); return; }
 
     // Subject→Chapter→Topic selectors in Pomodoro timer
     if (act === 'focus-sct-sub') {
