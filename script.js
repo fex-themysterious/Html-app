@@ -4815,8 +4815,37 @@
         </button>
       </div>
     </div>`;
-    // Kick off particle canvas animation after the DOM update settles
-    requestAnimationFrame(() => _lsInitParticles());
+    // Kick off particle canvas animation + wire direct click handlers
+    requestAnimationFrame(() => {
+      _lsInitParticles();
+      // Direct handler on subject row — bypasses event delegation for reliability in overlay
+      const subRow = overlay.querySelector('.lsf-subject-row');
+      if (subRow) {
+        subRow.onclick = (e) => {
+          e.stopPropagation();
+          const existing = overlay.querySelector('.lsf-sub-picker');
+          if (existing) { existing.remove(); return; }
+          const subjects = (state.syllabus || []).filter(s => !s._deleted);
+          if (!subjects.length) { toast('Add subjects in the Study tab first', 'info'); return; }
+          const picker = document.createElement('div');
+          picker.className = 'lsf-sub-picker';
+          picker.innerHTML = `
+            <div class="lsf-sub-picker-title">Select Subject</div>
+            <button class="lsf-sub-picker-item${!_lsSubjectId ? ' lsf-sub-picker-active' : ''}" data-sid="">— No subject —</button>
+            ${subjects.map(s => `<button class="lsf-sub-picker-item${_lsSubjectId === s.id ? ' lsf-sub-picker-active' : ''}" data-sid="${escapeHTML(s.id)}" style="border-left:3px solid ${s.color||'#ff7a1a'}">${escapeHTML(s.name)}</button>`).join('')}
+          `;
+          picker.querySelectorAll('button').forEach(btn => {
+            btn.onclick = (ev) => {
+              ev.stopPropagation();
+              _lsSubjectId = btn.dataset.sid || null;
+              picker.remove();
+              renderLiveOverlay();
+            };
+          });
+          overlay.appendChild(picker);
+        };
+      }
+    });
   }
 
   function formatFocusTime(sec) { const m = Math.floor(sec / 60), s = sec % 60; return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; }
