@@ -241,40 +241,29 @@
     const studying  = isStudying();
     const todayMins = (ms.focusStats?.minutesByDate || {})[todayKey()] || 0;
 
-    // Sync today's study time into each local group
-    if ((todayMins > 0 || studying) && sc.groups.length > 0) {
-      let dirty = false;
-      sc.groups.forEach(g => {
-        if (g._lastDateKey !== todayKey()) {
-          g.dailyMinsTotal = todayMins;
-          g._lastDateKey   = todayKey();
-          if (studying && todayMins > 0)
-            g.attendancePct = Math.min(100, Math.round(1 / Math.max(1, (g.members||[]).length) * 100));
-          dirty = true;
-        }
-      });
-      if (dirty) scSave(sc);
-    }
-
-    // Use Firebase public groups for discovery feed when available; fall back to local
+    // Use Firebase public groups for discovery feed; fall back to local groups
     let groups = _publicGroups.length > 0
       ? _publicGroups.map(g => ({
           ...g,
           role: sc.groups.find(x => x.code === g._fbCode)?.role ?? null,
         }))
-      : [...sc.groups];
+      : sc.groups.filter(_isValidGroup);
 
+    // Strict validation — strip any group with undefined/null name
+    groups = groups.filter(_isValidGroup);
+
+    // Client-side filters (applied on top of server-side query)
     if (_roomPublicOnly) groups = groups.filter(g => !g.isPrivate);
-    if (_roomWithSpace)  groups = groups.filter(g => (g.members||[]).length < (g.maxMembers||50));
-    if (_roomFilter === 'cam') groups = groups.filter(g => g.camStudy);
+    if (_roomWithSpace)  groups = groups.filter(g => (g.memberCount || (g.members||[]).length) < (g.maxMembers || 50));
+    if (_roomFilter === 'cam') groups = groups.filter(g => !!g.camStudy);
 
-    // Sort
+    // Client-side sort (reinforces server-side ordering; handles the 'cam' filter case)
     if (_roomFilter === 'most-members')
-      groups.sort((a, b) => (b.members||[]).length - (a.members||[]).length);
+      groups.sort((a, b) => (b.memberCount || (b.members||[]).length) - (a.memberCount || (a.members||[]).length));
     else if (_roomFilter === 'most-study')
-      groups.sort((a, b) => (b.dailyMinsTotal||0) - (a.dailyMinsTotal||0));
+      groups.sort((a, b) => (b.dailyMinsTotal || 0) - (a.dailyMinsTotal || 0));
     else
-      groups.sort((a, b) => (b.createdAt||0) - (a.createdAt||0));
+      groups.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
     const filterTabsHtml = FILTER_TABS.map(f =>
       `<button class="sc-filter-tab${_roomFilter === f.id ? ' sc-ftab-active' : ''}"
@@ -322,30 +311,38 @@
   }
 
   function _renderDiscCard(g, studying, todayMins) {
-    const memberCount    = (g.members||[]).length;
+    // Hard validation — never render a card with missing critical fields
+    const name = (g.name || '').trim();
+    if (!name || name === 'undefined' || name === 'null') return '';
+
+    const memberCount    = g.memberCount || (g.members || []).length || 0;
     const maxMembers     = g.maxMembers    || 50;
     const dailyGoalHrs   = g.dailyGoalHrs  || 8;
-    const leader         = g.leader        || (g.members?.[0]?.name) || 'Unknown';
-    const category       = g.category      || 'General';
+    // Resolve leader: prefer stored leader field, then createdBy hint, never 'Unknown' for valid docs
+    const leaderRaw      = g.leader && g.leader !== 'Unknown' ? g.leader : null;
+    const leader         = leaderRaw || (g.createdBy ? 'Admin' : 'Anonymous');
+    const category       = (g.category && g.category !== 'undefined') ? g.category : 'General';
     const camStudy       = !!g.camStudy;
     const promoted       = !!g.promoted;
-    const createdAt      = g.createdAt     || Date.now();
+    const createdAt      = g.createdAt || Date.now();
     const dailyMinsTotal = g.dailyMinsTotal || (studying ? todayMins : 0);
     const attendancePct  = g.attendancePct
       || ((studying && memberCount > 0) ? Math.min(100, Math.round(1 / memberCount * 100)) : 0);
     const col            = _catColor(category);
     const isAdmin        = g.role === 'admin';
+    const isMember       = g.role === 'member' || g.role === 'admin';
     const promoHTML      = promoted ? ' · <span class="sc-promo-badge">Promoted</span>' : '';
+    const categoryUpper  = category.toUpperCase();
 
     return `
       <div class="sc-disc-card" data-sc="enter-room" data-gid="${esc(g.id)}" data-fbcode="${esc(g._fbCode || '')}" role="button" tabindex="0">
         <div class="sc-disc-toprow">
-          <span class="sc-cat-tag" style="background:${col.bg};color:${col.text};border-color:${col.border}">${esc(category)}</span>
+          <span class="sc-cat-tag" style="background:${col.bg};color:${col.text};border-color:${col.border}">${esc(categoryUpper)}</span>
           <span class="sc-disc-time">${esc(_timeAgo(createdAt))}${promoHTML}</span>
         </div>
 
-        <div class="sc-disc-title">${esc(g.name)}</div>
-        ${g.description ? `<div class="sc-disc-desc">${esc(g.description)}</div>` : ''}
+        <div class="sc-disc-title">${esc(name)}</div>
+        ${g.description && g.description !== 'undefined' ? `<div class="sc-disc-desc">${esc(g.description)}</div>` : ''}
 
         <div class="sc-disc-stats-row">
           <span class="sc-dstat"><span class="sc-dstat-icon">🎯</span>${dailyGoalHrs}h goal</span>
@@ -364,7 +361,9 @@
 
         <div class="sc-disc-footer">
           <span class="sc-disc-date">Started ${esc(_formatDate(createdAt))}</span>
-          <span class="sc-disc-role ${isAdmin ? 'sc-role-admin' : 'sc-role-member'}">${isAdmin ? '👑 Admin' : '✓ Member'}</span>
+          ${isMember
+            ? `<span class="sc-disc-role ${isAdmin ? 'sc-role-admin' : 'sc-role-member'}">${isAdmin ? '👑 Admin' : '✓ Member'}</span>`
+            : `<span class="sc-disc-join-hint">Tap to join →</span>`}
         </div>
       </div>`;
   }
@@ -569,27 +568,76 @@
     if (_srTickInterval !== null) { clearInterval(_srTickInterval); _srTickInterval = null; }
   }
 
+  function _isValidGroup(g) {
+    if (!g) return false;
+    const name = g.name;
+    if (!name || typeof name !== 'string') return false;
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === 'undefined' || trimmed === 'null') return false;
+    if (!g.code || typeof g.code !== 'string') return false;
+    return true;
+  }
+
   function _subscribePublicGroups() {
     const db = getDb();
     if (!db) return;
     if (_publicGroupsUnsub) { _publicGroupsUnsub(); _publicGroupsUnsub = null; }
     try {
-      _publicGroupsUnsub = db.collection('groups')
-        .orderBy('createdAt', 'desc')
-        .limit(60)
-        .onSnapshot(snap => {
-          _publicGroups = snap.docs.map(d => {
+      let q = db.collection('groups');
+
+      // Server-side ordering based on active filter tab
+      if (_roomFilter === 'most-members') {
+        q = q.orderBy('memberCount', 'desc');
+      } else if (_roomFilter === 'most-study') {
+        q = q.orderBy('dailyMinsTotal', 'desc');
+      } else {
+        // 'new' (default) and 'cam' both sort by newest first
+        q = q.orderBy('createdAt', 'desc');
+      }
+
+      // Server-side public-only filter (avoids needing a composite index for simple equality)
+      if (_roomPublicOnly) {
+        q = db.collection('groups')
+          .where('isPrivate', '==', false)
+          .orderBy('createdAt', 'desc');
+      }
+
+      q = q.limit(80);
+
+      _publicGroupsUnsub = q.onSnapshot(snap => {
+        _publicGroups = snap.docs
+          .map(d => {
             const data = d.data();
             return {
               ...data,
               id:        data.groupId || d.id,
               _fbCode:   d.id,
+              memberCount: data.memberCount || 0,
               members:   Array(Math.max(1, data.memberCount || 1)).fill(null),
               createdAt: data.createdAt?.toMillis?.() ?? (typeof data.createdAt === 'number' ? data.createdAt : Date.now()),
             };
-          });
-          if (_tab === 'rooms' && !_groupView && !_destroyed) renderSocial();
-        }, () => {});
+          })
+          .filter(_isValidGroup);
+        if (_tab === 'rooms' && !_groupView && !_destroyed) renderSocial();
+      }, err => {
+        // Fallback: if compound query fails (missing index), use simple query
+        if (err && err.code === 'failed-precondition') {
+          db.collection('groups').orderBy('createdAt', 'desc').limit(80)
+            .onSnapshot(snap => {
+              _publicGroups = snap.docs.map(d => {
+                const data = d.data();
+                return {
+                  ...data,
+                  id: data.groupId || d.id, _fbCode: d.id,
+                  memberCount: data.memberCount || 0,
+                  members: Array(Math.max(1, data.memberCount || 1)).fill(null),
+                  createdAt: data.createdAt?.toMillis?.() ?? Date.now(),
+                };
+              }).filter(_isValidGroup);
+              if (_tab === 'rooms' && !_groupView && !_destroyed) renderSocial();
+            }, () => {});
+        }
+      });
     } catch(_) {}
   }
 
@@ -1645,8 +1693,14 @@
 
   function _onChange(e) {
     const el = e.target;
-    if (el.dataset.sc === 'filter-public') { _roomPublicOnly = el.checked; renderSocial(); }
-    else if (el.dataset.sc === 'filter-space') { _roomWithSpace = el.checked; renderSocial(); }
+    if (el.dataset.sc === 'filter-public') {
+      _roomPublicOnly = el.checked;
+      _subscribePublicGroups(); // re-query with/without isPrivate==false filter
+      renderSocial();
+    } else if (el.dataset.sc === 'filter-space') {
+      _roomWithSpace = el.checked;
+      renderSocial(); // client-side capacity filter only
+    }
   }
 
   function _dispatch(act, el) {
@@ -1659,6 +1713,8 @@
 
       case 'room-filter':
         _roomFilter = el.dataset.filter || 'new';
+        // Re-subscribe with new ordering (unsubscribes old listener automatically)
+        _subscribePublicGroups();
         renderSocial();
         break;
 
