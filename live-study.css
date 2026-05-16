@@ -686,3 +686,97 @@
   transition: all 0.2s;
 }
 .lsm-task-clear-btn:active { background: rgba(255,255,255,0.08); }
+
+/* ══════════════════════════════════════
+   XP BOOST BADGE
+══════════════════════════════════════ */
+.lsm-boost-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: linear-gradient(135deg, rgba(255,200,0,0.22), rgba(255,122,26,0.18));
+  border: 1px solid rgba(255,200,0,0.45);
+  border-radius: 10px;
+  padding: 3px 10px;
+  font: 700 12px 'Inter', sans-serif;
+  color: #ffd700;
+  letter-spacing: 0.04em;
+  animation: lsm-boost-pulse 1.8s ease-in-out infinite;
+  margin-left: 4px;
+}
+@keyframes lsm-boost-pulse {
+  0%, 100% { box-shadow: 0 0 6px rgba(255,200,0,0.3); }
+  50%       { box-shadow: 0 0 14px rgba(255,200,0,0.65); }
+}
+
+/* ══════════════════════════════════════
+   TODAY STUDY LOG PANEL
+══════════════════════════════════════ */
+.lsm-today-log {
+  display: none;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  padding: 14px 16px 10px;
+  margin: 0 0 12px 0;
+}
+.lsm-log-header {
+  font: 600 11px 'Inter', sans-serif;
+  color: rgba(255,255,255,0.45);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+.lsm-log-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 9px;
+}
+.lsm-log-icon {
+  font-size: 15px;
+  width: 20px;
+  flex-shrink: 0;
+  text-align: center;
+}
+.lsm-log-bar-wrap {
+  flex: 1;
+  min-width: 0;
+}
+.lsm-log-label {
+  font: 600 11px 'Inter', sans-serif;
+  color: rgba(255,255,255,0.75);
+  margin-bottom: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lsm-log-bar-track {
+  height: 4px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.lsm-log-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ff7a1a, #ffb347);
+  border-radius: 4px;
+  transition: width 0.6s cubic-bezier(0.4,0,0.2,1);
+}
+.lsm-log-time {
+  font: 700 11px 'Inter', sans-serif;
+  color: var(--lsm-accent);
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 52px;
+  text-align: right;
+}
+.lsm-log-total {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 8px;
+  margin-top: 4px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+  font: 700 12px 'Inter', sans-serif;
+  color: rgba(255,255,255,0.65);
+}

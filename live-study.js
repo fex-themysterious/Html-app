@@ -57,6 +57,7 @@
     sessionXPEarned: 0,      // XP earned in current live-study session (delta only)
     lastCommittedXP: 0,      // sessionXPEarned already written to main app
     mainAppXP: 0,            // main app XP at session start (base for display)
+    subjectTimes: {},        // { subjectId: totalMs } accumulated per-subject today
     dday: { label: 'D-Day', date: null },
     allowedApps: [],
     customSubjects: [],
@@ -64,7 +65,7 @@
 
   /* ── DOM refs ───────────────────────────────────────── */
   let overlay, timerEl, statusEl, subjectTimeEl, todayTimeEl;
-  let pauseBtn, xpValEl, levelValEl, streakValEl;
+  let pauseBtn, xpValEl, levelValEl, streakValEl, boostBadgeEl;
   let ddayBadge, ddayCount, characterSvg, auraEl;
   let pCanvas, pCtx, particleAnim, particles = [];
   let tickInterval = null;
@@ -84,6 +85,15 @@
     return `${d.getFullYear()}-${mm}-${dd}`;
   }
 
+  // Study-day boundary is 6 AM: before 6am counts as the previous calendar day.
+  function studyDayKey() {
+    const d = new Date();
+    if (d.getHours() < 6) d.setDate(d.getDate() - 1);
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${mm}-${dd}`;
+  }
+
   function calcStreak(prev, lastDate) {
     if (!lastDate) return 0;
     const today = todayStr();
@@ -95,6 +105,19 @@
     if (lastDate === yesterday) return (prev || 0) + 1;
     if (lastDate === today)     return prev || 0;
     return 0;
+  }
+
+  /* ═══════════════════════════════════════════════════
+     XP BOOST — reads from main app shopBooster
+  ═══════════════════════════════════════════════════ */
+  function isBoosterActive() {
+    try {
+      const raw = localStorage.getItem(MAIN_LS_KEY);
+      if (!raw) return false;
+      const ms = JSON.parse(raw);
+      const exp = ms.shopBooster && ms.shopBooster.expiresAt;
+      return !!(exp && Date.now() < exp);
+    } catch (_) { return false; }
   }
 
   /* ═══════════════════════════════════════════════════
@@ -161,17 +184,24 @@
       const raw = localStorage.getItem(LS_KEY);
       if (raw) {
         const saved = JSON.parse(raw);
-        const today = todayStr();
-        if (saved.lastStudyDate !== today) {
-          // New day — reset all daily / session counters
+        const studyDay = studyDayKey();
+        if (saved.lastStudyDate !== studyDay) {
+          // New study-day (resets at 6 AM) — reset all daily counters
           saved.subjectElapsed    = 0;
           saved.todayElapsed      = 0;
           saved.lastXPMinute      = 0;
           saved.lastCommittedMins = 0;
           saved.sessionXPEarned   = 0;
           saved.lastCommittedXP   = 0;
+          saved.subjectTimes      = {};
         }
+        // sessionElapsed always starts fresh each time the overlay is opened
+        saved.sessionElapsed  = 0;
+        saved.sessionXPEarned = 0;
+        saved.lastCommittedXP = 0;
+        saved.lastXPMinute    = 0;
         Object.assign(state, saved);
+        if (!state.subjectTimes || typeof state.subjectTimes !== 'object') state.subjectTimes = {};
       }
     } catch (_) {}
     // Always pull XP / level / streak from main app — it is the source of truth
@@ -179,7 +209,7 @@
   }
 
   function saveState() {
-    state.lastStudyDate = todayStr();
+    state.lastStudyDate = studyDayKey();
     try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (_) {}
   }
 
@@ -312,7 +342,13 @@
             <span>Streak</span>
             <span class="lsm-xp-val" id="lsm-streak-val">0</span>
           </div>
+          <div class="lsm-boost-badge" id="lsm-boost-badge" style="display:none">
+            <span>⚡ 2×</span>
+          </div>
         </div>
+
+        <!-- TODAY LOG — per-subject accumulated time -->
+        <div class="lsm-today-log" id="lsm-today-log"></div>
 
         <!-- CURRENT TASK CHIP -->
         <div class="lsm-task-chip" id="lsm-task-chip">
@@ -348,6 +384,7 @@
     xpValEl       = document.getElementById('lsm-xp-val');
     levelValEl    = document.getElementById('lsm-level-val');
     streakValEl   = document.getElementById('lsm-streak-val');
+    boostBadgeEl  = document.getElementById('lsm-boost-badge');
     characterSvg  = overlay.querySelector('.lsm-character-svg');
     auraEl        = document.getElementById('lsm-aura');
     pCanvas       = document.getElementById('lsm-particles');
@@ -467,14 +504,23 @@
     if (pCanvas && pCtx) startParticles();
     updateOverlayState();
     updateTimerDisplay();
+    updateXPDisplay();
+    updateTodayLog();
   }
 
   // Exit: save progress, switch mode back to pomodoro, update switcher UI
   function onExitClick() {
     if (state.running) {
-      pauseTimer();   // flush elapsed into state
+      pauseTimer();   // flush elapsed into state + updates subjectTimes
     }
     commitToMainApp();  // write to main app
+    // Reset session-specific counters — today/subject accumulators are kept
+    state.sessionElapsed  = 0;
+    state.lastXPMinute    = 0;
+    state.sessionXPEarned = 0;
+    state.lastCommittedXP = 0;
+    state.sessionStart    = null;
+    syncBaseFromMainApp(); // re-sync XP base so next session starts fresh
     state.mode = 'pomodoro';
     saveState();
     updateModeSwitcherUI();
@@ -506,16 +552,21 @@
     clearInterval(tickInterval); tickInterval = null;
     const now   = Date.now();
     const delta = now - state.sessionStart;
-    // FIX: accumulate into all counters correctly
     state.sessionElapsed  += delta;
     state.subjectElapsed  += delta;
     state.todayElapsed    += delta;
+    // Persist per-subject time
+    if (state.subject) {
+      const sid = state.subject.id || state.subject.name;
+      state.subjectTimes[sid] = state.subjectElapsed;
+    }
     state.sessionStart    = null;
     state.running         = false;
     stopStatusRotation();
     commitToMainApp();   // ← write minutes to main app on every pause
     saveState();
     updateOverlayState();
+    updateTodayLog();
   }
 
   function tick() {
@@ -532,10 +583,11 @@
     if (subjectTimeEl) subjectTimeEl.textContent = formatHMS(totalSubject);
     if (todayTimeEl)   todayTimeEl.textContent   = formatHMS(totalToday);
 
-    // XP: award every complete minute of SESSION time
+    // XP: award every complete minute of SESSION time (doubled if XP Boost active)
     const elapsedMins = Math.floor(totalSession / 60000);
     if (elapsedMins > state.lastXPMinute) {
-      const earned = (elapsedMins - state.lastXPMinute) * XP_PER_MINUTE;
+      const base   = (elapsedMins - state.lastXPMinute) * XP_PER_MINUTE;
+      const earned = isBoosterActive() ? base * 2 : base;
       state.lastXPMinute = elapsedMins;
       awardXP(earned);
       commitToMainApp();   // ← write to main app every minute
@@ -548,13 +600,19 @@
       overlay.classList.remove('lsm-deepwork');
     }
 
-    // FIX: periodic save every 30s — keep sessionElapsed as running total (not reset to 0)
+    // Periodic save every 30s — also update per-subject time map
     if (Math.floor(totalSession / 1000) % 30 === 0) {
-      state.sessionElapsed = totalSession;   // ← full running total, NOT 0
+      state.sessionElapsed = totalSession;
       state.todayElapsed   = totalToday;
       state.subjectElapsed = totalSubject;
-      state.sessionStart   = now;            // reset baseline so delta stays small
+      state.sessionStart   = now;
+      // Persist per-subject accumulated time
+      if (state.subject) {
+        const sid = state.subject.id || state.subject.name;
+        state.subjectTimes[sid] = totalSubject;
+      }
       saveState();
+      updateTodayLog();
     }
   }
 
@@ -652,16 +710,68 @@
     if (xpValEl)     xpValEl.textContent     = earned >= 1000 ? (earned/1000).toFixed(1)+'k' : earned;
     if (levelValEl)  levelValEl.textContent  = state.level;
     if (streakValEl) streakValEl.textContent = state.streak;
+    // Show/hide XP boost badge
+    if (boostBadgeEl) {
+      const active = isBoosterActive();
+      boostBadgeEl.style.display = active ? 'flex' : 'none';
+    }
   }
 
   function showXPPopup(amount) {
     if (!overlay || !overlay.classList.contains('lsm-active')) return;
     const el = document.createElement('div');
     el.className = 'lsm-xp-popup';
-    el.textContent = `+${amount} XP`;
+    const boostLabel = isBoosterActive() ? ' ⚡2×' : '';
+    el.textContent = `+${amount} XP${boostLabel}`;
     el.style.cssText = `top:${40 + Math.random()*30}%;left:${30+Math.random()*40}%`;
     overlay.appendChild(el);
     setTimeout(() => el.remove(), 1600);
+  }
+
+  /* ═══════════════════════════════════════════════════
+     TODAY LOG — per-subject breakdown panel
+  ═══════════════════════════════════════════════════ */
+  function updateTodayLog() {
+    const el = document.getElementById('lsm-today-log');
+    if (!el) return;
+    const times = state.subjectTimes || {};
+    const allSubjects = [...DEFAULT_SUBJECTS, ...(state.customSubjects || [])];
+
+    // Only list subjects with non-zero time today
+    const studied = allSubjects.filter(s => times[s.id] && times[s.id] > 0);
+    if (studied.length === 0) {
+      el.innerHTML = '';
+      el.style.display = 'none';
+      return;
+    }
+
+    const totalMs = Object.values(times).reduce((a, b) => a + b, 0);
+    const maxMs   = Math.max(...studied.map(s => times[s.id]));
+
+    const rows = studied.map(s => {
+      const ms  = times[s.id];
+      const pct = maxMs > 0 ? Math.round((ms / maxMs) * 100) : 0;
+      return `
+        <div class="lsm-log-row">
+          <span class="lsm-log-icon">${s.icon}</span>
+          <div class="lsm-log-bar-wrap">
+            <div class="lsm-log-label">${s.name}</div>
+            <div class="lsm-log-bar-track">
+              <div class="lsm-log-bar-fill" style="width:${pct}%"></div>
+            </div>
+          </div>
+          <span class="lsm-log-time">${formatHMS(ms)}</span>
+        </div>`;
+    }).join('');
+
+    el.style.display = 'block';
+    el.innerHTML = `
+      <div class="lsm-log-header">📊 Today's Study Log</div>
+      ${rows}
+      <div class="lsm-log-total">
+        <span>Total</span>
+        <span>${formatHMS(totalMs)}</span>
+      </div>`;
   }
 
   /* ═══════════════════════════════════════════════════
@@ -852,7 +962,7 @@
         <span class="lsm-modal-row-icon">${s.icon}</span>
         <div class="lsm-modal-row-body">
           <div class="lsm-modal-row-title">${s.name}</div>
-          <div class="lsm-modal-row-sub">${formatHMS(s.id === state.subject?.id ? state.subjectElapsed : 0)} today</div>
+          <div class="lsm-modal-row-sub">${formatHMS((state.subjectTimes && state.subjectTimes[s.id]) || 0)} today</div>
         </div>
         <span class="lsm-modal-check">✓</span>
       </div>
@@ -871,7 +981,8 @@
         const subj = all.find(s => s.id === row.dataset.subjectId);
         if (!subj) return;
         if (!state.subject || state.subject.id !== subj.id) {
-          state.subjectElapsed = 0;
+          // Restore accumulated time for this subject (0 if never studied today)
+          state.subjectElapsed = (state.subjectTimes && state.subjectTimes[subj.id]) || 0;
         }
         state.subject = subj;
         const lbl = document.getElementById('lsm-subject-label');
