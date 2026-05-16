@@ -3253,6 +3253,9 @@
   let _lsSubjectId    = null;       // selected subject id
   let _lsOverlayActive = false;
   let _lsFbTick       = 0;          // throttle counter for Firebase writes
+  let _lsParticleRAF  = null;       // requestAnimationFrame handle for particle canvas
+  let _lsVisibilityHandler = null;  // visibilitychange listener reference
+  let _lsHeartbeatTick = 0;         // heartbeat counter
   let _fsMotiQuote = ''; /* set once on entering full session, shown in motivation box */
   const customDurations = { work: 25, short: 5, long: 15 };
   let focusStartTime = null;
@@ -4381,8 +4384,20 @@
   function _lsTick() {
     if (!_lsRunning) return;
     _lsFbTick++;
+    _lsHeartbeatTick++;
     _lsUpdateDisplay();
     if (_lsFbTick % 10 === 0) _lsBroadcastFb();
+    // Heartbeat: save session state to localStorage every 5 s for crash recovery
+    if (_lsHeartbeatTick % 5 === 0) {
+      try {
+        localStorage.setItem('_ls_heartbeat', JSON.stringify({
+          startTime:   _lsStartTime,
+          elapsedBase: _lsElapsedBase,
+          subjectId:   _lsSubjectId,
+          ts:          Date.now()
+        }));
+      } catch (_) {}
+    }
     updateMiniTimer();
   }
 
@@ -4469,12 +4484,34 @@
 
   function enterLiveSession() {
     if (_lsOverlayActive) return;
-    _lsOverlayActive = true;
-    _lsRunning = true;
-    _lsStartTime = Date.now();
-    _lsElapsedBase = 0;
-    _lsFbTick = 0;
+
+    // ── Session recovery: check for an interrupted session ─────────────
+    let recoveredElapsed = 0;
+    try {
+      const hb = JSON.parse(localStorage.getItem('_ls_heartbeat') || 'null');
+      if (hb && hb.ts && hb.startTime && (Date.now() - hb.ts) < 3_600_000) {
+        // Compute true elapsed from stored start + elapsed base + time since last heartbeat
+        const recoveredSecs = hb.elapsedBase + Math.floor((Date.now() - hb.startTime) / 1000);
+        if (recoveredSecs > 60) {
+          recoveredElapsed = recoveredSecs;
+          // Restore subject if it still exists
+          if (hb.subjectId && !_lsSubjectId) {
+            const sub = findSubject(hb.subjectId);
+            if (sub) _lsSubjectId = hb.subjectId;
+          }
+          toast(`Recovered session: ${_secsToHMS(recoveredSecs)}`, 'info');
+        }
+      }
+    } catch (_) {}
+
+    _lsOverlayActive    = true;
+    _lsRunning          = true;
+    _lsElapsedBase      = recoveredElapsed;
+    _lsStartTime        = Date.now();
+    _lsFbTick           = 0;
+    _lsHeartbeatTick    = 0;
     window._focusActive = true;
+
     let overlay = document.getElementById('ls-overlay');
     if (!overlay) {
       overlay = document.createElement('div');
@@ -4483,11 +4520,23 @@
     }
     renderLiveOverlay();
     _lsTimer = setInterval(_lsTick, 1000);
+
     if (_lsSubjectId && _db && _userId) {
       focusSessions++;
       state.focusStats.sessions[todayKey()] = (state.focusStats.sessions[todayKey()] || 0) + 1;
       saveState();
     }
+
+    // ── Visibility change: keep time accurate when app goes to background ──
+    _lsVisibilityHandler = () => {
+      if (!document.hidden && _lsRunning && _lsStartTime !== null) {
+        // Recalculate elapsed from wall-clock time — prevents timer drift
+        // when the browser throttles intervals in the background.
+        // Nothing to do here since _lsGetElapsed() already uses Date.now().
+      }
+    };
+    document.addEventListener('visibilitychange', _lsVisibilityHandler);
+
     if (typeof window._socialFocusUpdate === 'function') { try { window._socialFocusUpdate(); } catch(_) {} }
     if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
     overlay.addEventListener('touchstart', e => { _fsSwipeStartX = e.touches[0].clientX; _fsSwipeStartY = e.touches[0].clientY; }, { passive: true });
@@ -4502,12 +4551,21 @@
   function exitLiveSession(save) {
     if (!_lsOverlayActive) return;
     clearInterval(_lsTimer); _lsTimer = null;
+    _lsStopParticles();
     const elapsed = _lsGetElapsed();
     _lsRunning = false;
     _lsOverlayActive = false;
     _lsElapsedBase = 0;
     _lsStartTime = null;
+    _lsHeartbeatTick = 0;
     window._focusActive = false;
+    // Remove visibility listener
+    if (_lsVisibilityHandler) {
+      document.removeEventListener('visibilitychange', _lsVisibilityHandler);
+      _lsVisibilityHandler = null;
+    }
+    // Clear heartbeat
+    try { localStorage.removeItem('_ls_heartbeat'); } catch (_) {}
     const overlay = document.getElementById('ls-overlay'); if (overlay) overlay.remove();
     document.title = 'Syllabus Tracker';
     if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
@@ -4564,6 +4622,133 @@
     }, { merge: true }).catch(() => {});
   }
 
+  function _lsStickmanSVG() {
+    return `<svg viewBox="0 0 200 148" fill="none" class="lsf-figure-svg" aria-hidden="true">
+      <defs>
+        <filter id="lsf-glow-ov" x="-40%" y="-40%" width="180%" height="180%">
+          <feGaussianBlur stdDeviation="3" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <filter id="lsf-lamp-glow" x="-120%" y="-120%" width="340%" height="340%">
+          <feGaussianBlur stdDeviation="5.5" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+      <!-- Floating ember particles -->
+      <circle cx="28"  cy="38" r="2.2" fill="#ff7a1a" opacity="0.65" class="lsf-ember lsf-ember-1"/>
+      <circle cx="172" cy="52" r="1.6" fill="#ffaa44" opacity="0.55" class="lsf-ember lsf-ember-2"/>
+      <circle cx="52"  cy="18" r="1.3" fill="#ff7a1a" opacity="0.42" class="lsf-ember lsf-ember-3"/>
+      <circle cx="158" cy="28" r="2.4" fill="#ffaa44" opacity="0.58" class="lsf-ember lsf-ember-4"/>
+      <circle cx="142" cy="8"  r="1.5" fill="#ff7a1a" opacity="0.36" class="lsf-ember lsf-ember-5"/>
+      <!-- Desk surface -->
+      <line x1="22" y1="96" x2="178" y2="96" stroke="#ff7a1a" stroke-width="2.5" filter="url(#lsf-glow-ov)"/>
+      <!-- Desk legs -->
+      <line x1="32"  y1="96" x2="30"  y2="132" stroke="#ff7a1a" stroke-width="1.8" opacity="0.6"/>
+      <line x1="168" y1="96" x2="170" y2="132" stroke="#ff7a1a" stroke-width="1.8" opacity="0.6"/>
+      <!-- Book stack (left of desk) -->
+      <rect x="28" y="82" width="22" height="5" rx="1.5" stroke="#ff7a1a" stroke-width="1.5" fill="rgba(255,122,26,0.14)"/>
+      <rect x="30" y="77" width="18" height="5" rx="1.5" stroke="#ff7a1a" stroke-width="1.4" fill="rgba(255,122,26,0.10)"/>
+      <rect x="29" y="72" width="20" height="5" rx="1.5" stroke="#ff7a1a" stroke-width="1.3" fill="rgba(255,122,26,0.08)"/>
+      <!-- Lamp pole + arm -->
+      <line x1="152" y1="96" x2="152" y2="58" stroke="#ff7a1a" stroke-width="2"/>
+      <line x1="152" y1="58" x2="132" y2="46" stroke="#ff7a1a" stroke-width="2"/>
+      <!-- Lamp shade -->
+      <ellipse cx="124" cy="43" rx="13" ry="7" stroke="#ff7a1a" stroke-width="1.5" fill="rgba(255,210,80,0.18)" filter="url(#lsf-lamp-glow)"/>
+      <!-- Lamp light cone glow -->
+      <ellipse cx="118" cy="76" rx="24" ry="14" fill="rgba(255,200,70,0.06)" class="lsf-lamp-pulse"/>
+      <!-- Head -->
+      <circle cx="105" cy="33" r="13" stroke="#ff7a1a" stroke-width="2.5" fill="none" filter="url(#lsf-glow-ov)" class="lsf-head"/>
+      <!-- Neck + torso -->
+      <line x1="105" y1="46" x2="105" y2="70" stroke="#ff7a1a" stroke-width="2.5"/>
+      <!-- Left arm (bent over desk, studying) -->
+      <line x1="105" y1="55" x2="80"  y2="70" stroke="#ff7a1a" stroke-width="2.5"/>
+      <line x1="80"  y1="70" x2="70"  y2="88" stroke="#ff7a1a" stroke-width="2.5"/>
+      <!-- Right arm -->
+      <line x1="105" y1="55" x2="128" y2="68" stroke="#ff7a1a" stroke-width="2.5"/>
+      <line x1="128" y1="68" x2="135" y2="85" stroke="#ff7a1a" stroke-width="2.5"/>
+      <!-- Legs (hidden under desk) -->
+      <line x1="105" y1="70" x2="96"  y2="87" stroke="#ff7a1a" stroke-width="2.5" opacity="0.45"/>
+      <line x1="105" y1="70" x2="114" y2="87" stroke="#ff7a1a" stroke-width="2.5" opacity="0.45"/>
+      <!-- Open book on desk -->
+      <path d="M82 88 Q105 83 128 88" stroke="#ff7a1a" stroke-width="1.6" fill="rgba(255,122,26,0.07)"/>
+      <path d="M82 88 Q105 93 128 88" stroke="#ff7a1a" stroke-width="1"   opacity="0.38"/>
+      <line x1="105" y1="83" x2="105" y2="93" stroke="#ff7a1a" stroke-width="1" opacity="0.52"/>
+      <!-- Page lines on book -->
+      <line x1="88"  y1="87" x2="102" y2="85" stroke="#ff7a1a" stroke-width="0.8" opacity="0.3"/>
+      <line x1="88"  y1="89.5" x2="102" y2="87.5" stroke="#ff7a1a" stroke-width="0.8" opacity="0.22"/>
+      <line x1="108" y1="85" x2="122" y2="87" stroke="#ff7a1a" stroke-width="0.8" opacity="0.3"/>
+      <line x1="108" y1="87.5" x2="122" y2="89.5" stroke="#ff7a1a" stroke-width="0.8" opacity="0.22"/>
+    </svg>`;
+  }
+
+  function _lsInitParticles() {
+    _lsStopParticles();
+    const canvas = document.getElementById('ls-particles');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const resize = () => {
+      canvas.width  = window.innerWidth;
+      canvas.height = window.innerHeight;
+    };
+    resize();
+
+    // Create glowing floating particles
+    const particles = [];
+    const N = 40;
+    for (let i = 0; i < N; i++) {
+      particles.push({
+        x:       Math.random() * canvas.width,
+        y:       Math.random() * canvas.height,
+        r:       Math.random() * 2.2 + 0.6,
+        speed:   Math.random() * 0.35 + 0.12,
+        opacity: Math.random() * 0.55 + 0.15,
+        drift:   (Math.random() - 0.5) * 0.28,
+        hue:     Math.random() > 0.35 ? 28 : 43,  // orange or amber
+        phase:   Math.random() * Math.PI * 2
+      });
+    }
+
+    let frame = 0;
+    const draw = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      frame++;
+      for (const p of particles) {
+        p.y -= p.speed;
+        p.x += p.drift + Math.sin(frame * 0.018 + p.phase) * 0.18;
+        p.opacity += (Math.random() - 0.5) * 0.018;
+        p.opacity = Math.max(0.08, Math.min(0.72, p.opacity));
+
+        if (p.y < -12) {
+          p.y = canvas.height + 5;
+          p.x = Math.random() * canvas.width;
+        }
+        if (p.x < -12 || p.x > canvas.width + 12) {
+          p.x = Math.random() * canvas.width;
+        }
+
+        ctx.save();
+        ctx.globalAlpha = p.opacity;
+        const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 3.5);
+        grad.addColorStop(0,   `hsla(${p.hue}, 100%, 72%, 1)`);
+        grad.addColorStop(0.45, `hsla(${p.hue}, 92%, 55%, 0.5)`);
+        grad.addColorStop(1,   `hsla(${p.hue}, 80%, 40%, 0)`);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r * 3.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      _lsParticleRAF = requestAnimationFrame(draw);
+    };
+    draw();
+  }
+
+  function _lsStopParticles() {
+    if (_lsParticleRAF) { cancelAnimationFrame(_lsParticleRAF); _lsParticleRAF = null; }
+  }
+
   function renderLiveOverlay() {
     const overlay = document.getElementById('ls-overlay'); if (!overlay) return;
     const elapsed = _lsGetElapsed();
@@ -4581,17 +4766,17 @@
       .filter(Boolean).sort((a, b) => b.mins - a.mins).slice(0, 5);
     if (!subjectLog.length && curSub) subjectLog.push({ id: curSub.id, name: curSub.name, color: curSub.color || '#ff7a1a', mins: Math.round(elapsed / 60) });
     const logTotalMins = Math.max(1, subjectLog.reduce((a, b) => a + b.mins, 0));
-    const _curSound = soundById(ambientMode);
-    const ambientIcon = _curSound.label.split(' ')[0];
-    overlay.className = _lsRunning ? 'ls-running' : '';
-    overlay.innerHTML = `<div class="fs-bg"><div class="fs-bg-earth"></div>${_genFsParticles()}</div>
+    overlay.className = _lsRunning ? 'ls-running' : 'ls-paused';
+    overlay.innerHTML = `
+    <canvas class="lsf-particle-canvas" id="ls-particles"></canvas>
     <div class="lsf-wrap">
       <div class="lsf-top-bar">
         <span class="lsf-mode-label">Focusing</span>
         <button class="lsf-exit-btn" data-act="ls-exit">✕ Exit</button>
       </div>
       <div class="lsf-clock-area">
-        <div class="lsf-elapsed" id="ls-elapsed">${_secsToHMS(elapsed)}</div>
+        <div class="lsf-elapsed${!_lsRunning ? ' lsf-paused-clock' : ''}" id="ls-elapsed">${_secsToHMS(elapsed)}</div>
+        ${!_lsRunning ? '<div class="lsf-paused-badge">⏸ Paused</div>' : ''}
       </div>
       <div class="lsf-split-row">
         <div class="lsf-split-item">
@@ -4605,13 +4790,13 @@
         </div>
       </div>
       <div class="lsf-badges-row">
-        <div class="lsf-badge"><span class="lsf-badge-icon">⚡</span> XP <span class="lsf-badge-val">${xpTot}</span></div>
+        <div class="lsf-badge"><span class="lsf-badge-icon">⚡</span>&nbsp;XP&nbsp;<span class="lsf-badge-val" id="ls-xp-val">${xpTot.toLocaleString()}</span></div>
         <div class="lsf-badge-sep">|</div>
-        <div class="lsf-badge"><span class="lsf-badge-icon">🏅</span> Lv <span class="lsf-badge-val">${lvInfo.level}</span></div>
+        <div class="lsf-badge"><span class="lsf-badge-icon">🏅</span>&nbsp;Lv&nbsp;<span class="lsf-badge-val">${lvInfo.level}</span></div>
         <div class="lsf-badge-sep">|</div>
-        <div class="lsf-badge"><span class="lsf-badge-icon">🔥</span> Streak <span class="lsf-badge-val">${streak}</span></div>
+        <div class="lsf-badge"><span class="lsf-badge-icon">🔥</span>&nbsp;Streak&nbsp;<span class="lsf-badge-val">${streak}</span></div>
         <div class="lsf-badge-sep">|</div>
-        <div class="lsf-badge lsf-badge-mult"><span class="lsf-badge-icon">⚡</span> <span class="lsf-badge-val">${mult}×</span></div>
+        <div class="lsf-badge lsf-badge-mult${mult > 1 ? ' lsf-badge-mult--active' : ''}"><span class="lsf-badge-icon">⚡</span>&nbsp;<span class="lsf-badge-val">${mult}×</span></div>
       </div>
       <div class="lsf-log-card">
         <div class="lsf-log-title">📊 TODAY'S STUDY LOG</div>
@@ -4635,36 +4820,16 @@
           : `<span class="lsf-sub-name lsf-sub-placeholder">Tap to select subject</span>`}
         <span class="lsf-sub-chev">›</span>
       </div>
-      <div class="lsf-illustration">
-        <svg viewBox="0 0 200 148" fill="none" class="lsf-figure-svg" aria-hidden="true">
-          <defs><filter id="lsf-glow-ov" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="2.5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
-          <circle cx="154" cy="22" r="2.8" fill="#ff7a1a" opacity="0.75"/>
-          <circle cx="162" cy="11" r="2.2" fill="#ff7a1a" opacity="0.55"/>
-          <circle cx="168" cy="3"  r="1.6" fill="#ff7a1a" opacity="0.38"/>
-          <circle cx="149" cy="32" r="1.8" fill="#ff7a1a" opacity="0.45"/>
-          <circle cx="158" cy="36" r="1.2" fill="#ff7a1a" opacity="0.28"/>
-          <circle cx="100" cy="30" r="12" stroke="#ff7a1a" stroke-width="2.5" fill="none" filter="url(#lsf-glow-ov)"/>
-          <line x1="100" y1="42" x2="100" y2="82" stroke="#ff7a1a" stroke-width="2.5"/>
-          <line x1="100" y1="57" x2="76"  y2="70" stroke="#ff7a1a" stroke-width="2.5"/>
-          <line x1="76"  y1="70" x2="72"  y2="82" stroke="#ff7a1a" stroke-width="2.5"/>
-          <line x1="100" y1="57" x2="124" y2="70" stroke="#ff7a1a" stroke-width="2.5"/>
-          <line x1="124" y1="70" x2="130" y2="82" stroke="#ff7a1a" stroke-width="2.5"/>
-          <line x1="100" y1="82" x2="87"  y2="103" stroke="#ff7a1a" stroke-width="2.5"/>
-          <line x1="87"  y1="103" x2="80" y2="116" stroke="#ff7a1a" stroke-width="2.5"/>
-          <line x1="100" y1="82" x2="113" y2="103" stroke="#ff7a1a" stroke-width="2.5"/>
-          <line x1="113" y1="103" x2="120" y2="116" stroke="#ff7a1a" stroke-width="2.5"/>
-          <line x1="40"  y1="84" x2="168" y2="84"  stroke="#ff7a1a" stroke-width="2.5"/>
-          <rect x="50" y="74" width="32" height="10" rx="2" stroke="#ff7a1a" stroke-width="1.5" fill="rgba(255,122,26,0.1)"/>
-          <line x1="66" y1="74" x2="66" y2="84" stroke="#ff7a1a" stroke-width="1" opacity="0.5"/>
-          <line x1="45"  y1="84" x2="43"  y2="116" stroke="#ff7a1a" stroke-width="2"/>
-          <line x1="163" y1="84" x2="165" y2="116" stroke="#ff7a1a" stroke-width="2"/>
-          <line x1="148" y1="84" x2="148" y2="50"  stroke="#ff7a1a" stroke-width="2"/>
-          <line x1="148" y1="50" x2="136" y2="41"  stroke="#ff7a1a" stroke-width="2"/>
-          <path d="M130 35 L143 35 L139 44 L134 44 Z" stroke="#ff7a1a" stroke-width="1.5" fill="rgba(255,122,26,0.15)"/>
-        </svg>
+      <div class="lsf-illustration">${_lsStickmanSVG()}</div>
+      <div class="lsf-play-wrap">
+        <button class="lsf-play-btn" id="ls-play-btn" data-act="ls-play-pause">
+          <span class="lsf-play-icon">${_lsRunning ? '⏸' : '▶'}</span>
+          <span class="lsf-ripple-ring" id="ls-ripple"></span>
+        </button>
       </div>
-      <button class="lsf-play-btn" id="ls-play-btn" data-act="ls-play-pause">${_lsRunning ? '⏸' : '▶'}</button>
     </div>`;
+    // Kick off particle canvas animation after the DOM update settles
+    requestAnimationFrame(() => _lsInitParticles());
   }
 
   function formatFocusTime(sec) { const m = Math.floor(sec / 60), s = sec % 60; return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; }
@@ -7565,20 +7730,50 @@
       return;
     }
     if (act === 'ls-play-pause') {
+      // Ripple animation
+      const pb = document.getElementById('ls-play-btn');
+      if (pb) {
+        pb.classList.add('lsf-ripple-active');
+        setTimeout(() => pb.classList.remove('lsf-ripple-active'), 600);
+      }
       if (_lsRunning) {
         _lsElapsedBase = _lsGetElapsed();
         _lsStartTime = null;
         _lsRunning = false;
         clearInterval(_lsTimer); _lsTimer = null;
-        const pb = document.getElementById('ls-play-btn');
-        if (pb) pb.textContent = '▶';
+        if (pb) {
+          const icon = pb.querySelector('.lsf-play-icon');
+          if (icon) icon.textContent = '▶';
+          pb.style.animation = 'none';
+        }
+        const overlay = document.getElementById('ls-overlay');
+        if (overlay) overlay.className = 'ls-paused';
+        const elEl = document.getElementById('ls-elapsed');
+        if (elEl) elEl.classList.add('lsf-paused-clock');
         window._focusActive = false;
+        // Show paused badge
+        const ca = document.querySelector('.lsf-clock-area');
+        if (ca && !ca.querySelector('.lsf-paused-badge')) {
+          const badge = document.createElement('div');
+          badge.className = 'lsf-paused-badge'; badge.textContent = '⏸ Paused';
+          ca.appendChild(badge);
+        }
       } else {
         _lsRunning = true;
         _lsStartTime = Date.now();
         _lsTimer = setInterval(_lsTick, 1000);
-        const pb = document.getElementById('ls-play-btn');
-        if (pb) pb.textContent = '⏸';
+        if (pb) {
+          const icon = pb.querySelector('.lsf-play-icon');
+          if (icon) icon.textContent = '⏸';
+          pb.style.animation = '';
+        }
+        const overlay = document.getElementById('ls-overlay');
+        if (overlay) overlay.className = 'ls-running';
+        const elEl = document.getElementById('ls-elapsed');
+        if (elEl) elEl.classList.remove('lsf-paused-clock');
+        // Remove paused badge
+        const badge = document.querySelector('.lsf-paused-badge');
+        if (badge) badge.remove();
         window._focusActive = true;
       }
       return;
