@@ -2540,6 +2540,11 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .lsf-head { animation: lsf-head-breathe 3.6s ease-in-out infinite; }
 @keyframes lsf-head-breathe { 0%,100%{stroke-width:2.5;opacity:1}50%{stroke-width:3.1;opacity:0.80} }
 
+/* ── Flexible spacer to vertically balance content ── */
+.lsf-spacer {
+  flex: 1; min-height: 20px; max-height: 80px;
+}
+
 /* ── Play / Pause button ── */
 .lsf-play-wrap {
   position: relative; flex-shrink: 0; margin-top: 8px;

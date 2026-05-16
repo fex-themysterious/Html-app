@@ -4799,7 +4799,7 @@
         }).join('') : `<div class="lsf-log-empty">No sessions logged today yet.</div>`}
         <div class="lsf-log-total"><span>Total</span><span id="ls-log-total-val">${_secsToHMS(todaySecs)}</span></div>
       </div>
-      <div class="lsf-subject-row" id="ls-sub-row" onclick="window._lsOpenPicker()">
+      <div class="lsf-subject-row" id="ls-sub-row">
         <span class="lsf-sub-icon">📚</span>
         ${curSub
           ? `<span class="lsf-sub-name">${escapeHTML(curSub.name)}</span>
@@ -4807,6 +4807,7 @@
           : `<span class="lsf-sub-name lsf-sub-placeholder">Tap to select subject</span>`}
         <span class="lsf-sub-chev">›</span>
       </div>
+      <div class="lsf-spacer"></div>
       <div class="lsf-play-wrap">
         <button class="lsf-play-btn" id="ls-play-btn" data-act="ls-play-pause">
           <span class="lsf-play-icon">${_lsRunning ? '⏸' : '▶'}</span>
@@ -4815,8 +4816,8 @@
       </div>
     </div>`;
 
-    // Expose subject picker as global so onclick attribute always reaches it
-    window._lsOpenPicker = () => {
+    // Subject picker — defined before attaching listener so it's always fresh
+    const _openPickerFn = () => {
       const ov = document.getElementById('ls-overlay'); if (!ov) return;
       const existing = ov.querySelector('.lsf-sub-picker');
       if (existing) { existing.remove(); return; }
@@ -4830,15 +4831,36 @@
         ${subjects.map(s => `<button class="lsf-sub-picker-item${_lsSubjectId === s.id ? ' lsf-sub-picker-active' : ''}" data-sid="${escapeHTML(s.id)}" style="border-left:3px solid ${s.color||'#ff7a1a'}">${escapeHTML(s.name)}</button>`).join('')}
       `;
       picker.querySelectorAll('button').forEach(btn => {
-        btn.onclick = (ev) => {
+        const selectSub = (ev) => {
           ev.stopPropagation();
           _lsSubjectId = btn.dataset.sid || null;
           picker.remove();
           renderLiveOverlay();
         };
+        btn.addEventListener('click', selectSub);
+        btn.addEventListener('touchend', (ev) => { ev.preventDefault(); selectSub(ev); }, { passive: false });
       });
       ov.appendChild(picker);
     };
+    window._lsOpenPicker = _openPickerFn;
+
+    // Attach click + touchend directly to the subject row for reliable mobile taps
+    const subRowEl = overlay.querySelector('#ls-sub-row');
+    if (subRowEl) {
+      let _subRowTouched = false;
+      subRowEl.addEventListener('touchend', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        _subRowTouched = true;
+        _openPickerFn();
+        setTimeout(() => { _subRowTouched = false; }, 400);
+      }, { passive: false });
+      subRowEl.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (_subRowTouched) return;
+        _openPickerFn();
+      });
+    }
 
     requestAnimationFrame(() => _lsInitParticles());
   }
