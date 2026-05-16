@@ -1017,6 +1017,8 @@
       minsToHrs:         function(m)      { return minsToHrs(m); },
       focusIsRunning:    function()       { return focusRunning === true; },
       focusStartTime:    function()       { return focusRunning ? focusStartTime : null; },
+      getDb:             function()       { return _db; },
+      getUserId:         function()       { return _userId; },
     };
   }, 0);
 

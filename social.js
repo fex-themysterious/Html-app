@@ -30,6 +30,9 @@
   };
   const todayKey     = () => { try { return ui().todayKey?.() ?? new Date().toISOString().slice(0,10); } catch(_) { return new Date().toISOString().slice(0,10); } };
   const getMainState = () => { try { return ui().state?.() ?? {}; } catch(_) { return {}; } };
+  const getDb        = () => { try { return ui().getDb?.()     ?? null; } catch(_) { return null; } };
+  const getUserId    = () => { try { return ui().getUserId?.() ?? null; } catch(_) { return null; } };
+  const getFb        = () => { try { return window.firebase    ?? null; } catch(_) { return null; } };
 
   // ── Data ─────────────────────────────────────────────────────────────────
   function scLoad() {
@@ -58,6 +61,11 @@
   let _srTab          = 'home';
   let _settingsView   = false;
   let _srTickInterval = null;
+  let _srTickCount    = 0;
+  let _publicGroups        = [];
+  let _publicGroupsUnsub   = null;
+  let _memberUnsub         = null;
+  let _liveMembers         = {};
 
   const isStudying = () => { try { return window._focusActive === true; } catch(_) { return false; } };
 
@@ -222,8 +230,14 @@
       if (dirty) scSave(sc);
     }
 
-    // Filter
-    let groups = [...sc.groups];
+    // Use Firebase public groups for discovery feed when available; fall back to local
+    let groups = _publicGroups.length > 0
+      ? _publicGroups.map(g => ({
+          ...g,
+          role: sc.groups.find(x => x.code === g._fbCode)?.role ?? null,
+        }))
+      : [...sc.groups];
+
     if (_roomPublicOnly) groups = groups.filter(g => !g.isPrivate);
     if (_roomWithSpace)  groups = groups.filter(g => (g.members||[]).length < (g.maxMembers||50));
     if (_roomFilter === 'cam') groups = groups.filter(g => g.camStudy);
@@ -241,14 +255,15 @@
                data-sc="room-filter" data-filter="${f.id}">${f.label}</button>`
     ).join('');
 
+    const hasNoGroups = _publicGroups.length === 0 && sc.groups.length === 0;
     const emptyHtml = `
       <div class="sc-disc-empty">
         <div class="sc-disc-empty-icon">🌍</div>
-        <div class="sc-disc-empty-title">${sc.groups.length === 0 ? 'No Study Groups Yet' : 'No Groups Match'}</div>
-        <div class="sc-disc-empty-sub">${sc.groups.length === 0
+        <div class="sc-disc-empty-title">${hasNoGroups ? 'No Study Groups Yet' : 'No Groups Match'}</div>
+        <div class="sc-disc-empty-sub">${hasNoGroups
           ? 'Create your first group and invite others to study together globally.'
           : 'Try adjusting the filters above.'}</div>
-        ${sc.groups.length === 0
+        ${hasNoGroups
           ? `<button class="sc-btn sc-btn-primary sc-disc-create-btn" data-sc="create-group">${ICON.plus} Create a Group</button>`
           : ''}
       </div>`;
@@ -297,7 +312,7 @@
     const promoHTML      = promoted ? ' · <span class="sc-promo-badge">Promoted</span>' : '';
 
     return `
-      <div class="sc-disc-card" data-sc="enter-room" data-gid="${esc(g.id)}" role="button" tabindex="0">
+      <div class="sc-disc-card" data-sc="enter-room" data-gid="${esc(g.id)}" data-fbcode="${esc(g._fbCode || '')}" role="button" tabindex="0">
         <div class="sc-disc-toprow">
           <span class="sc-cat-tag" style="background:${col.bg};color:${col.text};border-color:${col.border}">${esc(category)}</span>
           <span class="sc-disc-time">${esc(_timeAgo(createdAt))}${promoHTML}</span>
@@ -441,8 +456,14 @@
     return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
   }
 
+  function _isMemberByCode(code) {
+    try { return scLoad().groups.some(g => g.code === code); } catch(_) { return false; }
+  }
+
   function _srMemberIsActive(m) {
     if (m.id === 'me') return ui().focusIsRunning?.() === true;
+    const uid = m.id || m.uid;
+    if (uid && _liveMembers[uid]) return !!_liveMembers[uid].isStudying;
     return false;
   }
 
@@ -454,38 +475,194 @@
       const elapsed = ft ? Math.floor((Date.now() - ft) / 1000) : 0;
       return storedMins * 60 + elapsed;
     }
+    const uid = m.id || m.uid;
+    if (uid && _liveMembers[uid]) {
+      const lm = _liveMembers[uid];
+      const baseMins = (lm.dateKey === tk ? (lm.elapsedTimeToday || 0) : 0);
+      const extra = lm.isStudying
+        ? Math.floor((Date.now() - (lm.studyStartedAt || Date.now())) / 1000)
+        : 0;
+      return baseMins * 60 + extra;
+    }
     return (m.todayKey === tk ? (m.todayMins || 0) : 0) * 60;
   }
 
   function _startSrTicker(gid) {
     _stopSrTicker();
+    _srTickCount = 0;
+    // Subscribe to Firebase member presence for this room
+    const sc0 = scLoad();
+    const g0  = sc0.groups.find(x => x.id === gid);
+    if (g0 && g0.code) _subscribeRoomMembers(g0.code);
+
     _srTickInterval = setInterval(() => {
       const view = document.getElementById('view-social');
       if (!view || !view.querySelector('.sr-room')) { _stopSrTicker(); return; }
       const sc = scLoad();
       const g  = sc.groups.find(x => x.id === gid);
       if (!g) { _stopSrTicker(); return; }
+
+      // Update timers for local members
       (g.members || []).forEach(m => {
-        const el = view.querySelector(`[data-sr-timer="${m.id}"]`);
-        if (el) el.textContent = _fmtSecs(_srMemberSeconds(m));
+        const timerEl = view.querySelector(`[data-sr-timer="${m.id}"]`);
+        if (timerEl) timerEl.textContent = _fmtSecs(_srMemberSeconds(m));
       });
+      // Also update timers for Firebase-only members
+      Object.keys(_liveMembers).forEach(uid => {
+        const timerEl = view.querySelector(`[data-sr-timer="${uid}"]`);
+        if (timerEl) timerEl.textContent = _fmtSecs(_srMemberSeconds({ id: uid }));
+      });
+
       const me = (g.members || []).find(x => x.id === 'me');
-      const activeCnt = (me && _srMemberIsActive(me)) ? 1 : 0;
+      const fbActiveCount = Object.values(_liveMembers).filter(x => x.isStudying).length;
+      const meActive = me ? _srMemberIsActive(me) : false;
+      const activeCnt = meActive ? Math.max(1, fbActiveCount) : fbActiveCount;
       const cntEl = view.querySelector('.sr-studying-count');
       if (cntEl) cntEl.textContent = activeCnt;
+
       if (me) {
         const myCard = view.querySelector(`[data-sr-card="${me.id}"]`);
         if (myCard) {
           const isActive     = myCard.classList.contains('sr-card-active');
           const shouldActive = _srMemberIsActive(me);
-          if (isActive !== shouldActive) { _stopSrTicker(); renderSocial(); }
+          if (isActive !== shouldActive) { _stopSrTicker(); renderSocial(); return; }
         }
+      }
+
+      // Broadcast self presence to Firebase every 30 ticks (~30 s)
+      _srTickCount++;
+      if (_srTickCount % 30 === 0 && g.code) {
+        const ms_ = getMainState(), tk_ = todayKey();
+        const todayMins_ = ((ms_.focusStats || {}).minutesByDate || {})[tk_] || 0;
+        _writeSelfPresence(g.code, meActive, todayMins_, null);
       }
     }, 1000);
   }
 
   function _stopSrTicker() {
     if (_srTickInterval !== null) { clearInterval(_srTickInterval); _srTickInterval = null; }
+  }
+
+  function _subscribePublicGroups() {
+    const db = getDb();
+    if (!db) return;
+    if (_publicGroupsUnsub) { _publicGroupsUnsub(); _publicGroupsUnsub = null; }
+    try {
+      _publicGroupsUnsub = db.collection('groups')
+        .orderBy('createdAt', 'desc')
+        .limit(60)
+        .onSnapshot(snap => {
+          _publicGroups = snap.docs.map(d => {
+            const data = d.data();
+            return {
+              ...data,
+              id:        data.groupId || d.id,
+              _fbCode:   d.id,
+              members:   Array(Math.max(1, data.memberCount || 1)).fill(null),
+              createdAt: data.createdAt?.toMillis?.() ?? (typeof data.createdAt === 'number' ? data.createdAt : Date.now()),
+            };
+          });
+          if (_tab === 'rooms' && !_groupView && !_destroyed) renderSocial();
+        }, () => {});
+    } catch(_) {}
+  }
+
+  function _subscribeRoomMembers(code) {
+    if (_memberUnsub) { _memberUnsub(); _memberUnsub = null; }
+    _liveMembers = {};
+    const db = getDb();
+    if (!db || !code) return;
+    try {
+      _memberUnsub = db.collection('groups').doc(code)
+        .collection('members')
+        .onSnapshot(snap => {
+          _liveMembers = {};
+          snap.docs.forEach(d => { _liveMembers[d.id] = d.data(); });
+          // Lightweight DOM update — only update timers if room is rendered
+          const view = document.getElementById('view-social');
+          if (!view || !view.querySelector('.sr-room')) return;
+          const tk = todayKey();
+          Object.keys(_liveMembers).forEach(uid => {
+            const timerEl = view.querySelector(`[data-sr-timer="${uid}"]`);
+            if (timerEl) timerEl.textContent = _fmtSecs(_srMemberSeconds({ id: uid }));
+          });
+          const onlineCount = Object.values(_liveMembers).filter(x => x.isStudying).length;
+          const cntEl = view.querySelector('.sr-studying-count');
+          if (cntEl) cntEl.textContent = onlineCount;
+        }, () => {});
+    } catch(_) {}
+  }
+
+  function _unsubscribeRoomMembers() {
+    if (_memberUnsub) { _memberUnsub(); _memberUnsub = null; }
+    _liveMembers = {};
+  }
+
+  function _writeSelfPresence(code, isStudying, todayMins, subjectName) {
+    const db = getDb(), uid = getUserId(), fb = getFb();
+    if (!db || !uid || !code || !fb) return;
+    const update = {
+      uid,
+      isStudying:       !!isStudying,
+      elapsedTimeToday: todayMins || 0,
+      currentSubject:   subjectName || null,
+      dateKey:          todayKey(),
+      lastUpdated:      fb.firestore.FieldValue.serverTimestamp(),
+    };
+    if (isStudying) update.studyStartedAt = Date.now();
+    db.collection('groups').doc(code).collection('members').doc(uid)
+      .set(update, { merge: true }).catch(() => {});
+  }
+
+  async function _restoreGroupsFromFirebase() {
+    const db = getDb(), uid = getUserId();
+    if (!db || !uid) return;
+    try {
+      const userSnap = await db.collection('users').doc(uid).get();
+      if (!userSnap.exists) return;
+      const joinedCodes = userSnap.data().joinedRooms || [];
+      if (!joinedCodes.length) return;
+      const sc = scLoad();
+      const existingCodes = sc.groups.map(g => g.code);
+      const missing = joinedCodes.filter(c => !existingCodes.includes(c));
+      if (!missing.length) return;
+      const ms = getMainState();
+      const myName = ms.profile?.name || 'You';
+      await Promise.all(missing.map(async code => {
+        try {
+          const snap = await db.collection('groups').doc(code).get();
+          if (!snap.exists) return;
+          const data = snap.data();
+          const sc2 = scLoad();
+          if (sc2.groups.some(g => g.code === code)) return;
+          let myRole = 'member';
+          try {
+            const mSnap = await db.collection('groups').doc(code).collection('members').doc(uid).get();
+            if (mSnap.exists) myRole = mSnap.data().role || 'member';
+          } catch(_) {}
+          sc2.groups.push({
+            id:           data.groupId || code,
+            name:         data.name || `Group ${code}`,
+            icon:         data.icon || '📚',
+            code:         data.code || code,
+            isPrivate:    data.isPrivate || false,
+            description:  data.description || '',
+            category:     data.category || 'General',
+            dailyGoalHrs: data.dailyGoalHrs || 8,
+            maxMembers:   data.maxMembers || 50,
+            leader:       data.leader || 'Admin',
+            camStudy:     data.camStudy || false,
+            promoted:     false,
+            createdAt:    data.createdAt?.toMillis?.() ?? Date.now(),
+            dailyMinsTotal: 0, attendancePct: 0,
+            role:    myRole,
+            members: [{ id: uid, name: myName, role: myRole, joinedAt: Date.now() }],
+          });
+          scSave(sc2);
+        } catch(_) {}
+      }));
+      if (missing.length > 0 && window._currentTab === 'social') renderSocial();
+    } catch(_) {}
   }
 
   // ── Study Room SVG constants ──────────────────────────────────────────────
@@ -680,19 +857,32 @@
 
   function _renderSrHome(g, sc) {
     const members  = g.members || [];
+    const myUid    = getUserId();
     const me       = members.find(x => x.id === 'me');
     const meActive = me ? _srMemberIsActive(me) : false;
-    const activeCount = meActive ? 1 : 0;
-    const memberCards = members.map(m => {
-      const active      = m.id === 'me' ? meActive : false;
+
+    // Merge Firebase-only members (not already in local list)
+    const fbExtra = Object.entries(_liveMembers)
+      .filter(([uid]) => !members.some(m => m.id === uid || (m.id === 'me' && uid === myUid)))
+      .map(([uid, data]) => ({
+        id: uid, name: data.displayName || 'Studying…', role: data.role || 'member',
+        _fromFirebase: true,
+      }));
+    const allMembers  = [...members, ...fbExtra];
+    const fbOnline    = Object.values(_liveMembers).filter(x => x.isStudying).length;
+    const activeCount = meActive ? Math.max(1, fbOnline) : fbOnline;
+
+    const memberCards = allMembers.map(m => {
+      const active      = m.id === 'me' ? meActive : _srMemberIsActive(m);
       const secs        = _srMemberSeconds(m);
       const name        = m.name || 'Unknown';
       const displayName = name.length > 10 ? name.slice(0, 9) + '…' : name;
+      const timerId     = m.id === 'me' ? 'me' : (m.id || m.uid);
       return `
         <div class="sr-member-card ${active ? 'sr-card-active' : 'sr-card-idle'}" data-sr-card="${esc(m.id)}">
           <div class="sr-card-icon">${active ? SR_ACTIVE_DESK : SR_IDLE_DESK}</div>
           <div class="sr-card-name">${esc(displayName)}</div>
-          <div class="sr-card-timer${active ? ' sr-timer-live' : ''}" data-sr-timer="${esc(m.id)}">${_fmtSecs(secs)}</div>
+          <div class="sr-card-timer${active ? ' sr-timer-live' : ''}" data-sr-timer="${esc(timerId)}">${_fmtSecs(secs)}</div>
         </div>`;
     });
     return `
@@ -1093,7 +1283,7 @@
         const sc = scLoad();
         const ms = getMainState();
         const myName = ms.profile?.name || 'You';
-        sc.groups.push({
+        const newGroup = {
           id: genId(), name, icon: selectedIcon,
           code: genCode(), isPrivate: privEl.checked,
           description: descEl.value.trim(),
@@ -1108,8 +1298,41 @@
           attendancePct:  0,
           role: 'admin',
           members: [{ id:'me', name:myName, role:'admin', joinedAt:Date.now() }],
-        });
+        };
+        sc.groups.push(newGroup);
         scSave(sc);
+
+        // Persist to Firebase so other users can discover and join
+        const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
+        if (db_ && uid_ && fb_) {
+          db_.collection('groups').doc(newGroup.code).set({
+            groupId:      newGroup.id,
+            code:         newGroup.code,
+            name:         newGroup.name,
+            icon:         newGroup.icon,
+            description:  newGroup.description || '',
+            category:     newGroup.category || 'General',
+            dailyGoalHrs: newGroup.dailyGoalHrs || 8,
+            maxMembers:   newGroup.maxMembers || 50,
+            joinMode:     newGroup.joinMode || 'open',
+            camStudy:     !!newGroup.camStudy,
+            isPrivate:    !!newGroup.isPrivate,
+            leader:       myName,
+            createdAt:    fb_.firestore.FieldValue.serverTimestamp(),
+            createdBy:    uid_,
+            memberCount:  1,
+            dailyMinsTotal: 0,
+          }).catch(() => {});
+          db_.collection('groups').doc(newGroup.code).collection('members').doc(uid_).set({
+            uid: uid_, displayName: myName, role: 'admin',
+            joinedAt: fb_.firestore.FieldValue.serverTimestamp(),
+            isStudying: false, currentSubject: null, elapsedTimeToday: 0,
+          }).catch(() => {});
+          db_.collection('users').doc(uid_).set({
+            joinedRooms: fb_.firestore.FieldValue.arrayUnion(newGroup.code)
+          }, { merge: true }).catch(() => {});
+        }
+
         closeModal();
         toast(`"${name}" created! 🎉`, 'success');
         _tab = 'rooms';
@@ -1140,27 +1363,99 @@
       const submitEl = root.querySelector('#sc-do-join');
       codeEl.focus();
       codeEl.addEventListener('input', () => { codeEl.value = codeEl.value.toUpperCase().replace(/[^A-Z0-9]/g,''); });
-      const doJoin = () => {
-        const code = codeEl.value.trim().toUpperCase();
-        if (code.length < 4) { errEl.textContent = 'Enter a valid invite code (4–8 characters).'; errEl.style.display=''; return; }
-        const sc = scLoad();
-        if (sc.groups.find(g => g.code === code)) { errEl.textContent = 'You already belong to a group with this code.'; errEl.style.display=''; return; }
-        const ms = getMainState();
-        const myName = ms.profile?.name || 'You';
-        sc.groups.push({
+      const _doLocalFallbackJoin = (code) => {
+        const sc2 = scLoad();
+        if (sc2.groups.find(g => g.code === code)) return;
+        const ms2 = getMainState();
+        const myName2 = ms2.profile?.name || 'You';
+        sc2.groups.push({
           id: genId(), name: `Group ${code}`, icon: '📚',
           code, isPrivate: false, description: '',
           category: 'General', dailyGoalHrs: 8, maxMembers: 50,
           leader: 'Admin', camStudy: false, promoted: false,
           createdAt: Date.now(), dailyMinsTotal: 0, attendancePct: 0,
           role: 'member',
-          members: [{ id:'me', name:myName, role:'member', joinedAt:Date.now() }],
+          members: [{ id:'me', name:myName2, role:'member', joinedAt:Date.now() }],
         });
-        scSave(sc);
+        scSave(sc2);
         closeModal();
-        toast('Group joined!', 'success');
+        toast('Group joined (offline mode)', 'success');
         _tab = 'rooms';
         renderSocial();
+      };
+
+      const doJoin = () => {
+        const code = codeEl.value.trim().toUpperCase();
+        if (code.length < 4) { errEl.textContent = 'Enter a valid invite code (4–8 characters).'; errEl.style.display=''; return; }
+        const sc = scLoad();
+        if (sc.groups.find(g => g.code === code)) { errEl.textContent = 'You already belong to a group with this code.'; errEl.style.display=''; return; }
+
+        const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
+        if (!db_) { _doLocalFallbackJoin(code); return; }
+
+        submitEl.disabled = true;
+        submitEl.textContent = 'Searching…';
+        errEl.style.display = 'none';
+
+        db_.collection('groups').doc(code).get().then(snap => {
+          if (!snap.exists) {
+            errEl.textContent = 'No group found with this code. Please check and try again.';
+            errEl.style.display = '';
+            submitEl.disabled = false; submitEl.textContent = 'Join Group';
+            return;
+          }
+          const data = snap.data();
+          if ((data.memberCount || 0) >= (data.maxMembers || 50)) {
+            errEl.textContent = 'This group is full.';
+            errEl.style.display = '';
+            submitEl.disabled = false; submitEl.textContent = 'Join Group';
+            return;
+          }
+          const ms2 = getMainState();
+          const myName2 = ms2.profile?.name || 'You';
+          const sc2 = scLoad();
+          if (!sc2.groups.find(g => g.code === code)) {
+            sc2.groups.push({
+              id:           data.groupId || code,
+              name:         data.name || `Group ${code}`,
+              icon:         data.icon || '📚',
+              code:         data.code || code,
+              isPrivate:    data.isPrivate || false,
+              description:  data.description || '',
+              category:     data.category || 'General',
+              dailyGoalHrs: data.dailyGoalHrs || 8,
+              maxMembers:   data.maxMembers || 50,
+              leader:       data.leader || 'Admin',
+              camStudy:     data.camStudy || false,
+              promoted:     false,
+              createdAt:    data.createdAt?.toMillis?.() ?? Date.now(),
+              dailyMinsTotal: 0, attendancePct: 0,
+              role:    'member',
+              members: [{ id: uid_ || 'me', name: myName2, role: 'member', joinedAt: Date.now() }],
+            });
+            scSave(sc2);
+          }
+          if (uid_ && fb_) {
+            db_.collection('groups').doc(code).collection('members').doc(uid_).set({
+              uid: uid_, displayName: myName2, role: 'member',
+              joinedAt: fb_.firestore.FieldValue.serverTimestamp(),
+              isStudying: false, currentSubject: null, elapsedTimeToday: 0,
+            }).catch(() => {});
+            db_.collection('groups').doc(code).update({
+              memberCount: fb_.firestore.FieldValue.increment(1)
+            }).catch(() => {});
+            db_.collection('users').doc(uid_).set({
+              joinedRooms: fb_.firestore.FieldValue.arrayUnion(code)
+            }, { merge: true }).catch(() => {});
+          }
+          closeModal();
+          toast('Group joined! 🎉', 'success');
+          _tab = 'rooms';
+          renderSocial();
+        }).catch(() => {
+          _doLocalFallbackJoin(code);
+          submitEl.disabled = false; submitEl.textContent = 'Join Group';
+        });
       };
       submitEl.addEventListener('click', doJoin);
       codeEl.addEventListener('keydown', e => { if (e.key === 'Enter') doJoin(); });
@@ -1299,17 +1594,33 @@
       case 'join-group':   _modalJoinGroup();   break;
 
       case 'open-group':
-      case 'enter-room':
+      case 'enter-room': {
+        const fbCode = el.dataset.fbcode;
+        if (fbCode) {
+          // Discovery card from Firebase
+          if (_isMemberByCode(fbCode)) {
+            // Already a member — find local group ID and enter room
+            const sc_ = scLoad();
+            const localG = sc_.groups.find(g => g.code === fbCode);
+            if (localG) { _tab = 'groups'; _groupView = localG.id; renderSocial(); }
+          } else {
+            // Not a member — open join dialog
+            _modalJoinGroup();
+          }
+          break;
+        }
         _tab = 'groups';
         _groupView = el.dataset.gid;
         renderSocial();
         break;
+      }
 
       case 'close-group':
         _groupView    = null;
         _settingsView = false;
         _srTab        = 'home';
         _stopSrTicker();
+        _unsubscribeRoomMembers();
         renderSocial();
         break;
 
@@ -1318,13 +1629,21 @@
         const sc  = scLoad();
         const g   = sc.groups.find(x => x.id === gid);
         if (!g) break;
+        const groupCode = g.code;
         confirmModal(`Leave "${g.name}"? Local group data will be removed.`, () => {
           const sc2 = scLoad();
           sc2.groups = sc2.groups.filter(x => x.id !== gid);
           sc2.tasks  = sc2.tasks.filter(t => t.groupId !== gid);
           sc2.notes  = sc2.notes.filter(n => n.groupId !== gid);
           if (sc2.chats) delete sc2.chats[gid];
-          scSave(sc2); _groupView = null; _srTab = 'home'; _stopSrTicker();
+          scSave(sc2); _groupView = null; _srTab = 'home'; _stopSrTicker(); _unsubscribeRoomMembers();
+          // Remove from Firebase
+          const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
+          if (db_ && uid_ && fb_ && groupCode) {
+            db_.collection('groups').doc(groupCode).collection('members').doc(uid_).delete().catch(() => {});
+            db_.collection('groups').doc(groupCode).update({ memberCount: fb_.firestore.FieldValue.increment(-1) }).catch(() => {});
+            db_.collection('users').doc(uid_).set({ joinedRooms: fb_.firestore.FieldValue.arrayRemove(groupCode) }, { merge: true }).catch(() => {});
+          }
           toast('Left group.', 'info'); renderSocial();
         }, { title:'Leave Group?', yesLabel:'Leave', yesClass:'btn btn-danger', noLabel:'Cancel' });
         break;
@@ -2005,6 +2324,7 @@
         const g  = sc.groups.find(x => x.id === el.dataset.gid);
         if (!g || g.role !== 'admin') break;
         const gid = g.id;
+        const delCode = g.code;
         confirmModal(`Permanently delete "${g.name}"? This cannot be undone. All group data will be removed.`, () => {
           const sc2 = scLoad();
           sc2.groups   = sc2.groups.filter(x => x.id !== gid);
@@ -2013,7 +2333,25 @@
           if (sc2.chats)    delete sc2.chats[gid];
           if (sc2.requests) delete sc2.requests[gid];
           scSave(sc2);
-          _groupView = null; _settingsView = false; _srTab = 'home'; _stopSrTicker();
+          _groupView = null; _settingsView = false; _srTab = 'home'; _stopSrTicker(); _unsubscribeRoomMembers();
+          // Delete entire group from Firebase
+          const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
+          if (db_ && delCode && fb_) {
+            const gRef = db_.collection('groups').doc(delCode);
+            const subcolls = ['presence','members','messages','joinRequests','voice_signals','voice_presence'];
+            Promise.allSettled(subcolls.map(async s => {
+              try {
+                const snap = await gRef.collection(s).limit(200).get();
+                if (snap.empty) return;
+                const b = db_.batch();
+                snap.docs.forEach(d => b.delete(d.ref));
+                await b.commit();
+              } catch(_) {}
+            })).then(() => gRef.delete().catch(() => {})).catch(() => {});
+            if (uid_) {
+              db_.collection('users').doc(uid_).set({ joinedRooms: fb_.firestore.FieldValue.arrayRemove(delCode) }, { merge: true }).catch(() => {});
+            }
+          }
           toast(`"${g.name}" deleted`, 'info');
           renderSocial();
         }, { title:'Delete Group?', yesLabel:'Delete', yesClass:'btn btn-danger', noLabel:'Cancel' });
@@ -2025,6 +2363,7 @@
         const gid = el.dataset.gid;
         const g   = sc.groups.find(x => x.id === gid);
         if (!g) break;
+        const leaveCode = g.code;
         confirmModal(`Leave "${g.name}"? Your local group data will be removed.`, () => {
           const sc2 = scLoad();
           sc2.groups = sc2.groups.filter(x => x.id !== gid);
@@ -2032,7 +2371,14 @@
           sc2.notes  = sc2.notes.filter(n => n.groupId !== gid);
           if (sc2.chats) delete sc2.chats[gid];
           scSave(sc2);
-          _groupView = null; _settingsView = false; _srTab = 'home'; _stopSrTicker();
+          _groupView = null; _settingsView = false; _srTab = 'home'; _stopSrTicker(); _unsubscribeRoomMembers();
+          // Remove from Firebase
+          const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
+          if (db_ && uid_ && fb_ && leaveCode) {
+            db_.collection('groups').doc(leaveCode).collection('members').doc(uid_).delete().catch(() => {});
+            db_.collection('groups').doc(leaveCode).update({ memberCount: fb_.firestore.FieldValue.increment(-1) }).catch(() => {});
+            db_.collection('users').doc(uid_).set({ joinedRooms: fb_.firestore.FieldValue.arrayRemove(leaveCode) }, { merge: true }).catch(() => {});
+          }
           toast('Left group.', 'info'); renderSocial();
         }, { title:'Leave Group?', yesLabel:'Leave', yesClass:'btn btn-danger', noLabel:'Cancel' });
         break;
@@ -2080,8 +2426,36 @@
         });
         if (dirty) scSave(sc);
       }
+      // Broadcast presence update to Firebase for all joined groups
+      const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
+      if (db_ && uid_ && fb_) {
+        const studying_ = ui().focusIsRunning?.() === true;
+        const tk_ = todayKey();
+        const sc_ = scLoad();
+        sc_.groups.forEach(g => {
+          if (g.code) {
+            const update = {
+              uid: uid_,
+              isStudying:       studying_,
+              elapsedTimeToday: todayMins,
+              dateKey:          tk_,
+              lastUpdated:      fb_.firestore.FieldValue.serverTimestamp(),
+            };
+            if (studying_) update.studyStartedAt = Date.now();
+            db_.collection('groups').doc(g.code).collection('members').doc(uid_)
+              .set(update, { merge: true }).catch(() => {});
+          }
+        });
+      }
       if (window._currentTab === 'social') renderSocial();
     };
+
+    // Start real-time Firebase listeners
+    // Use a small delay to ensure the appUI bridge is ready
+    setTimeout(() => {
+      _subscribePublicGroups();
+      _restoreGroupsFromFirebase().catch(() => {});
+    }, 500);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
