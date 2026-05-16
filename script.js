@@ -387,8 +387,6 @@
 
       // Register auth-state listener — fires with current user or null
       _auth.onAuthStateChanged(_handleAuthStateChange);
-      // Listen for remote config pushed from admin panel
-      _listenRemoteConfig();
     } catch (e) {
       clearTimeout(_initDeadline);
       console.error('[Firebase] initializeApp failed:', e.message);
@@ -400,85 +398,6 @@
         _showAuthError('Firebase initialization failed. Use "Continue without signing in" to use the app offline.');
       }
     }
-  }
-
-  // ── Write lightweight profile to user_index for admin panel ─────────────
-  function _writeUserIndex(user) {
-    if (!_db || !user) return;
-    const payload = {
-      uid:          user.uid,
-      email:        user.email || '',
-      displayName:  _sDisplayName() || (user.email ? user.email.split('@')[0] : 'Studier'),
-      level:        (state.xp && state.xp.level) || 1,
-      xpTotal:      (state.xp && state.xp.total) || 0,
-      studyStreak:  (state.streak && state.streak.count) || 0,
-      lastActive:   firebase.firestore.FieldValue.serverTimestamp(),
-    };
-    _db.collection('user_index').doc(user.uid)
-      .set({ ...payload, createdAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })
-      .catch(e => console.warn('[UserIndex] Write failed:', e.message));
-  }
-
-  // ── Listen to admin_config/remote for feature flags / maintenance ────────
-  let _remoteConfigUnsub = null;
-  function _listenRemoteConfig() {
-    if (!_db) return;
-    if (_remoteConfigUnsub) { _remoteConfigUnsub(); _remoteConfigUnsub = null; }
-    _remoteConfigUnsub = _db.collection('admin_config').doc('remote')
-      .onSnapshot(snap => {
-        if (!snap.exists) return;
-        const cfg = snap.data();
-        // Maintenance mode — show overlay and block UI
-        if (cfg.maintenanceMode) {
-          _showMaintenanceBanner(cfg.maintenanceMessage || 'The app is under maintenance. Back soon!');
-        } else {
-          _hideMaintenanceBanner();
-        }
-        // Announcement banner
-        if (cfg.showBanner && cfg.bannerText) {
-          _showAdminBanner(cfg.bannerText, cfg.bannerType || 'info');
-        } else {
-          _hideAdminBanner();
-        }
-        console.log('[RemoteConfig] Applied config snapshot.');
-      }, e => console.warn('[RemoteConfig] Listen failed:', e.message));
-  }
-
-  function _showMaintenanceBanner(msg) {
-    let el = document.getElementById('maintenance-overlay');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'maintenance-overlay';
-      el.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(10,10,20,0.97);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:32px;font-family:sans-serif;color:#e2e2ec';
-      el.innerHTML = `<div style="font-size:48px;margin-bottom:16px">🔧</div><div style="font-size:20px;font-weight:700;margin-bottom:10px">Under Maintenance</div><div id="maint-msg" style="font-size:14px;color:#7a7a96;max-width:320px;line-height:1.6"></div>`;
-      document.body.appendChild(el);
-    }
-    const msgEl = document.getElementById('maint-msg');
-    if (msgEl) msgEl.textContent = msg;
-    el.style.display = 'flex';
-  }
-  function _hideMaintenanceBanner() {
-    const el = document.getElementById('maintenance-overlay');
-    if (el) el.style.display = 'none';
-  }
-  function _showAdminBanner(text, type) {
-    let el = document.getElementById('admin-banner');
-    const colors = { info:'#3b82f6', success:'#22c55e', warning:'#f59e0b', danger:'#ef4444' };
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'admin-banner';
-      el.style.cssText = `position:fixed;top:0;left:0;right:0;z-index:9000;padding:8px 16px 8px 40px;font-size:13px;text-align:center;font-family:sans-serif;color:#fff;cursor:pointer`;
-      el.title = 'Tap to dismiss';
-      el.onclick = () => { el.style.display = 'none'; };
-      document.body.appendChild(el);
-    }
-    el.style.background = colors[type] || colors.info;
-    el.textContent = text;
-    el.style.display = 'block';
-  }
-  function _hideAdminBanner() {
-    const el = document.getElementById('admin-banner');
-    if (el) el.style.display = 'none';
   }
 
   function _scheduledCloudSync() {
@@ -556,7 +475,6 @@
             } catch(_) {}
             renderAll();
             if (_currentTab === 'social') renderSocial();
-            _writeUserIndex(user);
             return;
           }
         }
@@ -585,7 +503,6 @@
           updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
         });
         toast('\u2705 Account linked! Data saved to cloud.', 'success', 4000);
-        _writeUserIndex(user);
       } catch (e) {
         console.warn('[Auth] Sync error:', e.message);
       }
