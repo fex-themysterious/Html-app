@@ -4368,16 +4368,32 @@
 
   function renderLiveStudySetup() {
     const subjects = state.subjects || [];
-    const subOpts = subjects.map(s =>
-      `<option value="${s.id}"${_lsSubjectId === s.id ? ' selected' : ''}>${escapeHTML(s.name)}</option>`
-    ).join('');
     const todayMins = state.focusStats.minutesByDate[todayKey()] || 0;
-    const subMins = _lsSubjectId ? (state.focusStats.minutesBySubject[_lsSubjectId] || 0) : 0;
-    const curSub = _lsSubjectId ? findSubject(_lsSubjectId) : null;
-    const xpTot = (state.xp && state.xp.total) || 0;
-    const lvInfo = gamificationManager.calculateLevel(xpTot);
-    const streak = (state.streak && state.streak.count) || 0;
-    const mult = _isBoosterActive() ? 2 : 1;
+    const curSub    = _lsSubjectId ? findSubject(_lsSubjectId) : null;
+    const streak    = (state.streak && state.streak.count) || 0;
+    const mult      = _isBoosterActive() ? 2 : 1;
+
+    // Subject bar label
+    let subBarHTML;
+    if (!subjects.length) {
+      subBarHTML = `<div class="lss-sub-bar lss-sub-bar--empty">
+        <span class="lss-sub-icon">📚</span>
+        <span class="lss-sub-placeholder">Study tab-এ subject যোগ করুন</span>
+      </div>`;
+    } else if (curSub) {
+      subBarHTML = `<div class="lss-sub-bar" id="lss-sub-bar" data-act="ls-open-sheet">
+        <span class="lss-sub-dot" style="background:${curSub.color||'#ff7a1a'}"></span>
+        <span class="lss-sub-name">${escapeHTML(curSub.name)}</span>
+        <span class="lss-sub-chev">›</span>
+      </div>`;
+    } else {
+      subBarHTML = `<div class="lss-sub-bar" id="lss-sub-bar" data-act="ls-open-sheet">
+        <span class="lss-sub-icon">📚</span>
+        <span class="lss-sub-placeholder">Subject বেছে নিন</span>
+        <span class="lss-sub-chev">›</span>
+      </div>`;
+    }
+
     return `<div class="ls-setup-wrap">
       <div class="ls-setup-header">
         <div class="ls-setup-title">Live Study Timer</div>
@@ -4389,8 +4405,58 @@
         <div class="ls-stat-item"><div class="ls-stat-val">${streak} 🔥</div><div class="ls-stat-key">Streak</div></div>
         <div class="ls-stat-item"><div class="ls-stat-val" style="color:#ff7a1a">${mult}×</div><div class="ls-stat-key">Multiplier</div></div>
       </div>
+      <div class="ls-subject-section">
+        <div class="ls-section-label">📌 Subject</div>
+        ${subBarHTML}
+      </div>
       <button class="ls-start-btn" data-act="ls-enter">▶ Start Live Study</button>
     </div>`;
+  }
+
+  /* ── Subject bottom-sheet for Live Study setup ── */
+  function _lsOpenSheet() {
+    if (document.getElementById('lss-sheet-ov')) return;
+    const subjects = state.subjects || [];
+    if (!subjects.length) { toast('Study tab-এ subject যোগ করুন', 'info'); return; }
+
+    const ov = document.createElement('div');
+    ov.id = 'lss-sheet-ov';
+    ov.className = 'lss-ov';
+    ov.innerHTML = `
+      <div class="lss-sheet" id="lss-sheet">
+        <div class="lss-sheet-bar"></div>
+        <div class="lss-sheet-ttl">Subject বেছে নিন</div>
+        <div class="lss-sheet-list">
+          ${subjects.map(s => `
+            <button class="lss-sheet-row${_lsSubjectId === s.id ? ' lss-sheet-row--on' : ''}" data-sid="${escapeHTML(s.id)}">
+              <span class="lss-sheet-dot" style="background:${s.color||'#ff7a1a'}"></span>
+              <span class="lss-sheet-nm">${escapeHTML(s.name)}</span>
+              <span class="lss-sheet-tick">${_lsSubjectId === s.id ? '✓' : ''}</span>
+            </button>`).join('')}
+        </div>
+      </div>`;
+
+    // close on backdrop tap
+    const close = () => { ov.classList.remove('lss-ov--in'); setTimeout(() => ov.remove(), 280); };
+    ov.addEventListener('click',    e => { if (e.target === ov) close(); });
+    ov.addEventListener('touchend', e => { if (e.target === ov) { e.preventDefault(); close(); } }, { passive: false });
+
+    // row tap
+    ov.querySelectorAll('.lss-sheet-row').forEach(btn => {
+      const pick = () => {
+        const sid = btn.dataset.sid;
+        if (sid !== _lsSubjectId) { _lsChapterId = null; _lsTopicId = null; }
+        _lsSubjectId = sid;
+        close();
+        setTimeout(() => renderFocus(), 290);
+      };
+      let touched = false;
+      btn.addEventListener('touchend', e => { e.preventDefault(); e.stopPropagation(); touched = true; pick(); setTimeout(() => { touched = false; }, 500); }, { passive: false });
+      btn.addEventListener('click',    e => { e.stopPropagation(); if (!touched) pick(); });
+    });
+
+    document.body.appendChild(ov);
+    requestAnimationFrame(() => ov.classList.add('lss-ov--in'));
   }
 
   function _lsGetElapsed() {
@@ -7814,6 +7880,9 @@
 
     // Focus top-mode pills (Pomodoro / Live Study)
     if (act === 'focus-top-mode') { focusTopMode = el.dataset.mode; renderFocus(); return; }
+
+    // Live Study — subject sheet
+    if (act === 'ls-open-sheet') { _lsOpenSheet(); return; }
 
     // Subject→Chapter→Topic selectors in Pomodoro timer
     if (act === 'focus-sct-sub') {
