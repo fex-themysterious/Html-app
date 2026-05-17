@@ -4978,34 +4978,6 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .auth-btn-primary:hover   { opacity: 0.92; box-shadow: 0 6px 28px rgba(99,102,241,0.50); }
 .auth-btn-primary:disabled{ opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
 
-/* Google sign-in button */
-.auth-btn-google {
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.14);
-  color: #e2e8f0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-}
-.auth-btn-google svg { flex-shrink: 0; }
-.auth-btn-google:hover { background: rgba(255,255,255,0.11); border-color: rgba(255,255,255,0.24); }
-
-.auth-divider {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 4px 0 6px;
-  color: #475569;
-  font-size: 12px;
-}
-.auth-divider::before,
-.auth-divider::after {
-  content: '';
-  flex: 1;
-  border-top: 1px solid rgba(255,255,255,0.07);
-}
 
 .auth-toggle {
   margin-top: 16px;
@@ -5070,9 +5042,7 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .auth-overlay:not(.auth-loading) #auth-spinner { display: none; }
 .auth-overlay.auth-loading #auth-form,
 .auth-overlay.auth-loading .auth-toggle,
-.auth-overlay.auth-loading .auth-skip-row,
-.auth-overlay.auth-loading .auth-btn-google,
-.auth-overlay.auth-loading .auth-divider { display: none !important; }
+.auth-overlay.auth-loading .auth-skip-row { display: none !important; }
 
 /* ── Settings — Account section ─────────────────────────────────────────── */
 .settings-auth-section .auth-profile-row {
