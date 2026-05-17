@@ -1,18 +1,23 @@
 {
-  "name": "Syllabus Tracker",
-  "short_name": "Study",
-  "description": "Study planner with Pomodoro timer, spaced revision and syllabus tracking",
+  "name": "Study Hub",
+  "short_name": "Study Hub",
+  "description": "Study planner with Pomodoro timer, spaced revision, social study rooms and syllabus tracking",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#0f172a",
+  "background_color": "#090e15",
+  "theme_color": "#090e15",
   "orientation": "portrait",
+  "gcm_sender_id": "18536531099",
+  "permissions": ["notifications"],
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ],
   "categories": ["education", "productivity"],
   "shortcuts": [
-    { "name": "Focus Timer", "url": "/", "description": "Start a Pomodoro session" }
+    { "name": "Focus Timer", "short_name": "Focus", "url": "/?tab=focus", "description": "Start a Pomodoro focus session", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Today's Plan", "short_name": "Plan", "url": "/?tab=home", "description": "View your daily study plan", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Social Rooms", "short_name": "Social", "url": "/?tab=social", "description": "Join a live study room", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Stats", "short_name": "Stats", "url": "/?tab=stats", "description": "View your progress", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
   ]
 }

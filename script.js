@@ -118,6 +118,13 @@
       dailyPlans: {},
       smartReminder: { enabled: false, times: ['20:00'], lastFired: {} },
       motivationReminders: { enabled: false, times: ['09:00', '14:00', '20:00'], lastFired: {} },
+      notificationPrefs: {
+        studyReminder: true, pomodoroEnd: true, groupInvite: true,
+        groupMessage: false, challengeRequest: true, mention: true,
+        dailyGoal: true, streakWarning: true, taskDeadline: true,
+        liveInvite: true, xpReward: true, achievement: true,
+        sound: true, vibrate: true,
+      },
       motivationInterval: { enabled: true, intervalHours: 2, lastFired: null },
       revisions: [],
       burnout: { installDate: todayKey(), popupDismissedDate: null, bannerDismissedDate: null },
@@ -237,6 +244,17 @@
     if (typeof s.selectedTheme !== 'string') s.selectedTheme = 'default';
     if (typeof s.selectedBadge !== 'string') s.selectedBadge = '';
     if (typeof s.customBadgeOwned !== 'boolean') s.customBadgeOwned = false;
+    if (!s.notificationPrefs || typeof s.notificationPrefs !== 'object') {
+      s.notificationPrefs = {
+        studyReminder: true, pomodoroEnd: true, groupInvite: true,
+        groupMessage: false, challengeRequest: true, mention: true,
+        dailyGoal: true, streakWarning: true, taskDeadline: true,
+        liveInvite: true, xpReward: true, achievement: true,
+        sound: true, vibrate: true,
+      };
+    }
+    const _npDefaults = { studyReminder:true,pomodoroEnd:true,groupInvite:true,groupMessage:false,challengeRequest:true,mention:true,dailyGoal:true,streakWarning:true,taskDeadline:true,liveInvite:true,xpReward:true,achievement:true,sound:true,vibrate:true };
+    Object.keys(_npDefaults).forEach(k => { if (typeof s.notificationPrefs[k] === 'undefined') s.notificationPrefs[k] = _npDefaults[k]; });
     if (!s.classroom || typeof s.classroom !== 'object') s.classroom = { groups: [] };
     if (!Array.isArray(s.classroom.groups)) s.classroom.groups = [];
     s.classroom.groups = s.classroom.groups.map(g => ({
@@ -263,9 +281,7 @@
   }
 
   // ── Offline/Skip Auth ────────────────────────────────────────────────────
-  let _authSkipped = (function() {
-    try { return localStorage.getItem('stk_auth_skipped') === '1'; } catch(_) { return false; }
-  })();
+  let _authSkipped = false; // Guest mode removed — authentication is required
 
   // ── Firebase / Cloud Sync ────────────────────────────────────────────────
   // 'loading' → still initialising | 'ready' → _auth set | 'failed' → gave up
@@ -281,21 +297,17 @@
     try { return localStorage.getItem('stk_logged_in') === '1'; } catch(_) { return false; }
   }
 
-  // Schedule the login modal to appear after a 3-second delay.
-  // This gives Firebase time to restore a persisted session OR process a redirect
-  // result before interrupting the user. Cancelled immediately if a user signs in.
+  // Show the login modal. For returning users Firebase fires onAuthStateChanged soon,
+  // so we give it a short window (1.5 s) before forcing the screen. For new users
+  // (no persisted session) we show immediately after a tiny DOM-ready delay.
   function _scheduleModal() {
-    if (_authSkipped) return;
-    // Returning user: Firebase will fire onAuthStateChanged(user) soon — don't rush
-    if (!_redirectCheckDone && _wasLoggedIn()) return;
-    // Cancel any existing pending timer before setting a new one
     if (_modalDelayTimer) { clearTimeout(_modalDelayTimer); _modalDelayTimer = null; }
+    const delay = (!_redirectCheckDone && _wasLoggedIn()) ? 1500 : 400;
     _modalDelayTimer = setTimeout(() => {
       _modalDelayTimer = null;
-      if (_authSkipped) return;
       if (_auth && _auth.currentUser) return;
       showAuthModal();
-    }, 3000);
+    }, delay);
   }
   function _cancelModalTimer() {
     if (_modalDelayTimer) { clearTimeout(_modalDelayTimer); _modalDelayTimer = null; }
@@ -397,10 +409,8 @@
       _authInitState  = 'failed';
       _authConfigured = false;
       _authSetReady();
-      if (!_authSkipped) {
-        _scheduleModal();
-        _showAuthError('Firebase initialization failed. Use "Continue without signing in" to use the app offline.');
-      }
+      _scheduleModal();
+      _showAuthError('Connection issue — please refresh or try again later.');
     }
   }
 
@@ -453,6 +463,11 @@
       renderAll();
       refreshSettingsIfOpen();
       console.log('[Auth] Signed in:', user.email || user.uid);
+      // Kick off FCM + notification permission after login (non-blocking)
+      setTimeout(() => {
+        _requestNotifPermissionFlow();
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') _initFCM();
+      }, 1000);
       if (!_db) return;
       try {
         const snap = await _db.collection('users').doc(user.uid).get();
@@ -527,7 +542,7 @@
       _publicRooms = [];
       _publicRoomsLoading = false;
       try { localStorage.removeItem('my_group_codes'); } catch(_) {}
-      if (!_authSkipped) _scheduleModal();
+      _scheduleModal();
       refreshSettingsIfOpen();
     }
   }
@@ -695,6 +710,29 @@
       _showAuthError(msg);
     }
   }
+  // Google Sign-In via popup
+  async function _authGoogleSignIn() {
+    if (!_auth) { _runWhenAuthReady(() => _authGoogleSignIn()); return; }
+    const btn = document.querySelector('.auth-btn-google');
+    try {
+      if (btn) { btn.disabled = true; btn.textContent = 'Connecting…'; }
+      const provider = new firebase.auth.GoogleAuthProvider();
+      await _auth.signInWithPopup(provider);
+      // onAuthStateChanged fires and handles the rest
+    } catch (e) {
+      console.error('[Auth] Google sign-in error:', e.code, e.message);
+      const friendly = e.code === 'auth/popup-closed-by-user' ? 'Sign-in cancelled.' :
+                       e.code === 'auth/popup-blocked'       ? 'Popup blocked — allow popups for this site.' :
+                       _authErrorMsg(e.code) || 'Google sign-in failed. Please try again.';
+      _showAuthError(friendly);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.33 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.67 14.62 48 24 48z"/><path fill="none" d="M0 0h48v48H0z"/></svg> Continue with Google`;
+      }
+    }
+  }
+
   // Deletes every document in a Firestore subcollection, paginating if needed.
   async function _deleteSubcollection(colRef) {
     let lastDoc = null;
@@ -903,6 +941,104 @@
     } catch (e) { console.warn('[Auth] Sign out error:', e.message); }
   }
 
+  // ── FCM / Push Notifications ──────────────────────────────────────────
+  let _messaging  = null;
+  let _fcmToken   = null;
+
+  async function _getFCMVapidKey() {
+    try {
+      const r = await fetch('/api/config');
+      if (r.ok) { const d = await r.json(); return d.vapidKey || null; }
+    } catch(_) {}
+    return null;
+  }
+
+  async function _initFCM() {
+    if (_messaging) return _messaging;
+    if (!window.firebase || !firebase.messaging) return null;
+    try {
+      _messaging = firebase.messaging();
+      const vapidKey = await _getFCMVapidKey();
+      const token = await _messaging.getToken(vapidKey ? { vapidKey } : undefined);
+      if (token) {
+        _fcmToken = token;
+        await _registerFCMToken(token);
+        console.log('[FCM] Token registered');
+      }
+      _messaging.onMessage(payload => {
+        const n = payload.notification || {};
+        const data = payload.data || {};
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          const notif = new Notification(n.title || 'Study Hub', {
+            body:  n.body  || '',
+            icon:  n.icon  || '/icons/icon-192.png',
+            badge: '/icons/icon-192.png',
+            data:  { url: data.url || '/' },
+            tag:   data.tag || 'sh-fg',
+          });
+          notif.onclick = () => { window.focus(); _handleFCMNavigate(data.url || '/'); notif.close(); };
+        }
+      });
+      // Listen for clicks from bg notifications via SW
+      if (navigator.serviceWorker) {
+        navigator.serviceWorker.addEventListener('message', e => {
+          if (e.data && e.data.type === 'FCM_NAVIGATE') _handleFCMNavigate(e.data.url);
+        });
+      }
+      return _messaging;
+    } catch (e) {
+      console.warn('[FCM] Init failed:', e.message);
+      return null;
+    }
+  }
+
+  async function _registerFCMToken(token) {
+    if (!_db || !_userId || !token) return;
+    try {
+      await _db.collection('users').doc(_userId).set(
+        { fcmTokens: firebase.firestore.FieldValue.arrayUnion(token) },
+        { merge: true }
+      );
+    } catch(e) { console.warn('[FCM] Token registration failed:', e.message); }
+  }
+
+  function _handleFCMNavigate(url) {
+    if (!url) return;
+    const tab = url.startsWith('/social') ? 'social' :
+                url.startsWith('/focus')  ? 'focus'  :
+                url.startsWith('/stats')  ? 'stats'  :
+                url.startsWith('/dash')   ? 'dashboard' : 'home';
+    switchTab(tab);
+  }
+
+  function _requestNotifPermissionFlow() {
+    if (typeof Notification === 'undefined') return;
+    if (Notification.permission === 'granted') return; // Already granted
+    let asked = false;
+    try { asked = localStorage.getItem('stk_notif_asked') === '1'; } catch(_) {}
+    if (asked) return;
+    // Show permission modal
+    _showNotifPermModal();
+  }
+
+  function _showNotifPermModal() {
+    openModal(`
+      <div style="text-align:center;padding:8px 0 4px">
+        <div style="font-size:40px;margin-bottom:12px">🔔</div>
+        <div style="font-size:18px;font-weight:700;color:#f1f5f9;margin-bottom:8px">Stay On Track</div>
+        <div style="font-size:13px;color:#94a3b8;line-height:1.6;margin-bottom:20px">
+          Get reminders for study sessions, pomodoro ends, group invites,
+          streak warnings, and daily goals — even when the app is closed.
+        </div>
+        <button class="btn" style="width:100%;margin-bottom:10px;background:linear-gradient(135deg,#ff7a1a,#ff4d00);border:none;border-radius:12px;padding:13px;font-size:14px;font-weight:600" data-act="notif-perm-allow">
+          Enable Notifications
+        </button>
+        <button class="stg-btn" style="width:100%;border-radius:12px;padding:11px;font-size:13px;color:#64748b;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)" data-act="notif-perm-skip">
+          Not now
+        </button>
+      </div>
+    `);
+  }
 
   // ======================================================================
   // ========== Social Community Bridge ===================================
@@ -1763,7 +1899,7 @@
   function renderShop() {
     const view = document.getElementById('view-shop');
     if (!view) return;
-    if (!_userId && !_authSkipped) {
+    if (!_userId) {
       view.innerHTML = `<div class="social-gate"><div class="social-gate-icon">🛒</div><h2 class="social-gate-title">Global XP Marketplace</h2><p class="social-gate-sub">Sign in to spend your earned XP on exclusive items, effects &amp; themes.</p><button class="btn" data-act="auth-show-modal">Sign In to Continue</button></div>`;
       return;
     }
@@ -7765,6 +7901,17 @@
   }
 
   // ========== Settings Modal ==========
+  function _notifPrefRow(key, label, desc) {
+    const on = state.notificationPrefs[key] !== false;
+    return `<div class="stg-row stg-row-sm">
+      <div class="stg-row-info">
+        <div class="stg-row-ttl">${label}</div>
+        ${desc ? `<div class="stg-row-sub">${desc}</div>` : ''}
+      </div>
+      <label class="switch switch-sm"><input type="checkbox" ${on?'checked':''} data-act="toggle-notif-pref" data-key="${key}"/><span class="slider"></span></label>
+    </div>`;
+  }
+
   function modalSettings() {
     const sr = state.smartReminder, mr = state.motivationReminders, mi = state.motivationInterval, perm = notifPermission();
     let permCls = 'warn', permText = 'Permission not yet requested.';
@@ -7939,6 +8086,37 @@
         </div>
 
         <div class="stg-card">
+          <div class="stg-card-lbl">Notification Preferences</div>
+          <p class="stg-muted" style="margin-bottom:10px">Choose what you get notified about.</p>
+          <div class="stg-notif-pref-section">
+            <div class="stg-notif-pref-group-lbl">Study</div>
+            ${_notifPrefRow('studyReminder', 'Study Reminders', 'Daily smart study reminders')}
+            ${_notifPrefRow('pomodoroEnd',   'Pomodoro End',    'When your focus session completes')}
+            ${_notifPrefRow('dailyGoal',     'Daily Goal',      'Progress toward your daily target')}
+            ${_notifPrefRow('streakWarning', 'Streak Warning',  'Don\'t break your study streak')}
+            ${_notifPrefRow('taskDeadline',  'Task Deadlines',  'Upcoming task due reminders')}
+          </div>
+          <div class="stg-notif-pref-section" style="margin-top:8px">
+            <div class="stg-notif-pref-group-lbl">Social</div>
+            ${_notifPrefRow('groupInvite',       'Group Invites',     'Someone invites you to a room')}
+            ${_notifPrefRow('groupMessage',       'Group Messages',    'New messages in your rooms')}
+            ${_notifPrefRow('challengeRequest',   'Challenges',        'New group challenge activity')}
+            ${_notifPrefRow('mention',            'Mentions',          'When someone @mentions you')}
+            ${_notifPrefRow('liveInvite',         'Live Session Invite','Friend starts a live session')}
+          </div>
+          <div class="stg-notif-pref-section" style="margin-top:8px">
+            <div class="stg-notif-pref-group-lbl">Rewards</div>
+            ${_notifPrefRow('xpReward',    'XP Rewards',    'When you earn XP bonuses')}
+            ${_notifPrefRow('achievement', 'Achievements',  'Badges and milestone unlocks')}
+          </div>
+          <div class="stg-notif-pref-section" style="margin-top:8px">
+            <div class="stg-notif-pref-group-lbl">Device</div>
+            ${_notifPrefRow('sound',    'Sound',     'Play alert sound with notifications')}
+            ${_notifPrefRow('vibrate',  'Vibration', 'Vibrate on notification (mobile)')}
+          </div>
+        </div>
+
+        <div class="stg-card">
           <div class="stg-card-lbl">My Motivation Quotes</div>
           <p class="stg-muted">Appear on home screen and in Full Focus mode.</p>
           <div class="stg-quote-list">
@@ -8053,8 +8231,26 @@
     if (act === 'auth-submit')      { _authSubmit(); return; }
     if (act === 'auth-forgot')      { _authForgotPassword(); return; }
     if (act === 'auth-logout')      { _authSignOut(); closeModal(); return; }
-    if (act === 'auth-show-modal')  { _authSkipped = false; try { localStorage.removeItem('stk_auth_skipped'); } catch(_) {} closeModal(); showAuthModal(); return; }
-    if (act === 'auth-use-offline') { _authSkipped = true; try { localStorage.setItem('stk_auth_skipped', '1'); } catch(_) {} hideAuthModal(); toast('Using app offline — sign in anytime via ⚙️ Settings', 'info', 4500); return; }
+    if (act === 'auth-show-modal')  { closeModal(); showAuthModal(); return; }
+    if (act === 'auth-use-offline') { return; }
+    if (act === 'auth-google')      { _authGoogleSignIn(); return; }
+    if (act === 'notif-perm-allow') {
+      closeModal();
+      try { localStorage.setItem('stk_notif_asked', '1'); } catch(_) {}
+      if ('Notification' in window) {
+        Notification.requestPermission().then(async perm => {
+          if (perm === 'granted') { await _initFCM(); scheduleAllNotifications(); toast('Notifications enabled ✅', 'success'); }
+          else { toast('Notifications blocked. Enable in browser settings to get push alerts.', 'warn', 4500); }
+          refreshSettingsIfOpen();
+        });
+      }
+      return;
+    }
+    if (act === 'notif-perm-skip') {
+      closeModal();
+      try { localStorage.setItem('stk_notif_asked', '1'); } catch(_) {}
+      return;
+    }
     if (act === 'save-profile') {
       const root = document.querySelector('#modal-root .modal');
       if (root) {
@@ -9380,6 +9576,18 @@
     if (act === 'open-time-picker') { modalSetReminderTime(el.dataset.which, parseInt(el.dataset.i, 10)); return; }
     if (act === 'del-time-slot') { const target = el.dataset.which === 'motivation' ? state.motivationReminders : state.smartReminder; target.times.splice(parseInt(el.dataset.i, 10), 1); saveState(); refreshSettingsIfOpen(); scheduleAllNotifications(); return; }
     if (act === 'sr-request-perm') { requestNotifPermission().then(() => { refreshSettingsIfOpen(); scheduleAllNotifications(); }); return; }
+    if (act === 'toggle-notif-pref') {
+      const key = el.dataset.key;
+      if (key && key in state.notificationPrefs) {
+        state.notificationPrefs[key] = el.checked;
+        saveState();
+        // Reschedule if a timing pref changed
+        if (['studyReminder','pomodoroEnd','dailyGoal','streakWarning','taskDeadline'].includes(key)) {
+          scheduleAllNotifications();
+        }
+      }
+      return;
+    }
     if (act === 'del-quote') { state.motivationQuotes.splice(parseInt(el.dataset.i, 10), 1); saveState(); if (_currentQuote && !state.motivationQuotes.includes(_currentQuote)) _currentQuote = null; _motivationIdx = 0; refreshSettingsIfOpen(); _refreshHomeMotiText(); toast('Quote removed', 'info'); return; }
     if (act === 'add-quote') { const input = document.getElementById('set-new-quote'), text = input ? input.value.trim() : ''; if (!text) { toast('Enter a quote first', 'warn'); return; } state.motivationQuotes.push(text); saveState(); _motivationIdx = state.motivationQuotes.length - 1; refreshSettingsIfOpen(); _refreshHomeMotiText(); if (input) input.value = ''; toast('Quote saved ✨', 'success'); return; }
     if (act === 'export-data') { closeModal(); exportData(); return; }

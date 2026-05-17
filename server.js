@@ -56,7 +56,8 @@ const server = http.createServer((req, res) => {
       projectId:         process.env.FIREBASE_PROJECT_ID         || '',
       storageBucket:     process.env.FIREBASE_STORAGE_BUCKET     || '',
       messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || '',
-      appId:             process.env.FIREBASE_APP_ID             || ''
+      appId:             process.env.FIREBASE_APP_ID             || '',
+      vapidKey:          process.env.FIREBASE_VAPID_KEY          || ''
     };
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify(config));
