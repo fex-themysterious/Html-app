@@ -4461,6 +4461,8 @@
 
   // ========== Focus Tab ==========
   function renderFocus() {
+    // Re-sync focusSessions from state on every render (handles Firebase restore + cross-device updates)
+    focusSessions = (state.focusStats.sessions && state.focusStats.sessions[todayKey()]) || 0;
     const view = document.getElementById('view-focus'); if (!view) return;
     const topPills = `<div class="focus-top-pills">
       <button class="ftp-pill${focusTopMode === 'pomodoro' ? ' ftp-pill--active' : ''}" data-act="focus-top-mode" data-mode="pomodoro">⏱ Pomodoro</button>
@@ -4947,12 +4949,6 @@
     renderLiveOverlay();
     _lsTimer = setInterval(_lsTick, 1000);
 
-    if (_lsSubjectId && _db && _userId) {
-      focusSessions++;
-      state.focusStats.sessions[todayKey()] = (state.focusStats.sessions[todayKey()] || 0) + 1;
-      saveState();
-    }
-
     // ── Visibility change: keep time accurate when app goes to background ──
     _lsVisibilityHandler = () => {
       if (!document.hidden && _lsRunning && _lsStartTime !== null) {
@@ -5004,6 +5000,10 @@
         if (!state.focusStats.minutesBySubject) state.focusStats.minutesBySubject = {};
         state.focusStats.minutesBySubject[_lsSubjectId] = (state.focusStats.minutesBySubject[_lsSubjectId] || 0) + elapsedMin;
       }
+      // ── Count the session — always, regardless of Firebase login ──
+      focusSessions++;
+      if (!state.focusStats.sessions) state.focusStats.sessions = {};
+      state.focusStats.sessions[todayStr] = (state.focusStats.sessions[todayStr] || 0) + 1;
       awardXP(elapsedMin, todayStr);
       _sContributeToGoals(elapsedMin).catch(() => {});
       checkBadges({ sessionMinutes: elapsedMin });
@@ -5046,6 +5046,12 @@
       lastActive:      todayStr2,
       avatarStage:     _lsCurrentAvatarStage >= 0 ? _lsCurrentAvatarStage : 0,
       updatedAt:       firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true }).catch(() => {});
+    // ── Save today's session count to Firebase for real-time cross-device sync ──
+    const todaySessions = state.focusStats.sessions ? (state.focusStats.sessions[todayStr2] || 0) : 0;
+    _db.collection('users').doc(uid).set({
+      sessionStats: { [todayStr2]: todaySessions },
+      updatedAt:    firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true }).catch(() => {});
   }
 
