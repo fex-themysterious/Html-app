@@ -4706,91 +4706,30 @@
   }
 
   function _lsStickmanSVG() {
-    return `<svg viewBox="0 0 220 164" fill="none" class="lsf-figure-svg" aria-hidden="true">
-      <defs>
-        <filter id="lsf-glow-ov" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation="4" result="blur"/>
-          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-        </filter>
-        <filter id="lsf-glow-strong" x="-80%" y="-80%" width="260%" height="260%">
-          <feGaussianBlur stdDeviation="7" result="blur"/>
-          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-        </filter>
-        <filter id="lsf-lamp-glow" x="-150%" y="-150%" width="400%" height="400%">
-          <feGaussianBlur stdDeviation="7" result="blur"/>
-          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-        </filter>
-        <radialGradient id="lsf-desk-glow" cx="50%" cy="0%" r="50%">
-          <stop offset="0%" stop-color="rgba(255,180,60,0.18)"/>
-          <stop offset="100%" stop-color="rgba(255,122,26,0)"/>
-        </radialGradient>
-      </defs>
+    return `<svg viewBox="0 0 160 130" fill="none" class="lsf-figure-svg" aria-hidden="true"
+      stroke="#ff7a1a" stroke-linecap="round" stroke-linejoin="round">
 
-      <!-- Ambient ground glow under desk -->
-      <ellipse cx="110" cy="150" rx="88" ry="12" fill="rgba(255,122,26,0.06)"/>
+      <!-- Focus dots — diagonal, top-left of icon, filled circles -->
+      <circle cx="34" cy="58" r="6"   fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-1"/>
+      <circle cx="47" cy="43" r="4.5" fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-2"/>
+      <circle cx="58" cy="31" r="3"   fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-3"/>
 
-      <!-- Floating ember particles (more variety) -->
-      <circle cx="22"  cy="44" r="2.6" fill="#ff7a1a" opacity="0.7"  class="lsf-ember lsf-ember-1"/>
-      <circle cx="186" cy="58" r="1.8" fill="#ffaa44" opacity="0.58" class="lsf-ember lsf-ember-2"/>
-      <circle cx="48"  cy="20" r="1.5" fill="#ff7a1a" opacity="0.45" class="lsf-ember lsf-ember-3"/>
-      <circle cx="172" cy="30" r="2.8" fill="#ffaa44" opacity="0.62" class="lsf-ember lsf-ember-4"/>
-      <circle cx="155" cy="10" r="1.8" fill="#ff7a1a" opacity="0.40" class="lsf-ember lsf-ember-5"/>
-      <circle cx="68"  cy="10" r="1.4" fill="#ffcc66" opacity="0.35" class="lsf-ember lsf-ember-1"/>
-      <circle cx="196" cy="80" r="1.2" fill="#ff7a1a" opacity="0.30" class="lsf-ember lsf-ember-3"/>
+      <!-- Head (open circle) -->
+      <circle cx="70" cy="68" r="15" stroke="#ff7a1a" stroke-width="2.8" fill="none"/>
 
-      <!-- Desk surface with glow -->
-      <line x1="18" y1="108" x2="202" y2="108" stroke="#ff7a1a" stroke-width="3" filter="url(#lsf-glow-ov)"/>
-      <line x1="18" y1="108" x2="202" y2="108" stroke="#ffaa44" stroke-width="1.2" opacity="0.5"/>
+      <!-- Desk surface -->
+      <line x1="16" y1="94" x2="144" y2="94" stroke-width="3"/>
 
-      <!-- Desk legs -->
-      <line x1="30"  y1="108" x2="28"  y2="150" stroke="#ff7a1a" stroke-width="2.2" opacity="0.55"/>
-      <line x1="190" y1="108" x2="192" y2="150" stroke="#ff7a1a" stroke-width="2.2" opacity="0.55"/>
+      <!-- Desk left leg -->
+      <line x1="25"  y1="94" x2="23"  y2="124" stroke-width="2.8"/>
+      <!-- Desk right leg -->
+      <line x1="135" y1="94" x2="137" y2="124" stroke-width="2.8"/>
 
-      <!-- Book stack (left of desk) -->
-      <rect x="26" y="91"  width="26" height="6" rx="2" stroke="#ff7a1a" stroke-width="1.6" fill="rgba(255,122,26,0.16)"/>
-      <rect x="28" y="85"  width="22" height="6" rx="2" stroke="#ff7a1a" stroke-width="1.5" fill="rgba(255,122,26,0.11)"/>
-      <rect x="27" y="79"  width="24" height="6" rx="2" stroke="#ff7a1a" stroke-width="1.4" fill="rgba(255,122,26,0.08)"/>
+      <!-- Lamp pole (right side of desk, vertical) -->
+      <line x1="118" y1="94" x2="118" y2="58" stroke-width="2.8"/>
 
-      <!-- Lamp pole + arm -->
-      <line x1="170" y1="108" x2="170" y2="64" stroke="#ff7a1a" stroke-width="2.4" filter="url(#lsf-glow-ov)"/>
-      <line x1="170" y1="64"  x2="148" y2="50" stroke="#ff7a1a" stroke-width="2.4" filter="url(#lsf-glow-ov)"/>
-
-      <!-- Lamp shade with strong glow -->
-      <ellipse cx="138" cy="47" rx="15" ry="9" stroke="#ff7a1a" stroke-width="1.8" fill="rgba(255,210,80,0.22)" filter="url(#lsf-lamp-glow)" class="lsf-lamp-pulse"/>
-
-      <!-- Lamp light cone — warm glow on desk surface -->
-      <ellipse cx="130" cy="88" rx="32" ry="18" fill="rgba(255,200,70,0.07)" class="lsf-lamp-pulse"/>
-      <ellipse cx="130" cy="105" rx="22" ry="8"  fill="rgba(255,200,70,0.05)" class="lsf-lamp-pulse"/>
-
-      <!-- Head with breathing glow -->
-      <circle cx="110" cy="35" r="15" stroke="#ff7a1a" stroke-width="3"   fill="none" filter="url(#lsf-glow-strong)" class="lsf-head"/>
-      <circle cx="110" cy="35" r="15" stroke="#ffcc66" stroke-width="0.8" fill="none" opacity="0.4"                   class="lsf-head"/>
-
-      <!-- Neck + torso -->
-      <line x1="110" y1="50" x2="110" y2="78" stroke="#ff7a1a" stroke-width="3" filter="url(#lsf-glow-ov)"/>
-
-      <!-- Left arm (bent over desk, studying) -->
-      <line x1="110" y1="60" x2="84"  y2="76" stroke="#ff7a1a" stroke-width="3" filter="url(#lsf-glow-ov)"/>
-      <line x1="84"  y1="76" x2="72"  y2="96" stroke="#ff7a1a" stroke-width="3" filter="url(#lsf-glow-ov)"/>
-
-      <!-- Right arm -->
-      <line x1="110" y1="60" x2="136" y2="76" stroke="#ff7a1a" stroke-width="3" filter="url(#lsf-glow-ov)"/>
-      <line x1="136" y1="76" x2="144" y2="94" stroke="#ff7a1a" stroke-width="3" filter="url(#lsf-glow-ov)"/>
-
-      <!-- Legs (visible below desk line, faded) -->
-      <line x1="110" y1="78" x2="100" y2="97" stroke="#ff7a1a" stroke-width="3" opacity="0.38"/>
-      <line x1="110" y1="78" x2="120" y2="97" stroke="#ff7a1a" stroke-width="3" opacity="0.38"/>
-
-      <!-- Open book on desk -->
-      <path d="M88 100 Q110 93 132 100" stroke="#ff7a1a" stroke-width="2" fill="rgba(255,122,26,0.09)" filter="url(#lsf-glow-ov)"/>
-      <path d="M88 100 Q110 107 132 100" stroke="#ff7a1a" stroke-width="1.1" opacity="0.35"/>
-      <line x1="110" y1="93" x2="110" y2="107" stroke="#ff7a1a" stroke-width="1.2" opacity="0.55"/>
-
-      <!-- Page lines on book -->
-      <line x1="93"  y1="99"  x2="108" y2="96.5" stroke="#ffaa44" stroke-width="0.9" opacity="0.32"/>
-      <line x1="93"  y1="102" x2="108" y2="99.5" stroke="#ffaa44" stroke-width="0.9" opacity="0.22"/>
-      <line x1="112" y1="96.5" x2="127" y2="99"  stroke="#ffaa44" stroke-width="0.9" opacity="0.32"/>
-      <line x1="112" y1="99.5" x2="127" y2="102" stroke="#ffaa44" stroke-width="0.9" opacity="0.22"/>
+      <!-- Lamp shade (trapezoid: wider at bottom, narrower at top) -->
+      <path d="M105 62 L131 62 L127 48 L109 48 Z" stroke-width="2.5" fill="none"/>
     </svg>`;
   }
 
@@ -4953,8 +4892,6 @@
     const logTotalMins = Math.max(1, subjectLog.reduce((a, b) => a + b.mins, 0));
     overlay.className = _lsRunning ? 'ls-running' : 'ls-paused';
     overlay.innerHTML = `
-    <canvas class="lsf-particle-canvas" id="ls-particles"></canvas>
-    <div class="lsf-vignette"></div>
     <div class="lsf-wrap">
       <div class="lsf-top-bar">
         <span class="lsf-mode-label">Focusing</span>
