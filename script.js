@@ -4709,27 +4709,37 @@
     return `<svg viewBox="0 0 160 130" fill="none" class="lsf-figure-svg" aria-hidden="true"
       stroke="#ff7a1a" stroke-linecap="round" stroke-linejoin="round">
 
-      <!-- Focus dots — diagonal, top-left of icon, filled circles -->
-      <circle cx="34" cy="58" r="6"   fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-1"/>
-      <circle cx="47" cy="43" r="4.5" fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-2"/>
-      <circle cx="58" cy="31" r="3"   fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-3"/>
+      <!-- Floating idea dots — scattered diagonal, upper-left -->
+      <circle cx="27" cy="57" r="5.5" fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-1"/>
+      <circle cx="38" cy="44" r="4"   fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-3"/>
+      <circle cx="32" cy="32" r="3.5" fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-2"/>
+      <circle cx="50" cy="35" r="3"   fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-4"/>
+      <circle cx="44" cy="20" r="2.5" fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-5"/>
+      <circle cx="57" cy="47" r="2.5" fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-2"/>
+      <circle cx="62" cy="24" r="3"   fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-1"/>
+      <circle cx="20" cy="44" r="2"   fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-3"/>
 
-      <!-- Head (open circle) -->
-      <circle cx="70" cy="68" r="15" stroke="#ff7a1a" stroke-width="2.8" fill="none"/>
+      <!-- Head (outer circle) -->
+      <circle cx="82" cy="60" r="14" stroke="#ff7a1a" stroke-width="2.8" fill="none" class="lsf-head"/>
+
+      <!-- Inner gear ring (thinking brain effect) -->
+      <circle cx="82" cy="60" r="7" stroke="#ff7a1a" stroke-width="2" stroke-dasharray="4.4 2.6" fill="none"/>
+
+      <!-- Shoulders / body — arc from neck to desk surface -->
+      <path d="M70 73 Q54 85 40 94 H124 Q110 85 94 73" stroke-width="2.8" fill="none"/>
 
       <!-- Desk surface -->
-      <line x1="16" y1="94" x2="144" y2="94" stroke-width="3"/>
+      <line x1="18" y1="94" x2="142" y2="94" stroke-width="3"/>
 
-      <!-- Desk left leg -->
-      <line x1="25"  y1="94" x2="23"  y2="124" stroke-width="2.8"/>
-      <!-- Desk right leg -->
-      <line x1="135" y1="94" x2="137" y2="124" stroke-width="2.8"/>
+      <!-- Desk legs -->
+      <line x1="28"  y1="94" x2="26"  y2="124" stroke-width="2.8"/>
+      <line x1="132" y1="94" x2="134" y2="124" stroke-width="2.8"/>
 
-      <!-- Lamp pole (right side of desk, vertical) -->
-      <line x1="118" y1="94" x2="118" y2="58" stroke-width="2.8"/>
+      <!-- Lamp pole -->
+      <line x1="116" y1="94" x2="116" y2="56" stroke-width="2.8"/>
 
-      <!-- Lamp shade (trapezoid: wider at bottom, narrower at top) -->
-      <path d="M105 62 L131 62 L127 48 L109 48 Z" stroke-width="2.5" fill="none"/>
+      <!-- Lamp shade (trapezoid) -->
+      <path d="M104 60 L128 60 L124 46 L108 46 Z" stroke-width="2.5" fill="none" class="lsf-lamp-pulse"/>
     </svg>`;
   }
 
