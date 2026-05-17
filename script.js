@@ -177,6 +177,10 @@
     s.streak = s.streak || { count: 0, lastDate: null };
     s.activity = s.activity || {};
     s.dailyPlans = s.dailyPlans || {};
+    // Ensure syllabus array exists on all plan entries
+    for (const key of Object.keys(s.dailyPlans)) {
+      if (!s.dailyPlans[key].syllabus) s.dailyPlans[key].syllabus = [];
+    }
     delete s.calendarTasks;
     if (!s.smartReminder || typeof s.smartReminder !== 'object') s.smartReminder = { enabled: false, times: ['20:00'], lastFired: {} };
     s.smartReminder.lastFired = s.smartReminder.lastFired || {};
@@ -3883,8 +3887,9 @@
   // Returns total and done task counts for any given day (auto + custom)
   function getDayPlanStatus(dateISO) {
     const plan = state.dailyPlans[dateISO];
-    if (!plan) return { total: 0, done: 0 };
+    if (!plan) return { total: 0, done: 0, subjects: [] };
     let total = 0, done = 0;
+    const seenSubColors = new Map();
     for (const a of plan.auto || []) {
       const key = autoKey(a.subId, a.chId, a.tId);
       if ((plan.removed || []).includes(key)) continue;
@@ -3892,12 +3897,19 @@
       if (!t) continue;
       total++;
       if (t.done) done++;
+      const sub = findSubject(a.subId);
+      if (sub && !seenSubColors.has(sub.id)) seenSubColors.set(sub.id, sub.color);
     }
     for (const c of plan.custom || []) {
       total++;
       if (c.done) done++;
     }
-    return { total, done };
+    for (const s of plan.syllabus || []) {
+      total++;
+      if (s.done) done++;
+      if (s.subjectId && !seenSubColors.has(s.subjectId)) seenSubColors.set(s.subjectId, s.subjectColor || '#4da8ff');
+    }
+    return { total, done, subjects: [...seenSubColors.values()].slice(0, 3) };
   }
 
   function renderCalendar() {
@@ -3916,24 +3928,32 @@
       const isToday = dateISO === today;
       const isPast = dateISO < today;
       const isFuture = dateISO > today;
-      const { total, done } = getDayPlanStatus(dateISO);
+      const { total, done, subjects } = getDayPlanStatus(dateISO);
       const allDone = total > 0 && done === total;
-      const incomplete = total > 0 && !allDone;
 
-      // Cell colour class — green if all done, red if had tasks but not all done (past only)
       let colourClass = '';
       if (!isFuture && total > 0) {
         colourClass = allDone ? ' cal-completed' : (isPast ? ' cal-incomplete' : '');
       }
 
-      // Small dot for today showing progress (green/amber)
-      const dotHtml = isToday && total > 0
-        ? `<span class="cal-dot${allDone ? ' cal-dot-done' : ''}"></span>`
+      // Progress ring for cells with tasks
+      let progressHtml = '';
+      if (total > 0) {
+        const pct = Math.round((done / total) * 100);
+        const r = 13, circ = 2 * Math.PI * r;
+        const offset = circ - (pct / 100) * circ;
+        const ringColor = allDone ? '#22c55e' : (isPast ? '#ef4444' : '#4da8ff');
+        progressHtml = `<svg class="cal-ring" viewBox="0 0 32 32" width="32" height="32"><circle cx="16" cy="16" r="${r}" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="2.5"/><circle cx="16" cy="16" r="${r}" fill="none" stroke="${ringColor}" stroke-width="2.5" stroke-dasharray="${circ.toFixed(1)}" stroke-dashoffset="${offset.toFixed(1)}" stroke-linecap="round" transform="rotate(-90 16 16)" style="opacity:0.85"/></svg>`;
+      }
+
+      // Subject color dots
+      const subDotsHtml = subjects.length > 0
+        ? `<div class="cal-sub-dots">${subjects.map(c => `<span class="cal-sub-dot" style="background:${c}"></span>`).join('')}</div>`
         : '';
 
       const ariaLabel = `${dateISO}${total ? `, ${done}/${total} tasks` : ''}`;
       const isSelected = dateISO === _selectedCalDate;
-      cells += `<div class="cal-cell${isToday ? ' cal-today' : ''}${isPast && !isToday ? ' cal-past' : ''}${colourClass}${isSelected ? ' cal-selected' : ''}" data-act="calendar-day" data-date="${dateISO}" role="button" aria-label="${ariaLabel}"><span class="cal-day-num">${d}</span>${dotHtml}</div>`;
+      cells += `<div class="cal-cell${isToday ? ' cal-today' : ''}${isPast && !isToday ? ' cal-past' : ''}${colourClass}${isSelected ? ' cal-selected' : ''}" data-act="calendar-day" data-date="${dateISO}" role="button" aria-label="${ariaLabel}">${progressHtml}<span class="cal-day-num">${d}</span>${subDotsHtml}</div>`;
     }
     return `<div class="cal-wrap"><div class="cal-nav"><button class="cal-nav-btn" data-act="cal-prev" aria-label="Previous month">‹</button><span class="cal-title">${monthLabel}</span><button class="cal-nav-btn" data-act="cal-next" aria-label="Next month">›</button></div><div class="cal-body"><div class="cal-dow-row">${dowLabels.map(d=>`<div class="cal-dow">${d}</div>`).join('')}</div><div class="cal-cells">${cells}</div></div></div>`;
   }
@@ -3949,162 +3969,373 @@
     const calCell = document.querySelector(`.cal-cell[data-date="${dateISO}"]`);
     if (calCell) calCell.classList.add('cal-selected');
 
-    // Date label
     const dateObj = new Date(dateISO + 'T00:00:00');
-    const label = isToday
-      ? 'Today'
-      : dateObj.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    const label = dateObj.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
-    // Plan data
-    if (!state.dailyPlans[dateISO]) state.dailyPlans[dateISO] = { auto: [], removed: [], custom: [], generated: false };
+    if (!state.dailyPlans[dateISO]) state.dailyPlans[dateISO] = { auto: [], removed: [], custom: [], syllabus: [], generated: false };
     const plan = state.dailyPlans[dateISO];
+    if (!plan.syllabus) plan.syllabus = [];
 
-    // Build tasks list (auto + custom, tracking custom index for delete)
-    const allTasks = [];
-    for (const a of plan.auto || []) {
-      const key = autoKey(a.subId, a.chId, a.tId);
-      if ((plan.removed || []).includes(key)) continue;
-      const sub = findSubject(a.subId), ch = findChapter(a.subId, a.chId), t = findTopic(a.subId, a.chId, a.tId);
-      if (!sub || !ch || !t) continue;
-      allTasks.push({ type: 'auto', text: t.name, meta: `${sub.name} · ${ch.name}`, color: sub.color, done: !!t.done });
-    }
-    let _ci = 0;
-    for (const c of plan.custom || []) {
-      const ci = _ci++;
-      allTasks.push({ type: 'custom', text: c.text, meta: c.recurringId ? 'Daily recurring task' : c.rolledOver ? 'Rolled over from yesterday' : 'Custom task', color: '#94a3b8', done: !!c.done, _customIdx: ci });
-    }
-
-    const totalTasks = allTasks.length;
-    const doneTasks = allTasks.filter(t => t.done).length;
-
-    // Analytics
+    // Analytics (shown in header area)
     const focusMin = (state.focusStats.minutesByDate || {})[dateISO] || 0;
-    const videoMin = (state.focusStats.videoMinutes || {})[dateISO] || 0;
     const sessions = (state.focusStats.sessions || {})[dateISO] || 0;
-    const activityCount = state.activity[dateISO] || 0;
-    const xpEarned = focusMin + videoMin;
-    const fmtMin = m => {
-      if (m <= 0) return '0m';
-      const h = Math.floor(m / 60), rem = m % 60;
-      return h > 0 ? (rem > 0 ? `${h}h ${rem}m` : `${h}h`) : `${rem}m`;
-    };
-
-    const hasData = totalTasks > 0 || focusMin > 0 || videoMin > 0 || activityCount > 0;
-
-    // Motivational quote
-    const quotes = (state.motivationQuotes && state.motivationQuotes.length)
-      ? state.motivationQuotes
-      : ['Consistency is the key to mastery.', 'Every day is a new chance to grow.', 'Small steps lead to big results.'];
-    const quote = quotes[Math.floor(Math.random() * quotes.length)];
-
-    // Header status badge
-    let statusLabel = '', statusClass = '';
-    if (isToday) { statusLabel = 'Today'; statusClass = 'ds-status-today'; }
-    else if (isFuture) { statusLabel = 'Upcoming'; statusClass = 'ds-status-future'; }
-    else if (totalTasks > 0 && doneTasks === totalTasks) { statusLabel = '✓ All Done'; statusClass = 'ds-status-done'; }
-    else if (totalTasks > 0 && doneTasks > 0) { statusLabel = `${doneTasks}/${totalTasks} Done`; statusClass = 'ds-status-partial'; }
-    else if (!hasData) { statusLabel = 'No Activity'; statusClass = 'ds-status-empty'; }
-
-    // Task rows
-    const taskRowsHtml = allTasks.map(t => {
-      const icon = t.type === 'auto' ? '📚' : '✏️';
-      const badge = t.done
-        ? `<span class="ds-badge ds-badge-done">✓ Done</span>`
-        : `<span class="ds-badge ds-badge-pending">Pending</span>`;
-      const delBtn = t.type === 'custom'
-        ? `<button class="ds-del-btn" data-act="del-cal-task" data-date="${dateISO}" data-i="${t._customIdx}" title="Remove task">${ic('trash')}</button>`
-        : '';
-      return `<div class="ds-task-row${t.done ? ' ds-task-done' : ''}">
-        <span class="ds-task-icon">${icon}</span>
-        <div class="ds-task-body">
-          <div class="ds-task-text">${escapeHTML(t.text)}</div>
-          <div class="ds-task-meta">${escapeHTML(t.meta)}</div>
-        </div>
-        ${badge}${delBtn}
-      </div>`;
-    }).join('');
-
-    const emptyTaskHtml = isFuture
-      ? `<div class="ds-empty"><div class="ds-empty-icon">🗓️</div><div>No tasks planned yet</div><div class="ds-empty-sub">Add tasks below to plan this day</div></div>`
-      : `<div class="ds-empty"><div class="ds-empty-icon">💤</div><div>No tasks recorded</div><div class="ds-empty-sub">"${escapeHTML(quote)}"</div></div>`;
-
-    // Analytics section
-    const analyticsHtml = (focusMin > 0 || videoMin > 0 || sessions > 0)
-      ? `<div class="ds-section">
-          <div class="ds-section-head">📊 Study Analytics</div>
-          <div class="ds-analytics-grid">
-            ${focusMin > 0 ? `<div class="ds-stat-tile ds-stat-focus"><div class="ds-sv">${fmtMin(focusMin)}</div><div class="ds-sk">Focus Time</div></div>` : ''}
-            ${videoMin > 0 ? `<div class="ds-stat-tile ds-stat-video"><div class="ds-sv">${fmtMin(videoMin)}</div><div class="ds-sk">Classroom</div></div>` : ''}
-            ${sessions > 0 ? `<div class="ds-stat-tile"><div class="ds-sv">${sessions} 🍅</div><div class="ds-sk">Pomodoros</div></div>` : ''}
-            ${xpEarned > 0 ? `<div class="ds-stat-tile ds-stat-xp"><div class="ds-sv">+${xpEarned} ⚡</div><div class="ds-sk">XP Earned</div></div>` : ''}
-          </div>
-        </div>` : '';
-
-    // Syllabus completed
-    const syllabusItems = allTasks.filter(t => t.type === 'auto' && t.done);
-    const syllabusHtml = syllabusItems.length
-      ? `<div class="ds-section">
-          <div class="ds-section-head">✅ Syllabus Progress</div>
-          ${syllabusItems.map(t => `<div class="ds-syl-row">
-            <span class="ds-syl-dot" style="background:${t.color}"></span>
-            <div class="ds-syl-body">
-              <div class="ds-syl-text">${escapeHTML(t.text)}</div>
-              <div class="ds-syl-meta">${escapeHTML(t.meta)}</div>
-            </div>
-            <span class="ds-badge ds-badge-done">Done</span>
-          </div>`).join('')}
-        </div>` : '';
-
-    // Streak & XP summary (only show if there's activity, and only if analytics didn't already show XP)
-    const streakHtml = (!isFuture && (activityCount > 0 || isToday))
-      ? `<div class="ds-section">
-          <div class="ds-section-head">🔥 Daily XP &amp; Streak</div>
-          <div class="ds-analytics-grid">
-            <div class="ds-stat-tile ds-stat-xp"><div class="ds-sv">${xpEarned > 0 ? '+' + xpEarned + ' ⚡' : '0 ⚡'}</div><div class="ds-sk">XP Earned</div></div>
-            <div class="ds-stat-tile"><div class="ds-sv">${state.streak.count} 🔥</div><div class="ds-sk">Streak</div></div>
-            ${activityCount > 0 ? `<div class="ds-stat-tile"><div class="ds-sv">${activityCount}</div><div class="ds-sk">Actions</div></div>` : ''}
-          </div>
-        </div>` : '';
-
-    // No-activity state for past dates
-    const noDataHtml = !hasData && !isFuture
-      ? `<div class="ds-no-activity">
-          <div class="ds-no-act-emoji">🌙</div>
-          <div class="ds-no-act-text">No activity on this day</div>
-          <div class="ds-no-act-quote">"${escapeHTML(quote)}"</div>
-        </div>` : '';
+    const fmtMin = m => { if (m <= 0) return '0m'; const h = Math.floor(m / 60), rem = m % 60; return h > 0 ? (rem > 0 ? `${h}h ${rem}m` : `${h}h`) : `${rem}m`; };
+    const analyticsStrip = (focusMin > 0 || sessions > 0)
+      ? `<div class="dps-analytics-strip">${focusMin > 0 ? `<span class="dps-anlyt-pill dps-anlyt-focus">⏱ ${fmtMin(focusMin)}</span>` : ''}${sessions > 0 ? `<span class="dps-anlyt-pill dps-anlyt-pomo">🍅 ${sessions}</span>` : ''}</div>`
+      : '';
 
     openModal(`
-      <div class="ds-header">
-        <div class="ds-date-label">${escapeHTML(label)}</div>
-        ${statusLabel ? `<span class="ds-status ${statusClass}">${statusLabel}</span>` : ''}
-      </div>
-      ${noDataHtml}
-      ${analyticsHtml}
-      <div class="ds-section">
-        <div class="ds-section-head">
-          📋 Task Recap
-          ${totalTasks ? `<span class="ds-task-count">${doneTasks}/${totalTasks} completed</span>` : ''}
+      <div class="dps-drag-handle"></div>
+      <div class="dps-header">
+        <div class="dps-header-left">
+          <div class="dps-date-label">${escapeHTML(label)}</div>
+          ${analyticsStrip}
         </div>
-        <div class="ds-task-list">
-          ${allTasks.length ? taskRowsHtml : emptyTaskHtml}
+        <button class="dps-close-btn" data-close>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div id="dps-task-section"></div>
+
+      <div class="dps-tabs">
+        <button class="dps-tab dps-tab-active" data-dps-tab="syllabus">📚 Syllabus Task</button>
+        <button class="dps-tab" data-dps-tab="custom">✏️ Custom Task</button>
+      </div>
+
+      <div id="dps-panel-syllabus" class="dps-panel">
+        <div id="dps-wizard"></div>
+      </div>
+
+      <div id="dps-panel-custom" class="dps-panel" style="display:none">
+        <div class="dps-custom-wrap">
+          <input id="dps-custom-inp" class="dps-custom-input" placeholder="Add a task for this day…" maxlength="120" autocomplete="off"/>
+          <button class="dps-custom-submit" id="dps-custom-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
         </div>
-      </div>
-      ${syllabusHtml}
-      ${streakHtml}
-      <div class="ds-add-row">
-        <input id="cal-new-task" placeholder="Add a task for ${isToday ? 'today' : 'this day'}…" maxlength="120"/>
-        <button class="btn btn-sm" data-act="add-cal-task" data-date="${dateISO}">${ic('plus')}</button>
-      </div>
-      <div class="actions" style="margin-top:12px">
-        <button class="btn btn-ghost" data-close>Close</button>
-        ${isToday ? `<button class="btn" data-act="regen-plan">↻ Regen Plan</button>` : ''}
       </div>
     `, root => {
-      const inp = root.querySelector('#cal-new-task');
-      if (inp) {
-        inp.addEventListener('keydown', e => { if (e.key === 'Enter') { const btn = root.querySelector('[data-act="add-cal-task"]'); if (btn) btn.click(); } });
+      // ── Wizard state ────────────────────────────────────────────────
+      let wStep = 1, wSubject = null, wChapter = null, wTopicIds = new Set(), wChSearch = '';
+
+      // ── Render task recap section ───────────────────────────────────
+      function renderTaskSection() {
+        const sec = root.querySelector('#dps-task-section');
+        if (!sec) return;
+
+        const allTasks = [];
+        for (const a of plan.auto || []) {
+          const key = autoKey(a.subId, a.chId, a.tId);
+          if ((plan.removed || []).includes(key)) continue;
+          const sub = findSubject(a.subId), ch = findChapter(a.subId, a.chId), t = findTopic(a.subId, a.chId, a.tId);
+          if (!sub || !ch || !t) continue;
+          allTasks.push({ type: 'auto', text: t.name, meta: `${sub.name} · ${ch.name}`, color: sub.color, done: !!t.done, subId: a.subId, chId: a.chId, tId: a.tId });
+        }
+        for (let i = 0; i < (plan.syllabus || []).length; i++) {
+          const s = plan.syllabus[i];
+          allTasks.push({ type: 'syllabus', idx: i, text: s.topicName, meta: `${s.subjectName} · ${s.chapterName}`, color: s.subjectColor || '#4da8ff', done: !!s.done, estMin: s.estimatedMinutes || 0, subjectId: s.subjectId, chapterId: s.chapterId, topicId: s.topicId });
+        }
+        for (let i = 0; i < (plan.custom || []).length; i++) {
+          const c = plan.custom[i];
+          allTasks.push({ type: 'custom', idx: i, text: c.text, meta: c.recurringId ? 'Daily recurring' : c.rolledOver ? 'Rolled over' : 'Custom task', color: '#64748b', done: !!c.done });
+        }
+
+        const totalT = allTasks.length, doneT = allTasks.filter(t => t.done).length;
+
+        if (!totalT) {
+          sec.innerHTML = `<div class="dps-empty-state">
+            <div class="dps-empty-emoji">🗓️</div>
+            <div class="dps-empty-title">No tasks yet</div>
+            <div class="dps-empty-hint">Add from your syllabus or create a custom task below</div>
+          </div>`;
+          return;
+        }
+
+        const pct = Math.round((doneT / totalT) * 100);
+        sec.innerHTML = `
+          <div class="dps-recap-header">
+            <div class="dps-recap-info">
+              <span class="dps-recap-label">📋 Tasks</span>
+              <span class="dps-recap-fraction">${doneT}/${totalT}</span>
+            </div>
+            <div class="dps-recap-bar-wrap">
+              <div class="dps-recap-bar" style="width:${pct}%"></div>
+            </div>
+          </div>
+          <div class="dps-task-cards">
+            ${allTasks.map((t, i) => {
+              const typeIcon = t.type === 'auto' ? '🔄' : t.type === 'syllabus' ? '📚' : '✏️';
+              const estHtml = t.type === 'syllabus' && t.estMin > 0 ? `<span class="dps-est-badge">⏱ ${t.estMin}m</span>` : '';
+              const delBtn = t.type !== 'auto'
+                ? `<button class="dps-del-task" data-type="${t.type}" data-idx="${t.idx}" title="Delete task">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                   </button>`
+                : '';
+              return `<div class="dps-task-card${t.done ? ' dps-task-done' : ''}">
+                <button class="dps-toggle-btn" data-type="${t.type}" data-idx="${t.idx !== undefined ? t.idx : ''}" data-sub="${t.subId || ''}" data-ch="${t.chId || ''}" data-tid="${t.tId || ''}" data-subid="${t.subjectId || ''}" data-chid="${t.chapterId || ''}" data-topicid="${t.topicId || ''}">
+                  <span class="dps-toggle-ring" style="--rc:${t.color}">
+                    ${t.done ? `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>` : ''}
+                  </span>
+                </button>
+                <div class="dps-task-body">
+                  <div class="dps-task-name">${typeIcon} ${escapeHTML(t.text)}</div>
+                  <div class="dps-task-meta">${escapeHTML(t.meta)}${estHtml}</div>
+                </div>
+                <div class="dps-sub-bar" style="background:${t.color}"></div>
+                ${delBtn}
+              </div>`;
+            }).join('')}
+          </div>`;
+
+        // Toggle handlers
+        sec.querySelectorAll('.dps-toggle-btn').forEach(btn => {
+          btn.onclick = () => {
+            const type = btn.dataset.type;
+            if (type === 'auto') {
+              const t = findTopic(btn.dataset.sub, btn.dataset.ch, btn.dataset.tid);
+              if (t) { t.done = !t.done; bumpActivity(); saveState(); renderTaskSection(); renderDashboard(); }
+            } else if (type === 'syllabus') {
+              const i = parseInt(btn.dataset.idx, 10);
+              if (!isNaN(i) && plan.syllabus[i]) {
+                plan.syllabus[i].done = !plan.syllabus[i].done;
+                if (plan.syllabus[i].done) {
+                  const t = findTopic(plan.syllabus[i].subjectId, plan.syllabus[i].chapterId, plan.syllabus[i].topicId);
+                  if (t && !t.done) { t.done = true; bumpSyllabusCompletion(1); onTopicDoneChanged(plan.syllabus[i].subjectId, plan.syllabus[i].chapterId, plan.syllabus[i].topicId, true); }
+                }
+                bumpActivity(); saveState(); renderTaskSection(); renderDashboard();
+              }
+            } else if (type === 'custom') {
+              const i = parseInt(btn.dataset.idx, 10);
+              if (!isNaN(i) && plan.custom[i]) { plan.custom[i].done = !plan.custom[i].done; bumpActivity(); saveState(); renderTaskSection(); renderDashboard(); }
+            }
+          };
+        });
+
+        // Delete handlers
+        sec.querySelectorAll('.dps-del-task').forEach(btn => {
+          btn.onclick = e => {
+            e.stopPropagation();
+            const type = btn.dataset.type, i = parseInt(btn.dataset.idx, 10);
+            if (type === 'syllabus' && !isNaN(i)) { plan.syllabus.splice(i, 1); saveState(); renderTaskSection(); renderDashboard(); toast('Task removed', 'info'); }
+            else if (type === 'custom' && !isNaN(i)) { plan.custom.splice(i, 1); saveState(); renderTaskSection(); renderDashboard(); toast('Task removed', 'info'); }
+          };
+        });
       }
+
+      // ── Render syllabus wizard ──────────────────────────────────────
+      function renderWizard() {
+        const wiz = root.querySelector('#dps-wizard');
+        if (!wiz) return;
+        const subjects = state.subjects || [];
+
+        if (wStep === 1) {
+          if (!subjects.length) {
+            wiz.innerHTML = `<div class="dps-wiz-empty"><div class="dps-empty-emoji">📚</div><div class="dps-empty-title">No subjects yet</div><div class="dps-empty-hint">Add subjects in the Study tab first</div></div>`;
+            return;
+          }
+
+          // Recently used subject IDs for this date
+          const recentIds = new Set((plan.syllabus || []).map(s => s.subjectId));
+
+          wiz.innerHTML = `
+            <div class="dps-step-hint">Step 1 of 3 · Choose a subject</div>
+            <div class="dps-sub-grid">
+              ${subjects.map(sub => {
+                const done = sub.chapters.filter(c => isChapterEffectivelyDone(c)).length;
+                const pct = sub.chapters.length ? Math.round((done / sub.chapters.length) * 100) : 0;
+                const isRecent = recentIds.has(sub.id);
+                return `<button class="dps-sub-chip${isRecent ? ' dps-sub-chip-recent' : ''}" data-sub-id="${sub.id}">
+                  <span class="dps-chip-dot" style="background:${sub.color}"></span>
+                  <span class="dps-chip-name">${escapeHTML(sub.name)}</span>
+                  <span class="dps-chip-pct" style="color:${sub.color}">${pct}%</span>
+                  ${isRecent ? '<span class="dps-chip-recent-badge">Recent</span>' : ''}
+                </button>`;
+              }).join('')}
+            </div>`;
+
+          wiz.querySelectorAll('.dps-sub-chip').forEach(btn => {
+            btn.onclick = () => { wSubject = findSubject(btn.dataset.subId); wChapter = null; wTopicIds = new Set(); wStep = 2; renderWizard(); };
+          });
+
+        } else if (wStep === 2 && wSubject) {
+          const chapters = wSubject.chapters || [];
+          const filtered = wChSearch ? chapters.filter(c => c.name.toLowerCase().includes(wChSearch.toLowerCase())) : chapters;
+
+          wiz.innerHTML = `
+            <div class="dps-step-nav">
+              <button class="dps-back-btn" id="dps-back1">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+              <div class="dps-breadcrumb">
+                <span class="dps-bc-dot" style="background:${wSubject.color}"></span>
+                <span class="dps-bc-text">${escapeHTML(wSubject.name)}</span>
+              </div>
+              <span class="dps-step-hint-inline">Step 2 of 3</span>
+            </div>
+            <div class="dps-search-box">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input class="dps-search-inp" id="dps-ch-search" placeholder="Search chapters…" value="${escapeHTML(wChSearch)}" autocomplete="off"/>
+            </div>
+            <div class="dps-ch-list">
+              ${!filtered.length
+                ? `<div class="dps-wiz-empty-sm">No chapters found</div>`
+                : filtered.map(ch => {
+                    const isDone = isChapterEffectivelyDone(ch);
+                    const pct = chapterProgress(ch);
+                    return `<button class="dps-ch-row${isDone ? ' dps-ch-done' : ''}" data-ch-id="${ch.id}">
+                      <span class="dps-ch-status">${isDone ? '✅' : '📖'}</span>
+                      <div class="dps-ch-body">
+                        <div class="dps-ch-name">${escapeHTML(ch.name)}</div>
+                        ${pct > 0 ? `<div class="dps-ch-bar-wrap"><div class="dps-ch-bar" style="width:${pct}%;background:${wSubject.color}"></div></div>` : ''}
+                      </div>
+                      <svg class="dps-ch-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+                    </button>`;
+                  }).join('')}
+            </div>`;
+
+          root.querySelector('#dps-back1').onclick = () => { wStep = 1; wSubject = null; wChSearch = ''; renderWizard(); };
+          const si = root.querySelector('#dps-ch-search');
+          if (si) { si.addEventListener('input', e => { wChSearch = e.target.value; renderWizard(); }); setTimeout(() => si.focus(), 80); }
+          wiz.querySelectorAll('.dps-ch-row').forEach(btn => {
+            btn.onclick = () => { wChapter = wSubject.chapters.find(c => c.id === btn.dataset.chId); wTopicIds = new Set(); wStep = 3; renderWizard(); };
+          });
+
+        } else if (wStep === 3 && wSubject && wChapter) {
+          const topics = wChapter.topics || [];
+          const existingIds = new Set((plan.syllabus || []).filter(s => s.date === dateISO).map(s => s.topicId));
+          const selCount = wTopicIds.size;
+          const estTotal = selCount * 20;
+
+          wiz.innerHTML = `
+            <div class="dps-step-nav">
+              <button class="dps-back-btn" id="dps-back2">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+              <div class="dps-breadcrumb">
+                <span class="dps-bc-dot" style="background:${wSubject.color}"></span>
+                <span class="dps-bc-text">${escapeHTML(wChapter.name)}</span>
+              </div>
+              <span class="dps-step-hint-inline">Step 3 of 3</span>
+            </div>
+            <div class="dps-step-hint-sub">Select topics to add · ${selCount > 0 ? `<b>${selCount} selected</b>` : 'none selected'}</div>
+            <div class="dps-topic-list">
+              ${!topics.length
+                ? `<div class="dps-wiz-empty-sm">No topics in this chapter</div>`
+                : topics.map(t => {
+                    const added = existingIds.has(t.id);
+                    const checked = wTopicIds.has(t.id);
+                    return `<label class="dps-topic-row${added ? ' dps-topic-added' : ''}${t.done ? ' dps-topic-completed' : ''}">
+                      <span class="dps-topic-cb-wrap${checked ? ' dps-cb-checked' : ''}" style="${checked ? `--cbcolor:${wSubject.color}` : ''}">
+                        <input type="checkbox" class="dps-topic-cb" data-tid="${t.id}" ${checked ? 'checked' : ''} ${added ? 'disabled' : ''} style="display:none">
+                        ${checked ? `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>` : ''}
+                      </span>
+                      <div class="dps-topic-info">
+                        <span class="dps-topic-name${t.done ? ' dps-topic-name-done' : ''}">${escapeHTML(t.name)}</span>
+                        <div class="dps-topic-tags">
+                          ${t.done ? `<span class="dps-tag dps-tag-done">✓ Done</span>` : ''}
+                          ${added ? `<span class="dps-tag dps-tag-added">Already added</span>` : ''}
+                          ${t.priority ? `<span class="dps-tag dps-tag-${t.priority}">${t.priority}</span>` : ''}
+                        </div>
+                      </div>
+                    </label>`;
+                  }).join('')}
+            </div>
+            ${topics.length ? `
+            <div class="dps-wiz-footer">
+              <div class="dps-est-row">
+                <span class="dps-est-label">Estimated time</span>
+                <div class="dps-est-input-wrap">
+                  <input type="number" id="dps-est-inp" class="dps-est-input" min="5" max="600" step="5" value="${estTotal}" placeholder="0"/>
+                  <span class="dps-est-unit">min</span>
+                </div>
+              </div>
+              <button class="dps-add-btn${selCount > 0 ? ' dps-add-btn-on' : ''}" id="dps-add-syl-btn" ${selCount === 0 ? 'disabled' : ''}>
+                ${selCount > 0 ? `Add ${selCount} topic${selCount > 1 ? 's' : ''} to this day` : 'Select topics above'}
+              </button>
+            </div>` : ''}`;
+
+          root.querySelector('#dps-back2').onclick = () => { wStep = 2; wChapter = null; wTopicIds = new Set(); renderWizard(); };
+
+          wiz.querySelectorAll('.dps-topic-cb').forEach(cb => {
+            cb.onchange = () => { if (cb.checked) wTopicIds.add(cb.dataset.tid); else wTopicIds.delete(cb.dataset.tid); renderWizard(); };
+            // Also make the label's checkbox work
+            cb.closest('label').onclick = e => {
+              if (cb.disabled) return;
+              if (e.target.tagName === 'INPUT') return;
+              cb.checked = !cb.checked;
+              if (cb.checked) wTopicIds.add(cb.dataset.tid); else wTopicIds.delete(cb.dataset.tid);
+              renderWizard();
+            };
+          });
+
+          const addBtn = root.querySelector('#dps-add-syl-btn');
+          if (addBtn) {
+            addBtn.onclick = () => {
+              if (!wTopicIds.size) return;
+              const estInp = root.querySelector('#dps-est-inp');
+              const totalEst = estInp ? (parseInt(estInp.value, 10) || 0) : 0;
+              const perTopic = wTopicIds.size > 0 ? Math.max(5, Math.round(totalEst / wTopicIds.size)) : 20;
+              let added = 0;
+              for (const tId of wTopicIds) {
+                const t = wChapter.topics.find(tp => tp.id === tId);
+                if (!t) continue;
+                if ((plan.syllabus || []).some(s => s.topicId === tId && s.date === dateISO)) continue;
+                plan.syllabus.push({ id: uid(), date: dateISO, subjectId: wSubject.id, subjectName: wSubject.name, subjectColor: wSubject.color, chapterId: wChapter.id, chapterName: wChapter.name, topicId: t.id, topicName: t.name, estimatedMinutes: perTopic, done: false, source: 'syllabus' });
+                added++;
+              }
+              if (added > 0) {
+                saveState();
+                toast(`${added} topic${added > 1 ? 's' : ''} added to ${isToday ? 'today' : 'this day'} ✓`, 'success');
+                wStep = 1; wSubject = null; wChapter = null; wTopicIds = new Set(); wChSearch = '';
+                renderWizard(); renderTaskSection(); renderDashboard();
+              } else {
+                toast('All selected topics already added', 'warn');
+              }
+            };
+          }
+        }
+      }
+
+      // ── Tab switching ───────────────────────────────────────────────
+      root.querySelectorAll('.dps-tab').forEach(btn => {
+        btn.onclick = () => {
+          root.querySelectorAll('.dps-tab').forEach(b => b.classList.remove('dps-tab-active'));
+          btn.classList.add('dps-tab-active');
+          const tab = btn.dataset.dpsTab;
+          root.querySelector('#dps-panel-syllabus').style.display = tab === 'syllabus' ? '' : 'none';
+          root.querySelector('#dps-panel-custom').style.display = tab === 'custom' ? '' : 'none';
+        };
+      });
+
+      // ── Custom task submit ──────────────────────────────────────────
+      const cInp = root.querySelector('#dps-custom-inp');
+      const cBtn = root.querySelector('#dps-custom-btn');
+      const submitCustom = () => {
+        const text = cInp ? cInp.value.trim() : '';
+        if (!text) { toast('Enter a task first', 'warn'); return; }
+        plan.custom.push({ id: uid(), text, done: false });
+        saveState(); renderTaskSection(); renderDashboard();
+        if (cInp) cInp.value = '';
+        toast('Task added', 'success');
+        // Briefly animate the task section
+        const sec = root.querySelector('#dps-task-section');
+        if (sec) { sec.style.transition = 'opacity 0.15s'; sec.style.opacity = '0.5'; setTimeout(() => { sec.style.opacity = '1'; }, 160); }
+      };
+      if (cBtn) cBtn.onclick = submitCustom;
+      if (cInp) cInp.addEventListener('keydown', e => { if (e.key === 'Enter') submitCustom(); });
+
+      // ── Swipe-to-close ──────────────────────────────────────────────
+      const dragHandle = root.querySelector('.dps-drag-handle');
+      let _swipeStartY = 0;
+      const onTouchStart = e => { _swipeStartY = e.touches[0].clientY; };
+      const onTouchEnd = e => { if (e.changedTouches[0].clientY - _swipeStartY > 72) closeModal(); };
+      root.addEventListener('touchstart', onTouchStart, { passive: true });
+      root.addEventListener('touchend', onTouchEnd, { passive: true });
+
+      // Initial render
+      renderTaskSection();
+      renderWizard();
     });
   }
 
