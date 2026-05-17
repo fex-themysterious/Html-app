@@ -4644,39 +4644,49 @@
         </div>
       </div>`;
 
+    const hasChapters = chapters.length > 0;
+    const chapDisabled = !curSubObj || !hasChapters;
+    const chapPlaceholder = !curSubObj ? 'Select Chapter' : (!hasChapters ? 'No chapters available' : 'Select Chapter');
     const chapRow = `
       <div class="sct-row">
         <span class="sct-row-lbl">Chapter</span>
         <div class="sct-row-ctrl">
-          <button class="sct-pick-btn${!curSubObj ? ' sct-pick-btn--disabled' : (curChapObj ? ' sct-pick-btn--set' : '')}"
-                  ${!curSubObj ? 'disabled' : 'data-act="sct-open-chap"'}>
+          <button class="sct-pick-btn${chapDisabled ? ' sct-pick-btn--disabled' : (curChapObj ? ' sct-pick-btn--set' : '')}"
+                  ${chapDisabled ? 'disabled' : 'data-act="sct-open-chap"'}>
             ${curChapObj
               ? `<span class="sct-pick-name">${escapeHTML(curChapObj.name)}</span>`
-              : `<span class="sct-pick-placeholder">Select Chapter</span>`}
-            ${curSubObj ? '<span class="sct-chev">›</span>' : ''}
+              : `<span class="sct-pick-placeholder">${chapPlaceholder}</span>`}
+            ${(!chapDisabled) ? '<span class="sct-chev">›</span>' : ''}
           </button>
           ${curChapObj ? `<button class="sct-clear-btn" data-act="sct-clear-chap" title="Clear">✕</button>` : ''}
         </div>
       </div>`;
 
+    const hasTopics = topics.length > 0;
+    const topicDisabled = !curChapObj || !hasTopics;
+    const topicPlaceholder = !curChapObj ? 'Select Topic' : (!hasTopics ? 'No topics available' : 'Select Topic');
     const topicRow = `
       <div class="sct-row">
         <span class="sct-row-lbl">Topic</span>
         <div class="sct-row-ctrl">
-          <button class="sct-pick-btn${!curChapObj ? ' sct-pick-btn--disabled' : (curTopic ? ' sct-pick-btn--set' : '')}"
-                  ${!curChapObj ? 'disabled' : 'data-act="sct-open-topic"'}>
+          <button class="sct-pick-btn${topicDisabled ? ' sct-pick-btn--disabled' : (curTopic ? ' sct-pick-btn--set' : '')}"
+                  ${topicDisabled ? 'disabled' : 'data-act="sct-open-topic"'}>
             ${curTopic
               ? `<span class="sct-pick-name">${escapeHTML(curTopic.name)}</span>`
-              : `<span class="sct-pick-placeholder">Select Topic</span>`}
-            ${curChapObj ? '<span class="sct-chev">›</span>' : ''}
+              : `<span class="sct-pick-placeholder">${topicPlaceholder}</span>`}
+            ${(!topicDisabled) ? '<span class="sct-chev">›</span>' : ''}
           </button>
           ${curTopic ? `<button class="sct-clear-btn" data-act="sct-clear-topic" title="Clear">✕</button>` : ''}
         </div>
       </div>`;
 
-    const warn = !_lsTopicId
-      ? `<div class="sct-warn">⚠ Select a topic to enable the timer</div>`
-      : `<div class="sct-ready">✓ Ready — <strong>${escapeHTML(curTopic.name)}</strong></div>`;
+    const warn = !_lsSubjectId
+      ? `<div class="sct-warn">⚠ Select a subject to start the timer</div>`
+      : curTopic
+        ? `<div class="sct-ready">✓ Ready — <strong>${escapeHTML(curSubObj.name)}</strong> · ${escapeHTML(curTopic.name)}</div>`
+        : curChapObj
+          ? `<div class="sct-ready">✓ Ready — <strong>${escapeHTML(curSubObj.name)}</strong> · ${escapeHTML(curChapObj.name)}</div>`
+          : `<div class="sct-ready">✓ Ready — <strong>${escapeHTML(curSubObj.name)}</strong></div>`;
 
     return `<div class="focus-sct-card">
       <div class="focus-sct-label">📚 STUDYING</div>
@@ -4791,7 +4801,7 @@
         </div>
         <div class="focus-buttons">
           <button class="btn btn-ghost" data-act="focus-reset">Reset</button>
-          <button class="btn${focusOvertime ? ' btn-overtime' : ''}${!focusRunning && !focusOvertime && !_lsTopicId ? ' btn-disabled-topic' : ''}" style="min-width:110px" data-act="focus-toggle" ${!focusRunning && !focusOvertime && !_lsTopicId ? 'title="Please select a study topic first"' : ''}>${focusRunning ? '⏸ Pause' : (focusOvertime ? '⏹ End Session' : '▶ Start')}</button>
+          <button class="btn${focusOvertime ? ' btn-overtime' : ''}" style="min-width:110px" data-act="focus-toggle">${focusRunning ? '⏸ Pause' : (focusOvertime ? '⏹ End Session' : '▶ Start')}</button>
         </div>
       </div>
       <div class="focus-col-right">
@@ -9301,8 +9311,8 @@
     // ── Daily Quests ─────────────────────────────────────────────────────
     if (act === 'quest-claim')      { _claimQuestXP(el.dataset.qid);   return; }
     if (act === 'focus-toggle') {
-      if (!focusRunning && !focusOvertime && !_lsTopicId) {
-        toast('Please select a study topic first', 'warn'); return;
+      if (!focusRunning && !focusOvertime && !_lsSubjectId) {
+        toast('Please select a subject first', 'warn'); return;
       }
       if (focusRunning) {
         // Partial-credit: save elapsed minutes for work sessions stopped early
