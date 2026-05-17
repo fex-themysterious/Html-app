@@ -216,6 +216,7 @@
     if (!s.focusStats.sessions) s.focusStats.sessions = {};
     if (!s.focusStats.minutesByDate) s.focusStats.minutesByDate = {};
     if (!s.focusStats.topicsCompletedByDate) s.focusStats.topicsCompletedByDate = {};
+    if (!s.focusStats.completedTaskKeys) s.focusStats.completedTaskKeys = {};
     s.recurringTasks = Array.isArray(s.recurringTasks) ? s.recurringTasks.map(rt => ({
       id: rt.id || uid(), text: rt.text || '', frequency: rt.frequency || 'daily', lastResetDate: rt.lastResetDate || null
     })) : [];
@@ -1463,7 +1464,19 @@
   function bumpSyllabusCompletion(n) {
     const k = todayKey();
     if (!state.focusStats.topicsCompletedByDate) state.focusStats.topicsCompletedByDate = {};
-    state.focusStats.topicsCompletedByDate[k] = (state.focusStats.topicsCompletedByDate[k] || 0) + (n || 1);
+    state.focusStats.topicsCompletedByDate[k] = Math.max(0, (state.focusStats.topicsCompletedByDate[k] || 0) + (n || 1));
+  }
+
+  function trackCompletion(key, done) {
+    const today = todayKey();
+    if (!state.focusStats.completedTaskKeys) state.focusStats.completedTaskKeys = {};
+    if (!Array.isArray(state.focusStats.completedTaskKeys[today])) state.focusStats.completedTaskKeys[today] = [];
+    const arr = state.focusStats.completedTaskKeys[today];
+    const idx = arr.indexOf(key);
+    if (done && idx === -1) arr.push(key);
+    else if (!done && idx !== -1) arr.splice(idx, 1);
+    if (!state.focusStats.topicsCompletedByDate) state.focusStats.topicsCompletedByDate = {};
+    state.focusStats.topicsCompletedByDate[today] = arr.length;
   }
 
   function bumpActivity() {
@@ -4244,7 +4257,7 @@
                 plan.syllabus[i].done = !plan.syllabus[i].done;
                 if (plan.syllabus[i].done) {
                   const t = findTopic(plan.syllabus[i].subjectId, plan.syllabus[i].chapterId, plan.syllabus[i].topicId);
-                  if (t && !t.done) { t.done = true; bumpSyllabusCompletion(1); onTopicDoneChanged(plan.syllabus[i].subjectId, plan.syllabus[i].chapterId, plan.syllabus[i].topicId, true); }
+                  if (t && !t.done) { t.done = true; trackCompletion(`topic:${plan.syllabus[i].subjectId}:${plan.syllabus[i].chapterId}:${plan.syllabus[i].topicId}`, true); onTopicDoneChanged(plan.syllabus[i].subjectId, plan.syllabus[i].chapterId, plan.syllabus[i].topicId, true); }
                 }
                 bumpActivity(); saveState(); renderTaskSection(); renderDashboard();
               }
@@ -5787,7 +5800,7 @@
       const task = focusCurrentTaskKey ? getActivePlanTasks().find(t => t.key === focusCurrentTaskKey) : null;
       if (task && !task.done) {
         confirmModal(`Session complete! Mark "${task.text}" as done?`, () => {
-          if (task.type === 'auto') { const t = findTopic(task.subId, task.chId, task.tId); if (t) { t.done = true; bumpActivity(); bumpSyllabusCompletion(1); onTopicDoneChanged(task.subId, task.chId, task.tId, true); saveState(); renderAll(); } }
+          if (task.type === 'auto') { const t = findTopic(task.subId, task.chId, task.tId); if (t) { t.done = true; bumpActivity(); trackCompletion(`topic:${task.subId}:${task.chId}:${task.tId}`, true); onTopicDoneChanged(task.subId, task.chId, task.tId, true); saveState(); renderAll(); } }
           else { const plan = state.dailyPlans[todayKey()]; if (plan) { const ct = plan.custom.find(c => c.id === task.id); if (ct) { ct.done = true; bumpActivity(); saveState(); renderAll(); } } }
         }, { title: 'Session done!', yesLabel: 'Mark done', yesClass: 'btn' });
       } else {
@@ -8365,7 +8378,7 @@
     if (act === 'regen-plan') { closeModal(); const k = todayKey(); if (state.dailyPlans[k]) { state.dailyPlans[k].generated = false; state.dailyPlans[k].auto = []; state.dailyPlans[k].custom = state.dailyPlans[k].custom.filter(c => !c.rolledOver); } saveState(); ensureTodayPlan(); renderDashboard(); toast('Plan regenerated', 'info'); return; }
     if (act === 'toggle-plan-task') {
       const type = el.dataset.type;
-      if (type === 'auto') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { const wasDone = t.done; t.done = !t.done; if (t.done) { bumpActivity(); bumpSyllabusCompletion(1); gamificationManager.addTaskXP(el); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); _justPoppedKey = `auto:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`; } else onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, false); const tasks = getActivePlanTasks(); if (tasks.length > 0 && tasks.every(x => x.done) && !wasDone) _justCompletedDay = todayKey(); saveState(); renderAll(); } }
+      if (type === 'auto') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { const wasDone = t.done; t.done = !t.done; const _ck = `topic:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`; if (t.done) { bumpActivity(); trackCompletion(_ck, true); gamificationManager.addTaskXP(el); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); _justPoppedKey = `auto:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`; } else { trackCompletion(_ck, false); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, false); } const tasks = getActivePlanTasks(); if (tasks.length > 0 && tasks.every(x => x.done) && !wasDone) _justCompletedDay = todayKey(); saveState(); renderAll(); } }
       else { const plan = state.dailyPlans[todayKey()]; if (plan) { const ct = plan.custom.find(c => c.id === el.dataset.id); if (ct) { ct.done = !ct.done; if (ct.done) { bumpActivity(); gamificationManager.addTaskXP(el); } saveState(); renderAll(); } } }
       return;
     }
@@ -8474,7 +8487,7 @@
 
     // Chapters
     if (act === 'toggle-chapter') { const id = el.dataset.id; openChapters.has(id) ? openChapters.delete(id) : openChapters.add(id); renderSyllabus(); return; }
-    if (act === 'toggle-chapter-done') { const ch = findChapter(el.dataset.sub, el.dataset.ch); if (ch) { const nowDone = !isChapterEffectivelyDone(ch); const _newTopics = nowDone ? ch.topics.filter(t => !t.done).length : 0; for (const t of ch.topics) { if (t.done !== nowDone) { t.done = nowDone; onTopicDoneChanged(el.dataset.sub, el.dataset.ch, t.id, nowDone); } } ch.done = nowDone; if (nowDone) { bumpActivity(); bumpSyllabusCompletion(_newTopics || 1); } saveState(); renderAll(); toast(nowDone ? 'Chapter marked done' : 'Chapter reopened', nowDone ? 'success' : 'info'); } return; }
+    if (act === 'toggle-chapter-done') { const ch = findChapter(el.dataset.sub, el.dataset.ch); if (ch) { const nowDone = !isChapterEffectivelyDone(ch); for (const t of ch.topics) { if (t.done !== nowDone) { t.done = nowDone; trackCompletion(`topic:${el.dataset.sub}:${el.dataset.ch}:${t.id}`, nowDone); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, t.id, nowDone); } } if (!ch.topics.length) { trackCompletion(`chapter:${el.dataset.sub}:${el.dataset.ch}`, nowDone); } ch.done = nowDone; if (nowDone) { bumpActivity(); } saveState(); renderAll(); toast(nowDone ? 'Chapter marked done' : 'Chapter reopened', nowDone ? 'success' : 'info'); } return; }
     if (act === 'add-chapter') { closeDropdown(); modalAddChapter(el.dataset.sub, null); return; }
     if (act === 'open-chapter-menu') { e.stopPropagation(); showChapterMenu(el.dataset.sub, el.dataset.ch); return; }
     if (act === 'edit-chapter') { closeDropdown(); const ch = findChapter(el.dataset.sub, el.dataset.ch); if (ch) modalAddChapter(el.dataset.sub, ch); return; }
@@ -8482,7 +8495,7 @@
     if (act === 'schedule-chapter') { closeDropdown(); const ch = findChapter(el.dataset.sub, el.dataset.ch); if (!ch) return; openModal(`<h3>Schedule Chapter</h3><div class="field"><label>Date</label><input id="m-date" type="date" value="${ch.scheduledDate || todayKey()}"/></div><div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn" id="m-save">Schedule</button></div>`, root => { root.querySelector('#m-save').onclick = () => { ch.scheduledDate = root.querySelector('#m-date').value || null; saveState(); closeModal(); renderAll(); toast('Chapter scheduled', 'success'); }; }); return; }
 
     // Topics
-    if (act === 'toggle-topic-done') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.done = !t.done; if (t.done) { bumpActivity(); bumpSyllabusCompletion(1); } onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, t.done); saveState(); renderAll(); } return; }
+    if (act === 'toggle-topic-done') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.done = !t.done; const _ck = `topic:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`; if (t.done) { bumpActivity(); trackCompletion(_ck, true); } else { trackCompletion(_ck, false); } onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, t.done); saveState(); renderAll(); } return; }
     if (act === 'add-topic') { closeDropdown(); modalAddTopic(el.dataset.sub, el.dataset.ch, null); return; }
     if (act === 'open-topic-menu') { e.stopPropagation(); showTopicMenu(el.dataset.sub, el.dataset.ch, el.dataset.t); return; }
     if (act === 'edit-topic') { closeDropdown(); const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) modalAddTopic(el.dataset.sub, el.dataset.ch, t); return; }
@@ -9608,11 +9621,11 @@
 
     // Smart suggestions
     if (act === 'suggest-rev-done') { completeRevisionStep(el.dataset.rev, parseInt(el.dataset.off, 10)); renderDashboard(); toast('Marked done', 'success'); return; }
-    if (act === 'suggest-topic-done') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.done = true; bumpActivity(); bumpSyllabusCompletion(1); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); saveState(); renderAll(); toast('Marked done', 'success'); } return; }
+    if (act === 'suggest-topic-done') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.done = true; bumpActivity(); trackCompletion(`topic:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`, true); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); saveState(); renderAll(); toast('Marked done', 'success'); } return; }
     if (act === 'suggest-open') { openSubjects.add(el.dataset.sub); openChapters.add(el.dataset.ch); switchTab('syllabus'); renderSyllabus(); return; }
 
     // Weak areas
-    if (act === 'weak-mark-done') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.done = true; bumpActivity(); bumpSyllabusCompletion(1); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); saveState(); renderAll(); toast('Marked done', 'success'); } return; }
+    if (act === 'weak-mark-done') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.done = true; bumpActivity(); trackCompletion(`topic:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`, true); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); saveState(); renderAll(); toast('Marked done', 'success'); } return; }
     if (act === 'weak-reset') { resetWeakTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); saveState(); renderDashboard(); toast('Reset weak flag', 'info'); return; }
 
     // Settings actions
