@@ -4246,30 +4246,115 @@
   }
 
   function _renderSCTSelector() {
-    const subjects = (state.syllabus || []).filter(s => !s._deleted);
+    const subjects  = state.subjects || [];
     const curSubObj = _lsSubjectId ? subjects.find(s => s.id === _lsSubjectId) : null;
-    const chapters = curSubObj && curSubObj.chapters ? curSubObj.chapters.filter(c => !c._deleted) : [];
+    const chapters  = curSubObj ? (curSubObj.chapters || []) : [];
     const curChapObj = _lsChapterId ? chapters.find(c => c.id === _lsChapterId) : null;
-    const topics = curChapObj && curChapObj.topics ? curChapObj.topics.filter(t => !t._deleted) : [];
-    const subLabel = curSubObj ? escapeHTML(curSubObj.name) : '';
-    const chapLabel = curChapObj ? escapeHTML(curChapObj.name) : '';
-    const topicLabel = (curChapObj && _lsTopicId) ? (() => { const t = curChapObj.topics.find(t => t.id === _lsTopicId); return t ? escapeHTML(t.name) : ''; })() : '';
+    const topics    = curChapObj ? (curChapObj.topics || []) : [];
+
+    const subBtn = curSubObj
+      ? `<button class="sct-pick-btn sct-pick-btn--set" data-act="sct-open-sub">
+           <span class="sct-dot" style="background:${curSubObj.color||'#ff7a1a'}"></span>
+           <span class="sct-pick-name">${escapeHTML(curSubObj.name)}</span>
+           <span class="sct-chev">›</span>
+         </button>`
+      : `<button class="sct-pick-btn" data-act="sct-open-sub">
+           <span class="sct-pick-placeholder">— Subject —</span>
+           <span class="sct-chev">›</span>
+         </button>`;
+
+    const chapBtn = curSubObj && chapters.length
+      ? (curChapObj
+          ? `<button class="sct-pick-btn sct-pick-btn--set" data-act="sct-open-chap">
+               <span class="sct-pick-name">${escapeHTML(curChapObj.name)}</span>
+               <span class="sct-chev">›</span>
+             </button>`
+          : `<button class="sct-pick-btn" data-act="sct-open-chap">
+               <span class="sct-pick-placeholder">— Chapter —</span>
+               <span class="sct-chev">›</span>
+             </button>`)
+      : '';
+
+    const topicBtn = curChapObj && topics.length
+      ? (() => {
+          const curTopic = _lsTopicId ? topics.find(t => t.id === _lsTopicId) : null;
+          return curTopic
+            ? `<button class="sct-pick-btn sct-pick-btn--set" data-act="sct-open-topic">
+                 <span class="sct-pick-name">${escapeHTML(curTopic.name)}</span>
+                 <span class="sct-chev">›</span>
+               </button>`
+            : `<button class="sct-pick-btn" data-act="sct-open-topic">
+                 <span class="sct-pick-placeholder">— Topic (optional) —</span>
+                 <span class="sct-chev">›</span>
+               </button>`;
+        })()
+      : '';
+
     return `<div class="focus-sct-card">
-      <div class="focus-sct-label">📚 Studying</div>
-      <select class="focus-sct-sel" data-act="focus-sct-sub">
-        <option value="">— Subject —</option>
-        ${subjects.map(s => `<option value="${escapeHTML(s.id)}"${_lsSubjectId===s.id?' selected':''}>${escapeHTML(s.name)}</option>`).join('')}
-      </select>
-      ${chapters.length ? `<select class="focus-sct-sel" data-act="focus-sct-chap">
-        <option value="">— Chapter —</option>
-        ${chapters.map(c => `<option value="${escapeHTML(c.id)}"${_lsChapterId===c.id?' selected':''}>${escapeHTML(c.name)}</option>`).join('')}
-      </select>` : ''}
-      ${(topics.length && _lsChapterId) ? `<select class="focus-sct-sel" data-act="focus-sct-topic">
-        <option value="">— Topic —</option>
-        ${topics.map(t => `<option value="${escapeHTML(t.id)}"${_lsTopicId===t.id?' selected':''}>${escapeHTML(t.name)}</option>`).join('')}
-      </select>` : ''}
-      ${subLabel ? `<div class="focus-sct-crumb">${subLabel}${chapLabel ? ' › ' + chapLabel : ''}${topicLabel ? ' › ' + topicLabel : ''}</div>` : ''}
+      <div class="focus-sct-label">📚 STUDYING</div>
+      ${subBtn}${chapBtn}${topicBtn}
     </div>`;
+  }
+
+  function _sctOpenSheet(title, items, currentId, onPick) {
+    if (document.getElementById('sct-sheet-ov')) return;
+    if (!items.length) { toast('Study tab-এ subject যোগ করুন', 'info'); return; }
+    const ov = document.createElement('div');
+    ov.id = 'sct-sheet-ov';
+    ov.className = 'lss-ov';
+    ov.innerHTML = `
+      <div class="lss-sheet" id="sct-sheet">
+        <div class="lss-sheet-bar"></div>
+        <div class="lss-sheet-ttl">${title}</div>
+        <div class="lss-sheet-list">
+          ${items.map(item => `
+            <button class="lss-sheet-row${currentId === item.id ? ' lss-sheet-row--on' : ''}" data-sid="${escapeHTML(item.id)}">
+              ${item.color ? `<span class="lss-sheet-dot" style="background:${item.color}"></span>` : '<span class="lss-sheet-dot" style="background:#7c3aed"></span>'}
+              <span class="lss-sheet-nm">${escapeHTML(item.name)}</span>
+              <span class="lss-sheet-tick">${currentId === item.id ? '✓' : ''}</span>
+            </button>`).join('')}
+        </div>
+      </div>`;
+    const close = () => { ov.classList.remove('lss-ov--in'); setTimeout(() => ov.remove(), 280); };
+    ov.addEventListener('click',    e => { if (e.target === ov) close(); });
+    ov.addEventListener('touchend', e => { if (e.target === ov) { e.preventDefault(); close(); } }, { passive: false });
+    ov.querySelectorAll('.lss-sheet-row').forEach(btn => {
+      const pick = () => { close(); onPick(btn.dataset.sid); setTimeout(() => renderFocus(), 290); };
+      let touched = false;
+      btn.addEventListener('touchend', e => { e.preventDefault(); e.stopPropagation(); touched = true; pick(); setTimeout(() => { touched = false; }, 500); }, { passive: false });
+      btn.addEventListener('click',    e => { e.stopPropagation(); if (!touched) pick(); });
+    });
+    document.body.appendChild(ov);
+    requestAnimationFrame(() => ov.classList.add('lss-ov--in'));
+  }
+
+  function _sctOpenSubSheet() {
+    const subjects = state.subjects || [];
+    if (!subjects.length) { toast('Study tab-এ subject যোগ করুন', 'info'); return; }
+    _sctOpenSheet('Subject বেছে নিন', subjects, _lsSubjectId, sid => {
+      if (sid !== _lsSubjectId) { _lsChapterId = null; _lsTopicId = null; }
+      _lsSubjectId = sid;
+    });
+  }
+
+  function _sctOpenChapSheet() {
+    const sub = _lsSubjectId ? findSubject(_lsSubjectId) : null;
+    if (!sub) { toast('আগে Subject বেছে নিন', 'info'); return; }
+    const chapters = sub.chapters || [];
+    if (!chapters.length) { toast('এই subject-এ কোনো chapter নেই', 'info'); return; }
+    _sctOpenSheet('Chapter বেছে নিন', chapters, _lsChapterId, cid => {
+      if (cid !== _lsChapterId) _lsTopicId = null;
+      _lsChapterId = cid;
+    });
+  }
+
+  function _sctOpenTopicSheet() {
+    const sub  = _lsSubjectId ? findSubject(_lsSubjectId) : null;
+    const chap = sub && _lsChapterId ? (sub.chapters || []).find(c => c.id === _lsChapterId) : null;
+    if (!chap) { toast('আগে Chapter বেছে নিন', 'info'); return; }
+    const topics = chap.topics || [];
+    if (!topics.length) { toast('এই chapter-এ কোনো topic নেই', 'info'); return; }
+    _sctOpenSheet('Topic বেছে নিন', topics, _lsTopicId, tid => { _lsTopicId = tid; });
   }
 
   function renderFocusTimer() {
@@ -7932,16 +8017,10 @@
     // Live Study — subject sheet
     if (act === 'ls-open-sheet') { _lsOpenSheet(); return; }
 
-    // Subject→Chapter→Topic selectors in Pomodoro timer
-    if (act === 'focus-sct-sub') {
-      _lsSubjectId = el.value || null; _lsChapterId = null; _lsTopicId = null; renderFocus(); return;
-    }
-    if (act === 'focus-sct-chap') {
-      _lsChapterId = el.value || null; _lsTopicId = null; renderFocus(); return;
-    }
-    if (act === 'focus-sct-topic') {
-      _lsTopicId = el.value || null; renderFocus(); return;
-    }
+    // Subject→Chapter→Topic bottom-sheet pickers in Pomodoro timer
+    if (act === 'sct-open-sub')   { _sctOpenSubSheet();   return; }
+    if (act === 'sct-open-chap')  { _sctOpenChapSheet();  return; }
+    if (act === 'sct-open-topic') { _sctOpenTopicSheet(); return; }
 
     // Live Study Timer
     if (act === 'ls-subject-change') {

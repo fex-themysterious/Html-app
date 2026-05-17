@@ -2639,17 +2639,21 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   font-size: 10px; font-weight: 900; letter-spacing: 0.12em; text-transform: uppercase;
   color: rgba(255,122,26,0.7);
 }
-.focus-sct-sel {
-  width: 100%; background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 10px; color: #e2e8f0; font-size: 13px; font-weight: 600;
-  padding: 8px 12px; font-family: inherit; cursor: pointer;
-  -webkit-appearance: none; appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23ff7a1a' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat; background-position: right 12px center;
-  padding-right: 32px;
+.sct-pick-btn {
+  width: 100%; display: flex; align-items: center; gap: 10px;
+  background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px; color: #e2e8f0; font-size: 14px; font-weight: 600;
+  padding: 10px 14px; font-family: inherit; cursor: pointer; text-align: left;
+  -webkit-tap-highlight-color: transparent; transition: background 0.15s, border-color 0.15s;
 }
-.focus-sct-sel:focus { outline: none; border-color: rgba(255,122,26,0.4); }
-.focus-sct-sel option { background: #0a0a0f; color: #e2e8f0; }
+.sct-pick-btn:active { background: rgba(255,122,26,0.1); border-color: rgba(255,122,26,0.4); }
+.sct-pick-btn--set {
+  background: rgba(255,122,26,0.07); border-color: rgba(255,122,26,0.3);
+}
+.sct-pick-placeholder { flex: 1; color: rgba(255,255,255,0.35); font-weight: 500; }
+.sct-pick-name { flex: 1; color: #f0f6ff; }
+.sct-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.sct-chev { font-size: 18px; color: rgba(255,122,26,0.6); line-height: 1; margin-left: auto; }
 .focus-sct-crumb {
   font-size: 11px; font-weight: 700; color: rgba(255,122,26,0.75);
   padding-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
