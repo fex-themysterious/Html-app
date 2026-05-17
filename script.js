@@ -3258,6 +3258,7 @@
   let _lsParticleRAF  = null;       // requestAnimationFrame handle for particle canvas
   let _lsVisibilityHandler = null;  // visibilitychange listener reference
   let _lsHeartbeatTick = 0;         // heartbeat counter
+  let _lsCurrentAvatarStage = -1;   // tracks current avatar evolution stage
   let _fsMotiQuote = ''; /* set once on entering full session, shown in motivation box */
   const customDurations = { work: 25, short: 5, long: 15 };
   let focusStartTime = null;
@@ -4563,6 +4564,28 @@
       }
     }
     document.title = `${_secsToHMS(elapsed)} — Live Study`;
+    // Avatar stage auto-advance with smooth transition
+    const newStage = _lsGetAvatarStage(elapsed);
+    if (newStage !== _lsCurrentAvatarStage) {
+      _lsCurrentAvatarStage = newStage;
+      const avWrap = overlay.querySelector('#ls-av-wrap');
+      if (avWrap) {
+        const svgEl = avWrap.querySelector('.ls-av-svg');
+        if (svgEl) {
+          svgEl.classList.add('ls-av-pop');
+          setTimeout(() => {
+            svgEl.outerHTML = _lsAvatarSVG(newStage);
+            const freshSvg = avWrap.querySelector('.ls-av-svg');
+            if (freshSvg) {
+              freshSvg.classList.add('ls-av-appear');
+              requestAnimationFrame(() => requestAnimationFrame(() => freshSvg.classList.remove('ls-av-appear')));
+            }
+          }, 220);
+        }
+        const stageEl = avWrap.querySelector('#ls-av-stage');
+        if (stageEl) stageEl.textContent = _LS_AV_LABELS[newStage] || 'LEGENDARY';
+      }
+    }
   }
 
   function enterLiveSession() {
@@ -4587,13 +4610,14 @@
       }
     } catch (_) {}
 
-    _lsOverlayActive    = true;
-    _lsRunning          = true;
-    _lsElapsedBase      = recoveredElapsed;
-    _lsStartTime        = Date.now();
-    _lsFbTick           = 0;
-    _lsHeartbeatTick    = 0;
-    window._focusActive = true;
+    _lsOverlayActive         = true;
+    _lsRunning               = true;
+    _lsElapsedBase           = recoveredElapsed;
+    _lsStartTime             = Date.now();
+    _lsFbTick                = 0;
+    _lsHeartbeatTick         = 0;
+    _lsCurrentAvatarStage    = -1;
+    window._focusActive      = true;
 
     let overlay = document.getElementById('ls-overlay');
     if (!overlay) {
@@ -4705,41 +4729,92 @@
     }, { merge: true }).catch(() => {});
   }
 
-  function _lsStickmanSVG() {
-    return `<svg viewBox="0 0 160 130" fill="none" class="lsf-figure-svg" aria-hidden="true"
-      stroke="#ff7a1a" stroke-linecap="round" stroke-linejoin="round">
+  // ── Focus Evolution Avatar System ─────────────────────────────────────────
+  const _LS_AV_THRESHOLDS = [0, 3600, 7200, 10800, 14400, 18000, 21600, 25200, 28800, 36000];
+  const _LS_AV_LABELS     = ['IDLE','FOCUSED','STUDYING','DEEP STUDY','SCHOLAR','SAGE','WARRIOR','BLAZING','INFERNO','LEGENDARY'];
 
-      <!-- Floating idea dots — scattered diagonal, upper-left -->
-      <circle cx="27" cy="57" r="5.5" fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-1"/>
-      <circle cx="38" cy="44" r="4"   fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-3"/>
-      <circle cx="32" cy="32" r="3.5" fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-2"/>
-      <circle cx="50" cy="35" r="3"   fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-4"/>
-      <circle cx="44" cy="20" r="2.5" fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-5"/>
-      <circle cx="57" cy="47" r="2.5" fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-2"/>
-      <circle cx="62" cy="24" r="3"   fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-1"/>
-      <circle cx="20" cy="44" r="2"   fill="#ff7a1a" stroke="none" class="lsf-ember lsf-ember-3"/>
+  function _lsGetAvatarStage(secs) {
+    let s = 0;
+    for (let i = 0; i < _LS_AV_THRESHOLDS.length; i++) {
+      if (secs >= _LS_AV_THRESHOLDS[i]) s = i;
+    }
+    return s;
+  }
 
-      <!-- Head (outer circle) -->
-      <circle cx="82" cy="60" r="14" stroke="#ff7a1a" stroke-width="2.8" fill="none" class="lsf-head"/>
+  function _lsNinjaBase() {
+    return `<line x1="20" y1="92" x2="120" y2="92" stroke="#d4d4d8" stroke-width="3" stroke-linecap="round"/>
+    <line x1="30" y1="92" x2="28" y2="118" stroke="#d4d4d8" stroke-width="2.2" stroke-linecap="round"/>
+    <line x1="110" y1="92" x2="112" y2="118" stroke="#d4d4d8" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M38 91 Q52 78 70 81 L70 92" fill="#f0ede6" stroke="#9ca3af" stroke-width="1.2"/>
+    <path d="M102 91 Q88 78 70 81 L70 92" fill="#e8e5de" stroke="#9ca3af" stroke-width="1.2"/>
+    <line x1="70" y1="81" x2="70" y2="92" stroke="#6b7280" stroke-width="1.5"/>
+    <line x1="46" y1="85" x2="62" y2="84" stroke="#9ca3af" stroke-width="0.9"/>
+    <line x1="45" y1="88" x2="63" y2="87" stroke="#9ca3af" stroke-width="0.9"/>
+    <line x1="78" y1="84" x2="94" y2="85" stroke="#9ca3af" stroke-width="0.9"/>
+    <line x1="79" y1="87" x2="96" y2="88" stroke="#9ca3af" stroke-width="0.9"/>
+    <path d="M57 70 Q54 82 52 92 H88 Q86 82 83 70 Q77 74 70 74 Q63 74 57 70Z" fill="#111827" stroke="#6b7280" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M64 70 L68 80 L72 80 L76 70" stroke="#374151" stroke-width="1.2" fill="none" stroke-linejoin="round"/>
+    <path d="M83 74 Q93 80 94 92" stroke="#6b7280" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <path d="M57 74 Q47 82 46 92" stroke="#6b7280" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <line x1="94" y1="88" x2="97" y2="80" stroke="#d4d4d8" stroke-width="1.8" stroke-linecap="round"/>
+    <rect x="65" y="62" width="10" height="9" rx="2" fill="#111827" stroke="#4b5563" stroke-width="1.2"/>
+    <ellipse cx="70" cy="44" rx="17" ry="19" fill="#111827" stroke="#6b7280" stroke-width="2"/>
+    <path d="M54 36 C52 24 58 16 60 24 C62 16 65 12 68 22 C70 14 72 12 74 22 C76 14 79 18 80 26 C82 16 88 22 86 36" fill="#111827" stroke="#4b5563" stroke-width="1.5" stroke-linejoin="round"/>
+    <path d="M54 36 L46 28 L54 38" fill="#111827" stroke="#4b5563" stroke-width="1.2"/>
+    <path d="M54 38 Q70 44 86 38" stroke="#374151" stroke-width="2" fill="none"/>
+    <rect x="66" y="35" width="8" height="5" rx="1" fill="#1a1a2e" stroke="#4b5563" stroke-width="1"/>
+    <path d="M57 43 Q60 39 64 43" stroke="#e5e7eb" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+    <path d="M76 43 Q80 39 83 43" stroke="#e5e7eb" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+    <ellipse cx="61" cy="42" rx="2" ry="2.5" fill="#0f172a"/>
+    <ellipse cx="79" cy="42" rx="2" ry="2.5" fill="#0f172a"/>
+    <circle cx="62" cy="41" r="1" fill="white"/>
+    <circle cx="80" cy="41" r="1" fill="white"/>
+    <path d="M53 50 Q53 62 70 62 Q87 62 87 50 Q80 56 70 56 Q60 56 53 50Z" fill="#0d0d0d" stroke="#374151" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M55 55 Q70 60 85 55" stroke="#1f2937" stroke-width="1.2" fill="none"/>`;
+  }
 
-      <!-- Inner gear ring (thinking brain effect) -->
-      <circle cx="82" cy="60" r="7" stroke="#ff7a1a" stroke-width="2" stroke-dasharray="4.4 2.6" fill="none"/>
+  function _lsAuraLayer(s) {
+    const E = (cx,cy,r,col,cls) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${col}" class="lsf-ember ${cls}"/>`;
+    const K = (d,col,cls) => `<path d="${d}" fill="${col}" class="lsf-ember ${cls}"/>`;
+    switch(s) {
+      case 0: return { behind: '',
+        front: `${E(82,16,2.5,'rgba(200,200,200,0.22)','lsf-ember-1')}${E(90,9,2,'rgba(200,200,200,0.15)','lsf-ember-2')}${E(96,21,2,'rgba(200,200,200,0.12)','lsf-ember-3')}` };
+      case 1: return { behind: '',
+        front: `${E(44,24,2.5,'rgba(255,255,255,0.28)','lsf-ember-2')}${E(98,28,2,'rgba(255,255,255,0.22)','lsf-ember-4')}${E(50,46,2,'rgba(255,255,255,0.18)','lsf-ember-3')}${K('M40 18L41 13L42 18L47 19L42 20L41 25L40 20L35 19Z','rgba(255,255,255,0.42)','lsf-ember-1')}${K('M98 22L99 18L100 22L104 23L100 24L99 28L98 24L94 23Z','rgba(255,255,255,0.32)','lsf-ember-3')}` };
+      case 2: return {
+        behind: `<ellipse cx="70" cy="58" rx="42" ry="40" fill="rgba(255,200,100,0.05)"/>`,
+        front: `${E(40,20,3,'rgba(255,220,140,0.30)','lsf-ember-1')}${E(102,24,2.5,'rgba(255,220,140,0.25)','lsf-ember-3')}${E(32,42,2,'rgba(255,200,100,0.22)','lsf-ember-2')}${K('M38 16L39 11L40 16L45 17L40 18L39 23L38 18L33 17Z','rgba(255,200,110,0.52)','lsf-ember-2')}${K('M100 18L101 14L102 18L106 19L102 20L101 24L100 20L96 19Z','rgba(255,200,110,0.42)','lsf-ember-4')}${E(110,36,2,'rgba(255,180,80,0.35)','lsf-ember-5')}` };
+      case 3: return {
+        behind: `<ellipse cx="70" cy="56" rx="46" ry="44" fill="rgba(255,122,26,0.07)"/>`,
+        front: `${E(36,18,4,'rgba(255,160,60,0.35)','lsf-ember-1')}${E(106,22,3,'rgba(255,150,50,0.28)','lsf-ember-3')}${E(42,48,2.5,'rgba(255,130,30,0.25)','lsf-ember-2')}${E(112,42,2,'rgba(255,120,26,0.30)','lsf-ember-5')}${K('M33 14L34 8L35 14L41 15L35 16L34 22L33 16L27 15Z','rgba(255,180,80,0.62)','lsf-ember-2')}${K('M104 16L105 11L106 16L111 17L106 18L105 23L104 18L99 17Z','rgba(255,170,70,0.54)','lsf-ember-4')}${E(28,34,2,'rgba(255,140,40,0.38)','lsf-ember-3')}` };
+      case 4: return {
+        behind: `<ellipse cx="70" cy="55" rx="54" ry="52" fill="rgba(255,122,26,0.09)"/><ellipse cx="70" cy="46" rx="30" ry="28" fill="rgba(255,160,70,0.07)"/>`,
+        front: `${E(34,16,5,'rgba(255,160,60,0.40)','lsf-ember-1')}${E(108,20,4,'rgba(255,150,50,0.34)','lsf-ember-3')}${E(116,38,3,'rgba(255,130,30,0.38)','lsf-ember-5')}${E(24,38,3,'rgba(255,140,40,0.35)','lsf-ember-4')}${K('M30 12L31 6L32 12L38 13L32 14L31 20L30 14L24 13Z','rgba(255,190,80,0.68)','lsf-ember-2')}${K('M106 14L107 9L108 14L113 15L108 16L107 21L106 16L101 15Z','rgba(255,180,70,0.60)','lsf-ember-4')}${E(20,52,2.5,'rgba(255,120,26,0.42)','lsf-ember-1')}${E(118,56,2.5,'rgba(255,130,36,0.38)','lsf-ember-3')}` };
+      case 5: return {
+        behind: `<ellipse cx="68" cy="65" rx="54" ry="44" fill="rgba(220,220,230,0.06)"/><ellipse cx="70" cy="52" rx="42" ry="40" fill="rgba(255,122,26,0.10)"/><ellipse cx="70" cy="44" rx="26" ry="24" fill="rgba(255,160,70,0.08)"/><path d="M18 70Q34 56 50 68Q65 56 80 68Q96 56 120 68" stroke="rgba(200,200,220,0.14)" stroke-width="7" fill="none"/>`,
+        front: `${E(30,14,5.5,'rgba(255,180,80,0.52)','lsf-ember-1')}${E(110,12,4.5,'rgba(255,180,70,0.46)','lsf-ember-3')}${E(120,30,3.5,'rgba(255,140,40,0.58)','lsf-ember-5')}${E(20,28,3.5,'rgba(255,150,50,0.54)','lsf-ember-4')}${E(22,50,3,'rgba(255,120,26,0.48)','lsf-ember-1')}${E(118,54,3,'rgba(255,130,30,0.44)','lsf-ember-2')}${K('M28 10L29 4L30 10L36 11L30 12L29 18L28 12L22 11Z','rgba(255,200,90,0.72)','lsf-ember-2')}${K('M108 12L109 7L110 12L115 13L110 14L109 19L108 14L103 13Z','rgba(255,190,80,0.64)','lsf-ember-4')}` };
+      case 6: return {
+        behind: `<ellipse cx="70" cy="54" rx="60" ry="58" fill="rgba(255,100,20,0.12)"/><circle cx="70" cy="48" r="30" fill="none" stroke="rgba(255,122,26,0.24)" stroke-width="3"/><path d="M58 38Q54 20 62 10Q64 24 66 16Q68 8 70 18Q72 8 74 16Q76 24 78 10Q86 20 82 38" fill="rgba(255,100,20,0.20)"/>`,
+        front: `${E(26,12,6,'rgba(255,190,80,0.65)','lsf-ember-1')}${E(112,10,5,'rgba(255,180,70,0.58)','lsf-ember-3')}${E(122,26,4,'rgba(255,140,40,0.68)','lsf-ember-5')}${E(18,24,4,'rgba(255,150,50,0.64)','lsf-ember-4')}${E(16,48,3.5,'rgba(255,120,26,0.56)','lsf-ember-2')}${E(124,52,3.5,'rgba(255,130,30,0.52)','lsf-ember-3')}${E(20,68,3,'rgba(255,100,18,0.46)','lsf-ember-5')}${E(120,70,3,'rgba(255,110,20,0.42)','lsf-ember-1')}${K('M24 8L25 2L26 8L32 9L26 10L25 16L24 10L18 9Z','rgba(255,210,90,0.78)','lsf-ember-2')}${K('M110 10L111 5L112 10L117 11L112 12L111 17L110 12L105 11Z','rgba(255,200,80,0.70)','lsf-ember-4')}` };
+      case 7: return {
+        behind: `<ellipse cx="70" cy="60" rx="64" ry="62" fill="rgba(255,80,10,0.14)"/><circle cx="70" cy="48" r="34" fill="none" stroke="rgba(255,150,50,0.32)" stroke-width="4"/><circle cx="70" cy="48" r="46" fill="none" stroke="rgba(255,80,10,0.16)" stroke-width="2"/><path d="M52 38Q44 16 54 4Q56 22 60 12Q62 4 66 16Q68 4 70 14Q72 4 74 16Q78 4 80 12Q84 22 86 4Q96 16 88 38" fill="rgba(255,90,10,0.30)"/><path d="M56 38Q50 22 57 14Q60 26 64 18Q68 8 70 20Q72 8 76 18Q80 26 83 14Q90 22 84 38" fill="rgba(255,140,30,0.20)"/>`,
+        front: `${E(22,10,6.5,'rgba(255,200,90,0.78)','lsf-ember-1')}${E(116,8,5.5,'rgba(255,190,80,0.70)','lsf-ember-3')}${E(124,22,5,'rgba(255,150,40,0.76)','lsf-ember-5')}${E(16,20,5,'rgba(255,160,50,0.72)','lsf-ember-4')}${E(12,44,4,'rgba(255,120,26,0.64)','lsf-ember-2')}${E(128,48,4,'rgba(255,130,30,0.60)','lsf-ember-3')}${E(14,66,3.5,'rgba(255,100,18,0.54)','lsf-ember-5')}${E(126,68,3.5,'rgba(255,110,22,0.50)','lsf-ember-1')}${E(28,8,3,'rgba(255,230,110,0.72)','lsf-ember-2')}${E(110,10,3,'rgba(255,220,100,0.66)','lsf-ember-4')}${K('M20 6L21 0L22 6L28 7L22 8L21 14L20 8L14 7Z','rgba(255,220,100,0.84)','lsf-ember-2')}${K('M108 8L109 3L110 8L115 9L110 10L109 15L108 10L103 9Z','rgba(255,210,90,0.76)','lsf-ember-4')}` };
+      case 8: return {
+        behind: `<ellipse cx="70" cy="60" rx="68" ry="65" fill="rgba(255,60,0,0.16)"/><circle cx="70" cy="48" r="38" fill="none" stroke="rgba(255,160,50,0.42)" stroke-width="5"/><circle cx="70" cy="48" r="52" fill="none" stroke="rgba(255,80,0,0.18)" stroke-width="3"/><path d="M44 40Q32 8 46-4Q48 16 54 6Q56-2 60 14Q62 2 66 16Q68-2 70 12Q72-2 74 16Q78 2 80 14Q84-2 86 6Q92 16 94-4Q108 8 96 40" fill="rgba(255,70,0,0.38)"/><path d="M50 40Q42 18 50 8Q54 24 58 14Q62 6 66 18Q68 6 70 16Q72 6 74 18Q78 6 82 14Q86 24 90 8Q98 18 90 40" fill="rgba(255,140,30,0.26)"/><path d="M56 40Q52 26 56 18Q60 28 64 20Q67 12 70 22Q73 12 76 20Q80 28 84 18Q88 26 84 40" fill="rgba(255,190,70,0.16)"/>`,
+        front: `${E(18,8,7,'rgba(255,210,100,0.88)','lsf-ember-1')}${E(118,6,6,'rgba(255,200,90,0.80)','lsf-ember-3')}${E(126,18,5.5,'rgba(255,160,40,0.84)','lsf-ember-5')}${E(14,16,5.5,'rgba(255,170,50,0.80)','lsf-ember-4')}${E(10,40,4.5,'rgba(255,130,26,0.72)','lsf-ember-2')}${E(130,44,4.5,'rgba(255,140,30,0.68)','lsf-ember-3')}${E(12,64,4,'rgba(255,100,16,0.62)','lsf-ember-5')}${E(128,66,4,'rgba(255,110,20,0.58)','lsf-ember-1')}${E(24,6,3.5,'rgba(255,240,130,0.80)','lsf-ember-1')}${E(114,8,3.5,'rgba(255,240,120,0.74)','lsf-ember-4')}${K('M16 4L17-2L18 4L24 5L18 6L17 12L16 6L10 5Z','rgba(255,230,110,0.90)','lsf-ember-2')}${K('M112 6L113 1L114 6L119 7L114 8L113 13L112 8L107 7Z','rgba(255,220,100,0.82)','lsf-ember-4')}` };
+      default: return { // LEGENDARY 10h+
+        behind: `<ellipse cx="70" cy="65" rx="70" ry="68" fill="rgba(255,50,0,0.18)"/><circle cx="70" cy="48" r="42" fill="none" stroke="rgba(255,200,70,0.52)" stroke-width="6"/><circle cx="70" cy="48" r="56" fill="none" stroke="rgba(255,100,0,0.26)" stroke-width="4"/><circle cx="70" cy="48" r="66" fill="none" stroke="rgba(255,60,0,0.12)" stroke-width="2"/><path d="M36 42Q18 4 38-10Q40 12 48 0Q50-8 55 12Q57-2 62 14Q64-4 70 8Q76-4 78 14Q83-2 85 12Q90-8 102 0Q110 12 104-10Q124 4 104 42" fill="rgba(255,60,0,0.44)"/><path d="M44 42Q30 14 44 2Q48 18 54 8Q58 0 64 16Q66 4 70 14Q74 4 76 16Q82 0 86 8Q92 18 96 2Q110 14 96 42" fill="rgba(255,140,30,0.32)"/><path d="M52 42Q44 24 52 12Q56 28 60 18Q64 10 70 22Q76 10 80 18Q84 28 88 12Q96 24 88 42" fill="rgba(255,200,80,0.20)"/><path d="M60 22L62 12L64 22L66 14L68 22L70 8L72 22L74 14L76 22L78 12L80 22" stroke="rgba(255,220,80,0.72)" stroke-width="1.8" fill="none" stroke-linejoin="round"/>`,
+        front: `${E(14,6,7.5,'rgba(255,230,110,0.92)','lsf-ember-1')}${E(122,4,6.5,'rgba(255,220,100,0.84)','lsf-ember-3')}${E(128,14,6,'rgba(255,180,50,0.88)','lsf-ember-5')}${E(12,14,6,'rgba(255,190,60,0.84)','lsf-ember-4')}${E(8,38,5,'rgba(255,140,30,0.78)','lsf-ember-2')}${E(132,42,5,'rgba(255,150,40,0.74)','lsf-ember-3')}${E(10,62,4.5,'rgba(255,110,18,0.68)','lsf-ember-5')}${E(130,64,4.5,'rgba(255,120,24,0.64)','lsf-ember-1')}${E(20,4,4,'rgba(255,250,140,0.84)','lsf-ember-1')}${E(118,6,4,'rgba(255,250,130,0.78)','lsf-ember-4')}${E(12,26,3.5,'rgba(255,230,100,0.72)','lsf-ember-2')}${E(128,28,3.5,'rgba(255,220,90,0.66)','lsf-ember-5')}${K('M12 2L13-4L14 2L20 3L14 4L13 10L12 4L6 3Z','rgba(255,240,120,0.94)','lsf-ember-2')}${K('M110 4L111-1L112 4L117 5L112 6L111 11L110 6L105 5Z','rgba(255,230,110,0.86)','lsf-ember-4')}`
+      };
+    }
+  }
 
-      <!-- Shoulders / body — arc from neck to desk surface -->
-      <path d="M70 73 Q54 85 40 94 H124 Q110 85 94 73" stroke-width="2.8" fill="none"/>
-
-      <!-- Desk surface -->
-      <line x1="18" y1="94" x2="142" y2="94" stroke-width="3"/>
-
-      <!-- Desk legs -->
-      <line x1="28"  y1="94" x2="26"  y2="124" stroke-width="2.8"/>
-      <line x1="132" y1="94" x2="134" y2="124" stroke-width="2.8"/>
-
-      <!-- Lamp pole -->
-      <line x1="116" y1="94" x2="116" y2="56" stroke-width="2.8"/>
-
-      <!-- Lamp shade (trapezoid) -->
-      <path d="M104 60 L128 60 L124 46 L108 46 Z" stroke-width="2.5" fill="none" class="lsf-lamp-pulse"/>
+  function _lsAvatarSVG(stageIdx) {
+    const aura = _lsAuraLayer(stageIdx);
+    return `<svg viewBox="0 0 140 128" fill="none" class="ls-av-svg" xmlns="http://www.w3.org/2000/svg">
+      ${aura.behind}
+      ${_lsNinjaBase()}
+      ${aura.front}
     </svg>`;
   }
 
@@ -4901,7 +4976,12 @@
     if (!subjectLog.length && curSub) subjectLog.push({ id: curSub.id, name: curSub.name, color: curSub.color || '#ff7a1a', mins: Math.round(elapsed / 60) });
     const logTotalMins = Math.max(1, subjectLog.reduce((a, b) => a + b.mins, 0));
     overlay.className = _lsRunning ? 'ls-running' : 'ls-paused';
+    const avNick = escapeHTML((state.profile && state.profile.name) ||
+      (typeof firebase !== 'undefined' && firebase.auth().currentUser && firebase.auth().currentUser.displayName) || '');
+    const avStage = _lsGetAvatarStage(elapsed);
+    if (_lsCurrentAvatarStage < 0) _lsCurrentAvatarStage = avStage;
     overlay.innerHTML = `
+    <canvas class="lsf-particle-canvas" id="ls-particles"></canvas>
     <div class="lsf-wrap">
       <div class="lsf-top-bar">
         <span class="lsf-mode-label">Focusing</span>
@@ -4922,8 +5002,12 @@
           <div class="lsf-split-val" id="ls-today-val">${_secsToHMS(todaySecs)}</div>
         </div>
       </div>
-      <div class="lsf-illustration">
-        ${_lsStickmanSVG()}
+      <div class="lsf-illustration ls-av-wrap" id="ls-av-wrap">
+        ${_lsAvatarSVG(avStage)}
+        <div class="ls-av-info">
+          ${avNick ? `<span class="ls-av-name">${avNick}</span>` : ''}
+          <span class="ls-av-stage-lbl" id="ls-av-stage">${_LS_AV_LABELS[avStage]}</span>
+        </div>
       </div>
       <div class="lsf-subject-row" id="ls-sub-row">
         <span class="lsf-sub-icon">📚</span>
