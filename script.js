@@ -4622,53 +4622,65 @@
   }
 
   function _renderSCTSelector() {
-    const subjects  = state.subjects || [];
-    const curSubObj = _lsSubjectId ? subjects.find(s => s.id === _lsSubjectId) : null;
-    const chapters  = curSubObj ? (curSubObj.chapters || []) : [];
-    const curChapObj = _lsChapterId ? chapters.find(c => c.id === _lsChapterId) : null;
-    const topics    = curChapObj ? (curChapObj.topics || []) : [];
+    const subjects   = state.subjects || [];
+    const curSubObj  = _lsSubjectId  ? subjects.find(s => s.id === _lsSubjectId)  : null;
+    const chapters   = curSubObj ? (curSubObj.chapters || []) : [];
+    const curChapObj = _lsChapterId ? chapters.find(c => c.id === _lsChapterId)   : null;
+    const topics     = curChapObj ? (curChapObj.topics || []) : [];
+    const curTopic   = _lsTopicId  ? topics.find(t => t.id === _lsTopicId)        : null;
 
-    const subBtn = curSubObj
-      ? `<button class="sct-pick-btn sct-pick-btn--set" data-act="sct-open-sub">
-           <span class="sct-dot" style="background:${curSubObj.color||'#ff7a1a'}"></span>
-           <span class="sct-pick-name">${escapeHTML(curSubObj.name)}</span>
-           <span class="sct-chev">›</span>
-         </button>`
-      : `<button class="sct-pick-btn" data-act="sct-open-sub">
-           <span class="sct-pick-placeholder">— Subject —</span>
-           <span class="sct-chev">›</span>
-         </button>`;
+    const subRow = `
+      <div class="sct-row">
+        <span class="sct-row-lbl">Subject</span>
+        <div class="sct-row-ctrl">
+          <button class="sct-pick-btn${curSubObj ? ' sct-pick-btn--set' : ''}" data-act="sct-open-sub">
+            ${curSubObj
+              ? `<span class="sct-dot" style="background:${curSubObj.color||'#ff7a1a'}"></span>
+                 <span class="sct-pick-name">${escapeHTML(curSubObj.name)}</span>`
+              : `<span class="sct-pick-placeholder">Select Subject</span>`}
+            <span class="sct-chev">›</span>
+          </button>
+          ${curSubObj ? `<button class="sct-clear-btn" data-act="sct-clear-sub" title="Clear">✕</button>` : ''}
+        </div>
+      </div>`;
 
-    const chapBtn = curSubObj && chapters.length
-      ? (curChapObj
-          ? `<button class="sct-pick-btn sct-pick-btn--set" data-act="sct-open-chap">
-               <span class="sct-pick-name">${escapeHTML(curChapObj.name)}</span>
-               <span class="sct-chev">›</span>
-             </button>`
-          : `<button class="sct-pick-btn" data-act="sct-open-chap">
-               <span class="sct-pick-placeholder">— Chapter —</span>
-               <span class="sct-chev">›</span>
-             </button>`)
-      : '';
+    const chapRow = `
+      <div class="sct-row">
+        <span class="sct-row-lbl">Chapter</span>
+        <div class="sct-row-ctrl">
+          <button class="sct-pick-btn${!curSubObj ? ' sct-pick-btn--disabled' : (curChapObj ? ' sct-pick-btn--set' : '')}"
+                  ${!curSubObj ? 'disabled' : 'data-act="sct-open-chap"'}>
+            ${curChapObj
+              ? `<span class="sct-pick-name">${escapeHTML(curChapObj.name)}</span>`
+              : `<span class="sct-pick-placeholder">Select Chapter</span>`}
+            ${curSubObj ? '<span class="sct-chev">›</span>' : ''}
+          </button>
+          ${curChapObj ? `<button class="sct-clear-btn" data-act="sct-clear-chap" title="Clear">✕</button>` : ''}
+        </div>
+      </div>`;
 
-    const topicBtn = curChapObj && topics.length
-      ? (() => {
-          const curTopic = _lsTopicId ? topics.find(t => t.id === _lsTopicId) : null;
-          return curTopic
-            ? `<button class="sct-pick-btn sct-pick-btn--set" data-act="sct-open-topic">
-                 <span class="sct-pick-name">${escapeHTML(curTopic.name)}</span>
-                 <span class="sct-chev">›</span>
-               </button>`
-            : `<button class="sct-pick-btn" data-act="sct-open-topic">
-                 <span class="sct-pick-placeholder">— Topic (optional) —</span>
-                 <span class="sct-chev">›</span>
-               </button>`;
-        })()
-      : '';
+    const topicRow = `
+      <div class="sct-row">
+        <span class="sct-row-lbl">Topic</span>
+        <div class="sct-row-ctrl">
+          <button class="sct-pick-btn${!curChapObj ? ' sct-pick-btn--disabled' : (curTopic ? ' sct-pick-btn--set' : '')}"
+                  ${!curChapObj ? 'disabled' : 'data-act="sct-open-topic"'}>
+            ${curTopic
+              ? `<span class="sct-pick-name">${escapeHTML(curTopic.name)}</span>`
+              : `<span class="sct-pick-placeholder">Select Topic</span>`}
+            ${curChapObj ? '<span class="sct-chev">›</span>' : ''}
+          </button>
+          ${curTopic ? `<button class="sct-clear-btn" data-act="sct-clear-topic" title="Clear">✕</button>` : ''}
+        </div>
+      </div>`;
+
+    const warn = !_lsTopicId
+      ? `<div class="sct-warn">⚠ Select a topic to enable the timer</div>`
+      : `<div class="sct-ready">✓ Ready — <strong>${escapeHTML(curTopic.name)}</strong></div>`;
 
     return `<div class="focus-sct-card">
       <div class="focus-sct-label">📚 STUDYING</div>
-      ${subBtn}${chapBtn}${topicBtn}
+      ${subRow}${chapRow}${topicRow}${warn}
     </div>`;
   }
 
@@ -4678,30 +4690,47 @@
     const ov = document.createElement('div');
     ov.id = 'sct-sheet-ov';
     ov.className = 'lss-ov';
+    const renderRows = (filter) => items
+      .filter(item => !filter || item.name.toLowerCase().includes(filter.toLowerCase()))
+      .map(item => `
+        <button class="lss-sheet-row${currentId === item.id ? ' lss-sheet-row--on' : ''}" data-sid="${escapeHTML(item.id)}">
+          <span class="lss-sheet-dot" style="background:${item.color||'#7c3aed'}"></span>
+          <span class="lss-sheet-nm">${escapeHTML(item.name)}</span>
+          <span class="lss-sheet-tick">${currentId === item.id ? '✓' : ''}</span>
+        </button>`).join('');
     ov.innerHTML = `
       <div class="lss-sheet" id="sct-sheet">
         <div class="lss-sheet-bar"></div>
         <div class="lss-sheet-ttl">${title}</div>
-        <div class="lss-sheet-list">
-          ${items.map(item => `
-            <button class="lss-sheet-row${currentId === item.id ? ' lss-sheet-row--on' : ''}" data-sid="${escapeHTML(item.id)}">
-              ${item.color ? `<span class="lss-sheet-dot" style="background:${item.color}"></span>` : '<span class="lss-sheet-dot" style="background:#7c3aed"></span>'}
-              <span class="lss-sheet-nm">${escapeHTML(item.name)}</span>
-              <span class="lss-sheet-tick">${currentId === item.id ? '✓' : ''}</span>
-            </button>`).join('')}
+        <div class="sct-search-wrap">
+          <span class="sct-search-icon">🔍</span>
+          <input class="sct-search-input" id="sct-search" placeholder="Search…" autocomplete="off" spellcheck="false"/>
         </div>
+        <div class="lss-sheet-list" id="sct-sheet-list">${renderRows('')}</div>
       </div>`;
     const close = () => { ov.classList.remove('lss-ov--in'); setTimeout(() => ov.remove(), 280); };
     ov.addEventListener('click',    e => { if (e.target === ov) close(); });
     ov.addEventListener('touchend', e => { if (e.target === ov) { e.preventDefault(); close(); } }, { passive: false });
-    ov.querySelectorAll('.lss-sheet-row').forEach(btn => {
-      const pick = () => { close(); onPick(btn.dataset.sid); setTimeout(() => renderFocus(), 290); };
-      let touched = false;
-      btn.addEventListener('touchend', e => { e.preventDefault(); e.stopPropagation(); touched = true; pick(); setTimeout(() => { touched = false; }, 500); }, { passive: false });
-      btn.addEventListener('click',    e => { e.stopPropagation(); if (!touched) pick(); });
+    const bindRows = () => {
+      ov.querySelectorAll('.lss-sheet-row').forEach(btn => {
+        const pick = () => { close(); onPick(btn.dataset.sid); setTimeout(() => renderFocus(), 290); };
+        let touched = false;
+        btn.addEventListener('touchend', e => { e.preventDefault(); e.stopPropagation(); touched = true; pick(); setTimeout(() => { touched = false; }, 500); }, { passive: false });
+        btn.addEventListener('click',    e => { e.stopPropagation(); if (!touched) pick(); });
+      });
+    };
+    bindRows();
+    // Realtime search filter
+    ov.querySelector('#sct-search').addEventListener('input', function() {
+      const list = ov.querySelector('#sct-sheet-list');
+      list.innerHTML = renderRows(this.value);
+      bindRows();
     });
     document.body.appendChild(ov);
-    requestAnimationFrame(() => ov.classList.add('lss-ov--in'));
+    requestAnimationFrame(() => {
+      ov.classList.add('lss-ov--in');
+      setTimeout(() => { const inp = ov.querySelector('#sct-search'); if (inp) inp.focus(); }, 320);
+    });
   }
 
   function _sctOpenSubSheet() {
@@ -4762,7 +4791,7 @@
         </div>
         <div class="focus-buttons">
           <button class="btn btn-ghost" data-act="focus-reset">Reset</button>
-          <button class="btn${focusOvertime ? ' btn-overtime' : ''}" style="min-width:110px" data-act="focus-toggle">${focusRunning ? '⏸ Pause' : (focusOvertime ? '⏹ End Session' : '▶ Start')}</button>
+          <button class="btn${focusOvertime ? ' btn-overtime' : ''}${!focusRunning && !focusOvertime && !_lsTopicId ? ' btn-disabled-topic' : ''}" style="min-width:110px" data-act="focus-toggle" ${!focusRunning && !focusOvertime && !_lsTopicId ? 'title="Please select a study topic first"' : ''}>${focusRunning ? '⏸ Pause' : (focusOvertime ? '⏹ End Session' : '▶ Start')}</button>
         </div>
       </div>
       <div class="focus-col-right">
@@ -5168,9 +5197,15 @@
     const elapsedMin = Math.round(totalSecs / 60);
     if (elapsedMin < 1) return;
     const curSub = _lsSubjectId ? findSubject(_lsSubjectId) : null;
+    const curChapLog = _lsSubjectId && _lsChapterId ? (curSub ? (curSub.chapters||[]).find(c=>c.id===_lsChapterId) : null) : null;
+    const curTopicLog = curChapLog && _lsTopicId ? (curChapLog.topics||[]).find(t=>t.id===_lsTopicId) : null;
     _db.collection('users').doc(uid).collection('syllabus_logs').doc().set({
       date: todayKey(), subjectId: _lsSubjectId || null,
       subjectName: curSub ? curSub.name : null,
+      chapterId: _lsChapterId || null,
+      chapterName: curChapLog ? curChapLog.name : null,
+      topicId: _lsTopicId || null,
+      topicName: curTopicLog ? curTopicLog.name : null,
       minutes: elapsedMin, seconds: totalSecs,
       type: 'live_study', createdAt: firebase.firestore.FieldValue.serverTimestamp()
     }).catch(() => {});
@@ -8461,6 +8496,10 @@
     if (act === 'sct-open-sub')   { _sctOpenSubSheet();   return; }
     if (act === 'sct-open-chap')  { _sctOpenChapSheet();  return; }
     if (act === 'sct-open-topic') { _sctOpenTopicSheet(); return; }
+    // Clear buttons
+    if (act === 'sct-clear-sub')   { _lsSubjectId = null; _lsChapterId = null; _lsTopicId = null; renderFocus(); return; }
+    if (act === 'sct-clear-chap')  { _lsChapterId = null; _lsTopicId  = null; renderFocus(); return; }
+    if (act === 'sct-clear-topic') { _lsTopicId   = null; renderFocus(); return; }
 
     // Live Study Timer
     if (act === 'ls-subject-change') {
@@ -9262,6 +9301,9 @@
     // ── Daily Quests ─────────────────────────────────────────────────────
     if (act === 'quest-claim')      { _claimQuestXP(el.dataset.qid);   return; }
     if (act === 'focus-toggle') {
+      if (!focusRunning && !focusOvertime && !_lsTopicId) {
+        toast('Please select a study topic first', 'warn'); return;
+      }
       if (focusRunning) {
         // Partial-credit: save elapsed minutes for work sessions stopped early
         if (focusMode === 'work' && focusStartTime !== null) {
