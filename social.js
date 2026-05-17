@@ -569,7 +569,8 @@
       if (_srTickCount % 30 === 0 && g.code) {
         const ms_ = getMainState(), tk_ = todayKey();
         const todayMins_ = ((ms_.focusStats || {}).minutesByDate || {})[tk_] || 0;
-        _writeSelfPresence(g.code, meActive, todayMins_, null);
+        const avStage_   = window._lsGetCurrentAvStage?.() || 0;
+        _writeSelfPresence(g.code, meActive, todayMins_, null, avStage_);
       }
     }, 1000);
   }
@@ -837,7 +838,7 @@
     `);
   }
 
-  function _writeSelfPresence(code, isStudying, todayMins, subjectName) {
+  function _writeSelfPresence(code, isStudying, todayMins, subjectName, avatarStage) {
     const db = getDb(), uid = getUserId(), fb = getFb();
     if (!db || !uid || !code || !fb) return;
     const update = {
@@ -846,6 +847,7 @@
       elapsedTimeToday: todayMins || 0,
       currentSubject:   subjectName || null,
       dateKey:          todayKey(),
+      avatarStage:      typeof avatarStage === 'number' ? avatarStage : (window._lsGetCurrentAvStage?.() || 0),
       lastUpdated:      fb.firestore.FieldValue.serverTimestamp(),
     };
     if (isStudying) update.studyStartedAt = Date.now();
@@ -1111,6 +1113,9 @@
     const fbOnline    = Object.values(_liveMembers).filter(x => x.isStudying).length;
     const activeCount = meActive ? Math.max(1, fbOnline) : fbOnline;
 
+    const _avLabel = s => (window._lsAvLabels || ['IDLE','FOCUSED','STUDYING','DEEP STUDY','SCHOLAR','SAGE','WARRIOR','BLAZING','INFERNO','LEGENDARY'])[s] || 'LEGENDARY';
+    const _avPillCls = s => s >= 9 ? 'sr-av-pill--legend' : s >= 6 ? 'sr-av-pill--fire' : s >= 3 ? 'sr-av-pill--warm' : 'sr-av-pill--dim';
+
     const memberCards = allMembers.map(m => {
       const realUid     = m.id === 'me' ? myUid : (m.id || m.uid);
       const isOff       = _isOffDayToday(realUid);
@@ -1120,6 +1125,10 @@
       const displayName = name.length > 10 ? name.slice(0, 9) + '…' : name;
       const timerId     = m.id === 'me' ? 'me' : (m.id || m.uid);
       const cardClass   = isOff ? 'sr-card-off' : (active ? 'sr-card-active' : 'sr-card-idle');
+      const avStage     = m.id === 'me'
+        ? (window._lsGetCurrentAvStage?.() || 0)
+        : (realUid && _liveMembers[realUid] ? (_liveMembers[realUid].avatarStage || 0) : 0);
+      const showPill    = !isOff && avStage > 0;
       return `
         <div class="sr-member-card ${cardClass}" data-sr-card="${esc(m.id)}">
           <div class="sr-card-icon-wrap">
@@ -1128,6 +1137,7 @@
           </div>
           <div class="sr-card-name">${esc(displayName)}</div>
           <div class="sr-card-timer${active ? ' sr-timer-live' : ''}" data-sr-timer="${esc(timerId)}">${isOff ? '—' : _fmtSecs(secs)}</div>
+          ${showPill ? `<div class="sr-av-pill ${_avPillCls(avStage)}">${_avLabel(avStage)}</div>` : ''}
         </div>`;
     });
     return `
@@ -1395,14 +1405,18 @@
               </div>
             </div>
           ` : topRows.map((u, i) => {
-            const rank  = i + 1;
-            const isMe  = uid && u.id === uid;
-            const uTime = _lbPeriod === 'daily' ? (u.dailyStudyTime || 0) : (u.weeklyStudyTime || 0);
+            const rank     = i + 1;
+            const isMe     = uid && u.id === uid;
+            const uTime    = _lbPeriod === 'daily' ? (u.dailyStudyTime || 0) : (u.weeklyStudyTime || 0);
+            const avS      = typeof u.avatarStage === 'number' ? u.avatarStage : -1;
+            const avLabels = window._lsAvLabels || ['IDLE','FOCUSED','STUDYING','DEEP STUDY','SCHOLAR','SAGE','WARRIOR','BLAZING','INFERNO','LEGENDARY'];
+            const avPillCls = avS >= 9 ? 'sr-av-pill--legend' : avS >= 6 ? 'sr-av-pill--fire' : avS >= 3 ? 'sr-av-pill--warm' : 'sr-av-pill--dim';
             return `<div class="sc-glb-row${isMe ? ' sc-glb-row--me' : ''}${rank <= 3 ? ' sc-glb-row--top' : ''}">
               <div class="sc-glb-rank">${rankBadge(rank)}</div>
               ${avatar(u.name, u.id)}
               <div class="sc-glb-info">
                 <div class="sc-glb-name">${esc(u.name || 'Anonymous')}${isMe ? ' <span class="sc-glb-you-tag">You</span>' : ''}</div>
+                ${avS > 0 ? `<span class="sr-av-pill ${avPillCls}" style="margin-top:3px">${avLabels[avS]}</span>` : ''}
               </div>
               <div class="sc-glb-time">${minsToHrs(uTime)}</div>
             </div>`;
@@ -2895,6 +2909,7 @@
         const studying_ = ui().focusIsRunning?.() === true;
         const tk_ = todayKey();
         const sc_ = scLoad();
+        const avStageGlobal_ = window._lsGetCurrentAvStage?.() || 0;
         sc_.groups.forEach(g => {
           if (g.code) {
             const update = {
@@ -2902,6 +2917,7 @@
               isStudying:       studying_,
               elapsedTimeToday: todayMins,
               dateKey:          tk_,
+              avatarStage:      avStageGlobal_,
               lastUpdated:      fb_.firestore.FieldValue.serverTimestamp(),
             };
             if (studying_) update.studyStartedAt = Date.now();

@@ -1001,6 +1001,20 @@
 .sr-card-active .sr-card-timer,
 .sr-timer-live { color: #ff7a1a; }
 
+/* ── Avatar Evolution Stage Pill ─────────────────────────────────────────── */
+.sr-av-pill {
+  display: inline-block;
+  font-size: 8px; font-weight: 800; letter-spacing: 0.10em;
+  text-transform: uppercase;
+  padding: 2px 6px; border-radius: 99px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.sr-av-pill--dim    { background: rgba(255,255,255,.07); color: rgba(255,255,255,.35); }
+.sr-av-pill--warm   { background: rgba(245,158,11,.15);  color: #f59e0b; }
+.sr-av-pill--fire   { background: rgba(255,122,26,.18);  color: #ff7a1a; }
+.sr-av-pill--legend { background: rgba(251,191,36,.22);  color: #fbbf24; box-shadow: 0 0 6px rgba(251,191,36,.35); }
+
 .sr-empty-grid {
   grid-column: 1 / -1;
   text-align: center;

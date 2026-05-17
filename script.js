@@ -4508,12 +4508,14 @@
     if (!_db || !_userId || typeof firebase === 'undefined') return;
     const elapsed = _lsGetElapsed();
     const curSub = _lsSubjectId ? findSubject(_lsSubjectId) : null;
+    const avStageNow = _lsCurrentAvatarStage >= 0 ? _lsCurrentAvatarStage : 0;
     _db.collection('users').doc(_userId).set({
       liveSession: {
         isStudying: true,
         currentSubject: curSub ? curSub.name : null,
         currentSubjectId: _lsSubjectId || null,
         currentSessionSeconds: elapsed,
+        avatarStage: avStageNow,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       }
     }, { merge: true }).catch(() => {});
@@ -4533,6 +4535,7 @@
       weeklyResetDate: _weekStartKey(),
       name:            userName,
       lastActive:      today,
+      avatarStage:     avStageNow,
       updatedAt:       firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true }).catch(() => {});
   }
@@ -4725,6 +4728,7 @@
       weeklyResetDate: _weekStartKey(),
       name:            saveName,
       lastActive:      todayStr2,
+      avatarStage:     _lsCurrentAvatarStage >= 0 ? _lsCurrentAvatarStage : 0,
       updatedAt:       firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true }).catch(() => {});
   }
@@ -4732,6 +4736,9 @@
   // ── Focus Evolution Avatar System ─────────────────────────────────────────
   const _LS_AV_THRESHOLDS = [0, 3600, 7200, 10800, 14400, 18000, 21600, 25200, 28800, 36000];
   const _LS_AV_LABELS     = ['IDLE','FOCUSED','STUDYING','DEEP STUDY','SCHOLAR','SAGE','WARRIOR','BLAZING','INFERNO','LEGENDARY'];
+  // Expose for social.js
+  window._lsAvLabels            = _LS_AV_LABELS;
+  window._lsGetCurrentAvStage   = () => (_lsCurrentAvatarStage >= 0 ? _lsCurrentAvatarStage : 0);
 
   function _lsGetAvatarStage(secs) {
     let s = 0;
