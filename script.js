@@ -4166,15 +4166,15 @@
           if ((plan.removed || []).includes(key)) continue;
           const sub = findSubject(a.subId), ch = findChapter(a.subId, a.chId), t = findTopic(a.subId, a.chId, a.tId);
           if (!sub || !ch || !t) continue;
-          allTasks.push({ type: 'auto', text: t.name, meta: `${sub.name} · ${ch.name}`, color: sub.color, done: !!t.done, subId: a.subId, chId: a.chId, tId: a.tId });
+          allTasks.push({ type: 'auto', text: t.name, subject: sub.name, chapter: ch.name, color: sub.color, done: !!t.done, subId: a.subId, chId: a.chId, tId: a.tId });
         }
         for (let i = 0; i < (plan.syllabus || []).length; i++) {
           const s = plan.syllabus[i];
-          allTasks.push({ type: 'syllabus', idx: i, text: s.topicName, meta: `${s.subjectName} · ${s.chapterName}`, color: s.subjectColor || '#4da8ff', done: !!s.done, estMin: s.estimatedMinutes || 0, subjectId: s.subjectId, chapterId: s.chapterId, topicId: s.topicId });
+          allTasks.push({ type: 'syllabus', idx: i, text: s.topicName, subject: s.subjectName, chapter: s.chapterName, color: s.subjectColor || '#4da8ff', done: !!s.done, estMin: s.estimatedMinutes || 0, subjectId: s.subjectId, chapterId: s.chapterId, topicId: s.topicId });
         }
         for (let i = 0; i < (plan.custom || []).length; i++) {
           const c = plan.custom[i];
-          allTasks.push({ type: 'custom', idx: i, text: c.text, meta: c.recurringId ? 'Daily recurring' : c.rolledOver ? 'Rolled over' : 'Custom task', color: '#64748b', done: !!c.done });
+          allTasks.push({ type: 'custom', idx: i, text: c.text, subject: c.recurringId ? 'Daily recurring' : c.rolledOver ? 'Rolled over' : 'Custom', chapter: '', color: '#ff7a1a', done: !!c.done });
         }
 
         const totalT = allTasks.length, doneT = allTasks.filter(t => t.done).length;
@@ -4182,43 +4182,50 @@
         if (!totalT) {
           sec.innerHTML = `<div class="dps-empty-state">
             <div class="dps-empty-emoji">🗓️</div>
-            <div class="dps-empty-title">No tasks yet</div>
-            <div class="dps-empty-hint">Add from your syllabus or create a custom task below</div>
+            <div class="dps-empty-title">No tasks planned</div>
+            <div class="dps-empty-hint">Add tasks from your syllabus or create a custom task below</div>
           </div>`;
           return;
         }
 
         const pct = Math.round((doneT / totalT) * 100);
+        const doneLabel = doneT === totalT ? '🎉 All done!' : `${doneT} of ${totalT} completed`;
         sec.innerHTML = `
           <div class="dps-recap-header">
             <div class="dps-recap-info">
-              <span class="dps-recap-label">📋 Tasks</span>
-              <span class="dps-recap-fraction">${doneT}/${totalT}</span>
+              <div class="dps-recap-left">
+                <span class="dps-recap-label">📋 Tasks</span>
+                <span class="dps-recap-done-lbl">${doneLabel}</span>
+              </div>
+              <span class="dps-recap-fraction">${pct}%</span>
             </div>
             <div class="dps-recap-bar-wrap">
-              <div class="dps-recap-bar" style="width:${pct}%"></div>
+              <div class="dps-recap-bar" style="width:${Math.max(pct, doneT > 0 ? 3 : 0)}%"></div>
             </div>
           </div>
           <div class="dps-task-cards">
             ${allTasks.map((t, i) => {
-              const typeIcon = t.type === 'auto' ? '🔄' : t.type === 'syllabus' ? '📚' : '✏️';
-              const estHtml = t.type === 'syllabus' && t.estMin > 0 ? `<span class="dps-est-badge">⏱ ${t.estMin}m</span>` : '';
-              const delBtn = t.type !== 'auto'
-                ? `<button class="dps-del-task" data-type="${t.type}" data-idx="${t.idx}" title="Delete task">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
-                   </button>`
+              const estHtml   = t.estMin > 0 ? `<span class="dps-est-badge">⏱ ${t.estMin}m</span>` : '';
+              const typeBadge = `<span class="dps-type-badge dps-type-badge-${t.type}">${t.type === 'auto' ? 'Revision' : t.type === 'syllabus' ? 'Syllabus' : 'Custom'}</span>`;
+              const subLine   = t.subject
+                ? `<div class="dps-task-subject"><span class="dps-subject-dot" style="background:${t.color}"></span><span class="dps-subject-name">${escapeHTML(t.subject)}</span>${t.chapter ? `<span class="dps-subject-sep"> · </span><span class="dps-chapter-name">${escapeHTML(t.chapter)}</span>` : ''}</div>`
                 : '';
-              return `<div class="dps-task-card${t.done ? ' dps-task-done' : ''}">
+              const delBtn    = t.type !== 'auto'
+                ? `<button class="dps-del-task" data-type="${t.type}" data-idx="${t.idx}" title="Remove task" aria-label="Delete task">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+                   </button>`
+                : '<div class="dps-del-placeholder"></div>';
+              return `<div class="dps-task-card dps-type-${t.type}${t.done ? ' dps-task-done' : ''}" style="--tc:${t.color}">
                 <button class="dps-toggle-btn" data-type="${t.type}" data-idx="${t.idx !== undefined ? t.idx : ''}" data-sub="${t.subId || ''}" data-ch="${t.chId || ''}" data-tid="${t.tId || ''}" data-subid="${t.subjectId || ''}" data-chid="${t.chapterId || ''}" data-topicid="${t.topicId || ''}">
-                  <span class="dps-toggle-ring" style="--rc:${t.color}">
-                    ${t.done ? `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>` : ''}
+                  <span class="dps-toggle-ring">
+                    ${t.done ? `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>` : ''}
                   </span>
                 </button>
                 <div class="dps-task-body">
-                  <div class="dps-task-name">${typeIcon} ${escapeHTML(t.text)}</div>
-                  <div class="dps-task-meta">${escapeHTML(t.meta)}${estHtml}</div>
+                  <div class="dps-task-name">${escapeHTML(t.text)}</div>
+                  ${subLine}
+                  <div class="dps-task-badges">${typeBadge}${estHtml}</div>
                 </div>
-                <div class="dps-sub-bar" style="background:${t.color}"></div>
                 ${delBtn}
               </div>`;
             }).join('')}
