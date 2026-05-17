@@ -9633,38 +9633,45 @@ body.page-bg *::after {
   min-width: 0;
 }
 
-/* Task cards — scrollable list */
+/* Task cards — natural flow, parent modal handles scrolling */
 .dps-task-cards {
-  display: flex; flex-direction: column; gap: 7px;
-  max-height: min(42vh, 300px);
-  overflow-y: auto; overflow-x: hidden;
-  overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
-  margin-bottom: 12px; padding: 1px 0 2px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.1) transparent;
+  display: flex; flex-direction: column; gap: 8px;
+  margin-bottom: 14px; padding: 0;
 }
-.dps-task-cards::-webkit-scrollbar { width: 3px; }
-.dps-task-cards::-webkit-scrollbar-track { background: transparent; }
-.dps-task-cards::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 99px; }
 
-/* Task card — flex-start so multi-line text expands card naturally */
+/* Task card — robust flex layout: toggle | body | delete */
 .dps-task-card {
   display: flex; align-items: flex-start; gap: 10px;
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.08);
   border-left: 3px solid var(--tc, rgba(77,168,255,0.55));
-  border-radius: 12px; padding: 11px 10px 11px 12px;
-  min-height: 58px; box-sizing: border-box; width: 100%;
-  transition: opacity 0.25s ease, border-left-color 0.2s ease, background 0.2s ease;
+  border-radius: 12px;
+  padding: 13px 10px 13px 14px;
+  box-sizing: border-box; width: 100%; overflow: hidden;
+  transition: opacity 0.25s ease, border-left-color 0.2s ease,
+              background 0.2s ease, box-shadow 0.18s ease;
+  animation: dps-card-in 0.22s ease both;
+}
+@keyframes dps-card-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 .dps-task-card:hover {
   background: rgba(255,255,255,0.07);
   border-left-color: var(--tc, rgba(77,168,255,0.9));
+  box-shadow: 0 2px 12px rgba(0,0,0,0.18);
 }
+.dps-task-card:hover .dps-del-task { opacity: 1; }
 
-/* Done state */
-.dps-task-card.dps-task-done { opacity: 0.45; background: rgba(255,255,255,0.02); }
-.dps-task-card.dps-task-done .dps-task-name { text-decoration: line-through; color: var(--text-muted); }
+/* Done state — strikethrough stays on same line, no layout shift */
+.dps-task-card.dps-task-done {
+  opacity: 0.48; background: rgba(255,255,255,0.02);
+  transition: opacity 0.3s ease;
+}
+.dps-task-card.dps-task-done .dps-task-name {
+  text-decoration: line-through; color: var(--text-muted);
+  text-decoration-thickness: 1.5px;
+}
 
 /* Type-specific left-border accent */
 .dps-type-custom { border-left-color: #ff7a1a; }
@@ -9673,71 +9680,98 @@ body.page-bg *::after {
 /* Old absolute color bar — replaced by border-left */
 .dps-sub-bar { display: none; }
 
-/* Toggle button — touch-friendly 34×34 tap area */
+/* Toggle button — 36×36 touch area, stays at top of card */
 .dps-toggle-btn {
-  width: 34px; height: 34px; flex-shrink: 0;
+  width: 36px; height: 36px; min-width: 36px; flex-shrink: 0;
+  align-self: flex-start; margin-top: 0;
   display: flex; align-items: center; justify-content: center;
   background: none; border: none; cursor: pointer; padding: 0;
   -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s ease;
 }
+.dps-toggle-btn:active { transform: scale(0.88); }
 .dps-toggle-ring {
   width: 24px; height: 24px; border-radius: 50%;
   border: 2px solid var(--tc, rgba(255,255,255,0.25));
   display: flex; align-items: center; justify-content: center;
   transition: background 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
-  background: transparent;
+  background: transparent; flex-shrink: 0;
 }
 .dps-toggle-btn:hover .dps-toggle-ring {
   border-color: var(--tc, #4da8ff);
-  box-shadow: 0 0 0 3px rgba(77,168,255,0.12);
+  box-shadow: 0 0 0 4px rgba(77,168,255,0.13);
 }
 .dps-task-card.dps-task-done .dps-toggle-ring {
   background: var(--tc, #4da8ff);
   border-color: var(--tc, #4da8ff);
-  box-shadow: 0 0 0 2px rgba(77,168,255,0.15), 0 0 10px var(--tc, rgba(77,168,255,0.4));
+  box-shadow: 0 0 0 2px rgba(77,168,255,0.18), 0 0 10px var(--tc, rgba(77,168,255,0.4));
 }
 
-/* Task body — column layout, text wraps freely */
-.dps-task-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.dps-task-name {
-  font-size: 13.5px; font-weight: 700; color: var(--text);
-  line-height: 1.4; word-break: break-word; overflow-wrap: break-word;
-  white-space: normal; transition: color 0.25s, text-decoration 0.25s;
+/* Task body — stacked text hierarchy, zero overlap */
+.dps-task-body {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 1px 0;
 }
+/* Line 1 — Topic title */
+.dps-task-name {
+  font-size: 14px; font-weight: 700; color: var(--text);
+  line-height: 1.45;
+  word-break: break-word; overflow-wrap: anywhere;
+  white-space: normal;
+  transition: color 0.25s ease, text-decoration 0.25s ease;
+}
+/* Line 2 — Subject · Chapter */
 .dps-task-subject {
-  display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 2px;
+  display: flex; align-items: center; gap: 5px;
+  flex-wrap: wrap; row-gap: 3px;
 }
 .dps-subject-dot  { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-.dps-subject-name { font-size: 11px; color: var(--text-muted); font-weight: 600; }
-.dps-subject-sep  { font-size: 10px; color: var(--text-muted); opacity: 0.4; }
-.dps-chapter-name { font-size: 11px; color: var(--text-muted); opacity: 0.75; word-break: break-word; min-width: 0; }
-.dps-task-badges  { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 3px; }
+.dps-subject-name {
+  font-size: 11.5px; color: var(--text-muted); font-weight: 600;
+  overflow-wrap: anywhere; min-width: 0;
+}
+.dps-subject-sep  { font-size: 10px; color: var(--text-muted); opacity: 0.4; flex-shrink: 0; }
+.dps-chapter-name {
+  font-size: 11px; color: var(--text-muted); opacity: 0.72;
+  word-break: break-word; overflow-wrap: anywhere; min-width: 0; line-height: 1.4;
+}
+/* Line 3 — Badge chips */
+.dps-task-badges  {
+  display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+  margin-top: 2px;
+}
 .dps-type-badge {
   font-size: 9px; font-weight: 800; text-transform: uppercase;
-  letter-spacing: 0.07em; padding: 2px 6px; border-radius: 99px;
+  letter-spacing: 0.07em; padding: 2.5px 7px; border-radius: 99px; flex-shrink: 0;
+  line-height: 1.4;
 }
 .dps-type-badge-syllabus { background: rgba(77,168,255,0.15);  color: #4da8ff; border: 1px solid rgba(77,168,255,0.25); }
 .dps-type-badge-auto     { background: rgba(129,140,248,0.15); color: #a5b4fc; border: 1px solid rgba(129,140,248,0.25); }
 .dps-type-badge-custom   { background: rgba(255,122,26,0.15);  color: #ff7a1a; border: 1px solid rgba(255,122,26,0.25); }
 .dps-est-badge {
-  font-size: 9px; font-weight: 700; padding: 2px 6px;
+  font-size: 9px; font-weight: 700; padding: 2.5px 7px; flex-shrink: 0; line-height: 1.4;
   background: rgba(77,168,255,0.12); color: #4da8ff;
   border-radius: 99px; border: 1px solid rgba(77,168,255,0.2);
 }
 
-/* Delete button — 34×34 touch target, right-aligned */
+/* Delete button — top-aligned, 36×36 touch area, semi-hidden until hover */
 .dps-del-task {
-  width: 34px; height: 34px; min-width: 34px; flex-shrink: 0;
+  width: 36px; height: 36px; min-width: 36px; flex-shrink: 0;
+  align-self: flex-start; margin-top: 0;
   display: flex; align-items: center; justify-content: center;
   background: none; border: none; cursor: pointer;
-  color: var(--text-muted); border-radius: 8px;
-  transition: color 0.15s, background 0.15s, transform 0.1s;
+  color: var(--text-muted); border-radius: 9px;
+  opacity: 0.55;
+  transition: color 0.15s, background 0.15s, transform 0.1s, opacity 0.15s;
   -webkit-tap-highlight-color: transparent;
 }
-.dps-del-task:hover  { color: #ef4444; background: rgba(239,68,68,0.1); }
-.dps-del-task:active { transform: scale(0.88); }
-/* Invisible spacer for auto tasks (keeps layout aligned) */
-.dps-del-placeholder { width: 34px; min-width: 34px; flex-shrink: 0; }
+.dps-del-task:hover  { color: #ef4444; background: rgba(239,68,68,0.1); opacity: 1; }
+.dps-del-task:active { transform: scale(0.87); }
+/* Invisible spacer keeps layout aligned for auto tasks */
+.dps-del-placeholder {
+  width: 36px; min-width: 36px; flex-shrink: 0; align-self: flex-start;
+}
 
 /* Tabs */
 .dps-tabs {
@@ -9757,17 +9791,10 @@ body.page-bg *::after {
   box-shadow: 0 0 0 1px rgba(77,168,255,0.3);
 }
 
-/* Panels — own scroll area, no double-scrollbar with modal */
+/* Panels — natural flow, modal handles all scrolling */
 .dps-panel {
-  overflow-y: auto; overflow-x: hidden;
-  overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
-  min-height: 160px; max-height: min(38vh, 340px);
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.1) transparent;
+  min-height: 80px;
 }
-.dps-panel::-webkit-scrollbar { width: 3px; }
-.dps-panel::-webkit-scrollbar-track { background: transparent; }
-.dps-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 99px; }
 
 /* Wizard step hints */
 .dps-step-hint {
