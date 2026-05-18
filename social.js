@@ -488,7 +488,6 @@
     try {
       // ── Study Room mode (full-screen, own layout) ─────────────────────────
       if (_groupView) {
-        document.body.classList.add('sr-group-active');
         const sc = scLoad();
         const g  = sc.groups.find(x => x.id === _groupView);
         if (!g) { _groupView = null; _settingsView = false; _stopSrTicker(); renderSocial(); return; }
@@ -514,7 +513,6 @@
         return;
       }
       // ── Normal tab mode ───────────────────────────────────────────────────
-      document.body.classList.remove('sr-group-active');
       _stopSrTicker();
       view.innerHTML = `
         <div class="sc-page" role="main">

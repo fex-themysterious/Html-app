@@ -911,15 +911,20 @@
 
 /* ── Room wrapper ─────────────────────────────────────────────────────────── */
 /*
- * LAYOUT FIX: `.sr-room` was `position:fixed` which is clipped by
- * `#view-social { overflow:hidden }` on Android Chrome due to GPU compositing.
- * Solution: use `position:absolute; inset:0` so it fills its positioned parent
- * (#view-social is `position:relative`). A body class expands #view-social to
- * 100dvh and hides the main bottom nav while the group view is open.
+ * Group room: full-screen overlay above everything.
+ * Uses position:fixed so it covers the whole viewport (z-index:101 > main nav z-index:100).
+ * When a .sr-room is present inside #view-social:
+ *   - #view-social is expanded to 100dvh so the room fills the whole screen
+ *     (Android Chrome clips fixed children to a scrolling parent's bounds, so
+ *     expanding the parent to 100dvh prevents the gap that exposes the main nav)
+ *   - The main .bottom-nav sibling is hidden via the :has() selector
  */
 .sr-room {
-  position: absolute;
-  inset: 0;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 101;
   display: flex;
   flex-direction: column;
@@ -928,12 +933,15 @@
   overflow: hidden;
 }
 
-/* Applied to <body> while a group room is open */
-body.sr-group-active #view-social {
+/* Expand #view-social to full viewport when a group room is open,
+   so Android Chrome's overflow:hidden clipping matches the full screen. */
+#view-social:has(.sr-room) {
   height: 100dvh !important;
-  height: 100svh !important; /* Safari fallback */
+  height: 100svh !important;
 }
-body.sr-group-active .bottom-nav {
+
+/* Hide the main bottom nav while inside a group room */
+#view-social:has(.sr-room) ~ .bottom-nav {
   display: none !important;
   pointer-events: none !important;
 }
