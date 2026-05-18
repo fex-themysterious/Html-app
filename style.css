@@ -95,8 +95,14 @@ svg { display: inline-block; vertical-align: middle; flex: none; }
 #app { min-height: 100dvh; padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); }
 .view { display: none !important; padding: 24px 18px 36px; max-width: 720px; margin: 0 auto; pointer-events: none; z-index: 0; overflow-x: hidden; box-sizing: border-box; }
 .view.active { display: block !important; pointer-events: auto; z-index: 10; }
-/* Social view strips padding so sroom-page fills edge-to-edge */
-#view-social { padding: 0 !important; }
+/* Social view strips padding and restores flex layout
+   (overrides .view.active { display:block !important }) */
+#view-social {
+  padding: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
 
 /* ── Typography ──────────────────────────────────────────────── */
 h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; line-height: 1.1; }

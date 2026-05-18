@@ -27,15 +27,17 @@
 #view-social {
   padding: 0 !important;
   background: var(--sc-bg);
-  overflow: hidden;
+  overflow: hidden !important;
   /*
    * Explicit height sized to the visible viewport above the bottom nav.
    * Body scroll is disabled globally (html,body overflow:hidden) so the
    * #app padding-bottom never creates a gap below this element.
+   * display:flex !important overrides .view.active { display:block !important }
+   * which would otherwise collapse the internal flex scroll chain.
    */
   height: calc(100dvh - var(--nav-h, 68px) - env(safe-area-inset-bottom, 0px));
-  display: flex;
-  flex-direction: column;
+  display: flex !important;
+  flex-direction: column !important;
   position: relative;
   overscroll-behavior: none;
 }
