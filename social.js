@@ -259,6 +259,24 @@
   }
 
   // ── Subscribe to each local group's Firestore doc for live memberCount ────
+  // ── Member-count self-healer ──────────────────────────────────────────────
+  // Counts the actual members subcollection and writes the real number back to
+  // the group doc. Called after every join/leave to correct any historical drift.
+  function _recalcMemberCount(code) {
+    const db_ = getDb();
+    if (!db_ || !code) return;
+    db_.collection('groups').doc(code).collection('members').get()
+      .then(snap => {
+        const actual = snap.size;
+        if (actual >= 0) {
+          db_.collection('groups').doc(code)
+            .update({ memberCount: actual })
+            .catch(() => {});
+        }
+      }).catch(() => {});
+  }
+
+  // ── Subscribe to each local group's Firestore doc for live memberCount ────
   function _subscribeGroupDocs() {
     const db = getDb(), uid = getUserId();
     if (!db || !uid) return;
@@ -2477,18 +2495,20 @@
     if (db_ && uid_ && fb_) {
       const memberRef = db_.collection('groups').doc(code).collection('members').doc(uid_);
       const groupRef  = db_.collection('groups').doc(code);
-      // Guard against duplicate joins — only increment if not already a member
-      memberRef.get().then(ms => {
-        if (!ms.exists) {
-          return memberRef.set({
+      // Atomic transaction: only add member doc + increment if not already present
+      db_.runTransaction(t => t.get(memberRef).then(memberSnap => {
+        if (!memberSnap.exists) {
+          t.set(memberRef, {
             uid: uid_, displayName: myName, role: 'member',
             joinedAt: fb_.firestore.FieldValue.serverTimestamp(),
             isStudying: false, currentSubject: null, elapsedTimeToday: 0,
-          }).then(() => groupRef.update({ memberCount: fb_.firestore.FieldValue.increment(1) }));
+          });
+          t.update(groupRef, { memberCount: fb_.firestore.FieldValue.increment(1) });
         } else {
-          return memberRef.update({ displayName: myName }).catch(() => {});
+          // Already a member in Firestore — just refresh display name
+          t.update(memberRef, { displayName: myName });
         }
-      }).catch(() => {});
+      })).then(() => _recalcMemberCount(code)).catch(() => {});
       db_.collection('users').doc(uid_).set({
         joinedRooms:     fb_.firestore.FieldValue.arrayUnion(code),
         displayNameAuto: myName,
@@ -2593,18 +2613,19 @@
           if (uid_ && fb_) {
             const mRef2 = db_.collection('groups').doc(code).collection('members').doc(uid_);
             const gRef2 = db_.collection('groups').doc(code);
-            // Guard: only increment if not already a Firestore member
-            mRef2.get().then(ms2 => {
-              if (!ms2.exists) {
-                return mRef2.set({
+            // Atomic transaction: only add member doc + increment if not already present
+            db_.runTransaction(t => t.get(mRef2).then(memberSnap => {
+              if (!memberSnap.exists) {
+                t.set(mRef2, {
                   uid: uid_, displayName: myName2, role: 'member',
                   joinedAt: fb_.firestore.FieldValue.serverTimestamp(),
                   isStudying: false, currentSubject: null, elapsedTimeToday: 0,
-                }).then(() => gRef2.update({ memberCount: fb_.firestore.FieldValue.increment(1) }));
+                });
+                t.update(gRef2, { memberCount: fb_.firestore.FieldValue.increment(1) });
               } else {
-                return mRef2.update({ displayName: myName2 }).catch(() => {});
+                t.update(mRef2, { displayName: myName2 });
               }
-            }).catch(() => {});
+            })).then(() => _recalcMemberCount(code)).catch(() => {});
             db_.collection('users').doc(uid_).set({
               joinedRooms:     fb_.firestore.FieldValue.arrayUnion(code),
               displayNameAuto: _getUserDisplayName(),
@@ -2900,17 +2921,17 @@
           sc2.notes  = sc2.notes.filter(n => n.groupId !== gid);
           if (sc2.chats) delete sc2.chats[gid];
           scSave(sc2); _groupView = null; _srTab = 'home'; _stopSrTicker(); _unsubscribeRoomMembers();
-          // Remove from Firebase — verify membership before decrementing count
+          // Atomic transaction: delete member doc + decrement only if member exists
           const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
           if (db_ && uid_ && fb_ && groupCode) {
-            const mRefL = db_.collection('groups').doc(groupCode).collection('members').doc(uid_);
-            mRefL.get().then(ms => {
-              if (ms.exists) {
-                return ms.ref.delete().then(() =>
-                  db_.collection('groups').doc(groupCode).update({ memberCount: fb_.firestore.FieldValue.increment(-1) })
-                );
+            const mRefL  = db_.collection('groups').doc(groupCode).collection('members').doc(uid_);
+            const gRefL  = db_.collection('groups').doc(groupCode);
+            db_.runTransaction(t => t.get(mRefL).then(memberSnap => {
+              if (memberSnap.exists) {
+                t.delete(mRefL);
+                t.update(gRefL, { memberCount: fb_.firestore.FieldValue.increment(-1) });
               }
-            }).catch(() => {});
+            })).then(() => _recalcMemberCount(groupCode)).catch(() => {});
             db_.collection('users').doc(uid_).set({ joinedRooms: fb_.firestore.FieldValue.arrayRemove(groupCode) }, { merge: true }).catch(() => {});
           }
           toast('Left group.', 'info'); renderSocial();
@@ -3851,17 +3872,17 @@
           if (sc2.chats) delete sc2.chats[gid];
           scSave(sc2);
           _groupView = null; _settingsView = false; _srTab = 'home'; _stopSrTicker(); _unsubscribeRoomMembers();
-          // Remove from Firebase — verify membership before decrementing count
+          // Atomic transaction: delete member doc + decrement only if member exists
           const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
           if (db_ && uid_ && fb_ && leaveCode) {
             const mRefS = db_.collection('groups').doc(leaveCode).collection('members').doc(uid_);
-            mRefS.get().then(ms => {
-              if (ms.exists) {
-                return ms.ref.delete().then(() =>
-                  db_.collection('groups').doc(leaveCode).update({ memberCount: fb_.firestore.FieldValue.increment(-1) })
-                );
+            const gRefS = db_.collection('groups').doc(leaveCode);
+            db_.runTransaction(t => t.get(mRefS).then(memberSnap => {
+              if (memberSnap.exists) {
+                t.delete(mRefS);
+                t.update(gRefS, { memberCount: fb_.firestore.FieldValue.increment(-1) });
               }
-            }).catch(() => {});
+            })).then(() => _recalcMemberCount(leaveCode)).catch(() => {});
             db_.collection('users').doc(uid_).set({ joinedRooms: fb_.firestore.FieldValue.arrayRemove(leaveCode) }, { merge: true }).catch(() => {});
           }
           toast('Left group.', 'info'); renderSocial();
