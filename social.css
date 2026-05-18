@@ -28,14 +28,22 @@
   padding: 0 !important;
   background: var(--sc-bg);
   overflow: hidden;
-  /* Definite height: full viewport minus bottom nav + safe area */
-  height: calc(100dvh - var(--nav-h, 68px) - env(safe-area-inset-bottom, 0px));
-  max-height: calc(100dvh - var(--nav-h, 68px) - env(safe-area-inset-bottom, 0px));
+  /*
+   * position:fixed takes the panel out of the normal document flow so the
+   * #app padding-bottom (reserved for the bottom nav) no longer creates a
+   * black gap beneath this view.  The four inset values size the panel to
+   * exactly fill the viewport above the bottom nav bar.
+   */
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--nav-h, 68px) + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
-  position: relative;
   /* Prevent body scroll bleed-through on this view */
   overscroll-behavior: none;
+  z-index: 1;
 }
 
 .sc-page {
@@ -60,7 +68,7 @@
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
   overscroll-behavior-x: none;
-  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 80px);
+  padding-bottom: 20px;
   position: relative;
   isolation: isolate;
 }
@@ -228,7 +236,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 4px 14px calc(env(safe-area-inset-bottom, 0px) + 120px);
+  padding: 4px 14px 20px;
 }
 
 /* Discovery card */
