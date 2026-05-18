@@ -1,4 +1,4 @@
-/* social.css — Study Community System v2 */
+/* social.css — Study Community System v2 — v10 */
 /* Design: flat dark — #0f172a bg, #7c3aed accent, #38bdf8 secondary */
 
 :root {
@@ -881,14 +881,17 @@
 
 /* ── Room wrapper ─────────────────────────────────────────────────────────── */
 .sr-room {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 101;
   display: flex;
   flex-direction: column;
-  height: 100%;
-  min-height: 0;
   background: #0d0d0d;
   color: #f1f5f9;
   overflow: hidden;
-  position: relative;
 }
 
 /* ── Top bar ──────────────────────────────────────────────────────────────── */
@@ -1916,10 +1919,14 @@
 
 /* ── Group Settings Panel — shared (sgs-*) ─────────────────────────── */
 .sgs-page {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 101;
   display: flex;
   flex-direction: column;
-  height: 100%;
-  min-height: 0;
   background: var(--sc-bg);
   color: var(--sc-text);
   overflow: hidden;
