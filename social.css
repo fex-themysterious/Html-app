@@ -910,18 +910,32 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ── Room wrapper ─────────────────────────────────────────────────────────── */
+/*
+ * LAYOUT FIX: `.sr-room` was `position:fixed` which is clipped by
+ * `#view-social { overflow:hidden }` on Android Chrome due to GPU compositing.
+ * Solution: use `position:absolute; inset:0` so it fills its positioned parent
+ * (#view-social is `position:relative`). A body class expands #view-social to
+ * 100dvh and hides the main bottom nav while the group view is open.
+ */
 .sr-room {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  position: absolute;
+  inset: 0;
   z-index: 101;
   display: flex;
   flex-direction: column;
   background: #0d0d0d;
   color: #f1f5f9;
   overflow: hidden;
+}
+
+/* Applied to <body> while a group room is open */
+body.sr-group-active #view-social {
+  height: 100dvh !important;
+  height: 100svh !important; /* Safari fallback */
+}
+body.sr-group-active .bottom-nav {
+  display: none !important;
+  pointer-events: none !important;
 }
 
 /* ── Top bar ──────────────────────────────────────────────────────────────── */
