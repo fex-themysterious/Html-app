@@ -17,20 +17,32 @@
 }
 
 /* ── Base ─────────────────────────────────────────────────────────────── */
+
+/*
+ * Layout fix: the parent #app uses min-height (not a fixed height),
+ * so height:100% on children collapses to auto and kills internal scroll.
+ * We give #view-social an explicit dvh-based height that is self-contained,
+ * independent of the parent chain, and accounts for the fixed bottom nav.
+ */
 #view-social {
   padding: 0 !important;
   background: var(--sc-bg);
   overflow: hidden;
-  height: 100%;
+  /* Definite height: full viewport minus bottom nav + safe area */
+  height: calc(100dvh - var(--nav-h, 68px) - env(safe-area-inset-bottom, 0px));
+  max-height: calc(100dvh - var(--nav-h, 68px) - env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   position: relative;
+  /* Prevent body scroll bleed-through on this view */
+  overscroll-behavior: none;
 }
 
 .sc-page {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* flex: 1 + min-height: 0 is the correct flex-child scroll pattern */
+  flex: 1;
   min-height: 0;
   overflow: hidden;
   background: var(--sc-bg);
@@ -42,12 +54,13 @@
 .sc-body {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  /* Explicit overflow-y forces this element to be the scroll container */
+  overflow-y: auto !important;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
   overscroll-behavior-x: none;
-  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 90px);
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 80px);
   position: relative;
   isolation: isolate;
 }
