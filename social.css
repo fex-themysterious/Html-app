@@ -599,7 +599,7 @@
 .sc-section-title { font-size: 15px; font-weight: 800; color: var(--sc-text); letter-spacing: .01em; }
 
 /* ── Group Cards ──────────────────────────────────────────────────────── */
-.sc-groups-list { display: flex; flex-direction: column; gap: 8px; padding: 0 16px; }
+.sc-groups-list { display: flex; flex-direction: column; gap: 8px; padding: 0 16px 100px; box-sizing: border-box; }
 .sc-group-card {
   display: flex; align-items: center; gap: 12px;
   background: var(--sc-card);
