@@ -1,0 +1,72 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Public groups ────────────────────────────────────────────────────────
+    // Anyone can read groups (needed for Discover tab).
+    // Only authenticated users can create groups.
+    // Only the group creator/admins can update group metadata.
+    // Only authenticated users can delete (and only their own groups).
+    match /groups/{groupCode} {
+      allow read: if true;
+
+      allow create: if request.auth != null
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdByUid == request.auth.uid;
+
+      allow update: if request.auth != null && (
+        resource.data.createdByUid == request.auth.uid ||
+        resource.data.ownerUid     == request.auth.uid ||
+        (resource.data.admins is list && request.auth.uid in resource.data.admins)
+      );
+
+      allow delete: if request.auth != null && (
+        resource.data.createdByUid == request.auth.uid ||
+        resource.data.ownerUid     == request.auth.uid
+      );
+
+      // ── Members subcollection ──────────────────────────────────────────────
+      // Any authenticated user can read members (for live presence/rankings).
+      // Users can only write their own member doc.
+      match /members/{uid} {
+        allow read:   if request.auth != null;
+        allow write:  if request.auth != null && request.auth.uid == uid;
+      }
+
+      // ── Messages subcollection ────────────────────────────────────────────
+      // Group members (anyone authenticated) can read/write messages.
+      match /messages/{msgId} {
+        allow read:   if request.auth != null;
+        allow create: if request.auth != null
+          && request.resource.data.authorUid == request.auth.uid;
+        allow update: if request.auth != null && (
+          resource.data.authorUid == request.auth.uid ||
+          get(/databases/$(database)/documents/groups/$(groupCode)).data.createdByUid == request.auth.uid
+        );
+        allow delete: if request.auth != null && (
+          resource.data.authorUid == request.auth.uid ||
+          get(/databases/$(database)/documents/groups/$(groupCode)).data.createdByUid == request.auth.uid
+        );
+      }
+    }
+
+    // ── User profiles ─────────────────────────────────────────────────────────
+    // Users can only read/write their own profile doc.
+    match /users/{uid} {
+      allow read:  if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ── Global leaderboard ────────────────────────────────────────────────────
+    // Anyone authenticated can read; users write only their own entry.
+    match /global_lb/{uid} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ── Default: deny everything else ─────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

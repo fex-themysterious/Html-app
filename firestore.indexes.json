@@ -1,0 +1,37 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "groups",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isPrivate",  "order": "ASCENDING"  },
+        { "fieldPath": "createdAt",  "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "groups",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "createdByUid", "order": "ASCENDING"  },
+        { "fieldPath": "createdAt",    "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "global_lb",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "dailyResetDate",  "order": "ASCENDING"  },
+        { "fieldPath": "dailyStudyTime",  "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "global_lb",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "weeklyResetDate", "order": "ASCENDING"  },
+        { "fieldPath": "weeklyStudyTime", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

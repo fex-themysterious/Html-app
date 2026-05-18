@@ -69,29 +69,38 @@
 
   // ── Role helper ───────────────────────────────────────────────────────────
   // Returns 'owner' | 'admin' | 'member' | null
+  // SAFE: guards against null/undefined members entries (e.g. placeholder arrays)
   function _getMyRole(g) {
-    const uid = getUserId();
-    if (!uid || !g) return null;
-    // owner: UID matches any ownership field
-    if (g.ownerUid === uid || g.createdByUid === uid || g.createdBy === uid) return 'owner';
-    // admin: in admins[] array or stored role
-    const admins = Array.isArray(g.admins) ? g.admins : [];
-    if (admins.includes(uid)) return 'admin';
-    if (g.role === 'admin') return 'admin';
-    // member: in members[] or stored role
-    const me = (g.members || []).find(m => (m.id || m.uid) === uid);
-    if (me) return me.role === 'admin' ? 'admin' : 'member';
-    if (g.role === 'member') return 'member';
-    return null;
+    try {
+      const uid = getUserId();
+      if (!uid || !g) return null;
+      // owner: UID matches any ownership field
+      if (g.ownerUid === uid || g.createdByUid === uid || g.createdBy === uid) return 'owner';
+      // admin: in admins[] array or stored role
+      const admins = Array.isArray(g.admins) ? g.admins : [];
+      if (admins.includes(uid)) return 'admin';
+      if (g.role === 'admin') return 'admin';
+      // member: in members[] or stored role — MUST guard m != null before accessing properties
+      const me = (g.members || []).find(m => m != null && ((m.id || m.uid) === uid));
+      if (me) return me.role === 'admin' ? 'admin' : 'member';
+      if (g.role === 'member') return 'member';
+      return null;
+    } catch(_) { return null; }
   }
 
   // ── My Groups realtime subscription ──────────────────────────────────────
   // Listens for all groups where createdByUid == currentUser.uid
   // and merges them into localStorage so My Groups tab is always accurate.
+  let _myGroupsRetries = 0;
   function _subscribeMyGroups() {
     if (_myGroupsUnsub) { try { _myGroupsUnsub(); } catch(_) {} _myGroupsUnsub = null; }
     const db = getDb(), uid = getUserId();
-    if (!db || !uid) { setTimeout(_subscribeMyGroups, 1500); return; }
+    if (!db || !uid) {
+      // Retry up to 8 times (~12 seconds) then give up — user may be logged out
+      if (_myGroupsRetries < 8) { _myGroupsRetries++; setTimeout(_subscribeMyGroups, 1500); }
+      return;
+    }
+    _myGroupsRetries = 0;
     try {
       _myGroupsUnsub = db.collection('groups')
         .where('createdByUid', '==', uid)
@@ -154,7 +163,7 @@
                 }
               }).catch(() => {});
           });
-          if ((_tab === 'groups' || _tab === 'rooms') && !_groupView && !_destroyed) renderSocial();
+          if ((_tab === 'groups' || _tab === 'rooms') && !_groupView && !_destroyed) _scheduleRender();
         }, () => { _myGroupsUnsub = null; });
     } catch(_) { _myGroupsUnsub = null; }
   }
@@ -277,13 +286,21 @@
         .limit(200)
         .onSnapshot(snap => {
           _globalLbData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-          if (_tab === 'leaderboard' && window._currentTab === 'social') renderSocial();
+          if (_tab === 'leaderboard' && window._currentTab === 'social') _scheduleRender();
         }, () => { _globalLbUnsub = null; });
     } catch(_) { _globalLbUnsub = null; }
   }
 
   function _unsubscribeGlobalLb() {
     if (_globalLbUnsub) { try { _globalLbUnsub(); } catch(_) {} _globalLbUnsub = null; }
+  }
+
+  // ── Render debounce — prevents rapid-fire re-renders from snapshot callbacks ─
+  let _renderTimer = null;
+  function _scheduleRender() {
+    if (_destroyed) return;
+    if (_renderTimer) return; // already scheduled
+    _renderTimer = setTimeout(() => { _renderTimer = null; renderSocial(); }, 60);
   }
 
   // ── Main render ───────────────────────────────────────────────────────────
@@ -351,19 +368,32 @@
     </nav>`;
   }
 
-  function _renderTabContent() {
+  function _safeRender(fn, tabName) {
     try {
-      switch (_tab) {
-        case 'rooms':       return _renderRooms();
-        case 'groups':      return _renderGroups();
-        case 'leaderboard': return _renderLeaderboard();
-        case 'tasks':       return _renderTasks();
-        case 'notes':       return _renderNotes();
-        default:            return _renderRooms();
-      }
+      const html = fn();
+      if (typeof html !== 'string') throw new Error('render returned non-string');
+      return html;
     } catch(e) {
-      console.error('[Social] tab error:', e);
-      return `<div class="sc-error-state"><div class="sc-error-icon">⚠️</div><div class="sc-error-title">Could not load section</div></div>`;
+      console.error(`[Social] ${tabName} render error:`, e);
+      return `
+        <div class="sc-error-state">
+          <div class="sc-error-icon">⚠️</div>
+          <div class="sc-error-title">Could not load ${tabName}</div>
+          <button class="sc-btn sc-btn-primary sc-retry-btn"
+                  onclick="if(window._socialRender)window._socialRender()"
+                  style="margin-top:12px">Retry</button>
+        </div>`;
+    }
+  }
+
+  function _renderTabContent() {
+    switch (_tab) {
+      case 'rooms':       return _safeRender(_renderRooms,       'Discover');
+      case 'groups':      return _safeRender(_renderGroups,      'Groups');
+      case 'leaderboard': return _safeRender(_renderLeaderboard, 'Rankings');
+      case 'tasks':       return _safeRender(_renderTasks,       'Tasks');
+      case 'notes':       return _safeRender(_renderNotes,       'Notes');
+      default:            return _safeRender(_renderRooms,       'Discover');
     }
   }
 
@@ -410,17 +440,36 @@
                data-sc="room-filter" data-filter="${f.id}">${f.label}</button>`
     ).join('');
 
-    const hasNoGroups = _publicGroups.length === 0 && sc.groups.length === 0;
-    const emptyHtml = `
+    // Detect if Firestore public feed is unavailable (permission rules not yet deployed)
+    const fbUnavailable  = _publicGroups.length === 0 && !getDb()?.app;
+    const hasNoGroups    = _publicGroups.length === 0 && sc.groups.length === 0;
+    const localOnlyMode  = _publicGroups.length === 0 && sc.groups.length > 0;
+
+    // Shimmer skeleton HTML — shown as placeholder while groups load
+    const shimmerHtml = `
+      <div style="padding:12px 14px">
+        ${[1,2,3].map(() => `
+          <div class="sc-skeleton-card">
+            <div style="display:flex;gap:8px;align-items:center">
+              <div class="sc-skeleton sc-skeleton-tag"></div>
+            </div>
+            <div class="sc-skeleton sc-skeleton-title"></div>
+            <div class="sc-skeleton sc-skeleton-line sc-skeleton-wide"></div>
+            <div class="sc-skeleton sc-skeleton-line sc-skeleton-short"></div>
+          </div>`).join('')}
+      </div>`;
+
+    const emptyHtml = hasNoGroups ? `
       <div class="sc-disc-empty">
         <div class="sc-disc-empty-icon">🌍</div>
-        <div class="sc-disc-empty-title">${hasNoGroups ? 'No Study Groups Yet' : 'No Groups Match'}</div>
-        <div class="sc-disc-empty-sub">${hasNoGroups
-          ? 'Create your first group and invite others to study together globally.'
-          : 'Try adjusting the filters above.'}</div>
-        ${hasNoGroups
-          ? `<button class="sc-btn sc-btn-primary sc-disc-create-btn" data-sc="create-group">${ICON.plus} Create a Group</button>`
-          : ''}
+        <div class="sc-disc-empty-title">No Study Groups Yet</div>
+        <div class="sc-disc-empty-sub">Create your first group and invite others to study together globally.</div>
+        <button class="sc-btn sc-btn-primary sc-disc-create-btn" data-sc="create-group">${ICON.plus} Create a Group</button>
+      </div>` : `
+      <div class="sc-disc-empty">
+        <div class="sc-disc-empty-icon">🔍</div>
+        <div class="sc-disc-empty-title">No Groups Match</div>
+        <div class="sc-disc-empty-sub">Try adjusting the filters above.</div>
       </div>`;
 
     return `
@@ -753,38 +802,70 @@
       q = q.limit(80);
 
       _publicGroupsUnsub = q.onSnapshot(snap => {
-        _publicGroups = snap.docs
-          .map(d => {
-            const data = d.data();
-            return {
-              ...data,
-              id:        data.groupId || d.id,
-              _fbCode:   d.id,
-              memberCount: data.memberCount || 0,
-              members:   Array(Math.max(1, data.memberCount || 1)).fill(null),
-              createdAt: data.createdAt?.toMillis?.() ?? (typeof data.createdAt === 'number' ? data.createdAt : Date.now()),
-            };
-          })
-          .filter(_isValidGroup);
-        if (_tab === 'rooms' && !_groupView && !_destroyed) renderSocial();
-      }, err => {
-        // Fallback: if compound query fails (missing index), use simple query
-        if (err && err.code === 'failed-precondition') {
-          db.collection('groups').orderBy('createdAt', 'desc').limit(80)
-            .onSnapshot(snap => {
-              _publicGroups = snap.docs.map(d => {
+        try {
+          _publicGroups = snap.docs
+            .map(d => {
+              try {
                 const data = d.data();
                 return {
                   ...data,
-                  id: data.groupId || d.id, _fbCode: d.id,
+                  id:          data.groupId || d.id,
+                  _fbCode:     d.id,
                   memberCount: data.memberCount || 0,
-                  members: Array(Math.max(1, data.memberCount || 1)).fill(null),
-                  createdAt: data.createdAt?.toMillis?.() ?? Date.now(),
+                  members:     [],   // never null-filled — _getMyRole iterates this
+                  admins:      Array.isArray(data.admins) ? data.admins : [],
+                  createdAt:   data.createdAt?.toMillis?.() ?? (typeof data.createdAt === 'number' ? data.createdAt : Date.now()),
                 };
-              }).filter(_isValidGroup);
-              if (_tab === 'rooms' && !_groupView && !_destroyed) renderSocial();
-            }, () => {});
+              } catch(_) { return null; }
+            })
+            .filter(g => g != null && _isValidGroup(g));
+          if (_tab === 'rooms' && !_groupView && !_destroyed) _scheduleRender();
+        } catch(e) { console.error('[Social] publicGroups snapshot error:', e); }
+      }, err => {
+        const code = err?.code || '';
+        console.warn('[Social] publicGroups listener error:', code, err?.message || '');
+
+        if (code === 'permission-denied' || code === 'unauthenticated') {
+          // Rules block unauthenticated reads — fall back to showing local groups only.
+          // The Discover tab will show locally-joined groups until the user is authenticated.
+          _publicGroups = [];
+          if (_tab === 'rooms' && !_groupView && !_destroyed) _scheduleRender();
+          return;
         }
+
+        if (code === 'failed-precondition') {
+          // Missing composite index — retry with simpler query
+          try {
+            db.collection('groups').orderBy('createdAt', 'desc').limit(80)
+              .onSnapshot(snap => {
+                try {
+                  _publicGroups = snap.docs.map(d => {
+                    try {
+                      const data = d.data();
+                      return {
+                        ...data,
+                        id: data.groupId || d.id, _fbCode: d.id,
+                        memberCount: data.memberCount || 0,
+                        members: [],
+                        admins: Array.isArray(data.admins) ? data.admins : [],
+                        createdAt: data.createdAt?.toMillis?.() ?? Date.now(),
+                      };
+                    } catch(_) { return null; }
+                  }).filter(g => g != null && _isValidGroup(g));
+                  if (_tab === 'rooms' && !_groupView && !_destroyed) _scheduleRender();
+                } catch(_) {}
+              }, innerErr => {
+                console.warn('[Social] fallback query also failed:', innerErr?.code);
+                _publicGroups = [];
+                if (_tab === 'rooms' && !_groupView && !_destroyed) _scheduleRender();
+              });
+          } catch(_) {}
+          return;
+        }
+
+        // Any other error — clear and render from local
+        _publicGroups = [];
+        if (_tab === 'rooms' && !_groupView && !_destroyed) _scheduleRender();
       });
     } catch(_) {}
   }

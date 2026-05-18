@@ -410,6 +410,47 @@
 .sc-error-icon  { font-size: 44px; }
 .sc-error-title { font-size: 18px; font-weight: 800; color: var(--sc-text); }
 
+/* ── Shimmer skeleton loading cards ───────────────────────────────────── */
+@keyframes sc-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
+}
+.sc-skeleton {
+  background: linear-gradient(90deg,
+    rgba(255,255,255,.04) 0%,
+    rgba(255,255,255,.09) 40%,
+    rgba(255,255,255,.04) 80%);
+  background-size: 800px 100%;
+  animation: sc-shimmer 1.4s infinite linear;
+  border-radius: 8px;
+}
+.sc-skeleton-card {
+  background: var(--sc-card);
+  border: 1px solid var(--sc-border);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 12px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.sc-skeleton-line  { height: 12px; border-radius: 6px; }
+.sc-skeleton-title { height: 18px; border-radius: 6px; width: 65%; }
+.sc-skeleton-tag   { height: 20px; border-radius: 99px; width: 80px; }
+.sc-skeleton-wide  { width: 90%; }
+.sc-skeleton-short { width: 40%; }
+
+/* ── Info banner (e.g. sign-in prompt on Discover) ────────────────────── */
+.sc-info-banner {
+  display: flex; align-items: flex-start; gap: 12px;
+  background: rgba(56,189,248,.08);
+  border: 1px solid rgba(56,189,248,.2);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 14px 14px 0;
+  font-size: 13px; line-height: 1.5; color: var(--sc-muted);
+}
+.sc-info-banner-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+.sc-info-banner strong { color: var(--sc-accent2); }
+
 /* ── Buttons ──────────────────────────────────────────────────────────── */
 .sc-btn {
   display: flex;
