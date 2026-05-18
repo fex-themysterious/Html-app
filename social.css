@@ -1019,9 +1019,181 @@
 .sr-nav-icon { display: flex; align-items: center; justify-content: center; }
 .sr-nav-label { font-size: 10px; font-weight: 600; letter-spacing: .2px; white-space: nowrap; }
 
-/* ── Home — Member grid ───────────────────────────────────────────────────── */
-.sr-home-view { padding: 6px 12px 24px; }
+/* ── Home — wrapper ───────────────────────────────────────────────────────── */
+.sr-home-view { padding: 6px 12px 32px; }
 
+/* ── Home — Stats bar ─────────────────────────────────────────────────────── */
+.sr-home-stats-bar {
+  display: flex;
+  align-items: stretch;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 16px;
+  margin: 8px 0 14px;
+  overflow: hidden;
+}
+.sr-home-stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 6px 8px;
+  position: relative;
+}
+.sr-home-stat-div {
+  width: 1px;
+  background: rgba(255,255,255,.07);
+  align-self: stretch;
+  flex-shrink: 0;
+}
+.sr-home-stat-val {
+  font-size: 18px;
+  font-weight: 800;
+  color: #e2e8f0;
+  line-height: 1;
+  margin-bottom: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.sr-home-stat-active { color: #ff7a1a; }
+.sr-home-stat-lbl {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  color: #475569;
+  white-space: nowrap;
+}
+.sr-home-stat-bar-wrap {
+  width: 100%;
+  height: 2px;
+  background: rgba(255,255,255,.08);
+  border-radius: 99px;
+  overflow: hidden;
+  margin-top: 5px;
+}
+.sr-home-stat-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #ff7a1a, #ffac5c);
+  border-radius: 99px;
+  transition: width .4s ease;
+  min-width: 2px;
+}
+
+/* ── Home — Section headings ──────────────────────────────────────────────── */
+.sr-home-section-hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 0 2px;
+}
+.sr-home-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #e2e8f0;
+  flex: 1;
+}
+.sr-home-section-badge {
+  font-size: 10px;
+  font-weight: 800;
+  color: #ff7a1a;
+  background: rgba(255,122,26,.15);
+  border: 1px solid rgba(255,122,26,.3);
+  border-radius: 99px;
+  padding: 2px 8px;
+}
+.sr-home-section-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+}
+
+/* ── Home — Idle banner ───────────────────────────────────────────────────── */
+.sr-home-idle-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(255,255,255,.03);
+  border: 1px dashed rgba(255,255,255,.08);
+  border-radius: 12px;
+  margin-bottom: 16px;
+}
+.sr-home-idle-icon { font-size: 18px; flex-shrink: 0; }
+.sr-home-idle-text { font-size: 13px; color: #475569; line-height: 1.45; }
+
+/* ── Home — Active chips (horizontal scroll) ──────────────────────────────── */
+.sr-active-chips-scroll {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding: 2px 0 10px;
+  margin-bottom: 4px;
+}
+.sr-active-chips-scroll::-webkit-scrollbar { display: none; }
+
+.sr-active-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px 9px 10px;
+  background: rgba(255,122,26,.08);
+  border: 1.5px solid rgba(255,122,26,.3);
+  border-radius: 14px;
+  flex-shrink: 0;
+  min-width: 130px;
+  max-width: 180px;
+  position: relative;
+}
+.sr-active-chip-av {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+  border: 2px solid rgba(255,122,26,.5);
+}
+.sr-active-chip-body { flex: 1; min-width: 0; }
+.sr-active-chip-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #ff7a1a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sr-active-chip-time {
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(255,122,26,.7);
+  font-variant-numeric: tabular-nums;
+}
+.sr-active-chip-subj {
+  font-size: 10px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+.sr-active-chip-stage {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  padding: 2px 5px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+
+/* ── Legacy studying header (kept for back-compat) ────────────────────────── */
 .sr-studying-header {
   display: flex;
   align-items: center;
@@ -1054,8 +1226,14 @@
   background: rgba(255,122,26,.06);
   border-color: rgba(255,122,26,.45);
 }
+.sr-card-off {
+  background: rgba(255,255,255,.02);
+  border-color: rgba(255,255,255,.04);
+  opacity: .55;
+}
 .sr-card-active .sr-desk-svg { color: #ff7a1a; }
 .sr-card-idle .sr-desk-svg   { color: #3d4f63; }
+.sr-card-off .sr-desk-svg    { color: #2a3a4a; }
 
 .sr-card-icon {
   display: flex;

@@ -1737,13 +1737,13 @@
   function _renderSrHome(g, sc) {
     const members  = g.members || [];
     const myUid    = getUserId();
-    const me       = members.find(x => x.id === 'me');
+    const me       = members.find(x => x.id === 'me' || x.id === myUid);
     const meActive = me ? _srMemberIsActive(me) : false;
 
     // Deduplicate members using a UID-keyed map — prevents duplicate "You" cards
     const memberMap = new Map();
     members.forEach(m => {
-      const uid = m.id === 'me' ? myUid : (m.id || m.uid);
+      const uid = (m.id === 'me' || m.id === myUid) ? myUid : (m.id || m.uid);
       if (uid && !memberMap.has(uid)) memberMap.set(uid, m);
       else if (!uid) memberMap.set('__' + Math.random(), m);
     });
@@ -1761,19 +1761,55 @@
     const activeCount = meActive ? Math.max(1, fbOnline) : fbOnline;
     const totalCount  = Math.max(allMembers.length, Object.keys(_liveMembers).length, (g.memberCount || 0));
 
-    const _avLabel = s => (window._lsAvLabels || ['IDLE','FOCUSED','STUDYING','DEEP STUDY','SCHOLAR','SAGE','WARRIOR','BLAZING','INFERNO','LEGENDARY'])[s] || 'LEGENDARY';
+    // Goal progress for current user
+    const dailyGoalMins = (g.dailyGoalHrs || 8) * 60;
+    const myTodayMins   = (((getMainState().focusStats || {}).minutesByDate) || {})[todayKey()] || 0;
+    const goalPct       = Math.min(100, Math.round((myTodayMins / dailyGoalMins) * 100));
+    const goalHrsDisplay = myTodayMins >= 60
+      ? `${Math.floor(myTodayMins / 60)}h ${myTodayMins % 60}m`
+      : `${myTodayMins}m`;
+
+    const _avLabel   = s => (window._lsAvLabels || ['IDLE','FOCUSED','STUDYING','DEEP STUDY','SCHOLAR','SAGE','WARRIOR','BLAZING','INFERNO','LEGENDARY'])[s] || 'LEGENDARY';
     const _avPillCls = s => s >= 9 ? 'sr-av-pill--legend' : s >= 6 ? 'sr-av-pill--fire' : s >= 3 ? 'sr-av-pill--warm' : 'sr-av-pill--dim';
 
+    // Active members chips — currently studying
+    const activeMembers = allMembers.filter(m => {
+      const uid   = (m.id === 'me' || m.id === myUid) ? myUid : (m.id || m.uid);
+      const isOff = _isOffDayToday(uid);
+      return !isOff && ((m.id === 'me' || m.id === myUid) ? meActive : _srMemberIsActive(m));
+    });
+
+    const activeChips = activeMembers.map(m => {
+      const uid     = (m.id === 'me' || m.id === myUid) ? myUid : (m.id || m.uid);
+      const secs    = _srMemberSeconds(m);
+      const name    = m.name || 'Unknown';
+      const lm      = _liveMembers[uid] || null;
+      const subject = (lm?.currentSubject || '').trim();
+      const avStage = (m.id === 'me' || m.id === myUid)
+        ? (window._lsGetCurrentAvStage?.() || 0)
+        : (lm?.avatarStage || 0);
+      return `
+        <div class="sr-active-chip">
+          <div class="sr-active-chip-av" style="background:${_avatarColor(name)}">${name[0].toUpperCase()}</div>
+          <div class="sr-active-chip-body">
+            <div class="sr-active-chip-name">${esc(name.length > 12 ? name.slice(0,11)+'…' : name)}</div>
+            <div class="sr-active-chip-time">${_fmtSecs(secs)}</div>
+            ${subject ? `<div class="sr-active-chip-subj">${esc(subject.length > 14 ? subject.slice(0,13)+'…' : subject)}</div>` : ''}
+          </div>
+          ${avStage > 0 ? `<div class="sr-active-chip-stage ${_avPillCls(avStage)}">${_avLabel(avStage)}</div>` : ''}
+        </div>`;
+    }).join('');
+
     const memberCards = allMembers.map(m => {
-      const realUid     = m.id === 'me' ? myUid : (m.id || m.uid);
+      const realUid     = (m.id === 'me' || m.id === myUid) ? myUid : (m.id || m.uid);
       const isOff       = _isOffDayToday(realUid);
-      const active      = !isOff && (m.id === 'me' ? meActive : _srMemberIsActive(m));
+      const active      = !isOff && ((m.id === 'me' || m.id === myUid) ? meActive : _srMemberIsActive(m));
       const secs        = isOff ? 0 : _srMemberSeconds(m);
       const name        = m.name || 'Unknown';
       const displayName = name.length > 10 ? name.slice(0, 9) + '…' : name;
-      const timerId     = m.id === 'me' ? 'me' : (m.id || m.uid);
+      const timerId     = (m.id === 'me' || m.id === myUid) ? 'me' : (m.id || m.uid);
       const cardClass   = isOff ? 'sr-card-off' : (active ? 'sr-card-active' : 'sr-card-idle');
-      const avStage     = m.id === 'me'
+      const avStage     = (m.id === 'me' || m.id === myUid)
         ? (window._lsGetCurrentAvStage?.() || 0)
         : (realUid && _liveMembers[realUid] ? (_liveMembers[realUid].avatarStage || 0) : 0);
       const showPill    = !isOff && avStage > 0;
@@ -1788,20 +1824,59 @@
           ${showPill ? `<div class="sr-av-pill ${_avPillCls(avStage)}">${_avLabel(avStage)}</div>` : ''}
         </div>`;
     });
+
     return `
       <div class="sr-home-view">
-        <div class="sr-studying-header">
-          <span class="sr-studying-label">Studying</span>
-          <span class="sr-studying-badge">
-            <span class="sr-studying-count">${activeCount}</span> active
-            <span class="sr-total-member-count-wrap"> · <span class="sr-total-member-count">${totalCount}</span> total</span>
-          </span>
+
+        <div class="sr-home-stats-bar">
+          <div class="sr-home-stat">
+            <div class="sr-home-stat-val sr-home-stat-active">${activeCount}</div>
+            <div class="sr-home-stat-lbl">Active</div>
+          </div>
+          <div class="sr-home-stat-div"></div>
+          <div class="sr-home-stat">
+            <div class="sr-home-stat-val">${totalCount}</div>
+            <div class="sr-home-stat-lbl">Members</div>
+          </div>
+          <div class="sr-home-stat-div"></div>
+          <div class="sr-home-stat">
+            <div class="sr-home-stat-val">${g.dailyGoalHrs || 8}h</div>
+            <div class="sr-home-stat-lbl">Daily Goal</div>
+          </div>
+          <div class="sr-home-stat-div"></div>
+          <div class="sr-home-stat">
+            <div class="sr-home-stat-val">${goalPct}%</div>
+            <div class="sr-home-stat-lbl">My Progress</div>
+            <div class="sr-home-stat-bar-wrap">
+              <div class="sr-home-stat-bar" style="width:${goalPct}%"></div>
+            </div>
+          </div>
         </div>
+
+        ${activeMembers.length > 0 ? `
+        <div class="sr-home-section-hd">
+          <span class="sr-home-section-title">🔥 Studying Now</span>
+          <span class="sr-home-section-badge">${activeCount}</span>
+        </div>
+        <div class="sr-active-chips-scroll">
+          ${activeChips}
+        </div>` : `
+        <div class="sr-home-idle-banner">
+          <span class="sr-home-idle-icon">💤</span>
+          <span class="sr-home-idle-text">No one is studying right now — be the first!</span>
+        </div>`}
+
+        <div class="sr-home-section-hd" style="margin-top:16px">
+          <span class="sr-home-section-title">All Members</span>
+          <span class="sr-home-section-count">${totalCount}</span>
+        </div>
+
         <div class="sr-members-grid">
           ${memberCards.length
             ? memberCards.join('')
             : `<div class="sr-empty-grid">No members in this group yet.</div>`}
         </div>
+
       </div>`;
   }
 
