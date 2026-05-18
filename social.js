@@ -67,6 +67,98 @@
     return 'Studier';
   }
 
+  // ── Role helper ───────────────────────────────────────────────────────────
+  // Returns 'owner' | 'admin' | 'member' | null
+  function _getMyRole(g) {
+    const uid = getUserId();
+    if (!uid || !g) return null;
+    // owner: UID matches any ownership field
+    if (g.ownerUid === uid || g.createdByUid === uid || g.createdBy === uid) return 'owner';
+    // admin: in admins[] array or stored role
+    const admins = Array.isArray(g.admins) ? g.admins : [];
+    if (admins.includes(uid)) return 'admin';
+    if (g.role === 'admin') return 'admin';
+    // member: in members[] or stored role
+    const me = (g.members || []).find(m => (m.id || m.uid) === uid);
+    if (me) return me.role === 'admin' ? 'admin' : 'member';
+    if (g.role === 'member') return 'member';
+    return null;
+  }
+
+  // ── My Groups realtime subscription ──────────────────────────────────────
+  // Listens for all groups where createdByUid == currentUser.uid
+  // and merges them into localStorage so My Groups tab is always accurate.
+  function _subscribeMyGroups() {
+    if (_myGroupsUnsub) { try { _myGroupsUnsub(); } catch(_) {} _myGroupsUnsub = null; }
+    const db = getDb(), uid = getUserId();
+    if (!db || !uid) { setTimeout(_subscribeMyGroups, 1500); return; }
+    try {
+      _myGroupsUnsub = db.collection('groups')
+        .where('createdByUid', '==', uid)
+        .onSnapshot(snap => {
+          const myName = _getUserDisplayName();
+          const sc     = scLoad();
+          let dirty    = false;
+          snap.docs.forEach(d => {
+            const data = d.data();
+            const code = d.id;
+            const existing = sc.groups.find(g => g.code === code);
+            if (!existing) {
+              const rawCat = data.category || 'General';
+              sc.groups.push({
+                id:           data.groupId || code,
+                name:         data.name || `Group ${code}`,
+                icon:         data.icon || '📚',
+                code,
+                isPrivate:    data.isPrivate || false,
+                description:  data.description || '',
+                category:     rawCat === 'camstudy' ? 'General' : rawCat,
+                dailyGoalHrs: data.dailyGoalHrs || 8,
+                maxMembers:   data.maxMembers || 50,
+                leader:       data.createdByName || data.leader || myName,
+                promoted:     false,
+                createdAt:    data.createdAt?.toMillis?.() ?? Date.now(),
+                dailyMinsTotal: 0, attendancePct: 0,
+                role:         'admin',
+                createdByUid: data.createdByUid || uid,
+                ownerUid:     data.ownerUid || data.createdByUid || uid,
+                admins:       Array.isArray(data.admins) ? data.admins : [uid],
+                members:      [{ id: uid, name: myName, role: 'admin', joinedAt: Date.now() }],
+              });
+              dirty = true;
+            } else {
+              // Keep local group in sync with Firestore ownership fields
+              let changed = false;
+              if (!existing.createdByUid) { existing.createdByUid = data.createdByUid || uid; changed = true; }
+              if (!existing.ownerUid)     { existing.ownerUid     = data.ownerUid || data.createdByUid || uid; changed = true; }
+              if (!Array.isArray(existing.admins) || !existing.admins.includes(uid)) {
+                existing.admins = Array.isArray(data.admins) ? data.admins : [uid]; changed = true;
+              }
+              if (existing.role !== 'admin') { existing.role = 'admin'; changed = true; }
+              if (changed) dirty = true;
+            }
+          });
+          if (dirty) scSave(sc);
+          // Also ensure creator is in members subcollection for each own group
+          snap.docs.forEach(d => {
+            const fb_ = getFb();
+            if (!fb_) return;
+            db.collection('groups').doc(d.id).collection('members').doc(uid)
+              .get().then(ms => {
+                if (!ms.exists) {
+                  db.collection('groups').doc(d.id).collection('members').doc(uid).set({
+                    uid, displayName: _getUserDisplayName(), role: 'admin',
+                    joinedAt: fb_.firestore.FieldValue.serverTimestamp(),
+                    isStudying: false, currentSubject: null, elapsedTimeToday: 0,
+                  }, { merge: true }).catch(() => {});
+                }
+              }).catch(() => {});
+          });
+          if ((_tab === 'groups' || _tab === 'rooms') && !_groupView && !_destroyed) renderSocial();
+        }, () => { _myGroupsUnsub = null; });
+    } catch(_) { _myGroupsUnsub = null; }
+  }
+
   // ── Data ─────────────────────────────────────────────────────────────────
   function scLoad() {
     try {
@@ -97,6 +189,7 @@
   let _srTickCount    = 0;
   let _publicGroups        = [];
   let _publicGroupsUnsub   = null;
+  let _myGroupsUnsub       = null;
   let _memberUnsub         = null;
   let _liveMembers         = {};
   let _globalLbData        = [];
@@ -377,10 +470,19 @@
     const attendancePct  = g.attendancePct
       || ((studying && memberCount > 0) ? Math.min(100, Math.round(1 / memberCount * 100)) : 0);
     const col            = _catColor(category);
-    const isAdmin        = g.role === 'admin';
-    const isMember       = g.role === 'member' || g.role === 'admin';
+    const myRole         = _getMyRole(g);
+    const isOwner        = myRole === 'owner';
+    const isAdmin        = myRole === 'admin' || isOwner;
+    const isMember       = myRole === 'member' || isAdmin;
     const promoHTML      = promoted ? ' · <span class="sc-promo-badge">Promoted</span>' : '';
     const categoryUpper  = category.toUpperCase();
+
+    let roleBadge;
+    if (isOwner)       roleBadge = `<span class="sc-disc-role sc-role-owner">👑 Admin</span>`;
+    else if (isAdmin)  roleBadge = `<span class="sc-disc-role sc-role-admin">🛡 Admin</span>`;
+    else if (isMember) roleBadge = `<span class="sc-disc-role sc-role-member">✓ Member</span>`;
+    else if (g.isPrivate) roleBadge = `<span class="sc-disc-join-hint">🔒 Enter Invite Code →</span>`;
+    else               roleBadge = `<span class="sc-disc-join-hint">Tap to Join →</span>`;
 
     return `
       <div class="sc-disc-card" data-sc="enter-room" data-gid="${esc(g.id)}" data-fbcode="${esc(g._fbCode || '')}" role="button" tabindex="0">
@@ -408,11 +510,7 @@
 
         <div class="sc-disc-footer">
           <span class="sc-disc-date">Started ${esc(_formatDate(createdAt))}</span>
-          ${isMember
-            ? `<span class="sc-disc-role ${isAdmin ? 'sc-role-admin' : 'sc-role-member'}">${isAdmin ? '👑 Admin' : '✓ Member'}</span>`
-            : (g.isPrivate
-                ? `<span class="sc-disc-join-hint">🔒 Enter Invite Code →</span>`
-                : `<span class="sc-disc-join-hint">Tap to Join →</span>`)}
+          ${roleBadge}
         </div>
       </div>`;
   }
@@ -1018,7 +1116,8 @@
 
   // ── Group Leader Settings Panel ───────────────────────────────────────────
   function _renderGroupSettings(g, sc) {
-    const isAdmin      = g.role === 'admin';
+    const myRole       = _getMyRole(g);
+    const isAdmin      = myRole === 'owner' || myRole === 'admin';
     const joinMode     = g.joinMode     || 'open';
     const hasPassword  = !!(g.joinPassword && g.joinPassword.length);
     const chatEnabled  = g.chatEnabled  !== false;
@@ -1705,7 +1804,10 @@
           createdAt:    Date.now(),
           dailyMinsTotal: 0,
           attendancePct:  0,
-          role: 'admin',
+          role:         'admin',
+          createdByUid: uid_,
+          ownerUid:     uid_,
+          admins:       [uid_],
           members: [{ id: uid_, name: myName, role: 'admin', joinedAt: Date.now() }],
         };
         sc.groups.push(newGroup);
@@ -1729,6 +1831,8 @@
             createdBy:     uid_,
             createdByUid:  uid_,
             createdByName: myName,
+            ownerUid:      uid_,
+            admins:        [uid_],
             memberCount:   1,
             dailyMinsTotal: 0,
           }).catch(() => {});
@@ -2068,16 +2172,21 @@
         const fbCode = el.dataset.fbcode;
         if (fbCode) {
           // Discovery card from Firebase
-          if (_isMemberByCode(fbCode)) {
-            // Already a member — find local group ID and enter room
-            const sc_ = scLoad();
-            const localG = sc_.groups.find(g => g.code === fbCode);
-            if (localG) { _tab = 'groups'; _groupView = localG.id; renderSocial(); }
+          const sc_ = scLoad();
+          const localG = sc_.groups.find(g => g.code === fbCode);
+          if (localG) {
+            // Already in local state — enter room directly
+            _tab = 'groups'; _groupView = localG.id; renderSocial();
           } else {
-            // Not a member — check public vs private
+            // Check if this user is the owner based on Firebase data
             const fbGroup = _publicGroups.find(g => g._fbCode === fbCode);
-            if (fbGroup && !fbGroup.isPrivate) {
-              // Public group — join instantly, no invite code needed
+            const uid_ = getUserId();
+            const isOwnerOfFb = fbGroup && (fbGroup.createdByUid === uid_ || fbGroup.ownerUid === uid_);
+            if (isOwnerOfFb) {
+              // Creator clicked their own group from Discover — auto-join/restore
+              _joinPublicGroup(fbCode, { ...fbGroup, role: 'admin', isPrivate: false });
+            } else if (fbGroup && !fbGroup.isPrivate) {
+              // Public group — join instantly
               _joinPublicGroup(fbCode, fbGroup);
             } else {
               // Private group — require invite code
@@ -3071,6 +3180,7 @@
     setTimeout(() => {
       _subscribePublicGroups();
       _subscribeGlobalLb();
+      _subscribeMyGroups();
       _restoreGroupsFromFirebase().catch(() => {});
     }, 500);
 
@@ -3078,6 +3188,7 @@
       _destroyed = true;
       _unsubscribeGlobalLb();
       if (_publicGroupsUnsub) { try { _publicGroupsUnsub(); } catch(_) {} _publicGroupsUnsub = null; }
+      if (_myGroupsUnsub)     { try { _myGroupsUnsub(); }     catch(_) {} _myGroupsUnsub     = null; }
     };
   }
 
