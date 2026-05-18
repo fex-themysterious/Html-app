@@ -467,6 +467,8 @@
         }
         view.innerHTML = _renderStudyRoom(g, sc);
         _bindEvents(view);
+        // Always start the Firebase member subscription regardless of which tab is active
+        if (g.code) _subscribeRoomMembers(g.code);
         if (_srTab === 'home') _startSrTicker(_groupView);
         if (_srTab === 'chat') {
           if (g.code) _subscribeChatMessages(g.code);
@@ -1100,6 +1102,62 @@
     _liveSubscribedCode = null;
     _liveMembers = {};
     _unsubscribeChatMessages();
+  }
+
+  // ── Centralized member source — used by ALL group tabs ───────────────────
+  // Merges Firebase realtime (_liveMembers) with local g.members fallback.
+  // Always deduplicates by real UID. Firebase is the primary source.
+  function _getGroupMembers(g) {
+    const myUid  = getUserId();
+    const myName = _getUserDisplayName();
+    const tk     = todayKey();
+    const memberMap = new Map();
+
+    // PRIMARY: Firebase realtime members (complete roster)
+    Object.entries(_liveMembers).forEach(([uid, data]) => {
+      memberMap.set(uid, {
+        uid,
+        id:        uid === myUid ? 'me' : uid,
+        name:      uid === myUid ? myName : (data.displayName || 'Unknown'),
+        role:      data.role || 'member',
+        isMe:      uid === myUid,
+        todayMins: data.elapsedTimeToday || 0,
+        todayKey:  data.dateKey || tk,
+        joinedAt:  (typeof data.joinedAt?.toMillis === 'function' ? data.joinedAt.toMillis() : (data.joinedAt || 0)),
+        _fromFirebase: true,
+      });
+    });
+
+    // FALLBACK: local g.members (used when Firebase hasn't responded yet)
+    (g.members || []).forEach(m => {
+      const uid = m.id === 'me' ? myUid : (m.id || m.uid);
+      if (!uid || memberMap.has(uid)) return;
+      memberMap.set(uid, {
+        uid,
+        id:        m.id === 'me' ? 'me' : uid,
+        name:      m.id === 'me' ? myName : (m.name || 'Unknown'),
+        role:      m.role || 'member',
+        isMe:      m.id === 'me' || uid === myUid,
+        todayMins: m.todayMins || 0,
+        todayKey:  m.todayKey || tk,
+        joinedAt:  m.joinedAt || 0,
+        _fromLocal: true,
+      });
+    });
+
+    // Ensure current user is included even if not yet in Firebase
+    if (myUid && !memberMap.has(myUid)) {
+      memberMap.set(myUid, {
+        uid: myUid, id: 'me', name: myName,
+        role: _getMyRole(g) === 'owner' || _getMyRole(g) === 'admin' ? 'admin' : 'member',
+        isMe: true, todayMins: 0, todayKey: tk, joinedAt: Date.now(),
+      });
+    }
+
+    const members = [...memberMap.values()];
+    // Guarantee self is always marked correctly
+    members.forEach(m => { if (m.uid === myUid) { m.isMe = true; m.id = 'me'; } });
+    return members;
   }
 
   // ── Off Day helpers ───────────────────────────────────────────────────────
@@ -1741,7 +1799,7 @@
   function _renderSrAttendance(g, sc) {
     const ms      = getMainState();
     const mbd     = ((ms.focusStats || {}).minutesByDate) || {};
-    const members = g.members || [];
+    const members = _getGroupMembers(g);   // ← centralized realtime source
     const days    = [];
     for (let i = 13; i >= 0; i--) {
       const d = new Date();
@@ -1750,6 +1808,7 @@
       days.push({ key, label: String(d.getDate()).padStart(2,'0') });
     }
     const myUid   = getUserId();
+    const tk      = todayKey();
     const amOff   = _isOffDayToday(myUid);
     return `
       <div class="sr-att-view">
@@ -1766,17 +1825,27 @@
         ${members.length === 0
           ? `<div class="sr-empty-grid">No members yet.</div>`
           : members.map(m => {
-              const shortName = (m.name||'?').length > 9 ? (m.name||'?').slice(0,8)+'…' : (m.name||'?');
+              const rawName   = m.name || '?';
+              const shortName = rawName.length > 9 ? rawName.slice(0, 8) + '…' : rawName;
+              const lm        = _liveMembers[m.uid] || null;
               const cells = days.map(day => {
-                const mins    = m.id === 'me' ? (mbd[day.key] || 0) : 0;
+                let mins = 0;
+                if (m.isMe) {
+                  mins = mbd[day.key] || 0;
+                } else if (day.key === tk && lm) {
+                  // For today: use Firebase elapsedTimeToday + live elapsed
+                  mins = (lm.elapsedTimeToday || 0) +
+                    (lm.isStudying && lm.studyStartedAt
+                      ? Math.floor((Date.now() - lm.studyStartedAt) / 1000 / 60) : 0);
+                }
                 const present = mins > 0;
                 const tip     = present ? `${Math.floor(mins/60)}h${mins%60}m` : '—';
                 return `<div class="sr-att-cell${present ? ' sr-att-present' : ''}" title="${day.key}: ${tip}">${day.label}</div>`;
               }).join('');
               return `
                 <div class="sr-att-member-row">
-                  <div class="sr-att-member-av" style="background:${_avatarColor(m.name||'')}">${(m.name||'?')[0].toUpperCase()}</div>
-                  <div class="sr-att-member-name">${esc(shortName)}</div>
+                  <div class="sr-att-member-av" style="background:${_avatarColor(rawName)}">${rawName[0].toUpperCase()}</div>
+                  <div class="sr-att-member-name">${esc(shortName)}${m.isMe ? ' <span class="sr-att-you">you</span>' : ''}</div>
                   <div class="sr-att-cells">${cells}</div>
                 </div>`;
             }).join('')}
@@ -1785,16 +1854,25 @@
 
   function _renderSrRankings(g, sc) {
     const ms      = getMainState(), tk = todayKey();
-    const members = g.members || [];
+    const members = _getGroupMembers(g);   // ← centralized realtime source
     const ft      = ui().focusStartTime?.();
     const ranked  = members.map(m => {
       let secs = 0;
-      if (m.id === 'me') {
+      if (m.isMe) {
         const storedMins = (((ms.focusStats || {}).minutesByDate) || {})[tk] || 0;
         const elapsed    = ft ? Math.floor((Date.now() - ft) / 1000) : 0;
         secs = storedMins * 60 + elapsed;
       } else {
-        secs = (m.todayKey === tk ? (m.todayMins || 0) : 0) * 60;
+        // Use Firebase live data: elapsedTimeToday (mins) + live elapsed if currently studying
+        const lm = _liveMembers[m.uid] || null;
+        if (lm) {
+          const storedSecs = (lm.elapsedTimeToday || 0) * 60;
+          const liveSecs   = lm.isStudying && lm.studyStartedAt
+            ? Math.floor((Date.now() - lm.studyStartedAt) / 1000) : 0;
+          secs = storedSecs + liveSecs;
+        } else {
+          secs = (m.todayKey === tk ? (m.todayMins || 0) : 0) * 60;
+        }
       }
       return { ...m, secs };
     }).sort((a, b) => b.secs - a.secs);
@@ -1812,7 +1890,7 @@
                   <div class="sr-rank-medal">${medal}</div>
                   <div class="sr-rank-av" style="background:${_avatarColor(m.name||'')}">${(m.name||'?')[0].toUpperCase()}</div>
                   <div class="sr-rank-info">
-                    <div class="sr-rank-name">${esc(m.name||'Unknown')}${m.id==='me' ? ` <span class="sr-rank-you">you</span>` : ''}</div>
+                    <div class="sr-rank-name">${esc(m.name||'Unknown')}${m.isMe ? ` <span class="sr-rank-you">you</span>` : ''}</div>
                     <div class="sr-rank-bar-wrap"><div class="sr-rank-bar" style="width:${pct}%"></div></div>
                   </div>
                   <div class="sr-rank-time">${_fmtSecs(m.secs)}</div>
@@ -1834,7 +1912,7 @@
         <div class="sr-invite-hint">Share this code with friends to invite them to the group</div>
         <div class="sr-invite-stats">
           <div class="sr-invite-stat">
-            <div class="sr-invite-stat-val">${(g.members||[]).length}</div>
+            <div class="sr-invite-stat-val">${Math.max(Object.keys(_liveMembers).length, g.memberCount || 0, (g.members||[]).length)}</div>
             <div class="sr-invite-stat-lbl">Members</div>
           </div>
           <div class="sr-invite-stat">
