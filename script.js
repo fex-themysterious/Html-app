@@ -5,7 +5,8 @@
   let _db             = null;
   let _auth           = null;
   let _userId         = null;
-  let _cloudSyncTimer = null; 
+  let _cloudSyncTimer = null;
+  let _cloudRestoreInProgress = false; // blocks cloud writes during initial restore
   let _authMode       = 'login'; // 'login' | 'signup'
   let _authConfigured = false;   // true once Firebase config validated & auth object created
 
@@ -277,6 +278,8 @@
     catch (e) { return defaultState(); }
   }
   function saveState() {
+    // Stamp a local timestamp so conflict resolution can compare against cloud updatedAt
+    state._savedAt = Date.now();
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
     _scheduledCloudSync();
   }
@@ -417,6 +420,7 @@
 
   function _scheduledCloudSync() {
     if (!_db || !_userId || !(_auth && _auth.currentUser)) return;
+    if (_cloudRestoreInProgress) return; // never upload local state while a cloud restore is in flight
     clearTimeout(_cloudSyncTimer);
     const uid = _userId;
     _cloudSyncTimer = setTimeout(() => {
@@ -472,13 +476,33 @@
         if (typeof Notification !== 'undefined' && Notification.permission === 'granted') _initFCM();
       }, 1000);
       if (!_db) return;
+      // ── GUARD: block all cloud writes until restore is complete ──────────
+      _cloudRestoreInProgress = true;
+      clearTimeout(_cloudSyncTimer);
       try {
         const snap = await _db.collection('users').doc(user.uid).get();
         if (snap.exists && snap.data() && snap.data().data) {
           const parsed = JSON.parse(snap.data().data);
           if (parsed && Array.isArray(parsed.subjects)) {
-            state = migrate(JSON.parse(JSON.stringify(parsed)));
-            try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {}
+            // ── Conflict resolution: prefer whichever copy is newer ──────
+            // Cloud timestamp (Firestore serverTimestamp stored as seconds)
+            const cloudTs = (snap.data().updatedAt && snap.data().updatedAt.seconds)
+              ? snap.data().updatedAt.seconds * 1000
+              : 0;
+            // Local timestamp stored by saveState on every user action
+            const localTs = state._savedAt || 0;
+            // Always use cloud data if it has any real content, regardless of
+            // timestamp — empty local state must NEVER win over existing cloud data.
+            const localHasRealData = Array.isArray(state.subjects) && state.subjects.length > 0;
+            const cloudHasRealData = Array.isArray(parsed.subjects) && parsed.subjects.length > 0;
+            const useCloud = cloudHasRealData || !localHasRealData || cloudTs >= localTs;
+            if (useCloud) {
+              console.log('[Auth] Restoring from cloud data (cloudTs=' + cloudTs + ', localTs=' + localTs + ')');
+              state = migrate(JSON.parse(JSON.stringify(parsed)));
+              try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {}
+            } else {
+              console.log('[Auth] Local data is newer — will sync to cloud after restore guard lifts');
+            }
             // Restore joined rooms from Firestore profile
             const savedRooms = snap.data().joinedRooms;
             if (Array.isArray(savedRooms) && savedRooms.length) {
@@ -497,8 +521,11 @@
               try { localStorage.setItem('my_group_codes', JSON.stringify(_myGroupCodes)); } catch(_) {}
               if (_db && user.uid) _db.collection('users').doc(user.uid).set({ joinedRooms: _myGroupCodes }, { merge: true }).catch(() => {});
             } catch(_) {}
+            _cloudRestoreInProgress = false;
             renderAll();
             if (_currentTab === 'social') renderSocial();
+            // If local was newer, now push it up to cloud
+            if (!useCloud) _scheduledCloudSync();
             // Re-run group restoration so sc_v1 is repopulated even if user wasn't
             // logged in when social.js first initialised (auth modal was showing).
             setTimeout(() => { if (window._socialRestoreGroups) window._socialRestoreGroups(); }, 800);
@@ -527,6 +554,7 @@
         // Only upload local state for genuinely new users (no Firestore doc yet).
         // NEVER overwrite an existing cloud document — that would destroy real data.
         if (!snap.exists) {
+          _cloudRestoreInProgress = false;
           await _db.collection('users').doc(user.uid).set({
             data:        JSON.stringify(state),
             uid:         user.uid,
@@ -538,6 +566,7 @@
           // Doc exists but app data was missing or unreadable — preserve it,
           // just update the joinedRooms and uid fields safely.
           console.warn('[Auth] Cloud doc exists but app data was unreadable — preserving cloud data.');
+          _cloudRestoreInProgress = false;
           if (_myGroupCodes.length) {
             _db.collection('users').doc(user.uid).set({
               uid:         user.uid,
@@ -550,6 +579,7 @@
         setTimeout(() => _checkAndEnforceUniqueUsername().catch(() => {}), 2500);
       } catch (e) {
         console.warn('[Auth] Sync error:', e.message);
+        _cloudRestoreInProgress = false; // always clear guard on error
       }
     } else {
       _userId = null;
