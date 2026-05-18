@@ -2835,7 +2835,7 @@
       case 'sgs-change-name': {
         const sc = scLoad();
         const g  = sc.groups.find(x => x.id === el.dataset.gid);
-        if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
+        if (!g || g.role !== 'admin') break;
         const gid = g.id;
         openModal(`
           <h3 class="sc-modal-title">Change Group Name</h3>
@@ -2867,7 +2867,7 @@
       case 'sgs-change-rules': {
         const sc = scLoad();
         const g  = sc.groups.find(x => x.id === el.dataset.gid);
-        if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
+        if (!g || g.role !== 'admin') break;
         const gid = g.id;
         openModal(`
           <h3 class="sc-modal-title">Group Introduction / Rules</h3>
@@ -2898,7 +2898,7 @@
       case 'sgs-change-category': {
         const sc = scLoad();
         const g  = sc.groups.find(x => x.id === el.dataset.gid);
-        if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
+        if (!g || g.role !== 'admin') break;
         const gid = g.id;
         let selCat = g.category || 'General';
         const chips = CATEGORIES.map(c =>
@@ -2932,7 +2932,7 @@
       case 'sgs-change-goal': {
         const sc = scLoad();
         const g  = sc.groups.find(x => x.id === el.dataset.gid);
-        if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
+        if (!g || g.role !== 'admin') break;
         const gid = g.id;
         openModal(`
           <h3 class="sc-modal-title">Change Daily Goal</h3>
@@ -2961,7 +2961,7 @@
       case 'sgs-change-capacity': {
         const sc = scLoad();
         const g  = sc.groups.find(x => x.id === el.dataset.gid);
-        if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
+        if (!g || g.role !== 'admin') break;
         const gid = g.id;
         openModal(`
           <h3 class="sc-modal-title">Change Capacity</h3>
@@ -2990,7 +2990,7 @@
       case 'sgs-join-mode': {
         const sc = scLoad();
         const g  = sc.groups.find(x => x.id === el.dataset.gid);
-        if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
+        if (!g || g.role !== 'admin') break;
         const gid = g.id;
         const cur = g.joinMode || 'open';
         openModal(`
@@ -3045,7 +3045,7 @@
       case 'sgs-signup-question': {
         const sc = scLoad();
         const g  = sc.groups.find(x => x.id === el.dataset.gid);
-        if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
+        if (!g || g.role !== 'admin') break;
         const gid = g.id;
         const cur = g.joinQuestion || '';
         openModal(`
@@ -3085,7 +3085,7 @@
       case 'sgs-nickname-rules': {
         const sc = scLoad();
         const g  = sc.groups.find(x => x.id === el.dataset.gid);
-        if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
+        if (!g || g.role !== 'admin') break;
         const gid = g.id;
         const newVal = !g.nicknameRequired;
         {
@@ -3103,7 +3103,7 @@
       case 'sgs-change-password': {
         const sc = scLoad();
         const g  = sc.groups.find(x => x.id === el.dataset.gid);
-        if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
+        if (!g || g.role !== 'admin') break;
         const gid = g.id;
         const hasPass = !!(g.joinPassword && g.joinPassword.length);
         openModal(`
@@ -3144,7 +3144,7 @@
       case 'sgs-waiting-room': {
         const sc  = scLoad();
         const g   = sc.groups.find(x => x.id === el.dataset.gid);
-        if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
+        if (!g || g.role !== 'admin') break;
         const gid  = g.id;
         const reqs = (sc.requests && sc.requests[gid]) || [];
         if (!reqs.length) {
@@ -3221,7 +3221,7 @@
       case 'sgs-manage-members': {
         const sc = scLoad();
         const g  = sc.groups.find(x => x.id === el.dataset.gid);
-        if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
+        if (!g || g.role !== 'admin') break;
         const gid = g.id;
         const members = (g.members || []);
         if (!members.length) {
@@ -3255,7 +3255,7 @@
         const uid  = el.dataset.uid;
         const name = el.dataset.name || 'Member';
         const g    = sc.groups.find(x => x.id === gid);
-        if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
+        if (!g || g.role !== 'admin') break;
         confirmModal(`Remove ${name} from the group?`, () => {
           const sc2 = scLoad();
           const g2  = sc2.groups.find(x => x.id === gid);
@@ -3272,7 +3272,7 @@
       case 'sgs-nudge-all': {
         const sc = scLoad();
         const g  = sc.groups.find(x => x.id === el.dataset.gid);
-        if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
+        if (!g || g.role !== 'admin') break;
         const others = (g.members||[]).filter(m => m.id !== 'me');
         if (!others.length) { toast('No other members to nudge yet', 'info'); break; }
         toast(`📣 Nudged ${others.length} member${others.length!==1?'s':''}! They'll be notified to study.`, 'success', 3500);
@@ -3282,7 +3282,7 @@
       case 'sgs-toggle-chat': {
         const sc = scLoad();
         const g  = sc.groups.find(x => x.id === el.dataset.gid);
-        if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
+        if (!g || g.role !== 'admin') break;
         const gid = g.id;
         {
           const sc2 = scLoad();
@@ -3299,7 +3299,7 @@
       case 'sgs-promote': {
         const sc = scLoad();
         const g  = sc.groups.find(x => x.id === el.dataset.gid);
-        if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
+        if (!g || g.role !== 'admin') break;
         const gid      = g.id;
         const shareText= `Join my study group "${g.name}" on Syllabus Tracker!\nCode: ${g.code}${g.description ? '\n' + g.description : ''}`;
         const sc2      = scLoad();
@@ -3319,7 +3319,7 @@
       case 'sgs-delete-group': {
         const sc = scLoad();
         const g  = sc.groups.find(x => x.id === el.dataset.gid);
-        if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
+        if (!g || g.role !== 'admin') break;
         const gid = g.id;
         const delCode = g.code;
         confirmModal(`Permanently delete "${g.name}"? This cannot be undone. All group data will be removed.`, () => {
