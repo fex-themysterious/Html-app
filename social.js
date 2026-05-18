@@ -74,18 +74,34 @@
     try {
       const uid = getUserId();
       if (!uid || !g) return null;
-      // owner: UID matches any ownership field
+      // owner: UID matches any ownership/creator field
       if (g.ownerUid === uid || g.createdByUid === uid || g.createdBy === uid) return 'owner';
-      // admin: in admins[] array or stored role
+      // admin: in admins[] array
       const admins = Array.isArray(g.admins) ? g.admins : [];
       if (admins.includes(uid)) return 'admin';
-      if (g.role === 'admin') return 'admin';
-      // member: in members[] or stored role — MUST guard m != null before accessing properties
+      // role field set by _subscribeMyGroups (owner always gets 'admin' here)
+      if (g.role === 'owner' || g.role === 'admin') return 'admin';
+      // member: in members[] or stored role
       const me = (g.members || []).find(m => m != null && ((m.id || m.uid) === uid));
-      if (me) return me.role === 'admin' ? 'admin' : 'member';
+      if (me) return (me.role === 'admin' || me.role === 'owner') ? 'admin' : 'member';
       if (g.role === 'member') return 'member';
       return null;
     } catch(_) { return null; }
+  }
+
+  // Auto-migrate old group document — adds missing ownerUid/admins fields to Firestore
+  function _autoMigrateGroupDoc(code, data, uid) {
+    const db = getDb(), fb_ = getFb();
+    if (!db || !fb_ || !code) return;
+    const patch = {};
+    if (!data.ownerUid && data.createdByUid)  patch.ownerUid = data.createdByUid;
+    if (!data.ownerUid && !data.createdByUid) patch.ownerUid = uid;
+    if (!data.createdByUid)                   patch.createdByUid = uid;
+    const admins = Array.isArray(data.admins) ? data.admins : [];
+    if (!admins.includes(uid)) patch.admins = fb_.firestore.FieldValue.arrayUnion(uid);
+    if (Object.keys(patch).length > 0) {
+      db.collection('groups').doc(code).set(patch, { merge: true }).catch(() => {});
+    }
   }
 
   // ── My Groups realtime subscription ──────────────────────────────────────
@@ -166,6 +182,90 @@
           if ((_tab === 'groups' || _tab === 'rooms') && !_groupView && !_destroyed) _scheduleRender();
         }, () => { _myGroupsUnsub = null; });
     } catch(_) { _myGroupsUnsub = null; }
+  }
+
+  // ── My Groups by ownerUid (catches old groups without createdByUid) ─────
+  let _myGroupsByOwnerUnsub = null;
+  function _subscribeMyGroupsByOwner() {
+    if (_myGroupsByOwnerUnsub) { try { _myGroupsByOwnerUnsub(); } catch(_) {} _myGroupsByOwnerUnsub = null; }
+    const db = getDb(), uid = getUserId();
+    if (!db || !uid) return;
+    try {
+      _myGroupsByOwnerUnsub = db.collection('groups')
+        .where('ownerUid', '==', uid)
+        .onSnapshot(snap => {
+          const myName = _getUserDisplayName();
+          const sc = scLoad();
+          let dirty = false;
+          snap.docs.forEach(d => {
+            const data = d.data(), code = d.id;
+            const existing = sc.groups.find(g => g.code === code);
+            if (!existing) {
+              const rawCat = data.category || 'General';
+              sc.groups.push({
+                id: data.groupId || code,
+                name: data.name || `Group ${code}`,
+                icon: data.icon || '📚', code,
+                isPrivate: data.isPrivate || false,
+                description: data.description || '',
+                category: rawCat === 'camstudy' ? 'General' : rawCat,
+                dailyGoalHrs: data.dailyGoalHrs || 8,
+                maxMembers: data.maxMembers || 50,
+                leader: data.createdByName || data.leader || myName,
+                promoted: false,
+                createdAt: data.createdAt?.toMillis?.() ?? Date.now(),
+                dailyMinsTotal: 0, attendancePct: 0,
+                role: 'admin',
+                createdByUid: data.createdByUid || uid,
+                ownerUid: uid,
+                admins: Array.isArray(data.admins) ? data.admins : [uid],
+                members: [{ id: uid, name: myName, role: 'admin', joinedAt: Date.now() }],
+                memberCount: data.memberCount || 0,
+              });
+              dirty = true;
+            } else {
+              let changed = false;
+              if (existing.role !== 'admin') { existing.role = 'admin'; changed = true; }
+              if (!existing.ownerUid) { existing.ownerUid = uid; changed = true; }
+              if (!existing.createdByUid) { existing.createdByUid = data.createdByUid || uid; changed = true; }
+              if (!Array.isArray(existing.admins) || !existing.admins.includes(uid)) {
+                existing.admins = Array.isArray(data.admins) ? [...data.admins] : [uid];
+                if (!existing.admins.includes(uid)) existing.admins.push(uid);
+                changed = true;
+              }
+              if (changed) dirty = true;
+            }
+            // Auto-migrate Firestore doc if missing fields
+            _autoMigrateGroupDoc(code, data, uid);
+          });
+          if (dirty) scSave(sc);
+          if ((_tab === 'groups' || _tab === 'rooms') && !_groupView && !_destroyed) _scheduleRender();
+        }, () => { _myGroupsByOwnerUnsub = null; });
+    } catch(_) { _myGroupsByOwnerUnsub = null; }
+  }
+
+  // ── Also query groups where uid is in admins[] (catches other old groups) ─
+  let _myGroupsByAdminUnsub = null;
+  function _subscribeMyGroupsByAdmin() {
+    if (_myGroupsByAdminUnsub) { try { _myGroupsByAdminUnsub(); } catch(_) {} _myGroupsByAdminUnsub = null; }
+    const db = getDb(), uid = getUserId();
+    if (!db || !uid) return;
+    try {
+      _myGroupsByAdminUnsub = db.collection('groups')
+        .where('admins', 'array-contains', uid)
+        .onSnapshot(snap => {
+          const sc = scLoad(); let dirty = false;
+          snap.docs.forEach(d => {
+            const data = d.data(), code = d.id;
+            const existing = sc.groups.find(g => g.code === code);
+            if (existing) {
+              if (existing.role !== 'admin') { existing.role = 'admin'; dirty = true; }
+              if (!existing.ownerUid) { existing.ownerUid = data.ownerUid || data.createdByUid || uid; dirty = true; }
+            }
+          });
+          if (dirty) { scSave(sc); if ((_tab === 'groups' || _tab === 'rooms') && !_groupView && !_destroyed) _scheduleRender(); }
+        }, () => { _myGroupsByAdminUnsub = null; });
+    } catch(_) { _myGroupsByAdminUnsub = null; }
   }
 
   // ── Data ─────────────────────────────────────────────────────────────────
@@ -803,19 +903,32 @@
 
       _publicGroupsUnsub = q.onSnapshot(snap => {
         try {
+          const myUid = getUserId();
           _publicGroups = snap.docs
             .map(d => {
               try {
                 const data = d.data();
-                return {
+                // Ensure admins[] always has the creator so _getMyRole works for old groups
+                const creator = data.createdByUid || data.createdBy || data.ownerUid || null;
+                let admins = Array.isArray(data.admins) ? [...data.admins] : [];
+                if (creator && !admins.includes(creator)) admins.push(creator);
+                const g = {
                   ...data,
-                  id:          data.groupId || d.id,
-                  _fbCode:     d.id,
-                  memberCount: data.memberCount || 0,
-                  members:     [],   // never null-filled — _getMyRole iterates this
-                  admins:      Array.isArray(data.admins) ? data.admins : [],
-                  createdAt:   data.createdAt?.toMillis?.() ?? (typeof data.createdAt === 'number' ? data.createdAt : Date.now()),
+                  id:           data.groupId || d.id,
+                  _fbCode:      d.id,
+                  memberCount:  data.memberCount || 0,
+                  members:      [],   // realtime from _liveMembers; _getMyRole uses ownership fields
+                  admins,
+                  createdByUid: data.createdByUid || data.createdBy || null,
+                  ownerUid:     data.ownerUid || data.createdByUid || data.createdBy || null,
+                  createdAt:    data.createdAt?.toMillis?.() ?? (typeof data.createdAt === 'number' ? data.createdAt : Date.now()),
                 };
+                // If current user is creator/owner, auto-migrate old doc & set local role hint
+                if (myUid && (g.createdByUid === myUid || g.ownerUid === myUid) &&
+                    (!data.ownerUid || !data.createdByUid || !Array.isArray(data.admins))) {
+                  _autoMigrateGroupDoc(d.id, data, myUid);
+                }
+                return g;
               } catch(_) { return null; }
             })
             .filter(g => g != null && _isValidGroup(g));
@@ -884,14 +997,23 @@
           // Lightweight DOM update — only update timers if room is rendered
           const view = document.getElementById('view-social');
           if (!view || !view.querySelector('.sr-room')) return;
-          const tk = todayKey();
           Object.keys(_liveMembers).forEach(uid => {
             const timerEl = view.querySelector(`[data-sr-timer="${uid}"]`);
             if (timerEl) timerEl.textContent = _fmtSecs(_srMemberSeconds({ id: uid }));
           });
+          // Update studying count
           const onlineCount = Object.values(_liveMembers).filter(x => x.isStudying).length;
           const cntEl = view.querySelector('.sr-studying-count');
           if (cntEl) cntEl.textContent = onlineCount;
+          // Update total member count
+          const totalEl = view.querySelector('.sr-total-member-count');
+          if (totalEl) totalEl.textContent = snap.size;
+          // Update local group memberCount for display accuracy
+          if (code) {
+            const sc = scLoad();
+            const g = sc.groups.find(x => x.code === code);
+            if (g && g.memberCount !== snap.size) { g.memberCount = snap.size; scSave(sc); }
+          }
         }, () => {});
     } catch(_) {}
   }
@@ -3262,14 +3384,18 @@
       _subscribePublicGroups();
       _subscribeGlobalLb();
       _subscribeMyGroups();
+      _subscribeMyGroupsByOwner();
+      _subscribeMyGroupsByAdmin();
       _restoreGroupsFromFirebase().catch(() => {});
     }, 500);
 
     window._socialDestroy = () => {
       _destroyed = true;
       _unsubscribeGlobalLb();
-      if (_publicGroupsUnsub) { try { _publicGroupsUnsub(); } catch(_) {} _publicGroupsUnsub = null; }
-      if (_myGroupsUnsub)     { try { _myGroupsUnsub(); }     catch(_) {} _myGroupsUnsub     = null; }
+      if (_publicGroupsUnsub)      { try { _publicGroupsUnsub();      } catch(_) {} _publicGroupsUnsub      = null; }
+      if (_myGroupsUnsub)          { try { _myGroupsUnsub();          } catch(_) {} _myGroupsUnsub          = null; }
+      if (_myGroupsByOwnerUnsub)   { try { _myGroupsByOwnerUnsub();   } catch(_) {} _myGroupsByOwnerUnsub   = null; }
+      if (_myGroupsByAdminUnsub)   { try { _myGroupsByAdminUnsub();   } catch(_) {} _myGroupsByAdminUnsub   = null; }
     };
   }
 
