@@ -4100,6 +4100,12 @@
       _restoreGroupsFromFirebase().catch(() => {});
     }, 500);
 
+    // Expose restoration hook so script.js can re-trigger after login.
+    // This is needed when the user wasn't logged in at page load (auth modal showing):
+    // the 500ms init timeout above fires with uid=null and returns early, so groups
+    // would never appear after login without this re-entry point.
+    window._socialRestoreGroups = () => { _restoreGroupsFromFirebase().catch(() => {}); };
+
     window._socialDestroy = () => {
       _destroyed = true;
       _unsubscribeGlobalLb();

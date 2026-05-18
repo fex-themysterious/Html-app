@@ -421,12 +421,14 @@
     const uid = _userId;
     _cloudSyncTimer = setTimeout(() => {
       if (!uid) return;
+      // Use merge:true to never accidentally wipe fields (e.g. joinedRooms) that are
+      // managed by separate join/leave operations. Only update data + metadata here.
+      // joinedRooms is only written when it actually changes (join/leave group logic).
       _db.collection('users').doc(uid).set({
-        data:        JSON.stringify(state),
-        uid:         uid,
-        joinedRooms: _myGroupCodes,
-        updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
-      }).catch(e => {
+        data:      JSON.stringify(state),
+        uid:       uid,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true }).catch(e => {
         console.warn('[Firestore] Write failed:', e.message);
       });
     }, 3000);
@@ -497,12 +499,15 @@
             } catch(_) {}
             renderAll();
             if (_currentTab === 'social') renderSocial();
+            // Re-run group restoration so sc_v1 is repopulated even if user wasn't
+            // logged in when social.js first initialised (auth modal was showing).
+            setTimeout(() => { if (window._socialRestoreGroups) window._socialRestoreGroups(); }, 800);
             // Check for duplicate username and force re-entry if clashing
             setTimeout(() => _checkAndEnforceUniqueUsername().catch(() => {}), 2500);
             return;
           }
         }
-        // No cloud data yet — but try to restore joinedRooms if it exists
+        // Restore joinedRooms from whatever cloud doc exists (even without app data)
         const existingRooms = snap.exists && snap.data() && snap.data().joinedRooms;
         if (Array.isArray(existingRooms) && existingRooms.length) {
           _myGroupCodes = Array.from(new Set([..._myGroupCodes, ...existingRooms]));
@@ -519,14 +524,28 @@
           });
           try { localStorage.setItem('my_group_codes', JSON.stringify(_myGroupCodes)); } catch(_) {}
         } catch(_) {}
-        // Upload current local state
-        await _db.collection('users').doc(user.uid).set({
-          data:        JSON.stringify(state),
-          uid:         user.uid,
-          joinedRooms: _myGroupCodes,
-          updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
-        });
-        toast('\u2705 Account linked! Data saved to cloud.', 'success', 4000);
+        // Only upload local state for genuinely new users (no Firestore doc yet).
+        // NEVER overwrite an existing cloud document — that would destroy real data.
+        if (!snap.exists) {
+          await _db.collection('users').doc(user.uid).set({
+            data:        JSON.stringify(state),
+            uid:         user.uid,
+            joinedRooms: _myGroupCodes,
+            updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
+          });
+          toast('\u2705 Account linked! Data saved to cloud.', 'success', 4000);
+        } else {
+          // Doc exists but app data was missing or unreadable — preserve it,
+          // just update the joinedRooms and uid fields safely.
+          console.warn('[Auth] Cloud doc exists but app data was unreadable — preserving cloud data.');
+          if (_myGroupCodes.length) {
+            _db.collection('users').doc(user.uid).set({
+              uid:         user.uid,
+              joinedRooms: _myGroupCodes,
+              updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true }).catch(() => {});
+          }
+        }
         // Check for duplicate username even for new accounts
         setTimeout(() => _checkAndEnforceUniqueUsername().catch(() => {}), 2500);
       } catch (e) {
@@ -1028,7 +1047,7 @@
   let _socialMembers        = {};
   let _socialRoomMembersList= {};
   let _socialRoomData       = null;
-  let _myGroupCodes         = [];
+  let _myGroupCodes         = (() => { try { return JSON.parse(localStorage.getItem('my_group_codes') || '[]'); } catch(_) { return []; } })();
   let _myGroupRoomMeta      = {};
   let _globalLbUnsub        = null;
   let _publicRooms          = [];
