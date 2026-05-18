@@ -152,7 +152,7 @@
               });
               dirty = true;
             } else {
-              // Keep local group in sync with Firestore ownership fields
+              // Keep local group in sync with Firestore ownership + live fields
               let changed = false;
               if (!existing.createdByUid) { existing.createdByUid = data.createdByUid || uid; changed = true; }
               if (!existing.ownerUid)     { existing.ownerUid     = data.ownerUid || data.createdByUid || uid; changed = true; }
@@ -160,10 +160,15 @@
                 existing.admins = Array.isArray(data.admins) ? data.admins : [uid]; changed = true;
               }
               if (existing.role !== 'admin') { existing.role = 'admin'; changed = true; }
+              if (typeof data.memberCount === 'number' && existing.memberCount !== data.memberCount) {
+                existing.memberCount = data.memberCount; changed = true;
+              }
               if (changed) dirty = true;
             }
           });
           if (dirty) scSave(sc);
+          // Schedule a group-doc subscription refresh so memberCount stays live
+          setTimeout(_ensureGroupDocSubs, 200);
           // Also ensure creator is in members subcollection for each own group
           snap.docs.forEach(d => {
             const fb_ = getFb();
@@ -233,15 +238,52 @@
                 if (!existing.admins.includes(uid)) existing.admins.push(uid);
                 changed = true;
               }
+              if (typeof data.memberCount === 'number' && existing.memberCount !== data.memberCount) {
+                existing.memberCount = data.memberCount; changed = true;
+              }
               if (changed) dirty = true;
             }
             // Auto-migrate Firestore doc if missing fields
             _autoMigrateGroupDoc(code, data, uid);
           });
           if (dirty) scSave(sc);
+          setTimeout(_ensureGroupDocSubs, 200);
           if ((_tab === 'groups' || _tab === 'rooms') && !_groupView && !_destroyed) _scheduleRender();
         }, () => { _myGroupsByOwnerUnsub = null; });
     } catch(_) { _myGroupsByOwnerUnsub = null; }
+  }
+
+  // ── Subscribe to each local group's Firestore doc for live memberCount ────
+  function _subscribeGroupDocs() {
+    const db = getDb(), uid = getUserId();
+    if (!db || !uid) return;
+    const sc = scLoad();
+    sc.groups.forEach(g => {
+      if (!g.code || _groupDocUnsubs[g.code]) return;
+      try {
+        _groupDocUnsubs[g.code] = db.collection('groups').doc(g.code).onSnapshot(snap => {
+          if (!snap.exists) return;
+          const data = snap.data();
+          const sc2  = scLoad();
+          const local = sc2.groups.find(x => x.code === g.code);
+          if (!local) return;
+          let changed = false;
+          if (typeof data.memberCount === 'number' && local.memberCount !== data.memberCount) {
+            local.memberCount = data.memberCount; changed = true;
+          }
+          if (data.name && local.name !== data.name) { local.name = data.name; changed = true; }
+          if (data.icon && local.icon !== data.icon) { local.icon = data.icon; changed = true; }
+          if (changed) {
+            scSave(sc2);
+            if ((_tab === 'groups' || _tab === 'rooms') && !_groupView && !_destroyed) _scheduleRender();
+          }
+        }, () => { delete _groupDocUnsubs[g.code]; });
+      } catch(_) { delete _groupDocUnsubs[g.code]; }
+    });
+  }
+  // Call after any group list change to ensure all groups are covered
+  function _ensureGroupDocSubs() {
+    try { _subscribeGroupDocs(); } catch(_) {}
   }
 
   // ── Also query groups where uid is in admins[] (catches other old groups) ─
@@ -309,6 +351,9 @@
   let _chatGid             = null; // group code currently subscribed to chat
   let _replyTo             = null; // { id, text, author } — message being replied to
   let _editMsgId           = null; // string msgId currently being edited
+  // Group doc live subscriptions (for real-time memberCount in Your Groups list)
+  const _groupDocUnsubs    = {};   // { code: unsubFn }
+  let _liveSubscribedCode  = null; // code currently subscribed to in _subscribeRoomMembers
 
   const isStudying = () => { try { return window._focusActive === true; } catch(_) { return false; } };
 
@@ -694,7 +739,9 @@
         </div>
         <div class="sc-groups-list">
           ${sc.groups.map(g => {
-            const mc = (g.members||[]).length;
+            // Use live Firestore memberCount: check _publicGroups first, then local field, then members array
+            const pbG = _publicGroups.find(pg => pg._fbCode === g.code);
+            const mc  = (pbG != null ? pbG.memberCount : null) ?? g.memberCount ?? (g.members||[]).length ?? 0;
             return `
               <div class="sc-group-card" data-sc="open-group" data-gid="${esc(g.id)}" role="button" tabindex="0">
                 <div class="sc-group-icon">${g.icon||'📚'}</div>
@@ -984,7 +1031,10 @@
   }
 
   function _subscribeRoomMembers(code) {
-    if (_memberUnsub) { _memberUnsub(); _memberUnsub = null; }
+    // Guard: already listening to this exact room — skip duplicate attach
+    if (_liveSubscribedCode === code && _memberUnsub) return;
+    if (_memberUnsub) { try { _memberUnsub(); } catch(_) {} _memberUnsub = null; }
+    _liveSubscribedCode = code;
     _liveMembers = {};
     const db = getDb();
     if (!db || !code) return;
@@ -992,34 +1042,62 @@
       _memberUnsub = db.collection('groups').doc(code)
         .collection('members')
         .onSnapshot(snap => {
+          // Track prev roster so we can detect joins and leaves
+          const prevKeys = new Set(Object.keys(_liveMembers));
           _liveMembers = {};
           snap.docs.forEach(d => { _liveMembers[d.id] = d.data(); });
-          // Lightweight DOM update — only update timers if room is rendered
+
+          // Always persist live count to localStorage
+          const sc = scLoad();
+          const gLocal = sc.groups.find(x => x.code === code);
+          if (gLocal && gLocal.memberCount !== snap.size) {
+            gLocal.memberCount = snap.size; scSave(sc);
+          }
+
           const view = document.getElementById('view-social');
-          if (!view || !view.querySelector('.sr-room')) return;
+          if (!view) return;
+
+          // ── Smart full re-render: only when roster actually changes ──────
+          const grid = view.querySelector('.sr-members-grid');
+          if (grid && !_destroyed) {
+            const renderedIds = new Set(
+              [...grid.querySelectorAll('[data-sr-card]')].map(c => c.dataset.srCard)
+            );
+            const myUid = getUserId();
+            // New Firebase member has no card yet (exclude self — shown as 'me')
+            const hasNew = Object.keys(_liveMembers).some(
+              uid => uid !== myUid && !renderedIds.has(uid)
+            );
+            // Member left — card still rendered but gone from Firestore
+            const hasLeft = [...prevKeys].some(
+              uid => !_liveMembers[uid] && renderedIds.has(uid)
+            );
+            if (hasNew || hasLeft) {
+              renderSocial();   // re-render with full correct roster
+              return;
+            }
+          }
+
+          // ── Lightweight pass: update timers + counts for existing cards ──
+          if (!view.querySelector('.sr-room')) return;
           Object.keys(_liveMembers).forEach(uid => {
-            const timerEl = view.querySelector(`[data-sr-timer="${uid}"]`);
-            if (timerEl) timerEl.textContent = _fmtSecs(_srMemberSeconds({ id: uid }));
+            const el = view.querySelector(`[data-sr-timer="${uid}"]`);
+            if (el) el.textContent = _fmtSecs(_srMemberSeconds({ id: uid }));
           });
-          // Update studying count
+          const meIsActive  = !!(view.querySelector('[data-sr-card="me"]')?.classList.contains('sr-card-active'));
           const onlineCount = Object.values(_liveMembers).filter(x => x.isStudying).length;
+          const activeCnt   = meIsActive ? Math.max(1, onlineCount) : onlineCount;
           const cntEl = view.querySelector('.sr-studying-count');
-          if (cntEl) cntEl.textContent = onlineCount;
-          // Update total member count
+          if (cntEl) cntEl.textContent = activeCnt;
           const totalEl = view.querySelector('.sr-total-member-count');
           if (totalEl) totalEl.textContent = snap.size;
-          // Update local group memberCount for display accuracy
-          if (code) {
-            const sc = scLoad();
-            const g = sc.groups.find(x => x.code === code);
-            if (g && g.memberCount !== snap.size) { g.memberCount = snap.size; scSave(sc); }
-          }
-        }, () => {});
-    } catch(_) {}
+        }, () => { _memberUnsub = null; _liveSubscribedCode = null; });
+    } catch(_) { _memberUnsub = null; _liveSubscribedCode = null; }
   }
 
   function _unsubscribeRoomMembers() {
-    if (_memberUnsub) { _memberUnsub(); _memberUnsub = null; }
+    if (_memberUnsub) { try { _memberUnsub(); } catch(_) {} _memberUnsub = null; }
+    _liveSubscribedCode = null;
     _liveMembers = {};
     _unsubscribeChatMessages();
   }
@@ -2109,6 +2187,7 @@
       }, { merge: true }).catch(() => {});
     }
     toast(`Joined "${data.name || code}"! 🎉`, 'success');
+    setTimeout(_ensureGroupDocSubs, 300);
     _tab = 'rooms';
     renderSocial();
   }
@@ -3386,16 +3465,23 @@
       _subscribeMyGroups();
       _subscribeMyGroupsByOwner();
       _subscribeMyGroupsByAdmin();
+      _subscribeGroupDocs();            // per-group doc listeners for live memberCount
       _restoreGroupsFromFirebase().catch(() => {});
     }, 500);
 
     window._socialDestroy = () => {
       _destroyed = true;
       _unsubscribeGlobalLb();
+      _unsubscribeRoomMembers();
       if (_publicGroupsUnsub)      { try { _publicGroupsUnsub();      } catch(_) {} _publicGroupsUnsub      = null; }
       if (_myGroupsUnsub)          { try { _myGroupsUnsub();          } catch(_) {} _myGroupsUnsub          = null; }
       if (_myGroupsByOwnerUnsub)   { try { _myGroupsByOwnerUnsub();   } catch(_) {} _myGroupsByOwnerUnsub   = null; }
       if (_myGroupsByAdminUnsub)   { try { _myGroupsByAdminUnsub();   } catch(_) {} _myGroupsByAdminUnsub   = null; }
+      // Tear down all group-doc listeners
+      Object.keys(_groupDocUnsubs).forEach(k => {
+        try { _groupDocUnsubs[k](); } catch(_) {}
+        delete _groupDocUnsubs[k];
+      });
     };
   }
 
