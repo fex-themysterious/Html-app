@@ -34,6 +34,39 @@
   const getUserId    = () => { try { return ui().getUserId?.() ?? null; } catch(_) { return null; } };
   const getFb        = () => { try { return window.firebase    ?? null; } catch(_) { return null; } };
 
+  // ── Display name helper ───────────────────────────────────────────────────
+  // Priority: 1) saved nickname, 2) Firebase auth displayName, 3) email-derived name
+  // Never returns "You". Saves derived name to Firestore as displayNameAuto.
+  function _getUserDisplayName() {
+    const ms = getMainState();
+    // Priority 1: explicit nickname (not "You" placeholder)
+    if (ms.profile?.name && ms.profile.name !== 'You' && ms.profile.name.trim()) {
+      return ms.profile.name.trim();
+    }
+    // Priority 2: Firebase auth displayName
+    const fb = getFb();
+    const fbUser = fb?.auth?.()?.currentUser;
+    if (fbUser?.displayName && fbUser.displayName.trim()) {
+      return fbUser.displayName.trim();
+    }
+    // Priority 3: derive from email (e.g. tajwarhossain@gmail.com → Tajwarhossain)
+    const email = fbUser?.email || ms.profile?.email || '';
+    if (email) {
+      const local = email.split('@')[0] || '';
+      if (local) {
+        const derived = local.charAt(0).toUpperCase() + local.slice(1);
+        // Persist so all parts of the app can use it
+        const db = getDb(), uid = getUserId();
+        if (db && uid) {
+          db.collection('users').doc(uid)
+            .set({ displayNameAuto: derived }, { merge: true }).catch(() => {});
+        }
+        return derived;
+      }
+    }
+    return 'Studier';
+  }
+
   // ── Data ─────────────────────────────────────────────────────────────────
   function scLoad() {
     try {
@@ -113,12 +146,16 @@
 
   function _catColor(cat) {
     const map = {
-      'Exams':   { bg:'rgba(245,158,11,.18)',  text:'#fbbf24', border:'rgba(245,158,11,.3)'  },
-      'Language':{ bg:'rgba(59,130,246,.18)',  text:'#60a5fa', border:'rgba(59,130,246,.3)'  },
-      'Tech':    { bg:'rgba(56,189,248,.18)',  text:'#38bdf8', border:'rgba(56,189,248,.3)'  },
-      'Science': { bg:'rgba(34,197,94,.18)',   text:'#4ade80', border:'rgba(34,197,94,.3)'   },
-      'Arts':    { bg:'rgba(244,114,182,.18)', text:'#f472b6', border:'rgba(244,114,182,.3)' },
-      'General': { bg:'rgba(124,58,237,.18)',  text:'#a78bfa', border:'rgba(124,58,237,.3)'  },
+      'Exams':       { bg:'rgba(245,158,11,.18)',  text:'#fbbf24', border:'rgba(245,158,11,.3)'  },
+      'Subject':     { bg:'rgba(59,130,246,.18)',  text:'#60a5fa', border:'rgba(59,130,246,.3)'  },
+      'Productivity':{ bg:'rgba(56,189,248,.18)',  text:'#38bdf8', border:'rgba(56,189,248,.3)'  },
+      'Challenge':   { bg:'rgba(34,197,94,.18)',   text:'#4ade80', border:'rgba(34,197,94,.3)'   },
+      'General':     { bg:'rgba(124,58,237,.18)',  text:'#a78bfa', border:'rgba(124,58,237,.3)'  },
+      // legacy aliases so old groups still get a colour
+      'Language':    { bg:'rgba(59,130,246,.18)',  text:'#60a5fa', border:'rgba(59,130,246,.3)'  },
+      'Tech':        { bg:'rgba(56,189,248,.18)',  text:'#38bdf8', border:'rgba(56,189,248,.3)'  },
+      'Science':     { bg:'rgba(34,197,94,.18)',   text:'#4ade80', border:'rgba(34,197,94,.3)'   },
+      'Arts':        { bg:'rgba(244,114,182,.18)', text:'#f472b6', border:'rgba(244,114,182,.3)' },
     };
     return map[cat] || { bg:'rgba(148,163,184,.12)', text:'#94a3b8', border:'rgba(148,163,184,.2)' };
   }
@@ -242,7 +279,6 @@
     { id:'new',          label:'New' },
     { id:'most-members', label:'Most Members' },
     { id:'most-study',   label:'Most Study Time' },
-    { id:'cam',          label:'📷 Cam Study' },
   ];
 
   function _renderRooms() {
@@ -265,7 +301,8 @@
     // Client-side filters (applied on top of server-side query)
     if (_roomPublicOnly) groups = groups.filter(g => !g.isPrivate);
     if (_roomWithSpace)  groups = groups.filter(g => (g.memberCount || (g.members||[]).length) < (g.maxMembers || 50));
-    if (_roomFilter === 'cam') groups = groups.filter(g => !!g.camStudy);
+    // Auto-convert any legacy camstudy groups to general
+    groups = groups.map(g => g.category === 'camstudy' ? { ...g, category: 'General' } : g);
 
     // Client-side sort (reinforces server-side ordering; handles the 'cam' filter case)
     if (_roomFilter === 'most-members')
@@ -328,11 +365,12 @@
     const memberCount    = g.memberCount || (g.members || []).length || 0;
     const maxMembers     = g.maxMembers    || 50;
     const dailyGoalHrs   = g.dailyGoalHrs  || 8;
-    // Resolve leader: prefer stored leader field, then createdBy hint, never 'Unknown' for valid docs
-    const leaderRaw      = g.leader && g.leader !== 'Unknown' ? g.leader : null;
-    const leader         = leaderRaw || (g.createdBy ? 'Admin' : 'Anonymous');
-    const category       = (g.category && g.category !== 'undefined') ? g.category : 'General';
-    const camStudy       = !!g.camStudy;
+    // Resolve leader: prefer stored leader field, then createdByName, never 'Unknown'/'You'
+    const leaderRaw      = g.leader && g.leader !== 'Unknown' && g.leader !== 'You' ? g.leader : null;
+    const createdByName  = g.createdByName && g.createdByName !== 'You' ? g.createdByName : null;
+    const leader         = leaderRaw || createdByName || (g.createdBy ? 'Admin' : 'Anonymous');
+    const rawCat         = g.category && g.category !== 'undefined' ? g.category : 'General';
+    const category       = rawCat === 'camstudy' ? 'General' : rawCat;
     const promoted       = !!g.promoted;
     const createdAt      = g.createdAt || Date.now();
     const dailyMinsTotal = g.dailyMinsTotal || (studying ? todayMins : 0);
@@ -360,7 +398,6 @@
           <span class="sc-dstat"><span class="sc-dstat-icon">👥</span>${memberCount}/${maxMembers} people</span>
           <span class="sc-dstat-sep"></span>
           <span class="sc-dstat sc-dstat-leader"><span class="sc-dstat-icon">👑</span>${esc(leader)}</span>
-          ${camStudy ? `<span class="sc-dstat-sep"></span><span class="sc-dstat sc-dstat-cam">📷 Cam</span>` : ''}
         </div>
 
         <div class="sc-disc-perf-row">
@@ -373,7 +410,9 @@
           <span class="sc-disc-date">Started ${esc(_formatDate(createdAt))}</span>
           ${isMember
             ? `<span class="sc-disc-role ${isAdmin ? 'sc-role-admin' : 'sc-role-member'}">${isAdmin ? '👑 Admin' : '✓ Member'}</span>`
-            : `<span class="sc-disc-join-hint">Tap to join →</span>`}
+            : (g.isPrivate
+                ? `<span class="sc-disc-join-hint">🔒 Enter Invite Code →</span>`
+                : `<span class="sc-disc-join-hint">Tap to Join →</span>`)}
         </div>
       </div>`;
   }
@@ -725,8 +764,7 @@
           const msgsEl = document.getElementById('sr-chat-msgs');
           if (!msgsEl) return;
           const uid     = getUserId();
-          const ms      = getMainState();
-          const myName  = ms.profile?.name || 'You';
+          const myName  = _getUserDisplayName();
           const sc      = scLoad();
           const g       = sc.groups.find(x => x.code === code);
           if (!g) return;
@@ -859,16 +897,49 @@
     const db = getDb(), uid = getUserId();
     if (!db || !uid) return;
     try {
+      const myName = _getUserDisplayName();
+
+      // Gather codes from: 1) user joinedRooms 2) groups this user created
+      let allCodes = [];
       const userSnap = await db.collection('users').doc(uid).get();
-      if (!userSnap.exists) return;
-      const joinedCodes = userSnap.data().joinedRooms || [];
-      if (!joinedCodes.length) return;
+      if (userSnap.exists) {
+        allCodes = [...(userSnap.data().joinedRooms || [])];
+      }
+
+      // Also query groups created by this user so ownership never gets lost
+      const createdSnap = await db.collection('groups')
+        .where('createdBy', '==', uid).get()
+        .catch(() => ({ docs: [] }));
+      createdSnap.docs.forEach(d => {
+        const code = d.id;
+        if (!allCodes.includes(code)) allCodes.push(code);
+        // Also repair missing createdByUid field
+        const data = d.data();
+        if (!data.createdByUid) {
+          d.ref.set({ createdByUid: uid }, { merge: true }).catch(() => {});
+        }
+        // Auto-repair: ensure creator is in members subcollection
+        db.collection('groups').doc(code).collection('members').doc(uid)
+          .get().then(ms_ => {
+            if (!ms_.exists) {
+              const fb_ = getFb();
+              if (fb_) {
+                db.collection('groups').doc(code).collection('members').doc(uid).set({
+                  uid, displayName: myName, role: 'admin',
+                  joinedAt: fb_.firestore.FieldValue.serverTimestamp(),
+                  isStudying: false, currentSubject: null, elapsedTimeToday: 0,
+                }, { merge: true }).catch(() => {});
+              }
+            }
+          }).catch(() => {});
+      });
+
+      if (!allCodes.length) return;
       const sc = scLoad();
       const existingCodes = sc.groups.map(g => g.code);
-      const missing = joinedCodes.filter(c => !existingCodes.includes(c));
+      const missing = allCodes.filter(c => !existingCodes.includes(c));
       if (!missing.length) return;
-      const ms = getMainState();
-      const myName = ms.profile?.name || 'You';
+
       await Promise.all(missing.map(async code => {
         try {
           const snap = await db.collection('groups').doc(code).get();
@@ -877,10 +948,13 @@
           const sc2 = scLoad();
           if (sc2.groups.some(g => g.code === code)) return;
           let myRole = 'member';
+          // Creator always gets admin role
+          if (data.createdBy === uid || data.createdByUid === uid) myRole = 'admin';
           try {
             const mSnap = await db.collection('groups').doc(code).collection('members').doc(uid).get();
-            if (mSnap.exists) myRole = mSnap.data().role || 'member';
+            if (mSnap.exists) myRole = mSnap.data().role || myRole;
           } catch(_) {}
+          const rawCat = data.category || 'General';
           sc2.groups.push({
             id:           data.groupId || code,
             name:         data.name || `Group ${code}`,
@@ -888,11 +962,10 @@
             code:         data.code || code,
             isPrivate:    data.isPrivate || false,
             description:  data.description || '',
-            category:     data.category || 'General',
+            category:     rawCat === 'camstudy' ? 'General' : rawCat,
             dailyGoalHrs: data.dailyGoalHrs || 8,
             maxMembers:   data.maxMembers || 50,
-            leader:       data.leader || 'Admin',
-            camStudy:     data.camStudy || false,
+            leader:       (data.leader && data.leader !== 'You') ? data.leader : (data.createdByName || myName),
             promoted:     false,
             createdAt:    data.createdAt?.toMillis?.() ?? Date.now(),
             dailyMinsTotal: 0, attendancePct: 0,
@@ -902,6 +975,16 @@
           scSave(sc2);
         } catch(_) {}
       }));
+
+      // Ensure Firestore user doc has all codes
+      const fb_ = getFb();
+      if (fb_ && allCodes.length) {
+        db.collection('users').doc(uid).set({
+          joinedRooms: allCodes,
+          displayNameAuto: myName,
+        }, { merge: true }).catch(() => {});
+      }
+
       if (missing.length > 0 && window._currentTab === 'social') renderSocial();
     } catch(_) {}
   }
@@ -1268,8 +1351,7 @@
   }
 
   function _renderSrChat(g, sc) {
-    const ms     = getMainState();
-    const myName = ms.profile?.name || 'You';
+    const myName = _getUserDisplayName();
     const uid    = getUserId();
     const code   = g.code;
     // Kick off Firebase subscription (idempotent)
@@ -1527,7 +1609,7 @@
 
   // ── Modals ────────────────────────────────────────────────────────────────
   const ICONS_LIST = ['📚','🎯','⚡','🔥','🚀','🧠','💡','🌟','🎓','💪','🏆','✨','🎨','🔬','🧪','📖'];
-  const CATEGORIES = ['General','Exams','Language','Tech','Science','Arts'];
+  const CATEGORIES = ['General','Exams','Subject','Productivity','Challenge'];
 
   function _modalCreateGroup() {
     let selectedIcon = '📚';
@@ -1570,11 +1652,7 @@
         <div id="sc-icon-grid" class="sc-icon-grid">${iconBtns}</div>
       </div>
       <div class="sc-field sc-checkboxes-stack">
-        <label class="sc-checkbox-row">
-          <input id="sc-grp-cam" type="checkbox" class="sc-checkbox"/>
-          <span>📷 Cam Study room</span>
-        </label>
-        <label class="sc-checkbox-row" style="margin-top:8px">
+        <label class="sc-checkbox-row" style="margin-top:0">
           <input id="sc-grp-private" type="checkbox" class="sc-checkbox"/>
           <span>🔒 Private (invite only)</span>
         </label>
@@ -1590,7 +1668,6 @@
       const goalEl   = root.querySelector('#sc-grp-goal');
       const maxEl    = root.querySelector('#sc-grp-max');
       const privEl   = root.querySelector('#sc-grp-private');
-      const camEl    = root.querySelector('#sc-grp-cam');
       const errEl    = root.querySelector('#sc-grp-err');
       const submitEl = root.querySelector('#sc-do-create');
       nameEl.focus();
@@ -1613,8 +1690,9 @@
         const name = nameEl.value.trim();
         if (!name) { errEl.textContent = 'Please enter a group name.'; errEl.style.display = ''; return; }
         const sc = scLoad();
-        const ms = getMainState();
-        const myName = ms.profile?.name || 'You';
+        const myName = _getUserDisplayName();
+        const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
+        if (!uid_) { errEl.textContent = 'You must be signed in to create a group.'; errEl.style.display = ''; return; }
         const newGroup = {
           id: genId(), name, icon: selectedIcon,
           code: genCode(), isPrivate: privEl.checked,
@@ -1623,36 +1701,35 @@
           dailyGoalHrs: Math.max(1, Math.min(24, parseInt(goalEl.value)||8)),
           maxMembers:   Math.max(2, Math.min(500, parseInt(maxEl.value)||50)),
           leader:       myName,
-          camStudy:     camEl.checked,
           promoted:     false,
           createdAt:    Date.now(),
           dailyMinsTotal: 0,
           attendancePct:  0,
           role: 'admin',
-          members: [{ id:'me', name:myName, role:'admin', joinedAt:Date.now() }],
+          members: [{ id: uid_, name: myName, role: 'admin', joinedAt: Date.now() }],
         };
         sc.groups.push(newGroup);
         scSave(sc);
 
         // Persist to Firebase so other users can discover and join
-        const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
         if (db_ && uid_ && fb_) {
           db_.collection('groups').doc(newGroup.code).set({
-            groupId:      newGroup.id,
-            code:         newGroup.code,
-            name:         newGroup.name,
-            icon:         newGroup.icon,
-            description:  newGroup.description || '',
-            category:     newGroup.category || 'General',
-            dailyGoalHrs: newGroup.dailyGoalHrs || 8,
-            maxMembers:   newGroup.maxMembers || 50,
-            joinMode:     newGroup.joinMode || 'open',
-            camStudy:     !!newGroup.camStudy,
-            isPrivate:    !!newGroup.isPrivate,
-            leader:       myName,
-            createdAt:    fb_.firestore.FieldValue.serverTimestamp(),
-            createdBy:    uid_,
-            memberCount:  1,
+            groupId:       newGroup.id,
+            code:          newGroup.code,
+            name:          newGroup.name,
+            icon:          newGroup.icon,
+            description:   newGroup.description || '',
+            category:      newGroup.category || 'General',
+            dailyGoalHrs:  newGroup.dailyGoalHrs || 8,
+            maxMembers:    newGroup.maxMembers || 50,
+            joinMode:      'open',
+            isPrivate:     !!newGroup.isPrivate,
+            leader:        myName,
+            createdAt:     fb_.firestore.FieldValue.serverTimestamp(),
+            createdBy:     uid_,
+            createdByUid:  uid_,
+            createdByName: myName,
+            memberCount:   1,
             dailyMinsTotal: 0,
           }).catch(() => {});
           db_.collection('groups').doc(newGroup.code).collection('members').doc(uid_).set({
@@ -1661,7 +1738,8 @@
             isStudying: false, currentSubject: null, elapsedTimeToday: 0,
           }).catch(() => {});
           db_.collection('users').doc(uid_).set({
-            joinedRooms: fb_.firestore.FieldValue.arrayUnion(newGroup.code)
+            joinedRooms:     fb_.firestore.FieldValue.arrayUnion(newGroup.code),
+            displayNameAuto: myName,
           }, { merge: true }).catch(() => {});
         }
 
@@ -1676,9 +1754,61 @@
     });
   }
 
+  // ── Direct join for public groups (no invite code needed) ────────────────
+  function _joinPublicGroup(code, fbGroupData) {
+    const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
+    if (!uid_) { toast('Sign in to join groups', 'warn'); return; }
+    const sc = scLoad();
+    if (sc.groups.find(g => g.code === code)) {
+      toast('You are already in this group', 'info'); return;
+    }
+    const myName = _getUserDisplayName();
+    const data = fbGroupData || {};
+    if ((data.memberCount || 0) >= (data.maxMembers || 50)) {
+      toast('This group is full', 'warn'); return;
+    }
+    const rawCat = data.category || 'General';
+    const sc2 = scLoad();
+    sc2.groups.push({
+      id:           data.groupId || data.id || code,
+      name:         data.name || `Group ${code}`,
+      icon:         data.icon || '📚',
+      code:         code,
+      isPrivate:    false,
+      description:  data.description || '',
+      category:     rawCat === 'camstudy' ? 'General' : rawCat,
+      dailyGoalHrs: data.dailyGoalHrs || 8,
+      maxMembers:   data.maxMembers || 50,
+      leader:       (data.leader && data.leader !== 'You') ? data.leader : (data.createdByName || 'Admin'),
+      promoted:     false,
+      createdAt:    data.createdAt || Date.now(),
+      dailyMinsTotal: 0, attendancePct: 0,
+      role:    'member',
+      members: [{ id: uid_, name: myName, role: 'member', joinedAt: Date.now() }],
+    });
+    scSave(sc2);
+    if (db_ && uid_ && fb_) {
+      db_.collection('groups').doc(code).collection('members').doc(uid_).set({
+        uid: uid_, displayName: myName, role: 'member',
+        joinedAt: fb_.firestore.FieldValue.serverTimestamp(),
+        isStudying: false, currentSubject: null, elapsedTimeToday: 0,
+      }).catch(() => {});
+      db_.collection('groups').doc(code).update({
+        memberCount: fb_.firestore.FieldValue.increment(1)
+      }).catch(() => {});
+      db_.collection('users').doc(uid_).set({
+        joinedRooms:     fb_.firestore.FieldValue.arrayUnion(code),
+        displayNameAuto: myName,
+      }, { merge: true }).catch(() => {});
+    }
+    toast(`Joined "${data.name || code}"! 🎉`, 'success');
+    _tab = 'rooms';
+    renderSocial();
+  }
+
   function _modalJoinGroup() {
     openModal(`
-      <h3 class="sc-modal-title">Join a Group</h3>
+      <h3 class="sc-modal-title">Join a Private Group</h3>
       <p class="sc-modal-sub">Enter the 6-character invite code shared by a group admin.</p>
       <div class="sc-field">
         <input id="sc-join-code" type="text" maxlength="8" placeholder="e.g. A1B2C3"
@@ -1698,16 +1828,16 @@
       const _doLocalFallbackJoin = (code) => {
         const sc2 = scLoad();
         if (sc2.groups.find(g => g.code === code)) return;
-        const ms2 = getMainState();
-        const myName2 = ms2.profile?.name || 'You';
+        const myName2 = _getUserDisplayName();
+        const uid2 = getUserId();
         sc2.groups.push({
           id: genId(), name: `Group ${code}`, icon: '📚',
           code, isPrivate: false, description: '',
           category: 'General', dailyGoalHrs: 8, maxMembers: 50,
-          leader: 'Admin', camStudy: false, promoted: false,
+          leader: 'Admin', promoted: false,
           createdAt: Date.now(), dailyMinsTotal: 0, attendancePct: 0,
           role: 'member',
-          members: [{ id:'me', name:myName2, role:'member', joinedAt:Date.now() }],
+          members: [{ id: uid2 || 'me', name: myName2, role: 'member', joinedAt: Date.now() }],
         });
         scSave(sc2);
         closeModal();
@@ -1743,8 +1873,8 @@
             submitEl.disabled = false; submitEl.textContent = 'Join Group';
             return;
           }
-          const ms2 = getMainState();
-          const myName2 = ms2.profile?.name || 'You';
+          const myName2 = _getUserDisplayName();
+          const rawCat = data.category || 'General';
           const sc2 = scLoad();
           if (!sc2.groups.find(g => g.code === code)) {
             sc2.groups.push({
@@ -1754,11 +1884,10 @@
               code:         data.code || code,
               isPrivate:    data.isPrivate || false,
               description:  data.description || '',
-              category:     data.category || 'General',
+              category:     rawCat === 'camstudy' ? 'General' : rawCat,
               dailyGoalHrs: data.dailyGoalHrs || 8,
               maxMembers:   data.maxMembers || 50,
-              leader:       data.leader || 'Admin',
-              camStudy:     data.camStudy || false,
+              leader:       (data.leader && data.leader !== 'You') ? data.leader : (data.createdByName || 'Admin'),
               promoted:     false,
               createdAt:    data.createdAt?.toMillis?.() ?? Date.now(),
               dailyMinsTotal: 0, attendancePct: 0,
@@ -1777,7 +1906,8 @@
               memberCount: fb_.firestore.FieldValue.increment(1)
             }).catch(() => {});
             db_.collection('users').doc(uid_).set({
-              joinedRooms: fb_.firestore.FieldValue.arrayUnion(code)
+              joinedRooms:     fb_.firestore.FieldValue.arrayUnion(code),
+              displayNameAuto: _getUserDisplayName(),
             }, { merge: true }).catch(() => {});
           }
           closeModal();
@@ -1944,8 +2074,15 @@
             const localG = sc_.groups.find(g => g.code === fbCode);
             if (localG) { _tab = 'groups'; _groupView = localG.id; renderSocial(); }
           } else {
-            // Not a member — open join dialog
-            _modalJoinGroup();
+            // Not a member — check public vs private
+            const fbGroup = _publicGroups.find(g => g._fbCode === fbCode);
+            if (fbGroup && !fbGroup.isPrivate) {
+              // Public group — join instantly, no invite code needed
+              _joinPublicGroup(fbCode, fbGroup);
+            } else {
+              // Private group — require invite code
+              _modalJoinGroup();
+            }
           }
           break;
         }
