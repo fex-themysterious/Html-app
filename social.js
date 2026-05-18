@@ -167,6 +167,11 @@
             }
           });
           if (dirty) scSave(sc);
+          // Clear Groups PTR loading state
+          if (_ptrGroupLoading) {
+            _ptrGroupLoading = false;
+            if (_ptrHideTimer) { clearTimeout(_ptrHideTimer); _ptrHideTimer = null; }
+          }
           // Schedule a group-doc subscription refresh so memberCount stays live
           setTimeout(_ensureGroupDocSubs, 200);
           // Also ensure creator is in members subcollection for each own group
@@ -341,6 +346,9 @@
   let _publicGroups        = [];
   let _publicGroupsUnsub   = null;
   let _myGroupsUnsub       = null;
+  let _ptrLoading          = false;   // true while Discover PTR refresh is in flight
+  let _ptrGroupLoading     = false;   // true while Groups PTR refresh is in flight
+  let _ptrHideTimer        = null;    // safety timeout to hide PTR bar if snapshot stalls
   let _memberUnsub         = null;
   let _liveMembers         = {};
   let _globalLbData        = [];
@@ -638,9 +646,9 @@
           </label>
         </div>
 
-        <div class="sc-ptr-bar" id="sc-ptr-bar">
+        <div class="sc-ptr-bar${_ptrLoading ? ' sc-ptr-loading' : ''}" id="sc-ptr-bar">
           <div class="sc-ptr-spinner"></div>
-          <span>Refreshing…</span>
+          <span>${_ptrLoading ? 'Updating…' : 'Refreshing…'}</span>
         </div>
 
         <div class="sc-disc-feed">
@@ -729,8 +737,10 @@
       return _renderGroupDetail(g, sc);
     }
 
+    const groupsPtrBar = `<div class="sc-ptr-bar${_ptrGroupLoading ? ' sc-ptr-loading' : ''}" id="sc-ptr-bar-groups"><div class="sc-ptr-spinner"></div><span>${_ptrGroupLoading ? 'Updating…' : 'Refreshing…'}</span></div>`;
+
     if (sc.groups.length === 0) {
-      return `
+      return `${groupsPtrBar}
         <div class="sc-empty-state">
           <div class="sc-empty-icon">👥</div>
           <div class="sc-empty-title">Create or Join a Group</div>
@@ -742,7 +752,7 @@
         </div>`;
     }
 
-    return `
+    return `${groupsPtrBar}
       <div class="sc-section">
         <div class="sc-section-header">
           <span class="sc-section-title">Your Groups</span>
@@ -990,15 +1000,24 @@
               } catch(_) { return null; }
             })
             .filter(g => g != null && _isValidGroup(g));
+          // Clear PTR loading state so the bar hides on next render
+          if (_ptrLoading) {
+            _ptrLoading = false;
+            if (_ptrHideTimer) { clearTimeout(_ptrHideTimer); _ptrHideTimer = null; }
+          }
           if (_tab === 'rooms' && !_groupView && !_destroyed) _scheduleRender();
         } catch(e) { console.error('[Social] publicGroups snapshot error:', e); }
       }, err => {
         const code = err?.code || '';
         console.warn('[Social] publicGroups listener error:', code, err?.message || '');
 
+        // Always clear PTR loading state on any error path
+        if (_ptrLoading) {
+          _ptrLoading = false;
+          if (_ptrHideTimer) { clearTimeout(_ptrHideTimer); _ptrHideTimer = null; }
+        }
+
         if (code === 'permission-denied' || code === 'unauthenticated') {
-          // Rules block unauthenticated reads — fall back to showing local groups only.
-          // The Discover tab will show locally-joined groups until the user is authenticated.
           _publicGroups = [];
           if (_tab === 'rooms' && !_groupView && !_destroyed) _scheduleRender();
           return;
@@ -1023,11 +1042,13 @@
                       };
                     } catch(_) { return null; }
                   }).filter(g => g != null && _isValidGroup(g));
+                  if (_ptrLoading) { _ptrLoading = false; if (_ptrHideTimer) { clearTimeout(_ptrHideTimer); _ptrHideTimer = null; } }
                   if (_tab === 'rooms' && !_groupView && !_destroyed) _scheduleRender();
                 } catch(_) {}
               }, innerErr => {
                 console.warn('[Social] fallback query also failed:', innerErr?.code);
                 _publicGroups = [];
+                if (_ptrLoading) { _ptrLoading = false; if (_ptrHideTimer) { clearTimeout(_ptrHideTimer); _ptrHideTimer = null; } }
                 if (_tab === 'rooms' && !_groupView && !_destroyed) _scheduleRender();
               });
           } catch(_) {}
@@ -2701,12 +2722,23 @@
 
     // ── Pull-to-refresh on Discover tab ────────────────────────────────────
     const scBody = root.querySelector('.sc-body');
-    const ptrBar = root.querySelector('#sc-ptr-bar');
-    if (scBody && ptrBar && _tab === 'rooms' && !_groupView) {
-      let _ptrStartY   = 0;
-      let _ptrPulling  = false;
-      let _ptrFired    = false;
-      const THRESHOLD  = 64;
+    if (scBody && !_groupView) {
+      const THRESHOLD = 64;
+      let _ptrStartY  = 0;
+      let _ptrPulling = false;
+      let _ptrFired   = false;
+
+      // Helper: get the active PTR bar for current tab
+      const getPtrBar = () => root.querySelector(_tab === 'rooms' ? '#sc-ptr-bar' : '#sc-ptr-bar-groups');
+
+      // Helper: hide bar and cancel safety timer
+      const _clearPtr = () => {
+        if (_ptrHideTimer) { clearTimeout(_ptrHideTimer); _ptrHideTimer = null; }
+        _ptrLoading      = false;
+        _ptrGroupLoading = false;
+        const b = getPtrBar();
+        if (b) { b.classList.remove('sc-ptr-visible', 'sc-ptr-loading'); }
+      };
 
       scBody.addEventListener('touchstart', e => {
         _ptrStartY  = e.touches[0].clientY;
@@ -2717,26 +2749,53 @@
       scBody.addEventListener('touchmove', e => {
         if (!_ptrPulling) return;
         const dy = e.touches[0].clientY - _ptrStartY;
+        const bar = getPtrBar();
+        if (!bar) return;
         if (dy > 12 && scBody.scrollTop === 0) {
-          ptrBar.classList.add('sc-ptr-visible');
+          bar.classList.add('sc-ptr-visible');
           if (dy > THRESHOLD && !_ptrFired) {
             _ptrFired = true;
             navigator.vibrate && navigator.vibrate(18);
           }
         } else {
-          ptrBar.classList.remove('sc-ptr-visible');
+          if (!_ptrLoading && !_ptrGroupLoading) bar.classList.remove('sc-ptr-visible');
         }
       }, { passive: true });
 
       scBody.addEventListener('touchend', () => {
-        ptrBar.classList.remove('sc-ptr-visible');
+        const bar = getPtrBar();
         if (_ptrFired) {
           _ptrFired = false;
-          // Re-subscribe to get freshest data
-          if (_publicGroupsUnsub) { try { _publicGroupsUnsub(); } catch(_) {} _publicGroupsUnsub = null; }
-          _publicGroups = [];
-          _subscribePublicGroups();
-          renderSocial();
+          // Transition from "pulling" style to persistent "loading" style
+          if (bar) { bar.classList.remove('sc-ptr-visible'); bar.classList.add('sc-ptr-loading'); }
+
+          if (_tab === 'rooms') {
+            _ptrLoading = true;
+            if (_publicGroupsUnsub) { try { _publicGroupsUnsub(); } catch(_) {} _publicGroupsUnsub = null; }
+            _publicGroups = [];
+            _subscribePublicGroups();
+            // Re-render so the bar is baked in with sc-ptr-loading class for continuity
+            renderSocial();
+          } else if (_tab === 'groups') {
+            _ptrGroupLoading = true;
+            if (_myGroupsUnsub) { try { _myGroupsUnsub(); } catch(_) {} _myGroupsUnsub = null; }
+            _subscribeMyGroups();
+            _subscribeMyGroupsByOwner();
+            _subscribeMyGroupsByAdmin();
+            _ensureGroupDocSubs();
+            renderSocial();
+          }
+
+          // Safety fallback: auto-hide after 5 s if snapshot never fires
+          _ptrHideTimer = setTimeout(() => {
+            _ptrLoading      = false;
+            _ptrGroupLoading = false;
+            _ptrHideTimer    = null;
+            if (!_destroyed) _scheduleRender();
+          }, 5000);
+        } else {
+          // Finger lifted without reaching threshold — just hide the bar
+          if (bar && !_ptrLoading && !_ptrGroupLoading) bar.classList.remove('sc-ptr-visible');
         }
         _ptrPulling = false;
       }, { passive: true });

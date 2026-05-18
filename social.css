@@ -174,26 +174,39 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 10px;
   height: 0;
   overflow: hidden;
-  transition: height .25s ease, opacity .2s ease;
+  transition: height .22s cubic-bezier(.4,0,.2,1), opacity .18s ease;
   opacity: 0;
   font-size: 12px;
   font-weight: 600;
+  letter-spacing: .02em;
   color: var(--sc-muted);
+  background: linear-gradient(180deg, rgba(124,58,237,.06) 0%, transparent 100%);
 }
 .sc-ptr-bar.sc-ptr-visible {
-  height: 44px;
+  height: 48px;
   opacity: 1;
 }
+/* Persists after finger lift while data is loading */
+.sc-ptr-bar.sc-ptr-loading {
+  height: 48px;
+  opacity: 1;
+  color: #a78bfa;
+}
 .sc-ptr-spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid rgba(124,58,237,.3);
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid rgba(124,58,237,.25);
   border-top-color: #a78bfa;
   border-radius: 50%;
-  animation: sc-spin .7s linear infinite;
+  animation: sc-spin .65s linear infinite;
+  flex-shrink: 0;
+}
+.sc-ptr-bar.sc-ptr-loading .sc-ptr-spinner {
+  border-top-color: #7c3aed;
+  animation-duration: .5s;
 }
 @keyframes sc-spin { to { transform: rotate(360deg); } }
 
