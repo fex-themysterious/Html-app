@@ -676,6 +676,14 @@
     if (!el) return;
     el.classList.remove('hidden');
 
+    // Always clear fields and reset state when the login screen appears
+    const emailEl = document.getElementById('auth-email');
+    const passEl  = document.getElementById('auth-password');
+    if (emailEl) emailEl.value = '';
+    if (passEl)  passEl.value  = '';
+    _setAuthLoading(false);
+    _clearAuthError();
+
     // Belt-and-suspenders: bind form submit directly (in case event delegation misses it)
     const form = document.getElementById('auth-form');
     if (form && !form._authBound) {
@@ -1039,6 +1047,13 @@
       try { localStorage.removeItem('stk_logged_in'); } catch(_) {}
       await _auth.signOut();
     } catch (e) { console.warn('[Auth] Sign out error:', e.message); }
+    // Clear login form fields and reset button state after sign-out
+    const emailEl = document.getElementById('auth-email');
+    const passEl  = document.getElementById('auth-password');
+    if (emailEl) emailEl.value = '';
+    if (passEl)  passEl.value  = '';
+    _setAuthLoading(false);
+    _clearAuthError();
   }
 
   // ── FCM / Push Notifications ──────────────────────────────────────────
