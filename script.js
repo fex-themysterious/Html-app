@@ -7,6 +7,7 @@
   let _userId         = null;
   let _cloudSyncTimer = null;
   let _cloudRestoreInProgress = false; // blocks cloud writes during initial restore
+  let _userHasCloudData = false;       // true once we confirm the user has a valid Firestore document
   let _authMode       = 'login'; // 'login' | 'signup'
   let _authConfigured = false;   // true once Firebase config validated & auth object created
 
@@ -418,13 +419,39 @@
     }
   }
 
+  // ── Local snapshot: save current state before any cloud restore so the user
+  //    can always recover their last local version if something goes wrong.
+  const SNAPSHOT_KEY = 'stk_pre_restore_snapshot';
+  function _takeLocalSnapshot() {
+    try {
+      const snap = { takenAt: Date.now(), state: JSON.parse(JSON.stringify(state)) };
+      localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snap));
+      console.log('[Snapshot] Local snapshot taken before cloud restore');
+    } catch (_) {}
+  }
+  function _getLocalSnapshot() {
+    try { return JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || 'null'); } catch (_) { return null; }
+  }
+
   function _scheduledCloudSync() {
     if (!_db || !_userId || !(_auth && _auth.currentUser)) return;
     if (_cloudRestoreInProgress) return; // never upload local state while a cloud restore is in flight
+    // Safety net: if we know this user has real cloud data but local state looks empty
+    // (e.g. fresh tab, corrupted localStorage), refuse to upload and let the next
+    // onAuthStateChanged cycle restore from cloud instead.
+    if (_userHasCloudData && (!Array.isArray(state.subjects) || state.subjects.length === 0)) {
+      console.warn('[Firestore] Blocked upload: user has cloud data but local subjects array is empty — skipping to protect cloud data.');
+      return;
+    }
     clearTimeout(_cloudSyncTimer);
     const uid = _userId;
     _cloudSyncTimer = setTimeout(() => {
-      if (!uid) return;
+      if (!uid || _cloudRestoreInProgress) return;
+      // Final empty-state guard inside the timeout (state could change in the 3 s window)
+      if (_userHasCloudData && (!Array.isArray(state.subjects) || state.subjects.length === 0)) {
+        console.warn('[Firestore] Blocked deferred upload: empty subjects, cloud data exists — skipping.');
+        return;
+      }
       // Use merge:true to never accidentally wipe fields (e.g. joinedRooms) that are
       // managed by separate join/leave operations. Only update data + metadata here.
       // joinedRooms is only written when it actually changes (join/leave group logic).
@@ -436,6 +463,47 @@
         console.warn('[Firestore] Write failed:', e.message);
       });
     }, 3000);
+  }
+
+  // ── Force-restore from cloud: manual recovery triggered from Settings ─────
+  async function _forceRestoreFromCloud() {
+    if (!_db || !_userId) { toast('Sign in first to restore from cloud.', 'warn'); return; }
+    try {
+      toast('Fetching your cloud data…', 'info', 2500);
+      const snap = await _db.collection('users').doc(_userId).get();
+      if (!snap.exists || !snap.data() || !snap.data().data) {
+        toast('No cloud data found for your account.', 'warn', 4000); return;
+      }
+      const parsed = JSON.parse(snap.data().data);
+      if (!parsed || !Array.isArray(parsed.subjects)) {
+        toast('Cloud data is unreadable — please contact support.', 'danger', 5000); return;
+      }
+      // Snapshot local state before overwriting
+      _takeLocalSnapshot();
+      _cloudRestoreInProgress = true;
+      clearTimeout(_cloudSyncTimer);
+      state = migrate(JSON.parse(JSON.stringify(parsed)));
+      state._savedAt = Date.now();
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {}
+      _userHasCloudData = true;
+      _cloudRestoreInProgress = false;
+      renderAll();
+      closeModal();
+      const subCount = parsed.subjects.length;
+      const xpTotal  = parsed.xp ? parsed.xp.total : 0;
+      toast(`✅ Restored! ${subCount} subject${subCount !== 1 ? 's' : ''} · ${xpTotal} XP recovered from cloud.`, 'success', 6000);
+      console.log('[Restore] Manual cloud restore complete. Subjects:', subCount, '| XP:', xpTotal);
+      // Restore group memberships too
+      const savedRooms = snap.data().joinedRooms;
+      if (Array.isArray(savedRooms) && savedRooms.length) {
+        _myGroupCodes = Array.from(new Set([..._myGroupCodes, ...savedRooms]));
+        try { localStorage.setItem('my_group_codes', JSON.stringify(_myGroupCodes)); } catch(_) {}
+      }
+    } catch (e) {
+      _cloudRestoreInProgress = false;
+      console.warn('[Restore] Manual restore failed:', e.message);
+      toast('Restore failed: ' + e.message, 'danger', 5000);
+    }
   }
 
   async function _restoreFromCloud() {
@@ -496,8 +564,12 @@
             const localHasRealData = Array.isArray(state.subjects) && state.subjects.length > 0;
             const cloudHasRealData = Array.isArray(parsed.subjects) && parsed.subjects.length > 0;
             const useCloud = cloudHasRealData || !localHasRealData || cloudTs >= localTs;
+            // Mark that this user definitely has cloud data — guards future empty-state uploads
+            _userHasCloudData = true;
             if (useCloud) {
               console.log('[Auth] Restoring from cloud data (cloudTs=' + cloudTs + ', localTs=' + localTs + ')');
+              // Snapshot local state before overwriting so the user can recover it if needed
+              _takeLocalSnapshot();
               state = migrate(JSON.parse(JSON.stringify(parsed)));
               try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {}
             } else {
@@ -583,6 +655,7 @@
       }
     } else {
       _userId = null;
+      _userHasCloudData = false; // reset so next sign-in re-confirms cloud data existence
       // Leave room and clean up all social listeners on sign-out
       if (_socialRoomCode) _sLeaveRoom();
       if (_globalLbUnsub) { _globalLbUnsub(); _globalLbUnsub = null; }
@@ -8047,6 +8120,8 @@
             ${isEmailUser ? `<button class="stg-btn stg-btn-ghost" data-act="change-password">🔑 Change Password</button>` : ''}
             <button class="stg-btn stg-btn-danger-soft" data-act="auth-logout">Sign Out</button>
           </div>
+          <button class="stg-btn stg-btn-ghost stg-btn-block" style="margin-top:8px" data-act="restore-from-cloud">🔄 Restore All Data from Cloud</button>
+          <button class="stg-btn stg-btn-ghost stg-btn-block" style="margin-top:6px" data-act="export-data-now">💾 Download Local Backup</button>
           <button class="stg-btn stg-btn-ghost stg-btn-block stg-del-btn" style="margin-top:8px" data-act="delete-account">🗑️ Delete Account</button>
         </div>`
       : `<div class="stg-card">
@@ -9297,8 +9372,10 @@
     if (act === 'theme-equip')   { applyTheme(el.dataset.tid); closeModal(); toast(`✨ Theme activated!`, 'success'); return; }
     if (act === 'social-nudge')  { _sNudge(el.dataset.uid, el.dataset.name).catch(() => {}); return; }
     if (act === 'social-duel')   { _sChallengeDuel(el.dataset.uid, el.dataset.name).catch(() => {}); return; }
-    if (act === 'change-password') { closeModal(); _handleChangePassword(); return; }
-    if (act === 'delete-account')  { closeModal(); _authDeleteAccount(); return; }
+    if (act === 'change-password')      { closeModal(); _handleChangePassword(); return; }
+    if (act === 'delete-account')       { closeModal(); _authDeleteAccount(); return; }
+    if (act === 'restore-from-cloud')   { _forceRestoreFromCloud(); return; }
+    if (act === 'export-data-now')      { exportData(); return; }
     if (act === 'open-shop') { closeModal(); switchTab('shop'); renderShop(); return; }
     if (act === 'open-music-shop') { closeModal(); _shopCategory = 'music_track'; switchTab('shop'); renderShop(); return; }
     if (act === 'shop-back') { switchTab('home'); renderHome(); return; }
