@@ -92,16 +92,39 @@ body {
 svg { display: inline-block; vertical-align: middle; flex: none; }
 
 /* ── Layout ──────────────────────────────────────────────────── */
-#app { min-height: 100dvh; padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); }
+#app { min-height: 100dvh; }
 .view { display: none !important; padding: 24px 18px 36px; max-width: 720px; margin: 0 auto; pointer-events: none; z-index: 0; overflow-x: hidden; box-sizing: border-box; }
-.view.active { display: block !important; pointer-events: auto; z-index: 10; }
-/* Social view strips padding and restores flex layout
-   (overrides .view.active { display:block !important }) */
+.view.active {
+  display: block !important;
+  pointer-events: auto;
+  z-index: 10;
+  /* Each tab is its own independent scroll container.
+     Root cause of scroll being broken: body has overflow:hidden so
+     the only way content can scroll is if the view itself is a scroll container. */
+  height: calc(100dvh - var(--nav-h) - env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  scroll-behavior: smooth;
+}
+/* When the mobile soft keyboard appears, the visual viewport shrinks.
+   dvh tracks layout viewport (doesn't shrink), so we subtract --kb-h manually. */
+body.kb-open .view.active {
+  height: calc(100dvh - var(--nav-h) - env(safe-area-inset-bottom, 0px) - var(--kb-h, 0px));
+}
+/* Prevent view from scrolling behind an open modal sheet */
+body.modal-open .view.active { overflow-y: hidden; }
+
+/* Social view uses its own internal flex+scroll chain (social.css sets height+flex).
+   ID selector beats class selector so these rules override .view.active above. */
 #view-social {
   padding: 0 !important;
   display: flex !important;
   flex-direction: column !important;
   overflow: hidden !important;
+  /* Ensure social's own height formula always wins */
+  height: calc(100dvh - var(--nav-h, 68px) - env(safe-area-inset-bottom, 0px)) !important;
 }
 
 /* ── Typography ──────────────────────────────────────────────── */
@@ -359,6 +382,8 @@ hr.sep { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
   padding: 20px 18px calc(20px + env(safe-area-inset-bottom, 0px));
   animation: slideUp var(--t-mid) var(--ease);
   max-height: 90vh; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
   box-shadow: var(--shadow-lg);
 }
 @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }

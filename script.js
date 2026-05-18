@@ -3411,6 +3411,8 @@
 
   // ========== Modal ==========
   function openModal(html, onMount, opts) {
+    // Prevent the view behind the modal from scrolling
+    document.body.classList.add('modal-open');
     const root = document.getElementById('modal-root');
     root.innerHTML = `<div class="modal-backdrop"><div class="modal" role="dialog" aria-modal="true">${html}</div></div>`;
     const backdrop = root.firstElementChild;
@@ -3419,7 +3421,11 @@
     }
     if (onMount) onMount(backdrop.querySelector('.modal'));
   }
-  function closeModal() { const r = document.getElementById('modal-root'); if (r) r.innerHTML = ''; }
+  function closeModal() {
+    document.body.classList.remove('modal-open');
+    const r = document.getElementById('modal-root');
+    if (r) r.innerHTML = '';
+  }
   function confirmModal(msg, onYes, opts) {
     const o = opts || {};
     openModal(`<h3>${escapeHTML(o.title || 'Are you sure?')}</h3><div style="margin:6px 0 14px;color:var(--text-muted);font-size:14px">${escapeHTML(msg)}</div><div class="actions"><button class="btn btn-ghost" data-close>Cancel</button><button class="btn ${o.yesClass || 'btn-danger'}" id="m-yes">${escapeHTML(o.yesLabel || 'Delete')}</button></div>`,
@@ -3804,9 +3810,14 @@
       view.style.removeProperty('display');
       view.style.pointerEvents = 'auto';
       view.style.zIndex = '10';
+      // Reset scroll position on every tab switch so content starts at top
+      requestAnimationFrame(() => { view.scrollTop = 0; });
     }
     const btn = document.querySelector(`.nav-btn[data-tab="${tab}"]`); if (btn) btn.classList.add('active');
-    document.body.className = 'tab-' + tab;
+    // Preserve non-tab body classes (kb-open, page-bg, modal-open, etc.)
+    // Old code: document.body.className = 'tab-' + tab — that wiped all other classes
+    [...document.body.classList].filter(c => c.startsWith('tab-')).forEach(c => document.body.classList.remove(c));
+    document.body.classList.add('tab-' + tab);
     _currentTab = tab;
     closeDropdown();
     // Remove any stray body-level overlays that social/chat code appends directly to document.body.
