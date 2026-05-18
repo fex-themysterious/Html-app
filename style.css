@@ -73,7 +73,7 @@
 }
 
 /* ── Base ────────────────────────────────────────────────────── */
-html, body { height: 100%; overflow-x: hidden; overflow-y: auto; touch-action: pan-x pan-y; }
+html, body { height: 100%; overflow: hidden; touch-action: pan-x pan-y; }
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: var(--bg);

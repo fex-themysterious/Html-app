@@ -29,21 +29,15 @@
   background: var(--sc-bg);
   overflow: hidden;
   /*
-   * position:fixed takes the panel out of the normal document flow so the
-   * #app padding-bottom (reserved for the bottom nav) no longer creates a
-   * black gap beneath this view.  The four inset values size the panel to
-   * exactly fill the viewport above the bottom nav bar.
+   * Explicit height sized to the visible viewport above the bottom nav.
+   * Body scroll is disabled globally (html,body overflow:hidden) so the
+   * #app padding-bottom never creates a gap below this element.
    */
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: calc(var(--nav-h, 68px) + env(safe-area-inset-bottom, 0px));
+  height: calc(100dvh - var(--nav-h, 68px) - env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
-  /* Prevent body scroll bleed-through on this view */
+  position: relative;
   overscroll-behavior: none;
-  z-index: 1;
 }
 
 .sc-page {
