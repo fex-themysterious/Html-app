@@ -557,12 +557,16 @@
     const studying  = isStudying();
     const todayMins = (ms.focusStats?.minutesByDate || {})[todayKey()] || 0;
 
-    // Use Firebase public groups for discovery feed; fall back to local groups
+    // Use Firebase public groups for discovery feed; fall back to local groups.
+    // Merge local group ownership/admin data so _getMyRole() can detect membership correctly.
     let groups = _publicGroups.length > 0
-      ? _publicGroups.map(g => ({
-          ...g,
-          role: sc.groups.find(x => x.code === g._fbCode)?.role ?? null,
-        }))
+      ? _publicGroups.map(pg => {
+          const local = sc.groups.find(x => x.code === pg._fbCode);
+          return local
+            ? { ...pg, ownerUid: local.ownerUid, createdByUid: local.createdByUid,
+                admins: local.admins, members: local.members, role: local.role }
+            : { ...pg };
+        })
       : sc.groups.filter(_isValidGroup);
 
     // Strict validation — strip any group with undefined/null name
@@ -632,6 +636,11 @@
             <input type="checkbox" class="sc-checkbox" data-sc="filter-space" ${_roomWithSpace ? 'checked' : ''}/>
             <span>Groups with Space</span>
           </label>
+        </div>
+
+        <div class="sc-ptr-bar" id="sc-ptr-bar">
+          <div class="sc-ptr-spinner"></div>
+          <span>Refreshing…</span>
         </div>
 
         <div class="sc-disc-feed">
@@ -2370,13 +2379,19 @@
     });
     scSave(sc2);
     if (db_ && uid_ && fb_) {
-      db_.collection('groups').doc(code).collection('members').doc(uid_).set({
-        uid: uid_, displayName: myName, role: 'member',
-        joinedAt: fb_.firestore.FieldValue.serverTimestamp(),
-        isStudying: false, currentSubject: null, elapsedTimeToday: 0,
-      }).catch(() => {});
-      db_.collection('groups').doc(code).update({
-        memberCount: fb_.firestore.FieldValue.increment(1)
+      const memberRef = db_.collection('groups').doc(code).collection('members').doc(uid_);
+      const groupRef  = db_.collection('groups').doc(code);
+      // Guard against duplicate joins — only increment if not already a member
+      memberRef.get().then(ms => {
+        if (!ms.exists) {
+          return memberRef.set({
+            uid: uid_, displayName: myName, role: 'member',
+            joinedAt: fb_.firestore.FieldValue.serverTimestamp(),
+            isStudying: false, currentSubject: null, elapsedTimeToday: 0,
+          }).then(() => groupRef.update({ memberCount: fb_.firestore.FieldValue.increment(1) }));
+        } else {
+          return memberRef.update({ displayName: myName }).catch(() => {});
+        }
       }).catch(() => {});
       db_.collection('users').doc(uid_).set({
         joinedRooms:     fb_.firestore.FieldValue.arrayUnion(code),
@@ -2480,13 +2495,19 @@
             scSave(sc2);
           }
           if (uid_ && fb_) {
-            db_.collection('groups').doc(code).collection('members').doc(uid_).set({
-              uid: uid_, displayName: myName2, role: 'member',
-              joinedAt: fb_.firestore.FieldValue.serverTimestamp(),
-              isStudying: false, currentSubject: null, elapsedTimeToday: 0,
-            }).catch(() => {});
-            db_.collection('groups').doc(code).update({
-              memberCount: fb_.firestore.FieldValue.increment(1)
+            const mRef2 = db_.collection('groups').doc(code).collection('members').doc(uid_);
+            const gRef2 = db_.collection('groups').doc(code);
+            // Guard: only increment if not already a Firestore member
+            mRef2.get().then(ms2 => {
+              if (!ms2.exists) {
+                return mRef2.set({
+                  uid: uid_, displayName: myName2, role: 'member',
+                  joinedAt: fb_.firestore.FieldValue.serverTimestamp(),
+                  isStudying: false, currentSubject: null, elapsedTimeToday: 0,
+                }).then(() => gRef2.update({ memberCount: fb_.firestore.FieldValue.increment(1) }));
+              } else {
+                return mRef2.update({ displayName: myName2 }).catch(() => {});
+              }
             }).catch(() => {});
             db_.collection('users').doc(uid_).set({
               joinedRooms:     fb_.firestore.FieldValue.arrayUnion(code),
@@ -2602,6 +2623,49 @@
   function _bindEvents(root) {
     root.addEventListener('click',  _onClick);
     root.addEventListener('change', _onChange);
+
+    // ── Pull-to-refresh on Discover tab ────────────────────────────────────
+    const scBody = root.querySelector('.sc-body');
+    const ptrBar = root.querySelector('#sc-ptr-bar');
+    if (scBody && ptrBar && _tab === 'rooms' && !_groupView) {
+      let _ptrStartY   = 0;
+      let _ptrPulling  = false;
+      let _ptrFired    = false;
+      const THRESHOLD  = 64;
+
+      scBody.addEventListener('touchstart', e => {
+        _ptrStartY  = e.touches[0].clientY;
+        _ptrPulling = scBody.scrollTop === 0;
+        _ptrFired   = false;
+      }, { passive: true });
+
+      scBody.addEventListener('touchmove', e => {
+        if (!_ptrPulling) return;
+        const dy = e.touches[0].clientY - _ptrStartY;
+        if (dy > 12 && scBody.scrollTop === 0) {
+          ptrBar.classList.add('sc-ptr-visible');
+          if (dy > THRESHOLD && !_ptrFired) {
+            _ptrFired = true;
+            navigator.vibrate && navigator.vibrate(18);
+          }
+        } else {
+          ptrBar.classList.remove('sc-ptr-visible');
+        }
+      }, { passive: true });
+
+      scBody.addEventListener('touchend', () => {
+        ptrBar.classList.remove('sc-ptr-visible');
+        if (_ptrFired) {
+          _ptrFired = false;
+          // Re-subscribe to get freshest data
+          if (_publicGroupsUnsub) { try { _publicGroupsUnsub(); } catch(_) {} _publicGroupsUnsub = null; }
+          _publicGroups = [];
+          _subscribePublicGroups();
+          renderSocial();
+        }
+        _ptrPulling = false;
+      }, { passive: true });
+    }
   }
 
   function _onClick(e) {
@@ -2702,11 +2766,17 @@
           sc2.notes  = sc2.notes.filter(n => n.groupId !== gid);
           if (sc2.chats) delete sc2.chats[gid];
           scSave(sc2); _groupView = null; _srTab = 'home'; _stopSrTicker(); _unsubscribeRoomMembers();
-          // Remove from Firebase
+          // Remove from Firebase — verify membership before decrementing count
           const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
           if (db_ && uid_ && fb_ && groupCode) {
-            db_.collection('groups').doc(groupCode).collection('members').doc(uid_).delete().catch(() => {});
-            db_.collection('groups').doc(groupCode).update({ memberCount: fb_.firestore.FieldValue.increment(-1) }).catch(() => {});
+            const mRefL = db_.collection('groups').doc(groupCode).collection('members').doc(uid_);
+            mRefL.get().then(ms => {
+              if (ms.exists) {
+                return ms.ref.delete().then(() =>
+                  db_.collection('groups').doc(groupCode).update({ memberCount: fb_.firestore.FieldValue.increment(-1) })
+                );
+              }
+            }).catch(() => {});
             db_.collection('users').doc(uid_).set({ joinedRooms: fb_.firestore.FieldValue.arrayRemove(groupCode) }, { merge: true }).catch(() => {});
           }
           toast('Left group.', 'info'); renderSocial();
@@ -3647,11 +3717,17 @@
           if (sc2.chats) delete sc2.chats[gid];
           scSave(sc2);
           _groupView = null; _settingsView = false; _srTab = 'home'; _stopSrTicker(); _unsubscribeRoomMembers();
-          // Remove from Firebase
+          // Remove from Firebase — verify membership before decrementing count
           const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
           if (db_ && uid_ && fb_ && leaveCode) {
-            db_.collection('groups').doc(leaveCode).collection('members').doc(uid_).delete().catch(() => {});
-            db_.collection('groups').doc(leaveCode).update({ memberCount: fb_.firestore.FieldValue.increment(-1) }).catch(() => {});
+            const mRefS = db_.collection('groups').doc(leaveCode).collection('members').doc(uid_);
+            mRefS.get().then(ms => {
+              if (ms.exists) {
+                return ms.ref.delete().then(() =>
+                  db_.collection('groups').doc(leaveCode).update({ memberCount: fb_.firestore.FieldValue.increment(-1) })
+                );
+              }
+            }).catch(() => {});
             db_.collection('users').doc(uid_).set({ joinedRooms: fb_.firestore.FieldValue.arrayRemove(leaveCode) }, { merge: true }).catch(() => {});
           }
           toast('Left group.', 'info'); renderSocial();

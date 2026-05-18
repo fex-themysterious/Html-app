@@ -169,12 +169,40 @@
 .sc-check-row input { accent-color: var(--sc-accent2); cursor: pointer; width: 14px; height: 14px; }
 .sc-check-row:has(input:checked) { color: var(--sc-accent2); }
 
+/* Pull-to-refresh indicator */
+.sc-ptr-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 0;
+  overflow: hidden;
+  transition: height .25s ease, opacity .2s ease;
+  opacity: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sc-muted);
+}
+.sc-ptr-bar.sc-ptr-visible {
+  height: 44px;
+  opacity: 1;
+}
+.sc-ptr-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(124,58,237,.3);
+  border-top-color: #a78bfa;
+  border-radius: 50%;
+  animation: sc-spin .7s linear infinite;
+}
+@keyframes sc-spin { to { transform: rotate(360deg); } }
+
 /* Feed */
 .sc-disc-feed {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 4px 14px 16px;
+  padding: 4px 14px calc(env(safe-area-inset-bottom, 0px) + 120px);
 }
 
 /* Discovery card */
@@ -1856,11 +1884,12 @@
 
 .sgs-scroll {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-  padding: 12px 14px 32px;
+  padding: 12px 14px calc(env(safe-area-inset-bottom, 0px) + 60px);
 }
 .sgs-scroll::-webkit-scrollbar { width: 3px; }
 .sgs-scroll::-webkit-scrollbar-track { background: transparent; }
