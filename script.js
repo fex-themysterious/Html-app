@@ -8444,6 +8444,8 @@
             _sUpdatePresence(curSt).catch(() => {});
           }
           _updateGlobalLb();
+          // Push new display name to all group member docs in real-time
+          window._socialSyncProfile?.();
         };
         const nameChanged = name.toLowerCase() !== (state.profile.name || '').toLowerCase();
         if (nameChanged && _db && _userId) {

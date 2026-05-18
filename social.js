@@ -296,6 +296,12 @@
           }
           if (data.name && local.name !== data.name) { local.name = data.name; changed = true; }
           if (data.icon && local.icon !== data.icon) { local.icon = data.icon; changed = true; }
+          if (data.description !== undefined && local.description !== data.description) { local.description = data.description; changed = true; }
+          if (typeof data.dailyGoalHrs === 'number' && local.dailyGoalHrs !== data.dailyGoalHrs) { local.dailyGoalHrs = data.dailyGoalHrs; changed = true; }
+          if (typeof data.maxMembers === 'number' && local.maxMembers !== data.maxMembers) { local.maxMembers = data.maxMembers; changed = true; }
+          if (typeof data.isPrivate === 'boolean' && local.isPrivate !== data.isPrivate) { local.isPrivate = data.isPrivate; changed = true; }
+          if (data.leader && local.leader !== data.leader) { local.leader = data.leader; changed = true; }
+          if (data.category && local.category !== data.category) { local.category = data.category; changed = true; }
           if (changed) {
             scSave(sc2);
             if ((_tab === 'groups' || _tab === 'rooms') && !_groupView && !_destroyed) _scheduleRender();
@@ -802,7 +808,8 @@
   }
 
   function _renderGroupDetail(g, sc) {
-    const members = g.members || [];
+    // Use centralized realtime source (merges Firebase live data + local fallback)
+    const members = _getGroupMembers(g);
     const gTasks  = sc.tasks.filter(t => t.groupId === g.id);
     const gNotes  = sc.notes.filter(n => n.groupId === g.id);
     const pending = gTasks.filter(t => !t.done).length;
@@ -1169,7 +1176,8 @@
         name:      uid === myUid ? myName : (data.displayName || 'Unknown'),
         role:      data.role || 'member',
         isMe:      uid === myUid,
-        todayMins: data.elapsedTimeToday || 0,
+        // Only count today's study time — if dateKey is yesterday, treat as 0
+        todayMins: (data.dateKey === tk ? (data.elapsedTimeToday || 0) : 0),
         todayKey:  data.dateKey || tk,
         joinedAt:  (typeof data.joinedAt?.toMillis === 'function' ? data.joinedAt.toMillis() : (data.joinedAt || 0)),
         _fromFirebase: true,
@@ -1366,6 +1374,7 @@
     if (!db || !uid || !code || !fb) return;
     const update = {
       uid,
+      displayName:      _getUserDisplayName(),
       isStudying:       !!isStudying,
       elapsedTimeToday: todayMins || 0,
       currentSubject:   subjectName || null,
@@ -1989,7 +1998,8 @@
         // Use Firebase live data: elapsedTimeToday (mins) + live elapsed if currently studying
         const lm = _liveMembers[m.uid] || null;
         if (lm) {
-          const storedSecs = (lm.elapsedTimeToday || 0) * 60;
+          // Only count today's time — guard against stale dateKey from a previous day
+          const storedSecs = (lm.dateKey === tk ? (lm.elapsedTimeToday || 0) : 0) * 60;
           const liveSecs   = lm.isStudying && lm.studyStartedAt
             ? Math.floor((Date.now() - lm.studyStartedAt) / 1000) : 0;
           secs = storedSecs + liveSecs;
@@ -2920,7 +2930,12 @@
           sc2.tasks  = sc2.tasks.filter(t => t.groupId !== gid);
           sc2.notes  = sc2.notes.filter(n => n.groupId !== gid);
           if (sc2.chats) delete sc2.chats[gid];
-          scSave(sc2); _groupView = null; _srTab = 'home'; _stopSrTicker(); _unsubscribeRoomMembers();
+          scSave(sc2);
+          if (groupCode && _groupDocUnsubs[groupCode]) {
+            try { _groupDocUnsubs[groupCode](); } catch(_e) {}
+            delete _groupDocUnsubs[groupCode];
+          }
+          _groupView = null; _srTab = 'home'; _stopSrTicker(); _unsubscribeRoomMembers();
           // Atomic transaction: delete member doc + decrement only if member exists
           const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
           if (db_ && uid_ && fb_ && groupCode) {
@@ -3871,6 +3886,10 @@
           sc2.notes  = sc2.notes.filter(n => n.groupId !== gid);
           if (sc2.chats) delete sc2.chats[gid];
           scSave(sc2);
+          if (leaveCode && _groupDocUnsubs[leaveCode]) {
+            try { _groupDocUnsubs[leaveCode](); } catch(_e) {}
+            delete _groupDocUnsubs[leaveCode];
+          }
           _groupView = null; _settingsView = false; _srTab = 'home'; _stopSrTicker(); _unsubscribeRoomMembers();
           // Atomic transaction: delete member doc + decrement only if member exists
           const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
@@ -4073,6 +4092,7 @@
           if (g.code) {
             const update = {
               uid: uid_,
+              displayName:      _getUserDisplayName(),
               isStudying:       studying_,
               elapsedTimeToday: todayMins,
               dateKey:          tk_,
@@ -4105,6 +4125,33 @@
     // the 500ms init timeout above fires with uid=null and returns early, so groups
     // would never appear after login without this re-entry point.
     window._socialRestoreGroups = () => { _restoreGroupsFromFirebase().catch(() => {}); };
+
+    // Syncs the current user's display name to all their group member documents.
+    // Called by script.js immediately after the user saves profile changes so
+    // other members see the new name without waiting for the next focus session.
+    window._socialSyncProfile = () => {
+      const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
+      if (!db_ || !uid_ || !fb_) return;
+      const newName = _getUserDisplayName();
+      // Update displayNameAuto on the user's own doc
+      db_.collection('users').doc(uid_)
+        .set({ displayNameAuto: newName }, { merge: true }).catch(() => {});
+      const sc_ = scLoad();
+      // Patch every group member doc this user belongs to
+      sc_.groups.forEach(g => {
+        if (!g.code) return;
+        db_.collection('groups').doc(g.code).collection('members').doc(uid_)
+          .set({ displayName: newName }, { merge: true }).catch(() => {});
+      });
+      // Also update createdByName / leader for groups this user owns
+      sc_.groups.forEach(g => {
+        if (!g.code) return;
+        if (g.createdByUid === uid_ || g.ownerUid === uid_) {
+          db_.collection('groups').doc(g.code)
+            .set({ leader: newName, createdByName: newName }, { merge: true }).catch(() => {});
+        }
+      });
+    };
 
     window._socialDestroy = () => {
       _destroyed = true;
