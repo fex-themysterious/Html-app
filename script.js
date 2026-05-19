@@ -1204,7 +1204,29 @@
   let _socialIdleBump       = null;
 
   function _stopSocialLiveTimers()     {}
-  function _sUpdatePresence()          { return Promise.resolve(); }
+  function _sUpdatePresence(status) {
+    try {
+      if (!_db || !_userId || !_socialRoomCode || typeof firebase === 'undefined') return Promise.resolve();
+      const isStudying = (status === 'focusing');
+      const tk = todayKey();
+      const todayMins = ((state.focusStats || {}).minutesByDate || {})[tk] || 0;
+      const userName = (state.profile && state.profile.name) ||
+        (firebase.auth().currentUser && firebase.auth().currentUser.displayName) ||
+        'Anonymous';
+      const update = {
+        uid:              _userId,
+        displayName:      userName,
+        isStudying:       isStudying,
+        elapsedTimeToday: todayMins,
+        currentSubject:   null,
+        dateKey:          tk,
+        lastUpdated:      firebase.firestore.FieldValue.serverTimestamp(),
+      };
+      if (isStudying) update.studyStartedAt = Date.now();
+      return _db.collection('groups').doc(_socialRoomCode).collection('members').doc(_userId)
+        .set(update, { merge: true }).catch(() => {});
+    } catch (_) { return Promise.resolve(); }
+  }
   function _sContributeToGoals()       { return Promise.resolve(); }
   function _sHandleFocusBounty()       { return Promise.resolve(); }
   function _updateGlobalLb()           {}
@@ -5236,6 +5258,17 @@
       avatarStage:     avStageNow,
       updatedAt:       firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true }).catch(() => {});
+    // Keep group presence alive while the live timer is running on any tab.
+    // Only update isStudying + elapsed — never overwrite studyStartedAt here
+    // (that is set once by _sUpdatePresence when focusing begins).
+    if (_socialRoomCode) {
+      _db.collection('groups').doc(_socialRoomCode).collection('members').doc(_userId)
+        .set({
+          isStudying:       true,
+          elapsedTimeToday: storedMins,
+          lastUpdated:      firebase.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true }).catch(() => {});
+    }
   }
 
   function _lsUpdateDisplay() {

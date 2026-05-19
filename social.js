@@ -1382,7 +1382,7 @@
     `);
   }
 
-  function _writeSelfPresence(code, isStudying, todayMins, subjectName, avatarStage) {
+  function _writeSelfPresence(code, isStudying, todayMins, subjectName, avatarStage, setStartTime) {
     const db = getDb(), uid = getUserId(), fb = getFb();
     if (!db || !uid || !code || !fb) return;
     const update = {
@@ -1396,7 +1396,11 @@
       equippedBadge:    window._lsGetMyBadge?.() || '',
       lastUpdated:      fb.firestore.FieldValue.serverTimestamp(),
     };
-    if (isStudying) update.studyStartedAt = Date.now();
+    // Only set studyStartedAt on an explicit transition to studying (setStartTime=true).
+    // Periodic ticker updates must NOT reset it — other members use it to compute
+    // live elapsed time as (Date.now() - studyStartedAt), so resetting it every
+    // 30 s would make their timers appear to restart from zero repeatedly.
+    if (isStudying && setStartTime) update.studyStartedAt = Date.now();
     db.collection('groups').doc(code).collection('members').doc(uid)
       .set(update, { merge: true }).catch(() => {});
   }
