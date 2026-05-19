@@ -1948,6 +1948,12 @@
     return `<span class="cmk-badge cmk-badge-${badgeId}" style="--badge-color:${b.color};--badge-glow:${b.glow}">${b.icon} ${b.label}</span>`;
   }
 
+  // Expose to social.js (loaded after this IIFE)
+  window._cmkBadgeHTML  = _cmkBadgeHTML;
+  window._BADGE_DEFS    = _BADGE_DEFS;
+  // Returns the current user's equipped badge id, or '' if none
+  window._lsGetMyBadge  = () => (state.customBadgeOwned && state.selectedBadge) ? state.selectedBadge : '';
+
   // Convenience: get current user's equipped items object
   function _myEquipped() { return state.equippedItems || {}; }
 
@@ -4056,8 +4062,9 @@
     const profAvatarHTML = _auraClass
       ? `<div class="${_auraClass}">${_profAvatarEl}</div>`
       : _profAvatarEl;
+    const _badgeHTML  = _cmkBadgeHTML(state.customBadgeOwned ? state.selectedBadge : '');
     const nameHtml    = profName
-      ? `<div class="home-profile-name">${escapeHTML(profName)}${_titleHTML ? ' ' + _titleHTML : ''}</div>`
+      ? `<div class="home-profile-name">${escapeHTML(profName)}${_titleHTML ? ' ' + _titleHTML : ''}</div>${_badgeHTML ? `<div class="home-profile-badge">${_badgeHTML}</div>` : ''}`
       : `<div class="home-profile-name home-profile-name--empty" style="opacity:.55;font-style:italic;font-size:14px">Tap to set name</div>`;
     const taglineHtml = profTagline
       ? `<div class="home-profile-sub">${escapeHTML(profTagline)}</div>`
@@ -8191,6 +8198,7 @@
             <div class="stg-ac-av">${acAvatarHTML}</div>
             <div class="stg-ac-info">
               ${displayName ? `<div class="stg-ac-name">${escapeHTML(displayName)}</div>` : ''}
+              ${state.customBadgeOwned && state.selectedBadge ? `<div class="stg-ac-badge">${_cmkBadgeHTML(state.selectedBadge)}</div>` : ''}
               <div class="stg-ac-email">${escapeHTML(_authUser.email || 'Anonymous')}</div>
               <div class="stg-sync-pill">☁️ Cloud sync active</div>
             </div>

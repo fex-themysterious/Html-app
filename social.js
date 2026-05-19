@@ -834,12 +834,21 @@
           <div class="sc-members-list">
             ${members.length === 0
               ? `<div class="sc-empty-mini">No members listed.</div>`
-              : members.map(m => `
+              : members.map(m => {
+                  const lm    = _liveMembers[m.id] || _liveMembers[m.uid] || {};
+                  const mBadge = (m.id === getUserId() || m.uid === getUserId())
+                    ? (window._lsGetMyBadge?.() || lm.equippedBadge || '')
+                    : (lm.equippedBadge || m.equippedBadge || '');
+                  return `
                   <div class="sc-member-row">
                     <div class="sc-member-av" style="background:${_avatarColor(m.name)}">${(m.name||'?')[0].toUpperCase()}</div>
-                    <span class="sc-member-name">${esc(m.name||'Unknown')}</span>
+                    <div class="sc-member-info">
+                      <span class="sc-member-name">${esc(m.name||'Unknown')}</span>
+                      ${mBadge ? `<span class="sc-member-badge-cmk">${window._cmkBadgeHTML?.(mBadge)||''}</span>` : ''}
+                    </div>
                     <span class="sc-member-badge sc-badge-${m.role==='admin'?'admin':'member'}">${m.role==='admin'?'Admin':'Member'}</span>
-                  </div>`).join('')}
+                  </div>`;
+                }).join('')}
           </div>
         </div>
         <div class="sc-detail-block">
@@ -1172,14 +1181,16 @@
     Object.entries(_liveMembers).forEach(([uid, data]) => {
       memberMap.set(uid, {
         uid,
-        id:        uid === myUid ? 'me' : uid,
-        name:      uid === myUid ? myName : (data.displayName || 'Unknown'),
-        role:      data.role || 'member',
-        isMe:      uid === myUid,
+        id:           uid === myUid ? 'me' : uid,
+        name:         uid === myUid ? myName : (data.displayName || 'Unknown'),
+        role:         data.role || 'member',
+        isMe:         uid === myUid,
+        // Own badge always comes from local state (most up-to-date); others from Firebase
+        equippedBadge: uid === myUid ? (window._lsGetMyBadge?.() || data.equippedBadge || '') : (data.equippedBadge || ''),
         // Only count today's study time — if dateKey is yesterday, treat as 0
-        todayMins: (data.dateKey === tk ? (data.elapsedTimeToday || 0) : 0),
-        todayKey:  data.dateKey || tk,
-        joinedAt:  (typeof data.joinedAt?.toMillis === 'function' ? data.joinedAt.toMillis() : (data.joinedAt || 0)),
+        todayMins:    (data.dateKey === tk ? (data.elapsedTimeToday || 0) : 0),
+        todayKey:     data.dateKey || tk,
+        joinedAt:     (typeof data.joinedAt?.toMillis === 'function' ? data.joinedAt.toMillis() : (data.joinedAt || 0)),
         _fromFirebase: true,
       });
     });
@@ -1190,13 +1201,14 @@
       if (!uid || memberMap.has(uid)) return;
       memberMap.set(uid, {
         uid,
-        id:        m.id === 'me' ? 'me' : uid,
-        name:      m.id === 'me' ? myName : (m.name || 'Unknown'),
-        role:      m.role || 'member',
-        isMe:      m.id === 'me' || uid === myUid,
-        todayMins: m.todayMins || 0,
-        todayKey:  m.todayKey || tk,
-        joinedAt:  m.joinedAt || 0,
+        id:            m.id === 'me' ? 'me' : uid,
+        name:          m.id === 'me' ? myName : (m.name || 'Unknown'),
+        role:          m.role || 'member',
+        isMe:          m.id === 'me' || uid === myUid,
+        equippedBadge: (m.id === 'me' || uid === myUid) ? (window._lsGetMyBadge?.() || '') : (m.equippedBadge || ''),
+        todayMins:     m.todayMins || 0,
+        todayKey:      m.todayKey || tk,
+        joinedAt:      m.joinedAt || 0,
         _fromLocal: true,
       });
     });
@@ -1380,6 +1392,7 @@
       currentSubject:   subjectName || null,
       dateKey:          todayKey(),
       avatarStage:      typeof avatarStage === 'number' ? avatarStage : (window._lsGetCurrentAvStage?.() || 0),
+      equippedBadge:    window._lsGetMyBadge?.() || '',
       lastUpdated:      fb.firestore.FieldValue.serverTimestamp(),
     };
     if (isStudying) update.studyStartedAt = Date.now();
@@ -1868,6 +1881,7 @@
             ${isOff ? `<div class="sr-off-badge">OFF</div>` : ''}
           </div>
           <div class="sr-card-name">${esc(displayName)}</div>
+          ${m.equippedBadge ? `<div class="sr-card-badge">${window._cmkBadgeHTML?.(m.equippedBadge) || ''}</div>` : ''}
           <div class="sr-card-timer${active ? ' sr-timer-live' : ''}" data-sr-timer="${esc(timerId)}">${isOff ? '—' : _fmtSecs(secs)}</div>
           ${showPill ? `<div class="sr-av-pill ${_avPillCls(avStage)}">${_avLabel(avStage)}</div>` : ''}
         </div>`;
@@ -2023,7 +2037,7 @@
                   <div class="sr-rank-medal">${medal}</div>
                   <div class="sr-rank-av" style="background:${_avatarColor(m.name||'')}">${(m.name||'?')[0].toUpperCase()}</div>
                   <div class="sr-rank-info">
-                    <div class="sr-rank-name">${esc(m.name||'Unknown')}${m.isMe ? ` <span class="sr-rank-you">you</span>` : ''}</div>
+                    <div class="sr-rank-name">${esc(m.name||'Unknown')}${m.isMe ? ` <span class="sr-rank-you">you</span>` : ''}${m.equippedBadge ? ` ${window._cmkBadgeHTML?.(m.equippedBadge)||''}` : ''}</div>
                     <div class="sr-rank-bar-wrap"><div class="sr-rank-bar" style="width:${pct}%"></div></div>
                   </div>
                   <div class="sr-rank-time">${_fmtSecs(m.secs)}</div>

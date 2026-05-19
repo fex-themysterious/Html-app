@@ -10058,6 +10058,41 @@ body.page-bg *::after {
   animation: cmk-badge-pulse 2.8s ease-in-out infinite;
 }
 
+/* Badge below user name in home profile header */
+.home-profile-badge {
+  margin-top: 4px;
+}
+
+/* Badge in account card of settings */
+.stg-ac-badge {
+  margin: 3px 0 4px;
+}
+
+/* Badge under member card name in study room */
+.sr-card-badge {
+  display: flex;
+  justify-content: center;
+  margin: 3px 0 2px;
+}
+/* Scale badge slightly smaller inside the tight card grid */
+.sr-card-badge .cmk-badge {
+  font-size: 10px;
+  padding: 2px 7px 2px 6px;
+}
+
+/* Member list row in group detail — wrap name + badge */
+.sc-member-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+.sc-member-badge-cmk .cmk-badge {
+  font-size: 10px;
+  padding: 2px 7px 2px 6px;
+}
+
 /* ── Heavy always-on pulse animations → slow them down on mobile
    so they consume less GPU time per second */
 @media (max-width: 768px) {
