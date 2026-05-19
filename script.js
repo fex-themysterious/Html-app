@@ -3635,10 +3635,10 @@
     // ── Free track ──────────────────────────────────────────────────────────
     { id: 'ocean_waves',  label: '🌊 Ocean Waves',   src: '/sounds/ocean_waves.wav',  cat: 'music' },
     // ── Premium tracks (unlock each for 10,000 XP in the Music shop tab) ──
-    { id: 'soft_rain',    label: '🌧️ Soft Rain',      src: '/sounds/soft_rain.wav',    cat: 'music', premium: true, shopId: 'music_soft_rain'   },
+    { id: 'soft_rain',    label: '🌧️ Soft Rain',      src: '/sounds/soft_rain.mp3',    cat: 'music', premium: true, shopId: 'music_soft_rain'   },
     { id: 'piano_study',  label: '🎹 Piano Study',    src: '/sounds/piano_study.wav',  cat: 'music', premium: true, shopId: 'music_piano_study' },
     { id: 'forest_calm',  label: '🌿 Forest Calm',    src: '/sounds/forest_calm.wav',  cat: 'music', premium: true, shopId: 'music_forest_calm' },
-    { id: 'deep_focus',   label: '🔮 Deep Focus',     src: '/sounds/deep_focus.wav',   cat: 'music', premium: true, shopId: 'music_deep_focus'  },
+    { id: 'deep_focus',   label: '🔮 Deep Focus',     src: '/sounds/deep_focus.mp3',   cat: 'music', premium: true, shopId: 'music_deep_focus'  },
   ];
   function soundById(id) { return SOUNDS.find(s => s.id === id) || SOUNDS[0]; }
 
