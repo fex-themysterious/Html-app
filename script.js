@@ -247,6 +247,8 @@
     if (typeof s.focusMusicUnlocked !== 'boolean') s.focusMusicUnlocked = false;
     if (typeof s.themeUnlocked !== 'boolean') s.themeUnlocked = false;
     if (typeof s.selectedTheme !== 'string') s.selectedTheme = 'default';
+    // Migrate legacy theme ID
+    if (s.selectedTheme === 'buet-blue') s.selectedTheme = 'aurora-blue';
     if (typeof s.selectedBadge !== 'string') s.selectedBadge = '';
     if (typeof s.customBadgeOwned !== 'boolean') s.customBadgeOwned = false;
     if (!s.notificationPrefs || typeof s.notificationPrefs !== 'object') {
@@ -1820,11 +1822,12 @@
   }
 
   // ── Theme application ─────────────────────────────────────────────────────
+  // Keys must match the CSS custom-property names used throughout style.css
   const PREMIUM_THEMES = {
-    'default':    { label: 'Default',    '--bg-primary': '#090e15', '--bg-secondary': '#111827', '--accent': '#6366f1', '--accent2': '#818cf8' },
-    'dark-gold':  { label: 'Dark Gold',  '--bg-primary': '#0d0a00', '--bg-secondary': '#1a1400', '--accent': '#f59e0b', '--accent2': '#fbbf24' },
-    'buet-blue':  { label: 'BUET Blue',  '--bg-primary': '#00050f', '--bg-secondary': '#001533', '--accent': '#0ea5e9', '--accent2': '#38bdf8' },
-    'neon-night': { label: 'Neon Night', '--bg-primary': '#050010', '--bg-secondary': '#100028', '--accent': '#a855f7', '--accent2': '#d946ef' },
+    'default':     { label:'Default Dark', '--bg':'#05080f', '--surface':'#0b1220', '--surface-2':'#111b2c', '--surface-3':'#192436', '--primary':'#5badff', '--primary-dim':'rgba(91,173,255,0.14)', '--primary-dark':'#1a7cd6', '--primary-glow':'rgba(91,173,255,0.35)', '--violet':'#b197fc', '--violet-dim':'rgba(177,151,252,0.13)', '--violet-glow':'rgba(177,151,252,0.3)' },
+    'dark-gold':   { label:'Dark Gold',    '--bg':'#0a0800', '--surface':'#150f00', '--surface-2':'#1e1600', '--surface-3':'#261c00', '--primary':'#f59e0b', '--primary-dim':'rgba(245,158,11,0.14)', '--primary-dark':'#b45309', '--primary-glow':'rgba(245,158,11,0.35)', '--violet':'#fbbf24', '--violet-dim':'rgba(251,191,36,0.13)', '--violet-glow':'rgba(251,191,36,0.3)' },
+    'aurora-blue': { label:'Aurora Blue',  '--bg':'#00050f', '--surface':'#001020', '--surface-2':'#001533', '--surface-3':'#002040', '--primary':'#0ea5e9', '--primary-dim':'rgba(14,165,233,0.14)', '--primary-dark':'#0369a1', '--primary-glow':'rgba(14,165,233,0.35)', '--violet':'#38bdf8', '--violet-dim':'rgba(56,189,248,0.13)', '--violet-glow':'rgba(56,189,248,0.3)' },
+    'neon-night':  { label:'Neon Night',   '--bg':'#050010', '--surface':'#0c0020', '--surface-2':'#100028', '--surface-3':'#160035', '--primary':'#a855f7', '--primary-dim':'rgba(168,85,247,0.14)', '--primary-dark':'#7c3aed', '--primary-glow':'rgba(168,85,247,0.35)', '--violet':'#d946ef', '--violet-dim':'rgba(217,70,239,0.13)', '--violet-glow':'rgba(217,70,239,0.3)' },
   };
   function _applyTheme(themeId) {
     const theme = PREMIUM_THEMES[themeId] || PREMIUM_THEMES['default'];
@@ -1832,6 +1835,9 @@
     Object.entries(theme).forEach(([k, v]) => {
       if (k !== 'label') root.style.setProperty(k, v);
     });
+    // Keep body data-theme in sync so other listeners (group theme gallery) still work
+    if (!themeId || themeId === 'default') document.body.removeAttribute('data-theme');
+    else document.body.setAttribute('data-theme', themeId);
   }
   function _initTheme() {
     const t = (state.themeUnlocked && state.selectedTheme) ? state.selectedTheme : 'default';
@@ -1879,7 +1885,7 @@
     { id:'xp_boost_2x',       name:'XP Booster 2×',    cat:'utility',  rarity:'rare',      cost:1500,  icon:'⚡', desc:'Doubles ALL earned XP for 24 hours — tasks & focus both.',  equip:null, timed:true },
     // Premium items
     { id:'custom_badge',      name:'Custom Badge',      cat:'premium',  rarity:'legendary', cost:4000,  icon:'🏅', desc:'Equip an animated profile badge: Verified Learner, Hardworker, or Top Grinder.' },
-    { id:'theme_unlocker',    name:'Theme Unlocker',    cat:'premium',  rarity:'legendary', cost:3000,  icon:'🎨', desc:'Unlock premium app themes: Dark Gold, BUET Blue & Neon Night.' },
+    { id:'theme_unlocker',    name:'Theme Unlocker',    cat:'premium',  rarity:'legendary', cost:3000,  icon:'🎨', desc:'Unlock premium app themes: Dark Gold, Aurora Blue & Neon Night.' },
     // Music tracks — buy individually in Music tab
     { id:'music_soft_rain',   name:'Soft Rain',         cat:'music_track', rarity:'rare',      cost:10000, icon:'🌧️', desc:'Gentle pink-noise rainfall — soft and soothing for long study sessions.' },
     { id:'music_piano_study', name:'Piano Study',       cat:'music_track', rarity:'epic',      cost:10000, icon:'🎹', desc:'Soft piano melody in C major pentatonic — a calming study companion.' },
@@ -1927,6 +1933,19 @@
     if (!a) return '';
     const key = a.replace('aura_', '');
     return `cmk-aura cmk-aura-${key}`;
+  }
+
+  // Returns HTML for the equipped custom badge (shown in profile + social cards)
+  var _BADGE_DEFS = {
+    verified:   { label: 'Verified Learner', icon: '✅', color: '#34d399', glow: 'rgba(52,211,153,0.45)' },
+    hardworker: { label: 'Hardworker',        icon: '💪', color: '#f59e0b', glow: 'rgba(245,158,11,0.45)' },
+    grinder:    { label: 'Top Grinder',       icon: '🏆', color: '#fbbf24', glow: 'rgba(251,191,36,0.5)'  },
+  };
+  function _cmkBadgeHTML(badgeId) {
+    if (!badgeId) return '';
+    const b = _BADGE_DEFS[badgeId];
+    if (!b) return '';
+    return `<span class="cmk-badge cmk-badge-${badgeId}" style="--badge-color:${b.color};--badge-glow:${b.glow}">${b.icon} ${b.label}</span>`;
   }
 
   // Convenience: get current user's equipped items object
@@ -1977,16 +1996,15 @@
       }
     } else if (it.id === 'custom_badge') {
       if (state.customBadgeOwned) {
-        const badges = [
-          { id:'verified',   label:'✅ Verified Learner' },
-          { id:'hardworker', label:'💪 Hardworker' },
-          { id:'grinder',    label:'🏆 Top Grinder' },
-        ];
-        const badgeBtns = badges.map(b =>
-          `<button class="mkt-badge-pill${state.selectedBadge === b.id ? ' active' : ''}" data-act="shop-select-badge" data-bid="${b.id}">${b.label}</button>`
-        ).join('');
-        specialHTML = `<div class="mkt-badge-picker"><div class="mkt-badge-label">Choose your badge:</div><div class="mkt-badge-pills">${badgeBtns}</div></div>`;
-        btnHTML = `<button class="mkt-btn mkt-btn-owned" disabled>🏅 OWNED</button>`;
+        const badgeBtns = Object.entries(_BADGE_DEFS).map(([id, b]) => {
+          const isActive = state.selectedBadge === id;
+          return `<button class="mkt-badge-pill${isActive ? ' active' : ''}" data-act="shop-select-badge" data-bid="${id}" style="${isActive ? `--badge-color:${b.color};border-color:${b.color};color:${b.color};box-shadow:0 0 10px ${b.glow}` : ''}">${b.icon} ${b.label}${isActive ? ' ✓' : ''}</button>`;
+        }).join('');
+        const activeBadge = _BADGE_DEFS[state.selectedBadge];
+        const badgePreview = activeBadge ? `<div class="mkt-badge-preview">${_cmkBadgeHTML(state.selectedBadge)}</div>` : '';
+        specialHTML = `<div class="mkt-badge-picker">${badgePreview}<div class="mkt-badge-label">Choose your badge:</div><div class="mkt-badge-pills">${badgeBtns}</div></div>`;
+        const activeLbl = activeBadge ? activeBadge.label : 'None equipped';
+        btnHTML = `<button class="mkt-btn mkt-btn-owned" disabled>🏅 ${escapeHTML(activeLbl)}</button>`;
       } else if (canAfford) {
         btnHTML = `<button class="mkt-btn mkt-btn-buy" data-act="shop-buy" data-iid="${it.id}">⚡ ${it.cost.toLocaleString()} XP</button>`;
       } else {
@@ -1995,12 +2013,14 @@
       }
     } else if (it.id === 'theme_unlocker') {
       if (state.themeUnlocked) {
-        const themes = Object.entries(PREMIUM_THEMES).filter(([k]) => k !== 'default');
-        const themeBtns = themes.map(([id, t]) =>
-          `<button class="mkt-theme-pill${state.selectedTheme === id ? ' active' : ''}" data-act="shop-select-theme" data-tid="${id}">${t.label}</button>`
-        ).join('');
+        const allThemes = Object.entries(PREMIUM_THEMES);
+        const themeBtns = allThemes.map(([id, t]) => {
+          const isActive = (state.selectedTheme || 'default') === id;
+          return `<button class="mkt-theme-pill${isActive ? ' active' : ''}" data-act="shop-select-theme" data-tid="${id}">${t.label}${isActive ? ' ✓' : ''}</button>`;
+        }).join('');
         specialHTML = `<div class="mkt-badge-picker"><div class="mkt-badge-label">Choose theme:</div><div class="mkt-badge-pills">${themeBtns}</div></div>`;
-        btnHTML = `<button class="mkt-btn mkt-btn-owned" disabled>🎨 UNLOCKED</button>`;
+        const activeThemeName = (PREMIUM_THEMES[state.selectedTheme] || PREMIUM_THEMES['default']).label;
+        btnHTML = `<button class="mkt-btn mkt-btn-owned" disabled>🎨 ${escapeHTML(activeThemeName)} Active</button>`;
       } else if (canAfford) {
         btnHTML = `<button class="mkt-btn mkt-btn-buy" data-act="shop-buy" data-iid="${it.id}">⚡ ${it.cost.toLocaleString()} XP</button>`;
       } else {
@@ -2228,19 +2248,32 @@
 
   // ── Badge & theme selectors ──────────────────────────────────────────────
   function _shopSelectBadge(badgeId) {
-    state.selectedBadge = badgeId;
-    saveState();
-    const labels = { verified: 'Verified Learner', hardworker: 'Hardworker', grinder: 'Top Grinder' };
-    toast(`🏅 Badge set: ${labels[badgeId] || badgeId}`, 'success', 2500);
+    if (!state.customBadgeOwned) return;
+    // Toggle off if already selected
+    if (state.selectedBadge === badgeId) {
+      state.selectedBadge = '';
+      saveState();
+      toast('Badge removed', 'info', 2000);
+    } else {
+      state.selectedBadge = badgeId;
+      saveState();
+      const b = _BADGE_DEFS[badgeId];
+      toast(`🏅 Badge equipped: ${b ? b.label : badgeId}`, 'success', 2500);
+    }
+    // Sync cosmetics to social presence + re-render current tab
+    _cmkSyncAfterEquip();
     renderShop();
   }
 
   function _shopSelectTheme(themeId) {
+    if (!state.themeUnlocked) return;
     state.selectedTheme = themeId;
     _applyTheme(themeId);
     saveState();
     const t = PREMIUM_THEMES[themeId];
     toast(`🎨 Theme activated: ${t ? t.label : themeId}`, 'success', 2500);
+    // Flash the whole UI so the user sees the change
+    gamificationManager._flashGlow('rgba(99,102,241,0.12)');
     renderShop();
   }
 
@@ -8215,8 +8248,12 @@
               const it = SHOP_ITEMS.find(i => i.id === eq.aura);
               if (it) chips.push(`<button class="stg-equipped-chip" data-act="stg-unequip" data-iid="${it.id}">${it.icon} ${escapeHTML(it.name)}<span class="stg-eq-x">×</span></button>`);
             }
+            if (state.customBadgeOwned && state.selectedBadge) {
+              const bd = _BADGE_DEFS[state.selectedBadge];
+              if (bd) chips.push(`<button class="stg-equipped-chip stg-badge-chip" data-act="open-shop" style="border-color:${bd.color};color:${bd.color}">${bd.icon} ${bd.label}<span class="stg-eq-x">✎</span></button>`);
+            }
             if (chips.length === 0) return '';
-            return `<div class="stg-equipped-lbl">Equipped cosmetics</div><div class="stg-equipped-row">${chips.join('')}</div>`;
+            return `<div class="stg-equipped-lbl">Equipped cosmetics &amp; badges</div><div class="stg-equipped-row">${chips.join('')}</div>`;
           })()}
         </div>
 

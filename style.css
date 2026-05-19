@@ -72,6 +72,17 @@
   --kb-h:  0px;
 }
 
+/* ── Theme transition — smooth colour changes when theme switches ──── */
+*, *::before, *::after {
+  transition: background-color 0.3s var(--ease, ease),
+              border-color 0.3s var(--ease, ease),
+              color 0.2s var(--ease, ease),
+              box-shadow 0.3s var(--ease, ease);
+}
+/* Exclude elements where transitions would be janky */
+input, textarea, [data-no-transition], .mkt-badge-pill, .mkt-theme-pill,
+.btn, .bottom-nav-btn, canvas { transition: none; }
+
 /* ── Base ────────────────────────────────────────────────────── */
 html, body { height: 100%; overflow: hidden; touch-action: pan-x pan-y; }
 body {
@@ -10011,7 +10022,43 @@ body.page-bg *::after {
 .dps-wiz-empty .dps-empty-title { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
 .dps-wiz-empty .dps-empty-hint  { font-size: 12px; opacity: 0.7; }
 
-/* Heavy always-on pulse animations → slow them down on mobile
+/* ── Custom Badge cosmetic ─────────────────────────────────────────── */
+.cmk-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--badge-color, #fbbf24);
+  border: 1px solid var(--badge-color, #fbbf24);
+  background: rgba(0,0,0,0.25);
+  box-shadow: 0 0 8px var(--badge-glow, rgba(251,191,36,0.4));
+  animation: cmk-badge-pulse 2.8s ease-in-out infinite;
+  white-space: nowrap;
+  transition: none;
+}
+@keyframes cmk-badge-pulse {
+  0%, 100% { box-shadow: 0 0 8px var(--badge-glow, rgba(251,191,36,0.4)); }
+  50%       { box-shadow: 0 0 18px var(--badge-glow, rgba(251,191,36,0.4)), 0 0 5px var(--badge-color, #fbbf24); }
+}
+
+/* Badge preview inside shop card */
+.mkt-badge-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 0 6px;
+}
+
+/* Badge chip in profile settings that navigates to shop */
+.stg-badge-chip {
+  animation: cmk-badge-pulse 2.8s ease-in-out infinite;
+}
+
+/* ── Heavy always-on pulse animations → slow them down on mobile
    so they consume less GPU time per second */
 @media (max-width: 768px) {
   .hero-card.urgent        { animation-duration: 4s !important; }
