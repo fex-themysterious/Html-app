@@ -883,10 +883,36 @@
     try { return scLoad().groups.some(g => g.code === code); } catch(_) { return false; }
   }
 
+  // A member is considered stale if their lastUpdated heartbeat is older than
+  // this threshold. The global heartbeat fires every 15 s, so 35 s gives a
+  // comfortable 2+ missed-heartbeat buffer before we declare them offline.
+  const PRESENCE_STALE_MS = 35000;
+
+  function _getMemberLastUpdatedMs(lm) {
+    const lu = lm && lm.lastUpdated;
+    if (!lu) return null;
+    // Firestore Timestamp objects expose .toMillis(); plain numbers pass through
+    if (typeof lu.toMillis === 'function') return lu.toMillis();
+    if (typeof lu === 'number') return lu;
+    return null;
+  }
+
+  function _isMemberStale(lm) {
+    const lastMs = _getMemberLastUpdatedMs(lm);
+    if (!lastMs) return false; // no timestamp yet — give benefit of the doubt
+    return (Date.now() - lastMs) > PRESENCE_STALE_MS;
+  }
+
   function _srMemberIsActive(m) {
     if (m.id === 'me') return ui().focusIsRunning?.() === true;
     const uid = m.id || m.uid;
-    if (uid && _liveMembers[uid]) return !!_liveMembers[uid].isStudying;
+    if (uid && _liveMembers[uid]) {
+      const lm = _liveMembers[uid];
+      if (!lm.isStudying) return false;
+      // Treat as offline if their heartbeat has gone silent (app killed / network lost)
+      if (_isMemberStale(lm)) return false;
+      return true;
+    }
     return false;
   }
 
@@ -902,7 +928,9 @@
     if (uid && _liveMembers[uid]) {
       const lm = _liveMembers[uid];
       const baseMins = (lm.dateKey === tk ? (lm.elapsedTimeToday || 0) : 0);
-      const extra = lm.isStudying
+      // Do not add live elapsed if the member's heartbeat has gone stale —
+      // their timer would otherwise keep counting up forever after they disconnect.
+      const extra = (lm.isStudying && !_isMemberStale(lm))
         ? Math.floor((Date.now() - (lm.studyStartedAt || Date.now())) / 1000)
         : 0;
       return baseMins * 60 + extra;

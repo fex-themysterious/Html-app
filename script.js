@@ -10095,6 +10095,15 @@
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {}
       }
     }
+    // Best-effort: clear group presence so others stop seeing us as active.
+    // Firestore offline persistence queues this write and sends it on next open.
+    if (_db && _userId && _socialRoomCode && typeof firebase !== 'undefined') {
+      try {
+        _db.collection('groups').doc(_socialRoomCode).collection('members').doc(_userId)
+          .set({ isStudying: false, lastUpdated: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })
+          .catch(() => {});
+      } catch (_) {}
+    }
   });
 
   window.addEventListener('beforeunload', e => {
@@ -10203,11 +10212,15 @@
           saveState();
         }
       }
-      // Background: write a final "last seen" timestamp and throttle heartbeat to slow rate
-      if (_db && _userId && _socialRoomCode) {
-        const _bgStatus = (focusRunning && focusMode === 'work') ? 'focusing' : 'break';
-        _db.collection('groups').doc(_socialRoomCode).collection('presence').doc(_userId)
-          .set({ lastSeen: Date.now(), status: _bgStatus }, { merge: true })
+      // Background: write offline/studying status to the members collection and slow the heartbeat.
+      // This fixes the ghost-presence bug where a backgrounded tab still showed as "1 ACTIVE".
+      if (_db && _userId && _socialRoomCode && typeof firebase !== 'undefined') {
+        const _bgFocusing = focusRunning && focusMode === 'work';
+        _db.collection('groups').doc(_socialRoomCode).collection('members').doc(_userId)
+          .set({
+            isStudying:  _bgFocusing,
+            lastUpdated: firebase.firestore.FieldValue.serverTimestamp(),
+          }, { merge: true })
           .catch(() => {});
         _sSetHeartbeatRate(SOCIAL_HEARTBEAT_SLOW_MS);
       }
@@ -10228,10 +10241,35 @@
     if (_currentTab === 'social' && !_socialRoomCode) renderSocial();
   });
   window.addEventListener('offline', () => {
-    console.warn('[Social] Network lost — presence will stale-out in 30 s');
+    console.warn('[Social] Network lost — clearing group presence immediately');
+    // Immediately mark as not-studying so others see us go offline.
+    // Firestore queues this and sends when connection is restored.
+    if (_db && _userId && _socialRoomCode && typeof firebase !== 'undefined') {
+      try {
+        _db.collection('groups').doc(_socialRoomCode).collection('members').doc(_userId)
+          .set({ isStudying: false, lastUpdated: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })
+          .catch(() => {});
+      } catch (_) {}
+    }
     // Re-render social lobby to show offline banner
     if (_currentTab === 'social' && !_socialRoomCode) renderSocial();
   });
+
+  // ── Global presence heartbeat ─────────────────────────────────────────────
+  // Runs every 15 s regardless of which tab is active. Keeps lastUpdated fresh
+  // so that other clients' stale-detection (35 s threshold) correctly shows us
+  // as active while our Pomodoro is running. Without this, navigating away from
+  // the Social tab would stop all heartbeats and we'd appear offline after 35 s.
+  setInterval(() => {
+    if (!_db || !_userId || !_socialRoomCode || typeof firebase === 'undefined') return;
+    const _hbFocusing = focusRunning && focusMode === 'work';
+    if (!_hbFocusing) return; // only heartbeat while actively studying
+    _db.collection('groups').doc(_socialRoomCode).collection('members').doc(_userId)
+      .set({
+        isStudying:  true,
+        lastUpdated: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true }).catch(() => {});
+  }, 15000);
 
   // ═══════════════════════════════════════════════════════════
   //  Live-Study ↔ Main-App Bridge
