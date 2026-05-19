@@ -5412,6 +5412,7 @@
       const elapsedMin = Math.round(elapsed / 60);
       const todayStr = todayKey();
       state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + elapsedMin;
+      try { if (window._socialOnStudyTimeUpdate) window._socialOnStudyTimeUpdate(state.focusStats.minutesByDate[todayStr]); } catch(_) {}
       if (_lsSubjectId) {
         if (!state.focusStats.minutesBySubject) state.focusStats.minutesBySubject = {};
         state.focusStats.minutesBySubject[_lsSubjectId] = (state.focusStats.minutesBySubject[_lsSubjectId] || 0) + elapsedMin;
@@ -5909,6 +5910,7 @@
       const overtimeMin = Math.round(focusOvertimeSeconds / 60);
       if (overtimeMin > 0) {
         state.focusStats.minutesByDate[todayKey()] = (state.focusStats.minutesByDate[todayKey()] || 0) + overtimeMin;
+        try { if (window._socialOnStudyTimeUpdate) window._socialOnStudyTimeUpdate(state.focusStats.minutesByDate[todayKey()]); } catch(_) {}
         saveState();
       }
     }
@@ -5999,6 +6001,7 @@
       // Credit the planned duration for this completed session
       const elapsedMin = _plannedSecs !== null ? Math.floor(_plannedSecs / 60) : customDurations.work;
       state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + elapsedMin;
+      try { if (window._socialOnStudyTimeUpdate) window._socialOnStudyTimeUpdate(state.focusStats.minutesByDate[todayStr]); } catch(_) {}
       _recordSubjectMinutes(elapsedMin);
       awardXP(elapsedMin, todayStr);
       _sUpdatePresence('break').catch(() => {});
@@ -6809,6 +6812,7 @@
     state.focusStats.minutesByDate = state.focusStats.minutesByDate || {};
     state.focusStats.sessions      = state.focusStats.sessions || {};
     state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + mins;
+    try { if (window._socialOnStudyTimeUpdate) window._socialOnStudyTimeUpdate(state.focusStats.minutesByDate[todayStr]); } catch(_) {}
     state.focusStats.sessions[todayStr]      = (state.focusStats.sessions[todayStr] || 0) + 1;
     state.focusStats.videoMinutes = state.focusStats.videoMinutes || {};
     state.focusStats.videoMinutes[todayStr]  = (state.focusStats.videoMinutes[todayStr]  || 0) + mins;

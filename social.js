@@ -82,6 +82,8 @@
       // member: check members array role or locally stored role
       const me = (g.members || []).find(m => m != null && ((m.id || m.uid) === uid));
       if (me) return (me.role === 'admin' || me.role === 'owner') ? 'admin' : 'member';
+      // _isLocalMember flag means this group is in sc_v1 — user is confirmed member/admin
+      if (g._isLocalMember) return g.role || 'member';
       if (g.role === 'member') return 'member';
       return null;
     } catch(_) { return null; }
@@ -386,7 +388,8 @@
         if (snap.empty) return;
         const members = snap.docs.map(d => d.data());
         const total  = members.length;
-        const active = members.filter(m => !!m.isStudying && m.dateKey === tk).length;
+        // Attendance = members who studied at least 15 minutes today (not just currently active)
+        const active = members.filter(m => m.dateKey === tk && (m.elapsedTimeToday || 0) >= 15).length;
         const attendancePct  = total > 0 ? Math.round(active / total * 100) : 0;
         const dailyMinsTotal = members.reduce(
           (sum, m) => sum + (m.dateKey === tk ? Math.round(m.elapsedTimeToday || 0) : 0), 0
@@ -726,10 +729,21 @@
     let groups = _publicGroups.length > 0
       ? _publicGroups.map(pg => {
           const local = sc.groups.find(x => x.code === pg._fbCode);
-          return local
-            ? { ...pg, ownerUid: local.ownerUid, createdByUid: local.createdByUid,
-                admins: local.admins, members: local.members, role: local.role }
-            : { ...pg };
+          if (local) {
+            // User has this group in local storage — they ARE a member.
+            // Merge local ownership/role data so _getMyRole() detects membership
+            // even for users who lost their sc_v1 cache and had it restored.
+            return {
+              ...pg,
+              ownerUid:      local.ownerUid     || pg.ownerUid,
+              createdByUid:  local.createdByUid || pg.createdByUid,
+              admins:        local.admins        || pg.admins,
+              members:       local.members,
+              role:          local.role          || 'member',
+              _isLocalMember: true,
+            };
+          }
+          return { ...pg };
         })
       : sc.groups.filter(_isValidGroup);
 
@@ -2749,57 +2763,51 @@
     });
   }
 
-  // ── Direct join for public groups (no invite code needed) ────────────────
-  function _joinPublicGroup(code, fbGroupData) {
+  // ── Shared join helpers ────────────────────────────────────────────────────
+
+  // Common Firestore + local write when actually adding a user to a group.
+  // Called only after all validation passes (password, approval, capacity).
+  function _doJoinGroupWithData(code, data) {
     const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
-    if (!uid_) { toast('Sign in to join groups', 'warn'); return; }
-    const sc = scLoad();
-    if (sc.groups.find(g => g.code === code)) {
-      toast('You are already in this group', 'info'); return;
-    }
     const myName = _getUserDisplayName();
-    const data = fbGroupData || {};
-    if ((data.memberCount || 0) >= (data.maxMembers || 50)) {
-      toast('This group is full', 'warn'); return;
-    }
     const rawCat = data.category || 'General';
     const sc2 = scLoad();
-    sc2.groups.push({
-      id:           data.groupId || data.id || code,
-      name:         data.name || `Group ${code}`,
-      icon:         data.icon || '📚',
-      code:         code,
-      isPrivate:    false,
-      description:  data.description || '',
-      category:     rawCat === 'camstudy' ? 'General' : rawCat,
-      dailyGoalHrs: data.dailyGoalHrs || 8,
-      maxMembers:   data.maxMembers || 50,
-      leader:       (data.leader && data.leader !== 'You') ? data.leader : (data.createdByName || 'Admin'),
-      promoted:     false,
-      createdAt:    data.createdAt || Date.now(),
-      dailyMinsTotal: 0, attendancePct: 0,
-      role:    'member',
-      members: [{ id: uid_, name: myName, role: 'member', joinedAt: Date.now() }],
-    });
-    scSave(sc2);
+    if (!sc2.groups.find(g => g.code === code)) {
+      sc2.groups.push({
+        id:           data.groupId || data.id || code,
+        name:         data.name || `Group ${code}`,
+        icon:         data.icon || '📚',
+        code:         data.code || code,
+        isPrivate:    data.isPrivate || false,
+        description:  data.description || '',
+        category:     rawCat === 'camstudy' ? 'General' : rawCat,
+        dailyGoalHrs: data.dailyGoalHrs || 8,
+        maxMembers:   data.maxMembers || 50,
+        leader:       (data.leader && data.leader !== 'You') ? data.leader : (data.createdByName || 'Admin'),
+        promoted:     false,
+        createdAt:    data.createdAt?.toMillis?.() ?? (typeof data.createdAt === 'number' ? data.createdAt : Date.now()),
+        dailyMinsTotal: 0, attendancePct: 0,
+        role:    'member',
+        members: [{ id: uid_ || 'me', name: myName, role: 'member', joinedAt: Date.now() }],
+      });
+      scSave(sc2);
+    }
     if (db_ && uid_ && fb_) {
-      const memberRef = db_.collection('groups').doc(code).collection('members').doc(uid_);
-      const groupRef  = db_.collection('groups').doc(code);
-      // Atomic transaction: only add member doc + increment if not already present
-      const _joinTodayMins = (((getMainState().focusStats || {}).minutesByDate) || {})[todayKey()] || 0;
-      db_.runTransaction(t => t.get(memberRef).then(memberSnap => {
+      const mRef = db_.collection('groups').doc(code).collection('members').doc(uid_);
+      const gRef = db_.collection('groups').doc(code);
+      const todayMins = (((getMainState().focusStats || {}).minutesByDate) || {})[todayKey()] || 0;
+      db_.runTransaction(t => t.get(mRef).then(memberSnap => {
         if (!memberSnap.exists) {
-          t.set(memberRef, {
+          t.set(mRef, {
             uid: uid_, displayName: myName, role: 'member',
             joinedAt: fb_.firestore.FieldValue.serverTimestamp(),
             isStudying: false, currentSubject: null,
-            elapsedTimeToday: _joinTodayMins,
+            elapsedTimeToday: todayMins,
             dateKey: todayKey(),
           });
-          t.update(groupRef, { memberCount: fb_.firestore.FieldValue.increment(1) });
+          t.update(gRef, { memberCount: fb_.firestore.FieldValue.increment(1) });
         } else {
-          // Already a member in Firestore — refresh display name and sync today's minutes
-          t.update(memberRef, { displayName: myName, elapsedTimeToday: _joinTodayMins, dateKey: todayKey() });
+          t.update(mRef, { displayName: myName, elapsedTimeToday: todayMins, dateKey: todayKey() });
         }
       })).then(() => _recalcMemberCount(code)).catch(() => {});
       db_.collection('users').doc(uid_).set({
@@ -2807,16 +2815,154 @@
         displayNameAuto: myName,
       }, { merge: true }).catch(() => {});
     }
-    toast(`Joined "${data.name || code}"! 🎉`, 'success');
     setTimeout(_ensureGroupDocSubs, 300);
+  }
+
+  // Offline fallback: adds group locally when Firestore is unavailable
+  function _doLocalFallbackJoin(code) {
+    const sc2 = scLoad();
+    if (sc2.groups.find(g => g.code === code)) return;
+    const myName = _getUserDisplayName();
+    const uid2   = getUserId();
+    sc2.groups.push({
+      id: genId(), name: `Group ${code}`, icon: '📚',
+      code, isPrivate: false, description: '',
+      category: 'General', dailyGoalHrs: 8, maxMembers: 50,
+      leader: 'Admin', promoted: false,
+      createdAt: Date.now(), dailyMinsTotal: 0, attendancePct: 0,
+      role: 'member',
+      members: [{ id: uid2 || 'me', name: myName, role: 'member', joinedAt: Date.now() }],
+    });
+    scSave(sc2);
+    closeModal();
+    toast('Group joined (offline mode)', 'success');
     _tab = 'rooms';
     renderSocial();
   }
 
+  // Shows an approval-request modal for groups that require admin sign-off.
+  function _modalRequestApproval(code, data) {
+    const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
+    if (!uid_) { toast('Sign in to join groups', 'warn'); return; }
+    openModal(`
+      <h3 class="sc-modal-title">⏳ Request to Join</h3>
+      <p class="sc-modal-sub">"${esc(data.name || code)}" requires admin approval before you can join.</p>
+      <div class="sc-field">
+        <label class="sc-label">Message to admin <span class="sc-opt">(optional)</span></label>
+        <input id="sc-req-msg" type="text" maxlength="120"
+               placeholder="e.g. Hey, I'd love to join your study group!"
+               class="sc-input" autocomplete="off"/>
+      </div>
+      <div id="sc-req-err" class="sc-field-err" style="display:none"></div>
+      <div class="actions" style="margin-top:16px">
+        <button class="btn btn-ghost" data-close>Cancel</button>
+        <button class="btn sc-modal-submit" id="sc-do-req">Send Request</button>
+      </div>
+    `, root => {
+      const msgEl    = root.querySelector('#sc-req-msg');
+      const errEl    = root.querySelector('#sc-req-err');
+      const submitEl = root.querySelector('#sc-do-req');
+      msgEl.focus();
+      const send = () => {
+        submitEl.disabled = true; submitEl.textContent = 'Sending…';
+        const myName = _getUserDisplayName();
+        if (!db_ || !uid_ || !fb_) {
+          errEl.textContent = 'Not connected — please try again when online.';
+          errEl.style.display = ''; submitEl.disabled = false; submitEl.textContent = 'Send Request'; return;
+        }
+        const reqRef = db_.collection('groups').doc(code).collection('joinRequests').doc(uid_);
+        reqRef.get().then(existing => {
+          if (existing.exists && existing.data().status === 'pending') {
+            errEl.textContent = 'You already have a pending request for this group.';
+            errEl.style.display = ''; submitEl.disabled = false; submitEl.textContent = 'Send Request'; return;
+          }
+          return reqRef.set({
+            uid:         uid_,
+            displayName: myName,
+            message:     (msgEl.value || '').trim(),
+            status:      'pending',
+            requestedAt: fb_.firestore.FieldValue.serverTimestamp(),
+          }).then(() => { closeModal(); toast('Request sent! Awaiting admin approval.', 'success', 5000); });
+        }).catch(() => {
+          errEl.textContent = 'Could not send request. Check your connection.';
+          errEl.style.display = ''; submitEl.disabled = false; submitEl.textContent = 'Send Request';
+        });
+      };
+      submitEl.addEventListener('click', send);
+      msgEl.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+    });
+  }
+
+  // Shows a password-entry modal for password-protected groups.
+  function _modalEnterPassword(code, data) {
+    openModal(`
+      <h3 class="sc-modal-title">🔑 Enter Password</h3>
+      <p class="sc-modal-sub">"${esc(data.name || code)}" is password protected.</p>
+      <div class="sc-field">
+        <input id="sc-pw-inp" type="password" maxlength="50" placeholder="Group password"
+               class="sc-input" autocomplete="off"/>
+      </div>
+      <div id="sc-pw-err" class="sc-field-err" style="display:none"></div>
+      <div class="actions" style="margin-top:16px">
+        <button class="btn btn-ghost" data-close>Cancel</button>
+        <button class="btn sc-modal-submit" id="sc-do-pw">Join Group</button>
+      </div>
+    `, root => {
+      const pwEl     = root.querySelector('#sc-pw-inp');
+      const errEl    = root.querySelector('#sc-pw-err');
+      const submitEl = root.querySelector('#sc-do-pw');
+      pwEl.focus();
+      const doJoin = () => {
+        const entered = pwEl.value;
+        if (!entered) { errEl.textContent = 'Please enter the group password.'; errEl.style.display = ''; return; }
+        if (entered !== (data.joinPassword || '')) {
+          errEl.textContent = 'Incorrect password. Please try again.';
+          errEl.style.display = ''; pwEl.value = ''; pwEl.focus(); return;
+        }
+        closeModal();
+        _doJoinGroupWithData(code, data);
+        toast('Group joined! 🎉', 'success');
+        _tab = 'rooms';
+        renderSocial();
+      };
+      submitEl.addEventListener('click', doJoin);
+      pwEl.addEventListener('keydown', e => { if (e.key === 'Enter') doJoin(); });
+    });
+  }
+
+  // Routes the join attempt through the correct validation gate based on group settings.
+  // This is the single entry point for joining ANY group (public or private, any mode).
+  function _routeJoinGroup(code, data) {
+    const uid_ = getUserId();
+    if (!uid_) { toast('Sign in to join groups', 'warn'); return; }
+    if ((data.memberCount || 0) >= (data.maxMembers || 50)) { toast('This group is full', 'warn'); return; }
+    const joinMode    = data.joinMode    || 'open';
+    const hasPassword = !!(data.joinPassword && data.joinPassword.length);
+    if (joinMode === 'approval') {
+      _modalRequestApproval(code, data);
+    } else if (hasPassword) {
+      _modalEnterPassword(code, data);
+    } else {
+      _doJoinGroupWithData(code, data);
+      toast(`Joined "${data.name || code}"! 🎉`, 'success');
+      _tab = 'rooms';
+      renderSocial();
+    }
+  }
+
+  // ── Direct join for public groups (no invite code needed) ────────────────
+  function _joinPublicGroup(code, fbGroupData) {
+    const uid_ = getUserId();
+    if (!uid_) { toast('Sign in to join groups', 'warn'); return; }
+    const sc = scLoad();
+    if (sc.groups.find(g => g.code === code)) { toast('You are already in this group', 'info'); return; }
+    _routeJoinGroup(code, fbGroupData || {});
+  }
+
   function _modalJoinGroup() {
     openModal(`
-      <h3 class="sc-modal-title">Join a Private Group</h3>
-      <p class="sc-modal-sub">Enter the 6-character invite code shared by a group admin.</p>
+      <h3 class="sc-modal-title">Join via Invite Code</h3>
+      <p class="sc-modal-sub">Enter the invite code shared by a group admin.</p>
       <div class="sc-field">
         <input id="sc-join-code" type="text" maxlength="8" placeholder="e.g. A1B2C3"
                class="sc-input sc-input-code" autocomplete="off" spellcheck="false"/>
@@ -2824,120 +2970,44 @@
       <div id="sc-join-err" class="sc-field-err" style="display:none"></div>
       <div class="actions" style="margin-top:16px">
         <button class="btn btn-ghost" data-close>Cancel</button>
-        <button class="btn sc-modal-submit" id="sc-do-join">Join Group</button>
+        <button class="btn sc-modal-submit" id="sc-do-join">Find Group</button>
       </div>
     `, root => {
       const codeEl   = root.querySelector('#sc-join-code');
       const errEl    = root.querySelector('#sc-join-err');
       const submitEl = root.querySelector('#sc-do-join');
       codeEl.focus();
-      codeEl.addEventListener('input', () => { codeEl.value = codeEl.value.toUpperCase().replace(/[^A-Z0-9]/g,''); });
-      const _doLocalFallbackJoin = (code) => {
-        const sc2 = scLoad();
-        if (sc2.groups.find(g => g.code === code)) return;
-        const myName2 = _getUserDisplayName();
-        const uid2 = getUserId();
-        sc2.groups.push({
-          id: genId(), name: `Group ${code}`, icon: '📚',
-          code, isPrivate: false, description: '',
-          category: 'General', dailyGoalHrs: 8, maxMembers: 50,
-          leader: 'Admin', promoted: false,
-          createdAt: Date.now(), dailyMinsTotal: 0, attendancePct: 0,
-          role: 'member',
-          members: [{ id: uid2 || 'me', name: myName2, role: 'member', joinedAt: Date.now() }],
-        });
-        scSave(sc2);
-        closeModal();
-        toast('Group joined (offline mode)', 'success');
-        _tab = 'rooms';
-        renderSocial();
-      };
+      codeEl.addEventListener('input', () => { codeEl.value = codeEl.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
 
-      const doJoin = () => {
+      const doFind = () => {
         const code = codeEl.value.trim().toUpperCase();
-        if (code.length < 4) { errEl.textContent = 'Enter a valid invite code (4–8 characters).'; errEl.style.display=''; return; }
+        if (code.length < 4) { errEl.textContent = 'Enter a valid invite code (4–8 characters).'; errEl.style.display = ''; return; }
         const sc = scLoad();
-        if (sc.groups.find(g => g.code === code)) { errEl.textContent = 'You already belong to a group with this code.'; errEl.style.display=''; return; }
-
-        const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
+        if (sc.groups.find(g => g.code === code)) { errEl.textContent = 'You are already in this group.'; errEl.style.display = ''; return; }
+        const db_ = getDb(), uid_ = getUserId();
         if (!db_) { _doLocalFallbackJoin(code); return; }
-
-        submitEl.disabled = true;
-        submitEl.textContent = 'Searching…';
-        errEl.style.display = 'none';
-
+        if (!uid_) { toast('Sign in to join groups', 'warn'); closeModal(); return; }
+        submitEl.disabled = true; submitEl.textContent = 'Searching…'; errEl.style.display = 'none';
         db_.collection('groups').doc(code).get().then(snap => {
           if (!snap.exists) {
             errEl.textContent = 'No group found with this code. Please check and try again.';
-            errEl.style.display = '';
-            submitEl.disabled = false; submitEl.textContent = 'Join Group';
-            return;
+            errEl.style.display = ''; submitEl.disabled = false; submitEl.textContent = 'Find Group'; return;
           }
           const data = snap.data();
           if ((data.memberCount || 0) >= (data.maxMembers || 50)) {
             errEl.textContent = 'This group is full.';
-            errEl.style.display = '';
-            submitEl.disabled = false; submitEl.textContent = 'Join Group';
-            return;
+            errEl.style.display = ''; submitEl.disabled = false; submitEl.textContent = 'Find Group'; return;
           }
-          const myName2 = _getUserDisplayName();
-          const rawCat = data.category || 'General';
-          const sc2 = scLoad();
-          if (!sc2.groups.find(g => g.code === code)) {
-            sc2.groups.push({
-              id:           data.groupId || code,
-              name:         data.name || `Group ${code}`,
-              icon:         data.icon || '📚',
-              code:         data.code || code,
-              isPrivate:    data.isPrivate || false,
-              description:  data.description || '',
-              category:     rawCat === 'camstudy' ? 'General' : rawCat,
-              dailyGoalHrs: data.dailyGoalHrs || 8,
-              maxMembers:   data.maxMembers || 50,
-              leader:       (data.leader && data.leader !== 'You') ? data.leader : (data.createdByName || 'Admin'),
-              promoted:     false,
-              createdAt:    data.createdAt?.toMillis?.() ?? Date.now(),
-              dailyMinsTotal: 0, attendancePct: 0,
-              role:    'member',
-              members: [{ id: uid_ || 'me', name: myName2, role: 'member', joinedAt: Date.now() }],
-            });
-            scSave(sc2);
-          }
-          if (uid_ && fb_) {
-            const mRef2 = db_.collection('groups').doc(code).collection('members').doc(uid_);
-            const gRef2 = db_.collection('groups').doc(code);
-            // Atomic transaction: only add member doc + increment if not already present
-            const _inviteTodayMins = (((getMainState().focusStats || {}).minutesByDate) || {})[todayKey()] || 0;
-            db_.runTransaction(t => t.get(mRef2).then(memberSnap => {
-              if (!memberSnap.exists) {
-                t.set(mRef2, {
-                  uid: uid_, displayName: myName2, role: 'member',
-                  joinedAt: fb_.firestore.FieldValue.serverTimestamp(),
-                  isStudying: false, currentSubject: null,
-                  elapsedTimeToday: _inviteTodayMins,
-                  dateKey: todayKey(),
-                });
-                t.update(gRef2, { memberCount: fb_.firestore.FieldValue.increment(1) });
-              } else {
-                t.update(mRef2, { displayName: myName2, elapsedTimeToday: _inviteTodayMins, dateKey: todayKey() });
-              }
-            })).then(() => _recalcMemberCount(code)).catch(() => {});
-            db_.collection('users').doc(uid_).set({
-              joinedRooms:     fb_.firestore.FieldValue.arrayUnion(code),
-              displayNameAuto: _getUserDisplayName(),
-            }, { merge: true }).catch(() => {});
-          }
+          // Always close the code modal first, then route to correct validation gate
           closeModal();
-          toast('Group joined! 🎉', 'success');
-          _tab = 'rooms';
-          renderSocial();
+          _routeJoinGroup(code, data);
         }).catch(() => {
           _doLocalFallbackJoin(code);
-          submitEl.disabled = false; submitEl.textContent = 'Join Group';
+          submitEl.disabled = false; submitEl.textContent = 'Find Group';
         });
       };
-      submitEl.addEventListener('click', doJoin);
-      codeEl.addEventListener('keydown', e => { if (e.key === 'Enter') doJoin(); });
+      submitEl.addEventListener('click', doFind);
+      codeEl.addEventListener('keydown', e => { if (e.key === 'Enter') doFind(); });
     });
   }
 
@@ -4394,6 +4464,18 @@
     // the 500ms init timeout above fires with uid=null and returns early, so groups
     // would never appear after login without this re-entry point.
     window._socialRestoreGroups = () => { _restoreGroupsFromFirebase().catch(() => {}); };
+
+    // Called by script.js whenever study time is saved (timer stop, session end, pomodoro complete).
+    // This writes the updated minutes to all group member docs and triggers stat recalculation
+    // so the Discover tab shows live "Xm today" and correct attendance without needing a refresh.
+    window._socialOnStudyTimeUpdate = (newTodayMins) => {
+      try {
+        const mins     = typeof newTodayMins === 'number' ? newTodayMins : 0;
+        const isActive = ui().focusIsRunning?.() ?? false;
+        const avStage  = window._lsGetCurrentAvStage?.() || 0;
+        _writePresenceAllGroups(isActive, mins, avStage);
+      } catch(_) {}
+    };
 
     // Reconcile presence on startup and on every auth state change.
     // This writes the user's real today-minutes to all joined group member docs,
