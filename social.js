@@ -919,6 +919,7 @@
     if (g0 && g0.code) _subscribeRoomMembers(g0.code);
 
     _srTickInterval = setInterval(() => {
+      if (document.hidden) return;
       const view = document.getElementById('view-social');
       if (!view || !view.querySelector('.sr-room')) { _stopSrTicker(); return; }
       const sc = scLoad();
