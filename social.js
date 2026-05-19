@@ -315,7 +315,28 @@
       update.studyStartedAt = _mySessionStartedAt;
     }
 
-    // Batch write: all groups get identical data in one round-trip
+    // ── 1. Write global canonical presence to users/{uid} ────────────────────
+    // This is the single source of truth that group rooms subscribe to.
+    // Even if a group member doc is stale, this doc always has the real value.
+    try {
+      const globalUpdate = {
+        todayFocusMinutes: todayMins || 0,
+        todayDateKey:      tk_,
+        isStudying:        !!isStudying,
+        presenceUpdatedAt: fb_.firestore.FieldValue.serverTimestamp(),
+      };
+      if (isStudying && _mySessionStartedAt) {
+        globalUpdate.studyStartedAt = _mySessionStartedAt;
+      } else {
+        globalUpdate.studyStartedAt = fb_.firestore.FieldValue.delete();
+      }
+      db_.collection('users').doc(uid_).set(globalUpdate, { merge: true }).catch(() => {});
+    } catch(_) {}
+
+    // ── 2. Batch write to all group member docs ───────────────────────────────
+    // Group member docs carry isStudying, role, displayName, avatarStage etc.
+    // elapsedTimeToday here stays in sync via the batch; the users/{uid} doc
+    // is the authoritative override that group room listeners use.
     const batch = db_.batch();
     codes.forEach(code => {
       batch.set(
@@ -333,6 +354,19 @@
             .set(update, { merge: true }).catch(() => {});
         });
       });
+  }
+
+  // ── Startup reconciliation ─────────────────────────────────────────────────
+  // Called once on auth. Writes the user's real today-minutes to all joined
+  // group member docs so stale 0-minute docs are corrected immediately.
+  function _reconcileAllGroupPresence() {
+    const uid = getUserId(), db_ = getDb(), fb_ = getFb();
+    if (!uid || !db_ || !fb_) return;
+    const ms = getMainState(), tk = todayKey();
+    const todayMins = (((ms.focusStats || {}).minutesByDate) || {})[tk] || 0;
+    const avStage   = window._lsGetCurrentAvStage?.() || 0;
+    // Write current state to all groups (isStudying=false at startup, actual minutes)
+    _writePresenceAllGroups(false, todayMins, avStage);
   }
 
   // ── Group stats aggregator ────────────────────────────────────────────────
@@ -482,6 +516,8 @@
   // Group doc live subscriptions (for real-time memberCount in Your Groups list)
   const _groupDocUnsubs    = {};   // { code: unsubFn }
   let _liveSubscribedCode  = null; // code currently subscribed to in _subscribeRoomMembers
+  // Per-member global presence subscriptions: users/{uid} → overrides per-group elapsedTimeToday
+  let _memberPresenceUnsubs = {};  // { uid: unsubFn }
 
   const isStudying = () => { try { return window._focusActive === true; } catch(_) { return false; } };
 
@@ -1270,6 +1306,44 @@
           _liveMembers = {};
           snap.docs.forEach(d => { _liveMembers[d.id] = d.data(); });
 
+          // ── Subscribe to each member's global presence (users/{uid}) ─────
+          // This overrides per-group elapsedTimeToday with the user's canonical
+          // daily study time, ensuring all groups show the same value.
+          const _myUid2 = getUserId();
+          const _db2 = getDb();
+          if (_db2) {
+            Object.keys(_liveMembers).forEach(mUid => {
+              if (mUid === _myUid2) return; // self is tracked via local app state
+              if (_memberPresenceUnsubs[mUid]) return; // already subscribed
+              try {
+                _memberPresenceUnsubs[mUid] = _db2.collection('users').doc(mUid)
+                  .onSnapshot(uSnap => {
+                    const uData = uSnap.data() || {};
+                    const tk2 = todayKey();
+                    // Only apply if this is actually today's data
+                    if (uData.todayDateKey === tk2 && typeof uData.todayFocusMinutes === 'number') {
+                      if (_liveMembers[mUid]) {
+                        // Override with canonical global value
+                        _liveMembers[mUid].elapsedTimeToday = uData.todayFocusMinutes;
+                        _liveMembers[mUid].dateKey           = tk2;
+                        if (uData.studyStartedAt)   _liveMembers[mUid].studyStartedAt = uData.studyStartedAt;
+                        if (uData.isStudying != null) _liveMembers[mUid].isStudying    = uData.isStudying;
+                      }
+                      // Instantly update the timer chip if the card is visible
+                      const vw = document.getElementById('view-social');
+                      if (vw) {
+                        const te = vw.querySelector(`[data-sr-timer="${mUid}"]`);
+                        if (te) te.textContent = _fmtSecs(_srMemberSeconds({ id: mUid }));
+                      }
+                    }
+                  }, () => {
+                    // Permission denied or network error — silently drop, fall back to group doc
+                    delete _memberPresenceUnsubs[mUid];
+                  });
+              } catch(_) {}
+            });
+          }
+
           // Always persist live count to localStorage
           const sc = scLoad();
           const gLocal = sc.groups.find(x => x.code === code);
@@ -1340,6 +1414,9 @@
     if (_memberUnsub) { try { _memberUnsub(); } catch(_) {} _memberUnsub = null; }
     _liveSubscribedCode = null;
     _liveMembers = {};
+    // Clean up per-member global presence subscriptions
+    Object.values(_memberPresenceUnsubs).forEach(unsub => { try { unsub(); } catch(_) {} });
+    _memberPresenceUnsubs = {};
     _unsubscribeChatMessages();
   }
 
@@ -4317,6 +4394,17 @@
     // the 500ms init timeout above fires with uid=null and returns early, so groups
     // would never appear after login without this re-entry point.
     window._socialRestoreGroups = () => { _restoreGroupsFromFirebase().catch(() => {}); };
+
+    // Reconcile presence on startup and on every auth state change.
+    // This writes the user's real today-minutes to all joined group member docs,
+    // correcting any stale 0-minute docs that existed before the batch-write fix.
+    // Also writes the global users/{uid} canonical presence doc.
+    window._socialReconcilePresence = () => {
+      // Small delay so Firebase auth and main state are both ready
+      setTimeout(_reconcileAllGroupPresence, 1500);
+    };
+    // Fire once on initial load (covers the signed-in-at-page-load case)
+    setTimeout(_reconcileAllGroupPresence, 2000);
 
     // Syncs the current user's display name to all their group member documents.
     // Called by script.js immediately after the user saves profile changes so

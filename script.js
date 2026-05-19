@@ -605,6 +605,9 @@
             // Re-run group restoration so sc_v1 is repopulated even if user wasn't
             // logged in when social.js first initialised (auth modal was showing).
             setTimeout(() => { if (window._socialRestoreGroups) window._socialRestoreGroups(); }, 800);
+            // Reconcile presence: writes real today-minutes to all group member docs
+            // so stale 0-minute entries are corrected immediately after sign-in.
+            setTimeout(() => { if (window._socialReconcilePresence) window._socialReconcilePresence(); }, 1200);
             // Check for duplicate username and force re-entry if clashing
             setTimeout(() => _checkAndEnforceUniqueUsername().catch(() => {}), 2500);
             return;
