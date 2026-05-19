@@ -274,6 +274,67 @@
       }).catch(() => {});
   }
 
+  // ── Global presence broadcaster ───────────────────────────────────────────
+  // Single source of truth for the current user's study session start time.
+  // Stored once when a session begins; reused for all group member doc writes
+  // so every group shows the identical live timer (Date.now() - _mySessionStartedAt).
+  let _mySessionStartedAt = null;
+
+  // Writes the same presence snapshot to ALL joined groups atomically.
+  // This is the only function that should push presence data to Firestore —
+  // never write per-group directly, or timers will diverge between groups.
+  function _writePresenceAllGroups(isStudying, todayMins, avStage) {
+    const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
+    if (!db_ || !uid_ || !fb_) return;
+    const sc_ = scLoad();
+    const codes = sc_.groups.map(g => g.code).filter(Boolean);
+    if (!codes.length) return;
+
+    // Manage session start time: set ONCE when transitioning to studying,
+    // clear when stopping. Never reset mid-session (that would make all timers
+    // restart from 0 for remote viewers on the next snapshot).
+    if (isStudying && !_mySessionStartedAt) {
+      _mySessionStartedAt = Date.now();
+    } else if (!isStudying) {
+      _mySessionStartedAt = null;
+    }
+
+    const tk_ = todayKey();
+    const update = {
+      uid:              uid_,
+      displayName:      _getUserDisplayName(),
+      isStudying:       !!isStudying,
+      elapsedTimeToday: todayMins || 0,
+      dateKey:          tk_,
+      avatarStage:      typeof avStage === 'number' ? avStage : (window._lsGetCurrentAvStage?.() || 0),
+      lastUpdated:      fb_.firestore.FieldValue.serverTimestamp(),
+    };
+    // studyStartedAt is kept stable for the entire session so remote clients
+    // can always compute: liveSecs = Date.now() - studyStartedAt
+    if (isStudying && _mySessionStartedAt) {
+      update.studyStartedAt = _mySessionStartedAt;
+    }
+
+    // Batch write: all groups get identical data in one round-trip
+    const batch = db_.batch();
+    codes.forEach(code => {
+      batch.set(
+        db_.collection('groups').doc(code).collection('members').doc(uid_),
+        update,
+        { merge: true }
+      );
+    });
+    batch.commit()
+      .then(() => { codes.forEach(code => _updateGroupStats(code)); })
+      .catch(() => {
+        // Fallback: write individually if batch fails
+        codes.forEach(code => {
+          db_.collection('groups').doc(code).collection('members').doc(uid_)
+            .set(update, { merge: true }).catch(() => {});
+        });
+      });
+  }
+
   // ── Group stats aggregator ────────────────────────────────────────────────
   // Reads all member docs for a group, then writes aggregated attendance% and
   // dailyMinsTotal back to the group doc so the Discover feed shows live data.
@@ -1046,13 +1107,15 @@
         }
       }
 
-      // Broadcast self presence to Firebase every 30 ticks (~30 s)
+      // Broadcast self presence to ALL joined groups every 30 ticks (~30 s).
+      // Using _writePresenceAllGroups ensures every group gets identical data
+      // so remote viewers see the same timer in every group simultaneously.
       _srTickCount++;
-      if (_srTickCount % 30 === 0 && g.code) {
+      if (_srTickCount % 30 === 0) {
         const ms_ = getMainState(), tk_ = todayKey();
         const todayMins_ = ((ms_.focusStats || {}).minutesByDate || {})[tk_] || 0;
         const avStage_   = window._lsGetCurrentAvStage?.() || 0;
-        _writeSelfPresence(g.code, meActive, todayMins_, null, avStage_);
+        _writePresenceAllGroups(meActive, todayMins_, avStage_);
       }
     }, 1000);
   }
@@ -2584,10 +2647,13 @@
             memberCount:   1,
             dailyMinsTotal: 0,
           }).catch(() => {});
+          const _crtTodayMins = (((getMainState().focusStats || {}).minutesByDate) || {})[todayKey()] || 0;
           db_.collection('groups').doc(newGroup.code).collection('members').doc(uid_).set({
             uid: uid_, displayName: myName, role: 'admin',
             joinedAt: fb_.firestore.FieldValue.serverTimestamp(),
-            isStudying: false, currentSubject: null, elapsedTimeToday: 0,
+            isStudying: false, currentSubject: null,
+            elapsedTimeToday: _crtTodayMins,
+            dateKey: todayKey(),
           }).catch(() => {});
           db_.collection('users').doc(uid_).set({
             joinedRooms:     fb_.firestore.FieldValue.arrayUnion(newGroup.code),
@@ -2643,17 +2709,20 @@
       const memberRef = db_.collection('groups').doc(code).collection('members').doc(uid_);
       const groupRef  = db_.collection('groups').doc(code);
       // Atomic transaction: only add member doc + increment if not already present
+      const _joinTodayMins = (((getMainState().focusStats || {}).minutesByDate) || {})[todayKey()] || 0;
       db_.runTransaction(t => t.get(memberRef).then(memberSnap => {
         if (!memberSnap.exists) {
           t.set(memberRef, {
             uid: uid_, displayName: myName, role: 'member',
             joinedAt: fb_.firestore.FieldValue.serverTimestamp(),
-            isStudying: false, currentSubject: null, elapsedTimeToday: 0,
+            isStudying: false, currentSubject: null,
+            elapsedTimeToday: _joinTodayMins,
+            dateKey: todayKey(),
           });
           t.update(groupRef, { memberCount: fb_.firestore.FieldValue.increment(1) });
         } else {
-          // Already a member in Firestore — just refresh display name
-          t.update(memberRef, { displayName: myName });
+          // Already a member in Firestore — refresh display name and sync today's minutes
+          t.update(memberRef, { displayName: myName, elapsedTimeToday: _joinTodayMins, dateKey: todayKey() });
         }
       })).then(() => _recalcMemberCount(code)).catch(() => {});
       db_.collection('users').doc(uid_).set({
@@ -2761,16 +2830,19 @@
             const mRef2 = db_.collection('groups').doc(code).collection('members').doc(uid_);
             const gRef2 = db_.collection('groups').doc(code);
             // Atomic transaction: only add member doc + increment if not already present
+            const _inviteTodayMins = (((getMainState().focusStats || {}).minutesByDate) || {})[todayKey()] || 0;
             db_.runTransaction(t => t.get(mRef2).then(memberSnap => {
               if (!memberSnap.exists) {
                 t.set(mRef2, {
                   uid: uid_, displayName: myName2, role: 'member',
                   joinedAt: fb_.firestore.FieldValue.serverTimestamp(),
-                  isStudying: false, currentSubject: null, elapsedTimeToday: 0,
+                  isStudying: false, currentSubject: null,
+                  elapsedTimeToday: _inviteTodayMins,
+                  dateKey: todayKey(),
                 });
                 t.update(gRef2, { memberCount: fb_.firestore.FieldValue.increment(1) });
               } else {
-                t.update(mRef2, { displayName: myName2 });
+                t.update(mRef2, { displayName: myName2, elapsedTimeToday: _inviteTodayMins, dateKey: todayKey() });
               }
             })).then(() => _recalcMemberCount(code)).catch(() => {});
             db_.collection('users').doc(uid_).set({
@@ -4205,6 +4277,7 @@
     window._socialFocusUpdate = () => {
       const ms = getMainState(), tk = todayKey();
       const todayMins = (((ms.focusStats || {}).minutesByDate) || {})[tk] || 0;
+      // Keep local "me" member state in sync with the main app's focus minutes
       if (todayMins > 0) {
         const sc = scLoad();
         let dirty = false;
@@ -4218,32 +4291,12 @@
         });
         if (dirty) scSave(sc);
       }
-      // Broadcast presence update to Firebase for all joined groups
-      const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
-      if (db_ && uid_ && fb_) {
-        const studying_ = ui().focusIsRunning?.() === true;
-        const tk_ = todayKey();
-        const sc_ = scLoad();
-        const avStageGlobal_ = window._lsGetCurrentAvStage?.() || 0;
-        sc_.groups.forEach(g => {
-          if (g.code) {
-            const update = {
-              uid: uid_,
-              displayName:      _getUserDisplayName(),
-              isStudying:       studying_,
-              elapsedTimeToday: todayMins,
-              dateKey:          tk_,
-              avatarStage:      avStageGlobal_,
-              lastUpdated:      fb_.firestore.FieldValue.serverTimestamp(),
-            };
-            if (studying_) update.studyStartedAt = Date.now();
-            db_.collection('groups').doc(g.code).collection('members').doc(uid_)
-              .set(update, { merge: true })
-              .then(() => { _updateGroupStats(g.code); })
-              .catch(() => {});
-          }
-        });
-      }
+      // Broadcast to ALL joined groups simultaneously so every group shows
+      // the same timer for this user. _writePresenceAllGroups manages the
+      // studyStartedAt session-start timestamp correctly (set once, never reset).
+      const studying_ = ui().focusIsRunning?.() === true;
+      const avStage_  = window._lsGetCurrentAvStage?.() || 0;
+      _writePresenceAllGroups(studying_, todayMins, avStage_);
       if (window._currentTab === 'social') renderSocial();
     };
 
