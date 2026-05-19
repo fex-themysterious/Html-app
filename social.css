@@ -1322,6 +1322,14 @@
 .sr-card-active .sr-card-timer,
 .sr-timer-live { color: #ff7a1a; }
 
+@keyframes sr-live-pulse {
+  0%, 100% { text-shadow: 0 0 4px rgba(255,122,26,.35); }
+  50%       { text-shadow: 0 0 10px rgba(255,122,26,.85), 0 0 18px rgba(255,122,26,.3); }
+}
+.sr-timer-live {
+  animation: sr-live-pulse 2s ease-in-out infinite;
+}
+
 .sr-card-lastseen {
   font-size: 9px;
   font-weight: 500;

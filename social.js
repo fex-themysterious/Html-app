@@ -971,13 +971,30 @@
         const timerEl = view.querySelector(`[data-sr-timer="${m.id}"]`);
         if (timerEl) timerEl.textContent = _fmtSecs(_srMemberSeconds(m));
       });
-      // Also update timers and last-seen labels for Firebase-only members
+      // Update timers, last-seen labels, and detect staleness-based state changes
+      // for Firebase members. The Firestore listener handles isStudying flips that
+      // come from explicit writes, but staleness (heartbeat timeout) is purely
+      // time-based — only the ticker can catch those transitions.
+      const _tickMyUid = getUserId();
+      let _remoteStateDirty = false;
       Object.keys(_liveMembers).forEach(uid => {
         const timerEl = view.querySelector(`[data-sr-timer="${uid}"]`);
         if (timerEl) timerEl.textContent = _fmtSecs(_srMemberSeconds({ id: uid }));
         const lsEl = view.querySelector(`[data-sr-lastseen="${uid}"]`);
         if (lsEl) lsEl.textContent = _fmtLastSeen(_liveMembers[uid]);
+        // Detect staleness-based active→idle flip (not covered by Firestore listener)
+        if (uid !== _tickMyUid) {
+          const cardEl = view.querySelector(`[data-sr-card="${uid}"]`);
+          if (cardEl) {
+            const lm = _liveMembers[uid];
+            const shouldBeActive = !!(lm.isStudying && !_isMemberStale(lm) && !_isOffDayToday(uid));
+            if (shouldBeActive !== cardEl.classList.contains('sr-card-active')) {
+              _remoteStateDirty = true;
+            }
+          }
+        }
       });
+      if (_remoteStateDirty) { _stopSrTicker(); renderSocial(); return; }
 
       const me = (g.members || []).find(x => x.id === 'me');
       const fbActiveCount = Object.values(_liveMembers).filter(x => x.isStudying).length;
@@ -1189,6 +1206,22 @@
 
           // ── Lightweight pass: update timers + counts for existing cards ──
           if (!view.querySelector('.sr-room')) return;
+
+          // Detect active↔idle state changes for remote members and re-render if needed.
+          // This covers the common case where a member starts/stops studying without
+          // joining or leaving the room (roster didn't change so the hasNew/hasLeft
+          // guards above didn't fire).
+          const _myUid = getUserId();
+          const stateChanged = Object.keys(_liveMembers).some(uid => {
+            if (uid === _myUid) return false; // 'me' is handled by the ticker
+            const cardEl = view.querySelector(`[data-sr-card="${uid}"]`);
+            if (!cardEl) return false;
+            const lm = _liveMembers[uid];
+            const shouldBeActive = !!(lm.isStudying && !_isMemberStale(lm) && !_isOffDayToday(uid));
+            return shouldBeActive !== cardEl.classList.contains('sr-card-active');
+          });
+          if (stateChanged) { renderSocial(); return; }
+
           Object.keys(_liveMembers).forEach(uid => {
             const el = view.querySelector(`[data-sr-timer="${uid}"]`);
             if (el) el.textContent = _fmtSecs(_srMemberSeconds({ id: uid }));
