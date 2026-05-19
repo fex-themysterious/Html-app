@@ -934,7 +934,15 @@
         }
       } catch(_) {}
       await Promise.allSettled(ops);
+      // Recount actual members after this user's doc was removed
+      try { window._socialRecalcMemberCount?.(code); } catch(_) {}
     }));
+
+    // Delete the user's global active-session doc (cross-group presence)
+    try { await _db.collection('activeSessions').doc(uid).delete(); } catch(_) {}
+    // Flush the social layer's in-memory state for this UID so group renders
+    // stop showing the deleted user immediately without waiting for snapshots
+    try { window._socialCascadeCleanupUid?.(uid); } catch(_) {}
   }
 
   // Clears all local app data from localStorage after account deletion

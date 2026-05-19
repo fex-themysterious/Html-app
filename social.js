@@ -276,6 +276,75 @@
       }).catch(() => {});
   }
 
+  // ── Ghost member detection ────────────────────────────────────────────────
+  // Checks every non-self member UID in the room against users/{uid}.
+  // Members whose user doc is missing are "orphans" (deleted accounts).
+  // They are:
+  //   1. Added to _confirmedOrphans → filtered out of all renders immediately.
+  //   2. Batch-deleted from Firestore if the current user owns the group.
+  // Uses FieldPath.documentId() 'in' queries (10-per-chunk) to minimise reads.
+  async function _detectGhostMembers(code) {
+    const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
+    if (!db_ || !uid_ || !fb_) return;
+    const memberUids = Object.keys(_liveMembers).filter(u => u !== uid_);
+    if (!memberUids.length) return;
+
+    const ghosts = [];
+    // Chunk into ≤10 per Firestore 'in' limit
+    for (let i = 0; i < memberUids.length; i += 10) {
+      const chunk = memberUids.slice(i, i + 10);
+      try {
+        const snap = await db_.collection('users')
+          .where(fb_.firestore.FieldPath.documentId(), 'in', chunk)
+          .get();
+        const found = new Set(snap.docs.map(d => d.id));
+        chunk.forEach(u => { if (!found.has(u)) ghosts.push(u); });
+      } catch(_) {}
+    }
+    if (!ghosts.length) return;
+
+    // Register orphans for immediate visual filtering
+    ghosts.forEach(u => _confirmedOrphans.add(u));
+    // Remove orphans from local live members / session caches
+    ghosts.forEach(u => {
+      delete _liveMembers[u];
+      delete _activeSessionsCache[u];
+      if (_activeSessionsUnsubs[u])  { try { _activeSessionsUnsubs[u](); }  catch(_) {} delete _activeSessionsUnsubs[u]; }
+      if (_memberPresenceUnsubs[u])  { try { _memberPresenceUnsubs[u](); }  catch(_) {} delete _memberPresenceUnsubs[u]; }
+    });
+    if (window._currentTab === 'social') renderSocial();
+
+    // Destructive Firestore cleanup — only if current user is owner/admin of this group
+    const sc_  = scLoad();
+    const myG  = sc_.groups.find(g => g.code === code);
+    const canClean = myG && (myG.ownerUid === uid_ || myG.createdByUid === uid_ ||
+                             (Array.isArray(myG.adminUids) && myG.adminUids.includes(uid_)));
+    if (!canClean) return;
+
+    // Batch delete: up to 500 ops. Firestore batch.update increments count once per ghost.
+    // Split into sub-batches of 200 to stay well under the 500-op limit.
+    const groupRef = db_.collection('groups').doc(code);
+    const BATCH_SIZE = 200;
+    for (let i = 0; i < ghosts.length; i += BATCH_SIZE) {
+      const slice = ghosts.slice(i, i + BATCH_SIZE);
+      const batch = db_.batch();
+      slice.forEach(ghostUid => {
+        batch.delete(groupRef.collection('members').doc(ghostUid));
+        batch.delete(groupRef.collection('presence').doc(ghostUid));
+        batch.delete(groupRef.collection('joinRequests').doc(ghostUid));
+        batch.delete(groupRef.collection('voice_presence').doc(ghostUid));
+        // Each ghost decrement is a separate update — track total outside batch
+      });
+      try { await batch.commit(); } catch(_) {}
+    }
+    // Clean activeSessions/{uid} for each ghost (separate collection, no group scope)
+    await Promise.allSettled(
+      ghosts.map(u => db_.collection('activeSessions').doc(u).delete().catch(() => {}))
+    );
+    // Recalculate authoritative count after all deletes
+    _recalcMemberCount(code);
+  }
+
   // ── Global presence broadcaster ───────────────────────────────────────────
   // Single source of truth for the current user's study session start time.
   // Stored once when a session begins; reused for all group member doc writes
@@ -619,6 +688,11 @@
   // Falls back to users/{uid} if Firestore rules block the collection.
   let _activeSessionsUnsubs = {}; // { uid: unsubFn }
   let _activeSessionsCache  = {}; // { uid: { active, startedAt, mode } }
+  // UIDs confirmed to have no users/{uid} doc — orphaned members (deleted accounts).
+  // Filtered out of member renders; cleaned from Firestore if current user is owner/admin.
+  let _confirmedOrphans    = new Set();
+  // Guard so ghost detection runs only once per subscription, not every snapshot fire.
+  let _ghostCheckDone      = false;
 
   const isStudying = () => { try { return window._focusActive === true; } catch(_) { return false; } };
 
@@ -1473,6 +1547,12 @@
           const prevKeys = new Set(Object.keys(_liveMembers));
           _liveMembers = {};
           snap.docs.forEach(d => { _liveMembers[d.id] = d.data(); });
+          // One-time ghost detection per subscription: schedule after Firestore
+          // presence listeners have had a chance to populate _liveMembers.
+          if (!_ghostCheckDone) {
+            _ghostCheckDone = true;
+            setTimeout(() => _detectGhostMembers(code), 6000);
+          }
 
           // ── Re-apply cached presence overrides IMMEDIATELY after rebuild ──
           // This prevents stale group-doc data from temporarily overwriting
@@ -1649,6 +1729,9 @@
     Object.values(_activeSessionsUnsubs).forEach(unsub => { try { unsub(); } catch(_) {} });
     _activeSessionsUnsubs = {};
     _activeSessionsCache  = {};
+    // Reset ghost detection state for the next room
+    _confirmedOrphans  = new Set();
+    _ghostCheckDone    = false;
     _unsubscribeChatMessages();
   }
 
@@ -2299,15 +2382,18 @@
       if (uid && !memberMap.has(uid)) memberMap.set(uid, m);
       else if (!uid) memberMap.set('__' + Math.random(), m);
     });
-    // Merge Firebase-only members not already in local list
+    // Merge Firebase-only members not already in local list.
+    // Skip confirmed orphans — users whose account has been deleted.
     Object.entries(_liveMembers).forEach(([uid, data]) => {
-      if (uid && !memberMap.has(uid)) {
+      if (uid && !memberMap.has(uid) && !_confirmedOrphans.has(uid)) {
         memberMap.set(uid, {
           id: uid, name: data.displayName || 'Studying…', role: data.role || 'member',
           _fromFirebase: true,
         });
       }
     });
+    // Also prune any local members already identified as orphans
+    _confirmedOrphans.forEach(uid => memberMap.delete(uid));
     const allMembers  = [...memberMap.values()];
     // Filter stale heartbeats (heartbeat > PRESENCE_STALE_MS old) so active
     // count matches what the member cards actually show as active.
@@ -4757,6 +4843,23 @@
     // the 500ms init timeout above fires with uid=null and returns early, so groups
     // would never appear after login without this re-entry point.
     window._socialRestoreGroups = () => { _restoreGroupsFromFirebase().catch(() => {}); };
+
+    // Exposed so script.js can trigger a member-count recalculation after
+    // account-deletion cascade without needing access to the social IIFE scope.
+    window._socialRecalcMemberCount = (code) => _recalcMemberCount(code);
+
+    // Exposed so script.js (and any future caller) can run the full social-layer
+    // cleanup for a UID: cancels active sessions, removes from all group renders,
+    // and lets _detectGhostMembers do the Firestore writes on next room open.
+    window._socialCascadeCleanupUid = (uid) => {
+      if (!uid) return;
+      _confirmedOrphans.add(uid);
+      delete _liveMembers[uid];
+      delete _activeSessionsCache[uid];
+      if (_activeSessionsUnsubs[uid])  { try { _activeSessionsUnsubs[uid](); }  catch(_) {} delete _activeSessionsUnsubs[uid]; }
+      if (_memberPresenceUnsubs[uid])  { try { _memberPresenceUnsubs[uid](); }  catch(_) {} delete _memberPresenceUnsubs[uid]; }
+      if (window._currentTab === 'social') renderSocial();
+    };
 
     // Called by script.js whenever study time is saved (timer stop, session end, pomodoro complete).
     // This writes the updated minutes to all group member docs and triggers stat recalculation
