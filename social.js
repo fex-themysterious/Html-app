@@ -361,6 +361,36 @@
             .set(update, { merge: true }).catch(() => {});
         });
       });
+
+    // Also write to the top-level activeSessions/{uid} doc — a single write
+    // that ALL group rooms subscribe to, ensuring instant cross-group sync.
+    _writeActiveSession(isStudying);
+  }
+
+  // ── activeSessions/{uid} writer ───────────────────────────────────────────
+  // Writes the current focus state to the top-level activeSessions collection.
+  // This is the single canonical doc ALL groups subscribe to — one write per
+  // event, not one write per group.  Falls back silently if security rules
+  // haven't been deployed for this collection yet.
+  function _writeActiveSession(isStudying) {
+    const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
+    if (!db_ || !uid_ || !fb_) return;
+    const sessionDoc = {
+      uid:       uid_,
+      active:    !!isStudying,
+      mode:      isStudying ? 'focus' : 'idle',
+      updatedAt: fb_.firestore.FieldValue.serverTimestamp(),
+    };
+    if (isStudying && _mySessionStartedAt) {
+      sessionDoc.startedAt       = _mySessionStartedAt;  // client ms timestamp (set once)
+      sessionDoc.currentSessionId = String(_mySessionStartedAt);
+    } else {
+      sessionDoc.startedAt       = null;
+      sessionDoc.currentSessionId = null;
+    }
+    db_.collection('activeSessions').doc(uid_)
+      .set(sessionDoc, { merge: true })
+      .catch(() => {}); // silent — rules may not cover this collection yet
   }
 
   // ── Startup reconciliation ─────────────────────────────────────────────────
@@ -529,6 +559,11 @@
   // Cache of latest users/{uid} presence data — survives group member snapshot rebuilds
   // so timers stay consistent even when the group roster snapshot re-fires.
   let _cachedUserPresence  = {};   // { uid: { todayFocusMinutes, isStudying, studyStartedAt, ... } }
+  // Global activeSessions/{uid} — canonical real-time source for focus state.
+  // Written on every focus start/stop. Subscribed per-member in every room.
+  // Falls back to users/{uid} if Firestore rules block the collection.
+  let _activeSessionsUnsubs = {}; // { uid: unsubFn }
+  let _activeSessionsCache  = {}; // { uid: { active, startedAt, mode } }
 
   const isStudying = () => { try { return window._focusActive === true; } catch(_) { return false; } };
 
@@ -1071,6 +1106,13 @@
   function _srMemberIsActive(m) {
     if (m.id === 'me') return ui().focusIsRunning?.() === true;
     const uid = m.id || m.uid;
+    // activeSessions cache is the most up-to-date source (written optimistically
+    // on every focus start/stop, before Firestore write completes).
+    if (uid && _activeSessionsCache[uid]) {
+      const as = _activeSessionsCache[uid];
+      if (as.active === true) return true;
+      if (as.active === false) return false; // explicit stop — trust it
+    }
     if (uid && _liveMembers[uid]) {
       const lm = _liveMembers[uid];
       if (!lm.isStudying) return false;
@@ -1090,15 +1132,24 @@
       return storedMins * 60 + elapsed;
     }
     const uid = m.id || m.uid;
-    if (uid && _liveMembers[uid]) {
-      const lm = _liveMembers[uid];
+    const as  = uid ? _activeSessionsCache[uid] : null;  // activeSessions cache
+    const lm  = uid ? _liveMembers[uid] : null;          // group member doc
+    if (lm) {
       const baseMins = (lm.dateKey === tk ? (lm.elapsedTimeToday || 0) : 0);
-      // Do not add live elapsed if the member's heartbeat has gone stale —
-      // their timer would otherwise keep counting up forever after they disconnect.
-      const extra = (lm.isStudying && !_isMemberStale(lm))
-        ? Math.floor((Date.now() - (lm.studyStartedAt || Date.now())) / 1000)
+      // Determine active state: prefer activeSessions cache (most authoritative)
+      const isActive = (as?.active === true) || (lm.isStudying && !_isMemberStale(lm));
+      // Prefer activeSessions startedAt (set once, never reset); fall back to group doc
+      const startedAt = (as?.active && as?.startedAt) ? as.startedAt
+        : (lm.studyStartedAt || null);
+      // Do not add live elapsed if stale — timer would run forever after disconnect
+      const extra = isActive && startedAt
+        ? Math.floor((Date.now() - startedAt) / 1000)
         : 0;
       return baseMins * 60 + extra;
+    }
+    // Member not in _liveMembers yet — use activeSessions alone if available
+    if (as?.active && as?.startedAt) {
+      return Math.floor((Date.now() - as.startedAt) / 1000);
     }
     return (m.todayKey === tk ? (m.todayMins || 0) : 0) * 60;
   }
@@ -1362,14 +1413,47 @@
           // the authoritative users/{uid} values between snapshot fires.
           _applyPresenceCache();
 
-          // ── Subscribe to each member's global presence (users/{uid}) ─────
-          // This overrides per-group elapsedTimeToday with the user's canonical
-          // daily study time, ensuring ALL groups show the SAME timer/state.
+          // ── Subscribe to activeSessions/{uid} for each member ──────────────
+          // This is the primary real-time presence source — a single flat doc
+          // per user, written on every focus start/stop. Subscribing here means
+          // ALL groups instantly see the same session state for each member.
           const _myUid2 = getUserId();
           const _db2 = getDb();
           if (_db2) {
             Object.keys(_liveMembers).forEach(mUid => {
-              if (mUid === _myUid2) return; // self is tracked via local app state
+              if (mUid === _myUid2) return; // self updated optimistically in _socialFocusUpdate
+              // ── activeSessions/{uid} listener ────────────────────────────
+              if (!_activeSessionsUnsubs[mUid]) {
+                try {
+                  _activeSessionsUnsubs[mUid] = _db2.collection('activeSessions').doc(mUid)
+                    .onSnapshot(asSnap => {
+                      const as = asSnap.data() || {};
+                      _activeSessionsCache[mUid] = {
+                        active:    !!as.active,
+                        startedAt: as.startedAt ?? null,
+                        mode:      as.mode || 'idle',
+                      };
+                      // Merge into _liveMembers so existing render code stays correct
+                      if (_liveMembers[mUid]) {
+                        _liveMembers[mUid].isStudying = !!as.active;
+                        if (as.startedAt) _liveMembers[mUid].studyStartedAt = as.startedAt;
+                        else              delete _liveMembers[mUid].studyStartedAt;
+                        // Treat the activeSessions updatedAt as a fresh heartbeat
+                        if (as.updatedAt) _liveMembers[mUid].lastUpdated = as.updatedAt;
+                      }
+                      // Instantly refresh the timer chip if the room is visible
+                      const vw = document.getElementById('view-social');
+                      if (vw) {
+                        const te = vw.querySelector(`[data-sr-timer="${mUid}"]`);
+                        if (te) te.textContent = _fmtSecs(_srMemberSeconds({ id: mUid }));
+                      }
+                    }, () => {
+                      // Permission denied — collection rules not deployed yet; fall through
+                      delete _activeSessionsUnsubs[mUid];
+                    });
+                } catch(_) {}
+              }
+              // ── users/{uid} listener (presence fallback) ─────────────────
               if (_memberPresenceUnsubs[mUid]) return; // already subscribed
               try {
                 _memberPresenceUnsubs[mUid] = _db2.collection('users').doc(mUid)
@@ -1490,9 +1574,13 @@
     _liveMembers = {};
     // Clear presence cache so the next room starts fresh with no stale overrides
     _cachedUserPresence = {};
-    // Clean up per-member global presence subscriptions
+    // Clean up per-member global presence subscriptions (users/{uid})
     Object.values(_memberPresenceUnsubs).forEach(unsub => { try { unsub(); } catch(_) {} });
     _memberPresenceUnsubs = {};
+    // Clean up activeSessions/{uid} subscriptions
+    Object.values(_activeSessionsUnsubs).forEach(unsub => { try { unsub(); } catch(_) {} });
+    _activeSessionsUnsubs = {};
+    _activeSessionsCache  = {};
     _unsubscribeChatMessages();
   }
 
@@ -4509,6 +4597,39 @@
       const studying_ = ui().focusIsRunning?.() === true;
       const avStage_  = window._lsGetCurrentAvStage?.() || 0;
       _writePresenceAllGroups(studying_, todayMins, avStage_);
+
+      // ── Optimistic local update ─────────────────────────────────────────────
+      // Update _liveMembers[myUid] and _activeSessionsCache IMMEDIATELY, without
+      // waiting for the Firestore roundtrip (~200-500ms).  This ensures:
+      //   • The active counter is correct on the very first render after focus start.
+      //   • Member cards flip to active state instantly.
+      //   • _srMemberIsActive / _srMemberSeconds return correct values right away.
+      const myUid_ = getUserId();
+      if (myUid_) {
+        if (!_liveMembers[myUid_]) {
+          _liveMembers[myUid_] = { uid: myUid_, displayName: _getUserDisplayName() };
+        }
+        _liveMembers[myUid_].isStudying       = !!studying_;
+        _liveMembers[myUid_].elapsedTimeToday = todayMins;
+        _liveMembers[myUid_].dateKey           = tk;
+        _liveMembers[myUid_].lastUpdated       = Date.now();
+        if (studying_ && _mySessionStartedAt) {
+          _liveMembers[myUid_].studyStartedAt  = _mySessionStartedAt;
+        } else if (!studying_) {
+          delete _liveMembers[myUid_].studyStartedAt;
+        }
+        // Mirror to activeSessions cache so _srMemberIsActive/_srMemberSeconds
+        // (and remote users who subscribe to activeSessions) see consistent data.
+        _activeSessionsCache[myUid_] = {
+          active:    !!studying_,
+          startedAt: studying_ ? (_mySessionStartedAt || Date.now()) : null,
+          mode:      studying_ ? 'focus' : 'idle',
+        };
+      }
+
+      // Re-render the social view if it is currently open.
+      // This makes the active badge, counter, and member card flip happen
+      // without waiting for the next Firestore snapshot.
       if (window._currentTab === 'social') renderSocial();
     };
 
