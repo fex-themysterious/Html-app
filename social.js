@@ -339,6 +339,11 @@
     // Group member docs carry isStudying, role, displayName, avatarStage etc.
     // elapsedTimeToday here stays in sync via the batch; the users/{uid} doc
     // is the authoritative override that group room listeners use.
+    // When stopping, explicitly delete studyStartedAt so remote clients don't
+    // continue computing live elapsed time from a stale start timestamp.
+    if (!isStudying) {
+      update.studyStartedAt = fb_.firestore.FieldValue.delete();
+    }
     const batch = db_.batch();
     codes.forEach(code => {
       batch.set(
@@ -521,6 +526,9 @@
   let _liveSubscribedCode  = null; // code currently subscribed to in _subscribeRoomMembers
   // Per-member global presence subscriptions: users/{uid} → overrides per-group elapsedTimeToday
   let _memberPresenceUnsubs = {};  // { uid: unsubFn }
+  // Cache of latest users/{uid} presence data — survives group member snapshot rebuilds
+  // so timers stay consistent even when the group roster snapshot re-fires.
+  let _cachedUserPresence  = {};   // { uid: { todayFocusMinutes, isStudying, studyStartedAt, ... } }
 
   const isStudying = () => { try { return window._focusActive === true; } catch(_) { return false; } };
 
@@ -1142,8 +1150,10 @@
       if (_remoteStateDirty) { _stopSrTicker(); renderSocial(); return; }
 
       const me = (g.members || []).find(x => x.id === 'me');
-      const fbActiveCount = Object.values(_liveMembers).filter(x => x.isStudying).length;
-      const meActive = me ? _srMemberIsActive(me) : false;
+      // Filter stale heartbeats so active count matches visible card states
+      const fbActiveCount = Object.values(_liveMembers).filter(x => x.isStudying && !_isMemberStale(x)).length;
+      // Always derive own active state from live focus engine, never from stale _liveMembers
+      const meActive = ui().focusIsRunning?.() === true;
       const activeCnt = meActive ? Math.max(1, fbActiveCount) : fbActiveCount;
       const cntEl = view.querySelector('.sr-studying-count');
       if (cntEl) cntEl.textContent = activeCnt;
@@ -1303,10 +1313,37 @@
     } catch(_) {}
   }
 
+  // ── Apply cached user-doc presence overrides to _liveMembers ──────────────
+  // Called after every group-members snapshot rebuild so timers never regress
+  // to stale group-doc values. The cache is populated by the per-member
+  // users/{uid} listeners and persists until the room is unsubscribed.
+  function _applyPresenceCache() {
+    const tk = todayKey();
+    Object.entries(_cachedUserPresence).forEach(([mUid, uData]) => {
+      const lm = _liveMembers[mUid];
+      if (!lm) return;
+      if (uData.todayDateKey === tk && typeof uData.todayFocusMinutes === 'number') {
+        lm.elapsedTimeToday = uData.todayFocusMinutes;
+        lm.dateKey          = tk;
+      }
+      // studyStartedAt: prefer cached (authoritative) value; null means session ended
+      if ('studyStartedAt' in uData) {
+        if (uData.studyStartedAt) lm.studyStartedAt = uData.studyStartedAt;
+        else delete lm.studyStartedAt;
+      }
+      if (uData.isStudying != null) lm.isStudying   = uData.isStudying;
+      if (uData.presenceUpdatedAt)  lm.lastUpdated   = uData.presenceUpdatedAt;
+    });
+  }
+
   function _subscribeRoomMembers(code) {
     // Guard: already listening to this exact room — skip duplicate attach
     if (_liveSubscribedCode === code && _memberUnsub) return;
     if (_memberUnsub) { try { _memberUnsub(); } catch(_) {} _memberUnsub = null; }
+    // Tear down stale per-member presence listeners from the previous room
+    Object.values(_memberPresenceUnsubs).forEach(unsub => { try { unsub(); } catch(_) {} });
+    _memberPresenceUnsubs = {};
+    _cachedUserPresence = {};
     _liveSubscribedCode = code;
     _liveMembers = {};
     const db = getDb();
@@ -1320,9 +1357,14 @@
           _liveMembers = {};
           snap.docs.forEach(d => { _liveMembers[d.id] = d.data(); });
 
+          // ── Re-apply cached presence overrides IMMEDIATELY after rebuild ──
+          // This prevents stale group-doc data from temporarily overwriting
+          // the authoritative users/{uid} values between snapshot fires.
+          _applyPresenceCache();
+
           // ── Subscribe to each member's global presence (users/{uid}) ─────
           // This overrides per-group elapsedTimeToday with the user's canonical
-          // daily study time, ensuring all groups show the same value.
+          // daily study time, ensuring ALL groups show the SAME timer/state.
           const _myUid2 = getUserId();
           const _db2 = getDb();
           if (_db2) {
@@ -1334,14 +1376,30 @@
                   .onSnapshot(uSnap => {
                     const uData = uSnap.data() || {};
                     const tk2 = todayKey();
-                    // Only apply if this is actually today's data
+
+                    // ── 1. Update the persistent presence cache ────────────
+                    // This cache survives group-roster snapshot rebuilds so
+                    // timers never regress to stale group-doc values.
+                    _cachedUserPresence[mUid] = {
+                      todayFocusMinutes: uData.todayFocusMinutes,
+                      todayDateKey:      uData.todayDateKey,
+                      isStudying:        uData.isStudying,
+                      studyStartedAt:    uData.studyStartedAt ?? null,
+                      presenceUpdatedAt: uData.presenceUpdatedAt,
+                    };
+
+                    // ── 2. Apply overrides to live member entry ────────────
                     if (uData.todayDateKey === tk2 && typeof uData.todayFocusMinutes === 'number') {
                       if (_liveMembers[mUid]) {
-                        // Override with canonical global value
                         _liveMembers[mUid].elapsedTimeToday = uData.todayFocusMinutes;
                         _liveMembers[mUid].dateKey           = tk2;
-                        if (uData.studyStartedAt)   _liveMembers[mUid].studyStartedAt = uData.studyStartedAt;
-                        if (uData.isStudying != null) _liveMembers[mUid].isStudying    = uData.isStudying;
+                        if (uData.studyStartedAt) {
+                          _liveMembers[mUid].studyStartedAt = uData.studyStartedAt;
+                        } else {
+                          delete _liveMembers[mUid].studyStartedAt;
+                        }
+                        if (uData.isStudying != null) _liveMembers[mUid].isStudying = uData.isStudying;
+                        if (uData.presenceUpdatedAt) _liveMembers[mUid].lastUpdated = uData.presenceUpdatedAt;
                       }
                       // Instantly update the timer chip if the card is visible
                       const vw = document.getElementById('view-social');
@@ -1353,6 +1411,7 @@
                   }, () => {
                     // Permission denied or network error — silently drop, fall back to group doc
                     delete _memberPresenceUnsubs[mUid];
+                    delete _cachedUserPresence[mUid];
                   });
               } catch(_) {}
             });
@@ -1412,7 +1471,8 @@
             if (el) el.textContent = _fmtSecs(_srMemberSeconds({ id: uid }));
           });
           const meIsActive  = !!(view.querySelector('[data-sr-card="me"]')?.classList.contains('sr-card-active'));
-          const onlineCount = Object.values(_liveMembers).filter(x => x.isStudying).length;
+          // Filter stale members (heartbeat expired) so active count matches card state
+          const onlineCount = Object.values(_liveMembers).filter(x => x.isStudying && !_isMemberStale(x)).length;
           const activeCnt   = meIsActive ? Math.max(1, onlineCount) : onlineCount;
           const cntEl = view.querySelector('.sr-studying-count');
           if (cntEl) cntEl.textContent = activeCnt;
@@ -1428,6 +1488,8 @@
     if (_memberUnsub) { try { _memberUnsub(); } catch(_) {} _memberUnsub = null; }
     _liveSubscribedCode = null;
     _liveMembers = {};
+    // Clear presence cache so the next room starts fresh with no stale overrides
+    _cachedUserPresence = {};
     // Clean up per-member global presence subscriptions
     Object.values(_memberPresenceUnsubs).forEach(unsub => { try { unsub(); } catch(_) {} });
     _memberPresenceUnsubs = {};
@@ -2070,8 +2132,9 @@
   function _renderSrHome(g, sc) {
     const members  = g.members || [];
     const myUid    = getUserId();
-    const me       = members.find(x => x.id === 'me' || x.id === myUid);
-    const meActive = me ? _srMemberIsActive(me) : false;
+    // Always derive own active state from the live focus engine — never from
+    // the Firestore-delayed _liveMembers[uid] or local g.members data.
+    const meActive = ui().focusIsRunning?.() === true;
 
     // Deduplicate members using a UID-keyed map — prevents duplicate "You" cards
     const memberMap = new Map();
@@ -2090,7 +2153,9 @@
       }
     });
     const allMembers  = [...memberMap.values()];
-    const fbOnline    = Object.values(_liveMembers).filter(x => x.isStudying).length;
+    // Filter stale heartbeats (heartbeat > PRESENCE_STALE_MS old) so active
+    // count matches what the member cards actually show as active.
+    const fbOnline    = Object.values(_liveMembers).filter(x => x.isStudying && !_isMemberStale(x)).length;
     const activeCount = meActive ? Math.max(1, fbOnline) : fbOnline;
     const totalCount  = Math.max(allMembers.length, Object.keys(_liveMembers).length, (g.memberCount || 0));
 
