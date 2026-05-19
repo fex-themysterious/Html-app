@@ -230,6 +230,8 @@
     if (typeof s.xp.spent !== 'number')       s.xp.spent       = 0;
     if (typeof s.xp.weeklyEarned !== 'number') s.xp.weeklyEarned = 0;
     if (!s.xp.weeklyReset) s.xp.weeklyReset = todayKey();
+    // taskAwards: map of taskKey → XP amount awarded, used to reverse XP on uncheck/delete
+    if (!s.xp.taskAwards || typeof s.xp.taskAwards !== 'object') s.xp.taskAwards = {};
     if (!s.inventory  || typeof s.inventory  !== 'object') s.inventory  = {};
     if (!s.equippedItems || typeof s.equippedItems !== 'object') s.equippedItems = {};
     if (!s.dailyQuests || typeof s.dailyQuests !== 'object') s.dailyQuests = { date: '', quests: [] };
@@ -1692,12 +1694,30 @@
       showXPFloat(amount, ringEl);
     },
 
-    // Task XP: 50 XP per completed task, doubled if booster active
-    addTaskXP(sourceEl) {
+    // Task XP: 50 XP per completed task, doubled if booster active.
+    // taskKey uniquely identifies the task so the exact award can be reversed on uncheck/delete.
+    addTaskXP(taskKey, sourceEl) {
+      if (!state.xp || typeof state.xp !== 'object') state.xp = { total: 0, streakBonusDate: null, taskAwards: {} };
+      if (!state.xp.taskAwards) state.xp.taskAwards = {};
+      // Duplicate-award guard: if this key is already recorded, XP was already given
+      if (state.xp.taskAwards[taskKey]) return;
       const mult = _isBoosterActive() ? 2 : 1;
       const amount = 50 * mult;
+      state.xp.taskAwards[taskKey] = amount;   // record so we can reverse it exactly
       this.addXP(amount, 'task');
       showXPFloat(amount, sourceEl || null);
+    },
+
+    // Remove the exact XP that was awarded for taskKey (called on uncheck or task delete)
+    removeTaskXP(taskKey, sourceEl) {
+      if (!state.xp || !state.xp.taskAwards) return;
+      const amount = state.xp.taskAwards[taskKey];
+      if (!amount) return;                      // task was never awarded XP — nothing to do
+      delete state.xp.taskAwards[taskKey];
+      state.xp.total = Math.max(0, (state.xp.total || 0) - amount);
+      this._updateXPBar();
+      _debouncedSocialSync();
+      if (sourceEl) showXPFloat(-amount, sourceEl);
     },
 
     // 7-day streak bonus: award 100 XP once per qualifying streak
@@ -8506,22 +8526,74 @@
     if (act === 'regen-plan') { closeModal(); const k = todayKey(); if (state.dailyPlans[k]) { state.dailyPlans[k].generated = false; state.dailyPlans[k].auto = []; state.dailyPlans[k].custom = state.dailyPlans[k].custom.filter(c => !c.rolledOver); } saveState(); ensureTodayPlan(); renderDashboard(); toast('Plan regenerated', 'info'); return; }
     if (act === 'toggle-plan-task') {
       const type = el.dataset.type;
-      if (type === 'auto') { const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { const wasDone = t.done; t.done = !t.done; const _ck = `topic:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`; if (t.done) { bumpActivity(); trackCompletion(_ck, true); gamificationManager.addTaskXP(el); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true); _justPoppedKey = `auto:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`; } else { trackCompletion(_ck, false); onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, false); } const tasks = getActivePlanTasks(); if (tasks.length > 0 && tasks.every(x => x.done) && !wasDone) _justCompletedDay = todayKey(); saveState(); renderAll(); } }
-      else { const plan = state.dailyPlans[todayKey()]; if (plan) { const ct = plan.custom.find(c => c.id === el.dataset.id); if (ct) { ct.done = !ct.done; if (ct.done) { bumpActivity(); gamificationManager.addTaskXP(el); } saveState(); renderAll(); } } }
+      if (type === 'auto') {
+        const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t);
+        if (t) {
+          const wasDone = t.done;
+          t.done = !t.done;
+          const _ck = `topic:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`;
+          if (t.done) {
+            bumpActivity();
+            trackCompletion(_ck, true);
+            gamificationManager.addTaskXP(_ck, el);
+            onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true);
+            _justPoppedKey = `auto:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`;
+          } else {
+            gamificationManager.removeTaskXP(_ck, el);
+            trackCompletion(_ck, false);
+            onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, false);
+          }
+          const tasks = getActivePlanTasks();
+          if (tasks.length > 0 && tasks.every(x => x.done) && !wasDone) _justCompletedDay = todayKey();
+          saveState();
+          renderAll();
+        }
+      } else {
+        const plan = state.dailyPlans[todayKey()];
+        if (plan) {
+          const ct = plan.custom.find(c => c.id === el.dataset.id);
+          if (ct) {
+            ct.done = !ct.done;
+            const _ck = `custom:${ct.id}`;
+            if (ct.done) {
+              bumpActivity();
+              gamificationManager.addTaskXP(_ck, el);
+            } else {
+              gamificationManager.removeTaskXP(_ck, el);
+            }
+            saveState();
+            renderAll();
+          }
+        }
+      }
       return;
     }
     if (act === 'remove-plan-task') {
       const type = el.dataset.type, plan = state.dailyPlans[todayKey()]; if (!plan) return;
-      if (type === 'auto') { const key = autoKey(el.dataset.sub, el.dataset.ch, el.dataset.t); const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t); if (t) { t.skipCount = (t.skipCount || 0) + 1; t.lastSkippedAt = todayKey(); } if (!plan.removed.includes(key)) plan.removed.push(key); saveState(); renderAll(); }
-      else {
+      if (type === 'auto') {
+        const key = autoKey(el.dataset.sub, el.dataset.ch, el.dataset.t);
+        const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t);
+        if (t) {
+          // If the topic was done, reverse its XP award before removing
+          if (t.done) gamificationManager.removeTaskXP(`topic:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`);
+          t.skipCount = (t.skipCount || 0) + 1;
+          t.lastSkippedAt = todayKey();
+        }
+        if (!plan.removed.includes(key)) plan.removed.push(key);
+        saveState(); renderAll();
+      } else {
         const rid = el.dataset.rid;
         if (rid) {
           confirmModal('This is a daily recurring task. Remove it forever so it stops repeating?', () => {
+            const cTask = plan.custom.find(c => c.id === el.dataset.id);
+            if (cTask && cTask.done) gamificationManager.removeTaskXP(`custom:${cTask.id}`);
             state.recurringTasks = (state.recurringTasks || []).filter(r => r.id !== rid);
             plan.custom = plan.custom.filter(c => c.id !== el.dataset.id);
             saveState(); renderAll();
           }, { title: 'Stop Recurring Task?', yesLabel: 'Remove Forever', yesClass: 'btn', noLabel: 'Keep' });
         } else {
+          const cTask = plan.custom.find(c => c.id === el.dataset.id);
+          if (cTask && cTask.done) gamificationManager.removeTaskXP(`custom:${cTask.id}`);
           plan.custom = plan.custom.filter(c => c.id !== el.dataset.id);
           saveState(); renderAll();
         }
