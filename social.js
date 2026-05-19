@@ -76,12 +76,10 @@
       if (!uid || !g) return null;
       // owner: UID matches any ownership/creator field
       if (g.ownerUid === uid || g.createdByUid === uid || g.createdBy === uid) return 'owner';
-      // admin: in admins[] array
+      // admin: explicitly listed in admins[] array in Firestore
       const admins = Array.isArray(g.admins) ? g.admins : [];
       if (admins.includes(uid)) return 'admin';
-      // role field set by _subscribeMyGroups (owner always gets 'admin' here)
-      if (g.role === 'owner' || g.role === 'admin') return 'admin';
-      // member: in members[] or stored role
+      // member: check members array role or locally stored role
       const me = (g.members || []).find(m => m != null && ((m.id || m.uid) === uid));
       if (me) return (me.role === 'admin' || me.role === 'owner') ? 'admin' : 'member';
       if (g.role === 'member') return 'member';
@@ -276,6 +274,36 @@
       }).catch(() => {});
   }
 
+  // ── Group stats aggregator ────────────────────────────────────────────────
+  // Reads all member docs for a group, then writes aggregated attendance% and
+  // dailyMinsTotal back to the group doc so the Discover feed shows live data.
+  // Debounced internally — safe to call frequently from presence updates.
+  const _statsDebounce = {};
+  function _updateGroupStats(code) {
+    const db = getDb(), fb_ = getFb();
+    if (!db || !code || !fb_) return;
+    // Debounce: at most once every 20 s per group to avoid excessive Firestore writes
+    if (_statsDebounce[code]) return;
+    _statsDebounce[code] = setTimeout(() => { delete _statsDebounce[code]; }, 20000);
+    const tk = todayKey();
+    db.collection('groups').doc(code).collection('members').get()
+      .then(snap => {
+        if (snap.empty) return;
+        const members = snap.docs.map(d => d.data());
+        const total  = members.length;
+        const active = members.filter(m => !!m.isStudying && m.dateKey === tk).length;
+        const attendancePct  = total > 0 ? Math.round(active / total * 100) : 0;
+        const dailyMinsTotal = members.reduce(
+          (sum, m) => sum + (m.dateKey === tk ? Math.round(m.elapsedTimeToday || 0) : 0), 0
+        );
+        db.collection('groups').doc(code).update({
+          attendancePct,
+          dailyMinsTotal,
+          memberCount: total,
+        }).catch(() => {});
+      }).catch(() => {});
+  }
+
   // ── Subscribe to each local group's Firestore doc for live memberCount ────
   function _subscribeGroupDocs() {
     const db = getDb(), uid = getUserId();
@@ -302,6 +330,13 @@
           if (typeof data.isPrivate === 'boolean' && local.isPrivate !== data.isPrivate) { local.isPrivate = data.isPrivate; changed = true; }
           if (data.leader && local.leader !== data.leader) { local.leader = data.leader; changed = true; }
           if (data.category && local.category !== data.category) { local.category = data.category; changed = true; }
+          // Sync live attendance and focus-time from Firestore
+          if (typeof data.dailyMinsTotal === 'number' && local.dailyMinsTotal !== data.dailyMinsTotal) {
+            local.dailyMinsTotal = data.dailyMinsTotal; changed = true;
+          }
+          if (typeof data.attendancePct === 'number' && local.attendancePct !== data.attendancePct) {
+            local.attendancePct = data.attendancePct; changed = true;
+          }
           if (changed) {
             scSave(sc2);
             if ((_tab === 'groups' || _tab === 'rooms') && !_groupView && !_destroyed) _scheduleRender();
@@ -703,9 +738,8 @@
     const category       = rawCat === 'camstudy' ? 'General' : rawCat;
     const promoted       = !!g.promoted;
     const createdAt      = g.createdAt || Date.now();
-    const dailyMinsTotal = g.dailyMinsTotal || (studying ? todayMins : 0);
-    const attendancePct  = g.attendancePct
-      || ((studying && memberCount > 0) ? Math.min(100, Math.round(1 / memberCount * 100)) : 0);
+    const dailyMinsTotal = typeof g.dailyMinsTotal === 'number' ? g.dailyMinsTotal : 0;
+    const attendancePct  = typeof g.attendancePct  === 'number' ? g.attendancePct  : 0;
     const col            = _catColor(category);
     const myRole         = _getMyRole(g);
     const isOwner        = myRole === 'owner';
@@ -1233,6 +1267,8 @@
           if (cntEl) cntEl.textContent = activeCnt;
           const totalEl = view.querySelector('.sr-total-member-count');
           if (totalEl) totalEl.textContent = snap.size;
+          // Aggregate attendance + focus time and push to group doc
+          _updateGroupStats(code);
         }, () => { _memberUnsub = null; _liveSubscribedCode = null; });
     } catch(_) { _memberUnsub = null; _liveSubscribedCode = null; }
   }
@@ -1477,7 +1513,9 @@
     // 30 s would make their timers appear to restart from zero repeatedly.
     if (isStudying && setStartTime) update.studyStartedAt = Date.now();
     db.collection('groups').doc(code).collection('members').doc(uid)
-      .set(update, { merge: true }).catch(() => {});
+      .set(update, { merge: true })
+      .then(() => { _updateGroupStats(code); })
+      .catch(() => {});
   }
 
   async function _restoreGroupsFromFirebase() {
@@ -4200,7 +4238,9 @@
             };
             if (studying_) update.studyStartedAt = Date.now();
             db_.collection('groups').doc(g.code).collection('members').doc(uid_)
-              .set(update, { merge: true }).catch(() => {});
+              .set(update, { merge: true })
+              .then(() => { _updateGroupStats(g.code); })
+              .catch(() => {});
           }
         });
       }
