@@ -903,6 +903,18 @@
     return (Date.now() - lastMs) > PRESENCE_STALE_MS;
   }
 
+  function _fmtLastSeen(lm) {
+    const lastMs = _getMemberLastUpdatedMs(lm);
+    if (!lastMs) return '';
+    const diff = Date.now() - lastMs;
+    if (diff < 60000)        return 'just now';
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60)           return `${mins}m ago`;
+    const hrs  = Math.floor(mins / 60);
+    if (hrs < 24)            return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+  }
+
   function _srMemberIsActive(m) {
     if (m.id === 'me') return ui().focusIsRunning?.() === true;
     const uid = m.id || m.uid;
@@ -959,10 +971,12 @@
         const timerEl = view.querySelector(`[data-sr-timer="${m.id}"]`);
         if (timerEl) timerEl.textContent = _fmtSecs(_srMemberSeconds(m));
       });
-      // Also update timers for Firebase-only members
+      // Also update timers and last-seen labels for Firebase-only members
       Object.keys(_liveMembers).forEach(uid => {
         const timerEl = view.querySelector(`[data-sr-timer="${uid}"]`);
         if (timerEl) timerEl.textContent = _fmtSecs(_srMemberSeconds({ id: uid }));
+        const lsEl = view.querySelector(`[data-sr-lastseen="${uid}"]`);
+        if (lsEl) lsEl.textContent = _fmtLastSeen(_liveMembers[uid]);
       });
 
       const me = (g.members || []).find(x => x.id === 'me');
@@ -1907,6 +1921,10 @@
         ? (window._lsGetCurrentAvStage?.() || 0)
         : (realUid && _liveMembers[realUid] ? (_liveMembers[realUid].avatarStage || 0) : 0);
       const showPill    = !isOff && avStage > 0;
+      // Last-seen label: only for idle members that are not the local user
+      const lmData      = realUid && _liveMembers[realUid] ? _liveMembers[realUid] : null;
+      const showLastSeen = !active && !isOff && timerId !== 'me' && lmData;
+      const lastSeenStr  = showLastSeen ? _fmtLastSeen(lmData) : '';
       return `
         <div class="sr-member-card ${cardClass}" data-sr-card="${esc(m.id)}">
           <div class="sr-card-icon-wrap">
@@ -1916,6 +1934,7 @@
           <div class="sr-card-name">${esc(displayName)}</div>
           ${m.equippedBadge ? `<div class="sr-card-badge">${window._cmkBadgeHTML?.(m.equippedBadge) || ''}</div>` : ''}
           <div class="sr-card-timer${active ? ' sr-timer-live' : ''}" data-sr-timer="${esc(timerId)}">${isOff ? '—' : _fmtSecs(secs)}</div>
+          ${showLastSeen ? `<div class="sr-card-lastseen" data-sr-lastseen="${esc(timerId)}">${lastSeenStr}</div>` : ''}
           ${showPill ? `<div class="sr-av-pill ${_avPillCls(avStage)}">${_avLabel(avStage)}</div>` : ''}
         </div>`;
     });

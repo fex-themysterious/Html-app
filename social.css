@@ -1322,6 +1322,19 @@
 .sr-card-active .sr-card-timer,
 .sr-timer-live { color: #ff7a1a; }
 
+.sr-card-lastseen {
+  font-size: 9px;
+  font-weight: 500;
+  color: #3d4f63;
+  text-align: center;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  letter-spacing: .1px;
+}
+
 /* ── Avatar Evolution Stage Pill ─────────────────────────────────────────── */
 .sr-av-pill {
   display: inline-block;
