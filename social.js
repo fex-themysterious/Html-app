@@ -376,21 +376,72 @@
     const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
     if (!db_ || !uid_ || !fb_) return;
     const sessionDoc = {
-      uid:       uid_,
-      active:    !!isStudying,
-      mode:      isStudying ? 'focus' : 'idle',
-      updatedAt: fb_.firestore.FieldValue.serverTimestamp(),
+      uid:              uid_,
+      active:           !!isStudying,
+      mode:             isStudying ? 'focus' : 'idle',
+      updatedAt:        fb_.firestore.FieldValue.serverTimestamp(),
+      // lastHeartbeatAt is refreshed on every write so remote viewers can detect
+      // ghost sessions: active && (now - lastHeartbeatAt) > PRESENCE_STALE_MS → offline.
+      lastHeartbeatAt:  fb_.firestore.FieldValue.serverTimestamp(),
     };
     if (isStudying && _mySessionStartedAt) {
-      sessionDoc.startedAt       = _mySessionStartedAt;  // client ms timestamp (set once)
+      sessionDoc.startedAt        = _mySessionStartedAt;  // client ms timestamp (set once)
       sessionDoc.currentSessionId = String(_mySessionStartedAt);
     } else {
-      sessionDoc.startedAt       = null;
+      sessionDoc.startedAt        = null;
       sessionDoc.currentSessionId = null;
+      sessionDoc.lastActiveAt     = fb_.firestore.FieldValue.serverTimestamp();
     }
     db_.collection('activeSessions').doc(uid_)
       .set(sessionDoc, { merge: true })
       .catch(() => {}); // silent — rules may not cover this collection yet
+  }
+
+  // ── Global heartbeat ──────────────────────────────────────────────────────
+  // Writes ONLY to activeSessions/{uid} and users/{uid} (2 docs, not N×groups).
+  // Runs every 30 s while studying regardless of which tab is open, so remote
+  // clients can detect disconnects via the lastHeartbeatAt staleness check.
+  function _startGlobalHeartbeat() {
+    _stopGlobalHeartbeat();
+    _globalHeartbeatInterval = setInterval(() => {
+      // Stop automatically if no longer studying
+      if (!ui().focusIsRunning?.()) { _stopGlobalHeartbeat(); return; }
+      const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
+      if (!db_ || !uid_ || !fb_) return;
+      const now = fb_.firestore.FieldValue.serverTimestamp();
+      // Single-doc write — no per-group fan-out, no battery drain
+      db_.collection('activeSessions').doc(uid_)
+        .set({ lastHeartbeatAt: now, updatedAt: now, active: true }, { merge: true })
+        .catch(() => {});
+      // Also keep users/{uid} fresh so the users/{uid} fallback path stays alive
+      db_.collection('users').doc(uid_)
+        .set({ presenceUpdatedAt: now }, { merge: true })
+        .catch(() => {});
+      // Prevent the local user from appearing stale in their own _liveMembers entry
+      if (_liveMembers[uid_]) _liveMembers[uid_].lastUpdated = Date.now();
+    }, 30000); // every 30 s
+  }
+
+  function _stopGlobalHeartbeat() {
+    if (_globalHeartbeatInterval !== null) {
+      clearInterval(_globalHeartbeatInterval);
+      _globalHeartbeatInterval = null;
+    }
+  }
+
+  // Best-effort "I'm gone" write used by visibility/unload handlers.
+  // Uses sendBeacon when available for reliability on tab close.
+  function _writeOfflineNow() {
+    const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
+    if (!db_ || !uid_ || !fb_) return;
+    _stopGlobalHeartbeat();
+    db_.collection('activeSessions').doc(uid_)
+      .set({
+        active:        false,
+        lastActiveAt:  fb_.firestore.FieldValue.serverTimestamp(),
+        updatedAt:     fb_.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true })
+      .catch(() => {});
   }
 
   // ── Startup reconciliation ─────────────────────────────────────────────────
@@ -535,6 +586,10 @@
   let _settingsView   = false;
   let _srTickInterval = null;
   let _srTickCount    = 0;
+  // Global heartbeat — runs whenever studying, regardless of which tab is open.
+  // Keeps activeSessions/{uid}.lastHeartbeatAt fresh so remote viewers can
+  // detect ghost sessions via staleness rather than relying only on explicit stops.
+  let _globalHeartbeatInterval = null;
   let _publicGroups        = [];
   let _publicGroupsUnsub   = null;
   let _myGroupsUnsub       = null;
@@ -1071,10 +1126,10 @@
     try { return scLoad().groups.some(g => g.code === code); } catch(_) { return false; }
   }
 
-  // A member is considered stale if their lastUpdated heartbeat is older than
-  // this threshold. The global heartbeat fires every 15 s, so 35 s gives a
-  // comfortable 2+ missed-heartbeat buffer before we declare them offline.
-  const PRESENCE_STALE_MS = 35000;
+  // A member is stale when their heartbeat is this old.
+  // Global heartbeat fires every 30 s; 75 s = 2.5 intervals — resilient
+  // against brief blips while clearing ghosts within ~2 minutes.
+  const PRESENCE_STALE_MS = 75000;
 
   function _getMemberLastUpdatedMs(lm) {
     const lu = lm && lm.lastUpdated;
@@ -1103,20 +1158,31 @@
     return `${Math.floor(hrs / 24)}d ago`;
   }
 
+  // Resolve a Firestore Timestamp OR plain-number ms value to milliseconds.
+  function _toMs(v) {
+    if (!v) return null;
+    if (typeof v.toMillis === 'function') return v.toMillis();
+    if (typeof v === 'number') return v;
+    return null;
+  }
+
   function _srMemberIsActive(m) {
     if (m.id === 'me') return ui().focusIsRunning?.() === true;
     const uid = m.id || m.uid;
-    // activeSessions cache is the most up-to-date source (written optimistically
-    // on every focus start/stop, before Firestore write completes).
+    // activeSessions cache is the primary source — optimistically updated on
+    // every focus start/stop and refreshed by the per-member Firestore listener.
     if (uid && _activeSessionsCache[uid]) {
       const as = _activeSessionsCache[uid];
-      if (as.active === true) return true;
-      if (as.active === false) return false; // explicit stop — trust it
+      if (!as.active) return false; // explicit stop
+      // Heartbeat staleness: if lastHeartbeatAt is too old → ghost session
+      const hbMs = _toMs(as.lastHeartbeatAt);
+      if (hbMs && (Date.now() - hbMs) > PRESENCE_STALE_MS) return false;
+      return true; // active AND heartbeat recent
     }
+    // Fall back to _liveMembers (updated by users/{uid} and group-member snapshots)
     if (uid && _liveMembers[uid]) {
       const lm = _liveMembers[uid];
       if (!lm.isStudying) return false;
-      // Treat as offline if their heartbeat has gone silent (app killed / network lost)
       if (_isMemberStale(lm)) return false;
       return true;
     }
@@ -1429,9 +1495,11 @@
                     .onSnapshot(asSnap => {
                       const as = asSnap.data() || {};
                       _activeSessionsCache[mUid] = {
-                        active:    !!as.active,
-                        startedAt: as.startedAt ?? null,
-                        mode:      as.mode || 'idle',
+                        active:          !!as.active,
+                        startedAt:       as.startedAt ?? null,
+                        mode:            as.mode || 'idle',
+                        lastHeartbeatAt: as.lastHeartbeatAt ?? null,
+                        lastActiveAt:    as.lastActiveAt ?? null,
                       };
                       // Merge into _liveMembers so existing render code stays correct
                       if (_liveMembers[mUid]) {
@@ -4597,6 +4665,11 @@
       const studying_ = ui().focusIsRunning?.() === true;
       const avStage_  = window._lsGetCurrentAvStage?.() || 0;
       _writePresenceAllGroups(studying_, todayMins, avStage_);
+      // Start/stop the global heartbeat based on focus state.
+      // The heartbeat keeps activeSessions/{uid}.lastHeartbeatAt fresh so
+      // remote viewers can detect ghost sessions via staleness.
+      if (studying_) { _startGlobalHeartbeat(); }
+      else           { _stopGlobalHeartbeat();  }
 
       // ── Optimistic local update ─────────────────────────────────────────────
       // Update _liveMembers[myUid] and _activeSessionsCache IMMEDIATELY, without
@@ -4632,6 +4705,40 @@
       // without waiting for the next Firestore snapshot.
       if (window._currentTab === 'social') renderSocial();
     };
+
+    // ── App lifecycle / disconnect detection ──────────────────────────────────
+    // These listeners write active:false when the user leaves the app so remote
+    // viewers see offline state quickly without waiting for heartbeat timeout.
+
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        // Tab became visible — resume heartbeat if still studying
+        if (ui().focusIsRunning?.()) _startGlobalHeartbeat();
+        return;
+      }
+      // Tab hidden: stop heartbeat so it doesn't fire in background.
+      // Staleness detection (PRESENCE_STALE_MS) will naturally mark the
+      // user offline after 75 s without a heartbeat — no extra write needed
+      // for simply minimizing. Only write active:false if focus was paused.
+      _stopGlobalHeartbeat();
+      if (!ui().focusIsRunning?.()) _writeOfflineNow();
+    });
+
+    const _handleUnload = () => {
+      // Tab/app closing: best-effort immediate offline write.
+      // Firestore SDK queues the write; even if the tab dies it may flush.
+      _stopGlobalHeartbeat();
+      _writeOfflineNow();
+    };
+    window.addEventListener('beforeunload', _handleUnload, { capture: true });
+    window.addEventListener('pagehide',     _handleUnload, { capture: true });
+
+    // Network offline: stop heartbeat; staleness detection handles the rest.
+    window.addEventListener('offline', () => { _stopGlobalHeartbeat(); });
+    // Network back online: resume heartbeat if still studying.
+    window.addEventListener('online',  () => {
+      if (ui().focusIsRunning?.()) _startGlobalHeartbeat();
+    });
 
     // Start real-time Firebase listeners
     // Use a small delay to ensure the appUI bridge is ready
