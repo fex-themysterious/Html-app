@@ -2716,15 +2716,6 @@
             ${row('🎯', 'Daily Goal', (g.dailyGoalHrs || 8) + 'h (group goal)', 'mbs-daily-goal')}
           </div>
 
-          <div class="sgs-section-label">Privacy</div>
-          <div class="sgs-card">
-            ${toggleRow('👁️', 'Hide Online Status', !!(g._myHideStatus), 'mbs-hide-status')}
-            ${div}
-            ${toggleRow('📚', 'Hide Study Subject', !!(g._myHideSubject), 'mbs-hide-subject')}
-            ${div}
-            ${toggleRow('⏱️', 'Hide Focus Time', !!(g._myHideFocus), 'mbs-hide-focus')}
-          </div>
-
           <div class="sgs-section-label">Danger Zone</div>
           <div class="sgs-card sgs-card-danger">
             <button class="sgs-row" data-sc="sgs-leave-group-settings" data-gid="${esc(g.id)}">
@@ -5408,25 +5399,6 @@
         const g  = sc.groups.find(x => x.id === el.dataset.gid);
         if (!g) break;
         toast(`🎯 Group daily goal is ${g.dailyGoalHrs || 8}h. Set by admins.`, 'info', 3000);
-        break;
-      }
-
-      case 'mbs-hide-status':
-      case 'mbs-hide-subject':
-      case 'mbs-hide-focus': {
-        const sc = scLoad();
-        const g  = sc.groups.find(x => x.id === el.dataset.gid);
-        if (!g) break;
-        const gid = g.id;
-        const sc2 = scLoad();
-        const g2  = sc2.groups.find(x => x.id === gid);
-        if (!g2) break;
-        const fieldMap = { 'mbs-hide-status': '_myHideStatus', 'mbs-hide-subject': '_myHideSubject', 'mbs-hide-focus': '_myHideFocus' };
-        const field = fieldMap[act];
-        g2[field] = !g2[field];
-        scSave(sc2);
-        toast(g2[field] ? '🔒 Hidden from other members' : '👁️ Visible to members', 'success');
-        renderSocial();
         break;
       }
 
