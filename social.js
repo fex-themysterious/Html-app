@@ -892,21 +892,24 @@
     const d = new Date();
     const daysSinceFri = (d.getDay() + 2) % 7;
     d.setDate(d.getDate() - daysSinceFri);
-    return d.toISOString().slice(0, 10);
+    // Use LOCAL date fields (not toISOString which is UTC — causes off-by-one on UTC+ devices)
+    const y = d.getFullYear(), mo = String(d.getMonth()+1).padStart(2,'0'), dy = String(d.getDate()).padStart(2,'0');
+    return `${y}-${mo}-${dy}`;
   }
 
   // Sum local focus minutes from Friday of current week to today
   function _weekMinsLocal() {
     const ms   = getMainState();
     const mins = (ms.focusStats || {}).minutesByDate || {};
-    const fridayStr  = _weekStart();
-    const fridayDate = new Date(fridayStr + 'T00:00:00');
-    const today      = new Date(); today.setHours(0,0,0,0);
-    const dayDiff    = Math.round((today - fridayDate) / 86400000);
+    const fri  = _weekStart();
+    const friDate = new Date(fri + 'T00:00:00');
+    const todayD  = new Date(); todayD.setHours(0,0,0,0);
+    const dayDiff = Math.round((todayD - friDate) / 86400000);
     let total = 0;
     for (let i = 0; i <= Math.max(0, dayDiff); i++) {
-      const d = new Date(fridayDate); d.setDate(d.getDate() + i);
-      total += mins[d.toISOString().slice(0, 10)] || 0;
+      const d = new Date(friDate); d.setDate(d.getDate() + i);
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      total += mins[key] || 0;
     }
     return total;
   }
@@ -951,27 +954,54 @@
     } else {
       if (_globalLbWeeklyUnsub) return;
       const dateVal = weekStart;
+      // Query all users whose lastActive is >= this week's Friday start.
+      // This catches every format of data — including users who don't have weeklyResetDate,
+      // or whose weeklyResetDate was written with the old UTC _weekStartKey bug.
+      const _wkSort = (a, b) => {
+        const td = (b.weeklyStudyTime||0) - (a.weeklyStudyTime||0); if (td) return td;
+        const sd = (b.sessions||0) - (a.sessions||0); if (sd) return sd;
+        return (b.streak||0) - (a.streak||0);
+      };
+      const _wkFilter = (docs) => {
+        const wkStart = _weekStart();
+        return docs
+          .filter(u => {
+            if (!u || !u.id) return false;
+            if ((u.weeklyStudyTime||0) <= 0) return false;
+            // Exclude if weeklyResetDate is explicitly from a PREVIOUS week
+            if (u.weeklyResetDate && u.weeklyResetDate < wkStart) return false;
+            return true;
+          })
+          .sort(_wkSort);
+      };
       const tryIndexed = () => {
         try {
+          // Primary: users active this week (no composite index needed for single-field range)
           _globalLbWeeklyUnsub = db.collection('global_lb')
-            .where('weeklyResetDate', '==', dateVal)
-            .orderBy('weeklyStudyTime', 'desc')
-            .limit(100)
+            .where('lastActive', '>=', dateVal)
+            .limit(200)
             .onSnapshot(snap => {
-              _globalLbWeeklyData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+              _globalLbWeeklyData = _wkFilter(snap.docs.map(d => ({ id: d.id, ...d.data() })));
               if (_tab === 'leaderboard' && _lbPeriod === 'weekly' && window._currentTab === 'social') _scheduleRender();
             }, () => { _globalLbWeeklyUnsub = null; tryFallback(); });
         } catch(_) { _globalLbWeeklyUnsub = null; tryFallback(); }
       };
       const tryFallback = () => {
         try {
+          // Broad fallback: latest 500 entries, filter this week client-side
           _globalLbWeeklyUnsub = db.collection('global_lb')
-            .where('weeklyResetDate', '==', dateVal)
-            .limit(200)
+            .orderBy('updatedAt', 'desc')
+            .limit(500)
             .onSnapshot(snap => {
-              _globalLbWeeklyData = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-                .filter(u => (u.weeklyStudyTime || 0) > 0)
-                .sort((a, b) => (b.weeklyStudyTime || 0) - (a.weeklyStudyTime || 0));
+              const wkStart = _weekStart();
+              const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+                .filter(u => {
+                  if (!u || !u.id) return false;
+                  if ((u.weeklyStudyTime||0) <= 0) return false;
+                  if (u.weeklyResetDate && u.weeklyResetDate < wkStart) return false;
+                  return (u.lastActive && u.lastActive >= wkStart) || u.weeklyResetDate === wkStart;
+                });
+              _globalLbWeeklyData = docs.sort(_wkSort);
               if (_tab === 'leaderboard' && _lbPeriod === 'weekly' && window._currentTab === 'social') _scheduleRender();
             }, () => { _globalLbWeeklyUnsub = null; });
         } catch(_) { _globalLbWeeklyUnsub = null; }
@@ -3297,86 +3327,62 @@
     return `<span class="sr-av-pill ${cls}">${avLabels[Math.max(0, avS)]}</span>`;
   }
 
-  function _renderLbPodium(top3, uid, period) {
-    const uTime = u => period === 'daily' ? (u.dailyStudyTime || 0) : (u.weeklyStudyTime || 0);
-    const validTop3 = (top3 || []).filter(u => u && u.id && (uTime(u) > 0));
-    if (validTop3.length === 0) return '';
+  // Podium rank config: platformH, avatarSize, baseClass, rankBadgeClass, crown
+  const _PODIUM_CFG = {
+    1: { h: 90,  av: 58, rankCls: 'sc-lb-podium-rank--gold',   baseCls: 'sc-lb-pbase--gold',   crown: '👑' },
+    2: { h: 68,  av: 46, rankCls: 'sc-lb-podium-rank--silver', baseCls: 'sc-lb-pbase--silver', crown: '' },
+    3: { h: 50,  av: 44, rankCls: 'sc-lb-podium-rank--bronze', baseCls: 'sc-lb-pbase--bronze', crown: '' },
+  };
+  const _PODIUM_MEDALS = { 1: '🥇', 2: '🥈', 3: '🥉' };
 
-    if (validTop3.length === 1) {
-      const u = validTop3[0];
-      const isMe = uid && u.id === uid;
-      const avS  = typeof u.avatarStage === 'number' ? u.avatarStage : 0;
-      const studying = u.isStudying === true;
-      return `<div class="sc-lb-podium sc-lb-podium--solo">
-        <div class="sc-lb-podium-slot sc-lb-podium-slot--champ" style="--glow:rgba(251,191,36,.35)">
-          <div class="sc-lb-crown">👑</div>
-          <div class="sc-lb-podium-avatar-wrap">
-            ${_lbAvatar(u.name, u.id, 64)}
-            <div class="sc-lb-podium-rank sc-lb-podium-rank--gold">1</div>
-            ${studying ? '<div class="sc-lb-studying-pulse"></div>' : ''}
-          </div>
-          <div class="sc-lb-podium-name">${esc((u.name || 'Studier').split(' ')[0])}${isMe ? ' <span class="sc-glb-you-tag">you</span>' : ''}${studying ? ' <span class="sc-lb-live-dot">●</span>' : ''}</div>
-          <div class="sc-lb-podium-time">${minsToHrs(uTime(u))}</div>
-          ${avS > 0 ? _lbAvatarLabel(avS) : ''}
-          ${(u.streak || 0) > 0 ? `<div class="sc-lb-podium-streak">${u.streak}🔥</div>` : ''}
+  function _renderPodiumSlot(u, rank, uid, uTime) {
+    if (!u) return '';
+    const cfg     = _PODIUM_CFG[rank];
+    const isMe    = !!(uid && u.id === uid);
+    const avS     = typeof u.avatarStage === 'number' ? u.avatarStage : 0;
+    const studying = u.isStudying === true;
+    const nameStr = esc((u.name || 'Studier').split(' ')[0]);
+    const youTag  = isMe ? ' <span class="sc-glb-you-tag">YOU</span>' : '';
+    const liveTag = studying ? ' <span class="sc-lb-live-dot">●</span>' : '';
+    const liveRing = studying ? '<div class="sc-lb-studying-pulse"></div>' : '';
+    const streakBadge = (u.streak || 0) > 1 ? `<div class="sc-lb-podium-streak">${u.streak}🔥</div>` : '';
+    return `<div class="sc-lb-pslot sc-lb-pslot--${rank === 1 ? 'gold' : rank === 2 ? 'silver' : 'bronze'}${isMe ? ' sc-lb-pslot--me' : ''}">
+      <div class="sc-lb-pcrown${cfg.crown ? '' : ' sc-lb-pcrown--empty'}">${cfg.crown}</div>
+      <div class="sc-lb-pcontent">
+        <div class="sc-lb-podium-avatar-wrap">
+          ${_lbAvatar(u.name, u.id, cfg.av)}
+          <div class="sc-lb-podium-rank ${cfg.rankCls}">${rank}</div>
+          ${liveRing}
         </div>
+        <div class="sc-lb-podium-name">${nameStr}${youTag}${liveTag}</div>
+        <div class="sc-lb-podium-time">${minsToHrs(uTime)}</div>
+        ${avS > 0 ? _lbAvatarLabel(avS) : ''}
+        ${streakBadge}
+      </div>
+      <div class="sc-lb-pbase ${cfg.baseCls}" style="height:${cfg.h}px">
+        <span class="sc-lb-pbase-medal">${_PODIUM_MEDALS[rank]}</span>
+      </div>
+    </div>`;
+  }
+
+  function _renderLbPodium(top3, uid, period) {
+    const uTime   = u => period === 'daily' ? (u.dailyStudyTime || 0) : (u.weeklyStudyTime || 0);
+    const valid   = (top3 || []).filter(u => u && u.id && uTime(u) > 0);
+    if (valid.length === 0) return '';
+
+    if (valid.length === 1) {
+      return `<div class="sc-lb-podium sc-lb-podium--solo">
+        ${_renderPodiumSlot(valid[0], 1, uid, uTime(valid[0]))}
       </div>`;
     }
 
-    if (validTop3.length === 2) {
-      const pSlots   = [validTop3[1], validTop3[0]];
-      const pRanks   = [2, 1];
-      const pHeights = ['72px', '92px'];
-      const pGlows   = ['rgba(148,163,184,.25)', 'rgba(251,191,36,.35)'];
-      const pCrowns  = ['', '👑'];
-      return `<div class="sc-lb-podium">
-        ${pSlots.map((u, si) => {
-          const rank = pRanks[si];
-          const isMe = uid && u.id === uid;
-          const avS  = typeof u.avatarStage === 'number' ? u.avatarStage : 0;
-          const studying = u.isStudying === true;
-          return `<div class="sc-lb-podium-slot${isMe ? ' sc-lb-podium-slot--me' : ''}" style="--glow:${pGlows[si]}">
-            ${pCrowns[si] ? `<div class="sc-lb-crown">${pCrowns[si]}</div>` : ''}
-            <div class="sc-lb-podium-avatar-wrap">
-              ${_lbAvatar(u.name, u.id, rank === 1 ? 54 : 46)}
-              <div class="sc-lb-podium-rank sc-lb-podium-rank--${rank === 1 ? 'gold' : 'silver'}">${rank}</div>
-              ${studying ? '<div class="sc-lb-studying-pulse"></div>' : ''}
-            </div>
-            <div class="sc-lb-podium-name">${esc((u.name || 'Studier').split(' ')[0])}${isMe ? ' <span class="sc-glb-you-tag">you</span>' : ''}${studying ? ' <span class="sc-lb-live-dot">●</span>' : ''}</div>
-            <div class="sc-lb-podium-time">${minsToHrs(uTime(u))}</div>
-            ${avS > 0 ? _lbAvatarLabel(avS) : ''}
-            <div class="sc-lb-podium-base" style="height:${pHeights[si]};background:${pGlows[si]};border-color:${pGlows[si]}"></div>
-          </div>`;
-        }).join('')}
-      </div>`;
-    }
+    // Visual order: 2nd (left), 1st (center), 3rd (right)
+    const order = valid.length === 2
+      ? [[valid[1], 2], [valid[0], 1]]
+      : [[valid[1], 2], [valid[0], 1], [valid[2], 3]];
 
-    const slots   = [validTop3[1], validTop3[0], validTop3[2]];
-    const ranks   = [2, 1, 3];
-    const heights = ['72px', '96px', '58px'];
-    const glows   = ['rgba(148,163,184,.3)', 'rgba(251,191,36,.4)', 'rgba(205,127,50,.3)'];
-    const crowns  = ['', '👑', ''];
     return `<div class="sc-lb-podium">
-      ${slots.map((u, si) => {
-        if (!u) return '';
-        const rank  = ranks[si];
-        const isMe  = uid && u.id === uid;
-        const avS   = typeof u.avatarStage === 'number' ? u.avatarStage : 0;
-        const studying = u.isStudying === true;
-        return `<div class="sc-lb-podium-slot${rank === 1 ? ' sc-lb-podium-slot--champ' : ''}${isMe ? ' sc-lb-podium-slot--me' : ''}" style="--glow:${glows[si]}">
-          ${crowns[si] ? `<div class="sc-lb-crown">${crowns[si]}</div>` : ''}
-          <div class="sc-lb-podium-avatar-wrap">
-            ${_lbAvatar(u.name, u.id, rank === 1 ? 56 : 44)}
-            <div class="sc-lb-podium-rank sc-lb-podium-rank--${rank === 1 ? 'gold' : rank === 2 ? 'silver' : 'bronze'}">${rank}</div>
-            ${studying ? '<div class="sc-lb-studying-pulse"></div>' : ''}
-          </div>
-          <div class="sc-lb-podium-name">${esc((u.name || 'Studier').split(' ')[0])}${isMe ? ' <span class="sc-glb-you-tag">you</span>' : ''}${studying ? ' <span class="sc-lb-live-dot">●</span>' : ''}</div>
-          <div class="sc-lb-podium-time">${minsToHrs(uTime(u))}</div>
-          ${avS > 0 ? _lbAvatarLabel(avS) : ''}
-          ${(u.streak || 0) > 1 ? `<div class="sc-lb-podium-streak">${u.streak}🔥</div>` : ''}
-          <div class="sc-lb-podium-base" style="height:${heights[si]};background:${glows[si]};border-color:${glows[si]}"></div>
-        </div>`;
-      }).join('')}
+      ${order.map(([u, rank]) => _renderPodiumSlot(u, rank, uid, uTime(u))).join('')}
     </div>`;
   }
 

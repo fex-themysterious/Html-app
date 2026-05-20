@@ -791,23 +791,75 @@
 .sc-lb-empty-sub   { font-size: 12px; color: var(--sc-muted); }
 
 /* ── Podium ── */
+/* ── Podium container ── */
 .sc-lb-podium {
   display: flex; align-items: flex-end; justify-content: center;
-  gap: 8px; padding: 0 12px 4px; margin-bottom: 4px;
+  gap: 4px; padding: 0 10px; margin-bottom: 12px;
 }
-.sc-lb-podium--solo {
-  justify-content: center; padding: 8px 12px 16px; margin-bottom: 4px;
+.sc-lb-podium--solo { justify-content: center; padding: 0 10px 8px; margin-bottom: 12px; }
+
+/* ── New podium slot (sc-lb-pslot) ── */
+.sc-lb-pslot {
+  flex: 1; max-width: 112px;
+  display: flex; flex-direction: column; align-items: center;
 }
+.sc-lb-pslot--gold  { max-width: 130px; }
+.sc-lb-pslot--me .sc-lb-podium-avatar-wrap { outline: 2px solid #a78bfa; outline-offset: 3px; border-radius: 50%; }
+
+/* Crown row above avatar */
+.sc-lb-pcrown {
+  font-size: 20px; line-height: 1; margin-bottom: 3px;
+  animation: sc-lb-float 2.6s ease-in-out infinite;
+}
+.sc-lb-pcrown--empty { min-height: 26px; }
+
+/* Content area: avatar + name + time */
+.sc-lb-pcontent {
+  display: flex; flex-direction: column; align-items: center;
+  width: 100%; padding: 0 2px;
+}
+
+/* ── Platform bases ── */
+.sc-lb-pbase {
+  width: 100%; border-radius: 10px 10px 0 0;
+  border-bottom: none; margin-top: 8px;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 7px;
+  position: relative; overflow: hidden;
+}
+/* Bright top-edge highlight line */
+.sc-lb-pbase::after {
+  content: ''; position: absolute; top: 0; left: 10%; right: 10%;
+  height: 2px; border-radius: 2px;
+}
+.sc-lb-pbase--gold {
+  background: linear-gradient(180deg, rgba(251,191,36,.32) 0%, rgba(251,191,36,.06) 100%);
+  border: 1px solid rgba(251,191,36,.38); border-bottom: none;
+  box-shadow: 0 -8px 28px rgba(251,191,36,.22), inset 0 1px 0 rgba(251,191,36,.55);
+}
+.sc-lb-pbase--gold::after   { background: rgba(251,191,36,.8); }
+.sc-lb-pbase--silver {
+  background: linear-gradient(180deg, rgba(148,163,184,.28) 0%, rgba(148,163,184,.05) 100%);
+  border: 1px solid rgba(148,163,184,.32); border-bottom: none;
+  box-shadow: 0 -5px 18px rgba(148,163,184,.14), inset 0 1px 0 rgba(148,163,184,.5);
+}
+.sc-lb-pbase--silver::after { background: rgba(148,163,184,.7); }
+.sc-lb-pbase--bronze {
+  background: linear-gradient(180deg, rgba(205,127,50,.26) 0%, rgba(205,127,50,.05) 100%);
+  border: 1px solid rgba(205,127,50,.3); border-bottom: none;
+  box-shadow: 0 -5px 18px rgba(205,127,50,.13), inset 0 1px 0 rgba(205,127,50,.48);
+}
+.sc-lb-pbase--bronze::after { background: rgba(205,127,50,.7); }
+
+/* Medal emoji inside base */
+.sc-lb-pbase-medal { font-size: 20px; opacity: 0.55; }
+
+/* Legacy class aliases (kept for safety) */
 .sc-lb-podium-slot {
   flex: 1; max-width: 115px; display: flex; flex-direction: column;
   align-items: center; position: relative;
-  filter: drop-shadow(0 0 12px var(--glow, transparent));
 }
-.sc-lb-podium-slot--champ {
-  flex: none; max-width: 140px; display: flex; flex-direction: column;
-  align-items: center; position: relative;
-  filter: drop-shadow(0 0 20px rgba(251,191,36,.4));
-}
+.sc-lb-podium-slot--champ { flex: none; max-width: 140px; }
 .sc-lb-podium-slot--me .sc-lb-podium-avatar-wrap { outline: 2px solid #a78bfa; outline-offset: 2px; border-radius: 50%; }
 
 /* Live studying indicators */
@@ -850,7 +902,7 @@
 }
 .sc-lb-podium-base {
   width: 100%; border-radius: 8px 8px 0 0;
-  border: 1px solid; margin-top: 6px;
+  border-bottom: none; margin-top: 8px;
 }
 
 /* ── Rank list (4+) ── */

@@ -5221,10 +5221,11 @@
     // Friday-Thursday weekly cycle
     // day: 0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri,6=Sat
     // daysSinceFri: Fri=0,Sat=1,Sun=2,Mon=3,Tue=4,Wed=5,Thu=6
+    // Use LOCAL date fields (not toISOString which is UTC — causes off-by-one on UTC+ devices)
     const d = new Date();
     const daysSinceFri = (d.getDay() + 2) % 7;
     d.setDate(d.getDate() - daysSinceFri);
-    return d.toISOString().slice(0, 10);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   }
 
   function _computeWeekMins(todayOverride) {
@@ -5237,7 +5238,8 @@
     for (let i = 0; i <= Math.max(0, dayDiff); i++) {
       const d = new Date(fridayDate);
       d.setDate(d.getDate() + i);
-      const key = d.toISOString().slice(0, 10);
+      // Use local date fields to match all storage keys
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
       total += (key === today && todayOverride !== undefined)
         ? todayOverride
         : (state.focusStats.minutesByDate[key] || 0);
