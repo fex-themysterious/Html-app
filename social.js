@@ -651,9 +651,27 @@
           if (typeof data.attendancePct === 'number' && local.attendancePct !== data.attendancePct) {
             local.attendancePct = data.attendancePct; changed = true;
           }
+          if (data.joinMode !== undefined && local.joinMode !== data.joinMode) { local.joinMode = data.joinMode; changed = true; }
+          if (data.chatEnabled !== undefined && local.chatEnabled !== data.chatEnabled) { local.chatEnabled = data.chatEnabled; changed = true; }
+          if (data.nicknameRequired !== undefined && local.nicknameRequired !== data.nicknameRequired) { local.nicknameRequired = data.nicknameRequired; changed = true; }
+          if (data.joinQuestion !== undefined && local.joinQuestion !== data.joinQuestion) { local.joinQuestion = data.joinQuestion; changed = true; }
+          if (data.joinPassword !== undefined && local.joinPassword !== data.joinPassword) { local.joinPassword = data.joinPassword; changed = true; }
+          if (Array.isArray(data.admins) && JSON.stringify(local.admins) !== JSON.stringify(data.admins)) { local.admins = data.admins; changed = true; }
+          if (data.lastNudge !== undefined) {
+            const nudgeMs = data.lastNudge?.toMillis?.() ?? (typeof data.lastNudge === 'number' ? data.lastNudge : 0);
+            const prevMs  = local._lastNudgeReceived || 0;
+            if (nudgeMs && nudgeMs > prevMs) {
+              local._lastNudgeReceived = nudgeMs;
+              const myUid_n = getUserId();
+              if (myUid_n && data.lastNudgeSender) {
+                setTimeout(() => toast(`📣 ${esc(data.lastNudgeSender)} is nudging you to study!`, 'info', 5000), 600);
+              }
+              changed = true;
+            }
+          }
           if (changed) {
             scSave(sc2);
-            if ((_tab === 'groups' || _tab === 'rooms') && !_groupView && !_destroyed) _scheduleRender();
+            if ((_tab === 'groups' || _tab === 'rooms') && !_destroyed) _scheduleRender();
           }
         }, () => { delete _groupDocUnsubs[g.code]; });
       } catch(_) { delete _groupDocUnsubs[g.code]; }
@@ -662,6 +680,57 @@
   // Call after any group list change to ensure all groups are covered
   function _ensureGroupDocSubs() {
     try { _subscribeGroupDocs(); } catch(_) {}
+    try {
+      const sc_ = scLoad();
+      sc_.groups.forEach(g => {
+        if (g.code && (_getMyRole(g) === 'owner' || _getMyRole(g) === 'admin')) {
+          _subscribeJoinRequests(g.code);
+        }
+      });
+    } catch(_) {}
+  }
+
+  // ── Firebase helper: save a group settings patch to Firestore ─────────────
+  function _saveGroupSetting(code, patch) {
+    const db_ = getDb(), fb_ = getFb();
+    if (!db_ || !code || !fb_) return;
+    try {
+      const payload = Object.assign({}, patch, { updatedAt: fb_.firestore.FieldValue.serverTimestamp() });
+      db_.collection('groups').doc(code).set(payload, { merge: true }).catch(() => {});
+    } catch(_) {}
+  }
+
+  // ── Real-time join-requests subscription (admins/owners only) ────────────
+  const _joinRequestsUnsubs = {};
+  function _subscribeJoinRequests(code) {
+    if (!code || _joinRequestsUnsubs[code]) return;
+    const db_ = getDb(), uid_ = getUserId();
+    if (!db_ || !uid_) return;
+    const sc0 = scLoad();
+    const g0  = sc0.groups.find(x => x.code === code);
+    if (!g0 || (_getMyRole(g0) !== 'owner' && _getMyRole(g0) !== 'admin')) return;
+    try {
+      _joinRequestsUnsubs[code] = db_.collection('groups').doc(code)
+        .collection('joinRequests')
+        .where('status', '==', 'pending')
+        .onSnapshot(snap => {
+          const sc2 = scLoad();
+          const grp = sc2.groups.find(x => x.code === code);
+          if (!grp) return;
+          if (!sc2.requests) sc2.requests = {};
+          sc2.requests[grp.id] = snap.docs.map(d => {
+            const r = d.data();
+            return {
+              id:          d.id,
+              name:        r.displayName || r.name || 'Anonymous',
+              answer:      r.message     || r.answer || '',
+              requestedAt: r.requestedAt?.toMillis?.() ?? Date.now(),
+            };
+          });
+          scSave(sc2);
+          if (_settingsView && !_destroyed) _scheduleRender();
+        }, () => { delete _joinRequestsUnsubs[code]; });
+    } catch(_) { delete _joinRequestsUnsubs[code]; }
   }
 
   // ── Also query groups where uid is in admins[] (catches other old groups) ─
@@ -4467,10 +4536,19 @@
         const g  = sc.groups.find(x => x.id === el.dataset.gid);
         if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
         const gid = g.id;
+        let selIcon = g.icon || '📚';
+        const iconBtns = ICONS_LIST.map(ic =>
+          `<button class="sc-icon-pick${ic===selIcon?' sc-icon-active':''}" data-icon="${ic}" type="button">${ic}</button>`
+        ).join('');
         openModal(`
-          <h3 class="sc-modal-title">Change Group Name</h3>
+          <h3 class="sc-modal-title">Group Name & Icon</h3>
           <div class="sc-field">
+            <label class="sc-label">Group Name</label>
             <input id="cn-name" type="text" maxlength="40" value="${esc(g.name||'')}" class="sc-input" autocomplete="off" placeholder="Enter group name"/>
+          </div>
+          <div class="sc-field">
+            <label class="sc-label">Icon</label>
+            <div id="cn-icon-grid" class="sc-icon-grid">${iconBtns}</div>
           </div>
           <div class="actions" style="margin-top:16px">
             <button class="btn btn-ghost" data-close>Cancel</button>
@@ -4479,14 +4557,22 @@
         `, root => {
           const inp = root.querySelector('#cn-name');
           inp.focus(); inp.select();
+          root.querySelector('#cn-icon-grid').addEventListener('click', e => {
+            const btn = e.target.closest('.sc-icon-pick');
+            if (!btn) return;
+            selIcon = btn.dataset.icon;
+            root.querySelectorAll('.sc-icon-pick').forEach(b => b.classList.toggle('sc-icon-active', b.dataset.icon === selIcon));
+          });
           const doSave = () => {
             const name = inp.value.trim();
             if (!name) { toast('Name cannot be empty', 'warn'); return; }
             const sc2 = scLoad();
             const g2  = sc2.groups.find(x => x.id === gid);
             if (!g2) return;
-            g2.name = name;
-            scSave(sc2); closeModal(); toast('Group name updated!', 'success'); renderSocial();
+            g2.name = name; g2.icon = selIcon;
+            scSave(sc2);
+            _saveGroupSetting(g2.code, { name, icon: selIcon });
+            closeModal(); toast('Group updated!', 'success'); renderSocial();
           };
           root.querySelector('#cn-save').addEventListener('click', doSave);
           inp.addEventListener('keydown', e => { if (e.key === 'Enter') doSave(); });
@@ -4517,7 +4603,9 @@
             const g2  = sc2.groups.find(x => x.id === gid);
             if (!g2) return;
             g2.description = val;
-            scSave(sc2); closeModal(); toast(val ? 'Rules saved!' : 'Rules removed', 'success'); renderSocial();
+            scSave(sc2);
+            _saveGroupSetting(g2.code, { description: val });
+            closeModal(); toast(val ? 'Rules saved!' : 'Rules removed', 'success'); renderSocial();
           };
           root.querySelector('#cr-save').addEventListener('click', () => doSave(ta.value.trim()));
           root.querySelector('#cr-clear').addEventListener('click', () => doSave(''));
@@ -4553,7 +4641,9 @@
             const g2  = sc2.groups.find(x => x.id === gid);
             if (!g2) return;
             g2.category = selCat;
-            scSave(sc2); closeModal(); toast('Category updated!', 'success'); renderSocial();
+            scSave(sc2);
+            _saveGroupSetting(g2.code, { category: selCat });
+            closeModal(); toast('Category updated!', 'success'); renderSocial();
           });
         });
         break;
@@ -4582,7 +4672,9 @@
             const g2  = sc2.groups.find(x => x.id === gid);
             if (!g2) return;
             g2.dailyGoalHrs = val;
-            scSave(sc2); closeModal(); toast(`Daily goal set to ${val}h`, 'success'); renderSocial();
+            scSave(sc2);
+            _saveGroupSetting(g2.code, { dailyGoalHrs: val });
+            closeModal(); toast(`Daily goal set to ${val}h`, 'success'); renderSocial();
           });
         });
         break;
@@ -4611,7 +4703,9 @@
             const g2  = sc2.groups.find(x => x.id === gid);
             if (!g2) return;
             g2.maxMembers = val;
-            scSave(sc2); closeModal(); toast(`Capacity set to ${val}`, 'success'); renderSocial();
+            scSave(sc2);
+            _saveGroupSetting(g2.code, { maxMembers: val });
+            closeModal(); toast(`Capacity set to ${val}`, 'success'); renderSocial();
           });
         });
         break;
@@ -4664,7 +4758,11 @@
             const g2  = sc2.groups.find(x => x.id === gid);
             if (!g2) return;
             g2.joinMode = val;
-            scSave(sc2); closeModal();
+            g2.isPrivate = val === 'approval';
+            scSave(sc2);
+            _saveGroupSetting(g2.code, { joinMode: val, isPrivate: val === 'approval' });
+            if (val === 'approval' && g2.code) _subscribeJoinRequests(g2.code);
+            closeModal();
             toast(val === 'approval' ? '⏳ Approval required to join' : '🚪 Open join enabled', 'success');
             renderSocial();
           });
@@ -4697,7 +4795,9 @@
             const g2  = sc2.groups.find(x => x.id === gid);
             if (!g2) return;
             g2.joinQuestion = val;
-            scSave(sc2); closeModal();
+            scSave(sc2);
+            _saveGroupSetting(g2.code, { joinQuestion: val });
+            closeModal();
             toast(val ? '❓ Question saved & enabled' : 'Sign-up question disabled', 'success');
             renderSocial();
           });
@@ -4706,7 +4806,9 @@
             const g2  = sc2.groups.find(x => x.id === gid);
             if (!g2) return;
             g2.joinQuestion = '';
-            scSave(sc2); closeModal(); toast('Sign-up question removed', 'info'); renderSocial();
+            scSave(sc2);
+            _saveGroupSetting(g2.code, { joinQuestion: '' });
+            closeModal(); toast('Sign-up question removed', 'info'); renderSocial();
           });
         });
         break;
@@ -4724,6 +4826,7 @@
           if (!g2) break;
           g2.nicknameRequired = newVal;
           scSave(sc2);
+          _saveGroupSetting(g2.code, { nicknameRequired: newVal });
           toast(newVal ? '📛 Nickname rules ON — display name required' : '📛 Nickname rules OFF', 'success');
           renderSocial();
         }
@@ -4755,7 +4858,9 @@
             const g2  = sc2.groups.find(x => x.id === gid);
             if (!g2) return;
             g2.joinPassword = val;
-            scSave(sc2); closeModal();
+            scSave(sc2);
+            _saveGroupSetting(g2.code, { joinPassword: val });
+            closeModal();
             toast(val ? '🔐 Password protected' : '🌐 Group is now public', 'success');
             renderSocial();
           });
@@ -4764,7 +4869,9 @@
             const g2  = sc2.groups.find(x => x.id === gid);
             if (!g2) return;
             g2.joinPassword = '';
-            scSave(sc2); closeModal(); toast('🌐 Password removed', 'info'); renderSocial();
+            scSave(sc2);
+            _saveGroupSetting(g2.code, { joinPassword: '' });
+            closeModal(); toast('🌐 Password removed', 'info'); renderSocial();
           });
         });
         break;
@@ -4825,9 +4932,28 @@
         if (req) {
           sc.requests[gid] = sc.requests[gid].filter(r => r.id !== rid);
           g.members = g.members || [];
-          g.members.push({ id: rid, name, role: 'member', joinedAt: Date.now() });
+          if (!g.members.find(m => m.id === rid)) {
+            g.members.push({ id: rid, name, role: 'member', joinedAt: Date.now() });
+          }
         }
         scSave(sc);
+        // Firebase: mark request approved + add to members subcollection
+        const db_ap = getDb(), fb_ap = getFb();
+        if (db_ap && fb_ap && g.code) {
+          const gRef_ap  = db_ap.collection('groups').doc(g.code);
+          const reqRef_ap = gRef_ap.collection('joinRequests').doc(rid);
+          const mRef_ap   = gRef_ap.collection('members').doc(rid);
+          reqRef_ap.set({ status: 'approved', approvedAt: fb_ap.firestore.FieldValue.serverTimestamp() }, { merge: true }).catch(() => {});
+          mRef_ap.set({
+            uid: rid, displayName: name, role: 'member',
+            joinedAt: fb_ap.firestore.FieldValue.serverTimestamp(),
+            isStudying: false, currentSubject: null,
+            elapsedTimeToday: 0, dateKey: todayKey(),
+          }, { merge: true }).then(() => {
+            gRef_ap.set({ memberCount: fb_ap.firestore.FieldValue.increment(1) }, { merge: true }).catch(() => {});
+          }).catch(() => {});
+          db_ap.collection('users').doc(rid).set({ joinedRooms: fb_ap.firestore.FieldValue.arrayUnion(g.code) }, { merge: true }).catch(() => {});
+        }
         toast(`✓ ${name} approved!`, 'success');
         el.closest('.adm-member-row')?.remove();
         renderSocial();
@@ -4835,13 +4961,20 @@
       }
 
       case 'sgs-reject-req': {
-        const sc  = scLoad();
-        const gid = el.dataset.gid;
-        const rid = el.dataset.rid;
+        const sc    = scLoad();
+        const gid   = el.dataset.gid;
+        const rid   = el.dataset.rid;
+        const g_rj  = sc.groups.find(x => x.id === gid);
         if (!sc.requests) sc.requests = {};
         if (!sc.requests[gid]) sc.requests[gid] = [];
         sc.requests[gid] = sc.requests[gid].filter(r => r.id !== rid);
         scSave(sc);
+        // Firebase: mark request rejected
+        const db_rj = getDb();
+        if (db_rj && g_rj?.code) {
+          db_rj.collection('groups').doc(g_rj.code).collection('joinRequests').doc(rid)
+            .set({ status: 'rejected' }, { merge: true }).catch(() => {});
+        }
         toast('Request rejected', 'info');
         el.closest('.adm-member-row')?.remove();
         renderSocial();
@@ -4858,22 +4991,37 @@
           toast('No members in this group yet', 'info');
           break;
         }
+        const myUid_mm  = getUserId();
+        const iAmOwner  = _getMyRole(g) === 'owner';
         const rows = members.map(m => {
-          const isMe = m.id === 'me';
+          const isMe       = m.id === myUid_mm || m.id === 'me';
+          const isOwnerMem = m.role === 'owner' || m.id === g.ownerUid || m.id === g.createdByUid;
+          const isAdminMem = isOwnerMem || m.role === 'admin' || (Array.isArray(g.admins) && g.admins.includes(m.id));
+          const roleLabel  = isOwnerMem ? '👑 Owner' : isAdminMem ? '⚡ Admin' : '✓ Member';
+          const canManage  = !isMe && !isOwnerMem;
+          const actions = canManage ? `
+            <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end;margin-top:4px">
+              ${!isAdminMem
+                ? `<button class="btn" style="padding:4px 9px;font-size:11px;background:rgba(16,185,129,.15);color:#10b981;border:1px solid rgba(16,185,129,.3)" data-sc="sgs-promote-member" data-gid="${esc(gid)}" data-uid="${esc(m.id)}" data-name="${esc(m.name||'Member')}">Promote</button>`
+                : (iAmOwner ? `<button class="btn" style="padding:4px 9px;font-size:11px;background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.3)" data-sc="sgs-demote-member" data-gid="${esc(gid)}" data-uid="${esc(m.id)}" data-name="${esc(m.name||'Member')}">Demote</button>` : '')}
+              <button class="btn btn-danger" style="padding:4px 9px;font-size:11px" data-sc="sgs-kick" data-gid="${esc(gid)}" data-uid="${esc(m.id)}" data-name="${esc(m.name||'Member')}">Kick</button>
+              <button class="btn btn-danger" style="padding:4px 9px;font-size:11px;opacity:.85" data-sc="sgs-ban" data-gid="${esc(gid)}" data-uid="${esc(m.id)}" data-name="${esc(m.name||'Member')}">Ban</button>
+            </div>` : '';
           return `
-            <div class="adm-member-row" style="margin-bottom:10px;display:flex;align-items:center;gap:10px">
-              <div style="width:36px;height:36px;border-radius:50%;background:#7c3aed;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex-shrink:0">${esc((m.name||'?').slice(0,2).toUpperCase())}</div>
+            <div class="adm-member-row" style="margin-bottom:12px;display:flex;align-items:flex-start;gap:10px">
+              <div style="width:38px;height:38px;border-radius:50%;background:#7c3aed;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex-shrink:0">${esc((m.name||'?').slice(0,2).toUpperCase())}</div>
               <div style="flex:1;min-width:0">
                 <div style="font-weight:600;font-size:14px">${esc(m.name||'Unknown')} ${isMe ? '<span style="color:#7c3aed;font-size:11px">(you)</span>' : ''}</div>
-                <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${m.role === 'admin' ? '👑 Admin' : '✓ Member'}</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${roleLabel}</div>
+                ${m.joinedAt ? `<div style="font-size:11px;color:var(--text-dim);margin-top:1px">Joined ${new Date(m.joinedAt).toLocaleDateString()}</div>` : ''}
+                ${actions}
               </div>
-              ${!isMe && m.role !== 'admin' ? `<button class="btn btn-danger" style="padding:5px 12px;font-size:12px" data-sc="sgs-kick" data-gid="${esc(gid)}" data-uid="${esc(m.id)}" data-name="${esc(m.name||'Member')}">Kick</button>` : ''}
             </div>`;
         }).join('');
         openModal(`
           <h3 class="sc-modal-title">👥 Manage Members</h3>
           <p style="font-size:13px;color:var(--text-muted);margin:0 0 14px">${members.length} member${members.length!==1?'s':''}</p>
-          <div id="mm-list">${rows}</div>
+          <div id="mm-list" style="max-height:55vh;overflow-y:auto">${rows}</div>
           <div class="actions" style="margin-top:16px"><button class="btn btn-ghost" data-close>Close</button></div>
         `);
         break;
@@ -4892,6 +5040,14 @@
           if (!g2) return;
           g2.members = (g2.members||[]).filter(m => m.id !== uid);
           scSave(sc2);
+          const db_k = getDb(), fb_k = getFb();
+          if (db_k && fb_k && g2.code) {
+            const gRef_k = db_k.collection('groups').doc(g2.code);
+            gRef_k.collection('members').doc(uid).delete().then(() => {
+              gRef_k.set({ memberCount: fb_k.firestore.FieldValue.increment(-1) }, { merge: true }).catch(() => {});
+            }).catch(() => {});
+            db_k.collection('users').doc(uid).set({ joinedRooms: fb_k.firestore.FieldValue.arrayRemove(g2.code) }, { merge: true }).catch(() => {});
+          }
           toast(`${name} removed from group`, 'info');
           closeModal();
           renderSocial();
@@ -4899,13 +5055,124 @@
         break;
       }
 
+      case 'sgs-ban': {
+        const sc   = scLoad();
+        const gid  = el.dataset.gid;
+        const uid  = el.dataset.uid;
+        const name = el.dataset.name || 'Member';
+        const g    = sc.groups.find(x => x.id === gid);
+        if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
+        confirmModal(`Ban ${name}? They will be removed and blocked from rejoining.`, () => {
+          const sc2 = scLoad();
+          const g2  = sc2.groups.find(x => x.id === gid);
+          if (!g2) return;
+          g2.members = (g2.members||[]).filter(m => m.id !== uid);
+          if (!g2.bannedUids) g2.bannedUids = [];
+          if (!g2.bannedUids.includes(uid)) g2.bannedUids.push(uid);
+          scSave(sc2);
+          const db_b = getDb(), fb_b = getFb();
+          if (db_b && fb_b && g2.code) {
+            const gRef_b = db_b.collection('groups').doc(g2.code);
+            gRef_b.collection('members').doc(uid).delete().then(() => {
+              gRef_b.set({
+                memberCount: fb_b.firestore.FieldValue.increment(-1),
+                bannedUids:  fb_b.firestore.FieldValue.arrayUnion(uid),
+              }, { merge: true }).catch(() => {});
+            }).catch(() => {});
+            db_b.collection('users').doc(uid).set({ joinedRooms: fb_b.firestore.FieldValue.arrayRemove(g2.code) }, { merge: true }).catch(() => {});
+          }
+          toast(`${name} has been banned`, 'info');
+          closeModal(); renderSocial();
+        }, { title:`Ban ${name}?`, yesLabel:'Ban', yesClass:'btn btn-danger', noLabel:'Cancel' });
+        break;
+      }
+
+      case 'sgs-promote-member': {
+        const sc   = scLoad();
+        const gid  = el.dataset.gid;
+        const uid  = el.dataset.uid;
+        const name = el.dataset.name || 'Member';
+        const g    = sc.groups.find(x => x.id === gid);
+        if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
+        confirmModal(`Promote ${name} to Admin? They can manage group settings.`, () => {
+          const sc2 = scLoad();
+          const g2  = sc2.groups.find(x => x.id === gid);
+          if (!g2) return;
+          const mem = (g2.members||[]).find(m => m.id === uid);
+          if (mem) mem.role = 'admin';
+          if (!g2.admins) g2.admins = [];
+          if (!g2.admins.includes(uid)) g2.admins.push(uid);
+          scSave(sc2);
+          const db_p = getDb(), fb_p = getFb();
+          if (db_p && fb_p && g2.code) {
+            db_p.collection('groups').doc(g2.code).set({ admins: fb_p.firestore.FieldValue.arrayUnion(uid) }, { merge: true }).catch(() => {});
+            db_p.collection('groups').doc(g2.code).collection('members').doc(uid).set({ role: 'admin' }, { merge: true }).catch(() => {});
+          }
+          toast(`${name} promoted to Admin ⚡`, 'success');
+          closeModal(); renderSocial();
+        }, { title:`Promote ${name}?`, yesLabel:'Promote', yesClass:'btn sc-modal-submit', noLabel:'Cancel' });
+        break;
+      }
+
+      case 'sgs-demote-member': {
+        const sc   = scLoad();
+        const gid  = el.dataset.gid;
+        const uid  = el.dataset.uid;
+        const name = el.dataset.name || 'Member';
+        const g    = sc.groups.find(x => x.id === gid);
+        if (!g || _getMyRole(g) !== 'owner') break;
+        confirmModal(`Remove ${name}'s Admin role?`, () => {
+          const sc2 = scLoad();
+          const g2  = sc2.groups.find(x => x.id === gid);
+          if (!g2) return;
+          const mem = (g2.members||[]).find(m => m.id === uid);
+          if (mem) mem.role = 'member';
+          if (g2.admins) g2.admins = g2.admins.filter(a => a !== uid);
+          scSave(sc2);
+          const db_d = getDb(), fb_d = getFb();
+          if (db_d && fb_d && g2.code) {
+            db_d.collection('groups').doc(g2.code).set({ admins: fb_d.firestore.FieldValue.arrayRemove(uid) }, { merge: true }).catch(() => {});
+            db_d.collection('groups').doc(g2.code).collection('members').doc(uid).set({ role: 'member' }, { merge: true }).catch(() => {});
+          }
+          toast(`${name} demoted to Member`, 'info');
+          closeModal(); renderSocial();
+        }, { title:`Demote ${name}?`, yesLabel:'Demote', yesClass:'btn btn-danger', noLabel:'Cancel' });
+        break;
+      }
+
       case 'sgs-nudge-all': {
         const sc = scLoad();
         const g  = sc.groups.find(x => x.id === el.dataset.gid);
         if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
-        const others = (g.members||[]).filter(m => m.id !== 'me');
+        const myUid_nu  = getUserId();
+        const others    = (g.members||[]).filter(m => m.id !== myUid_nu && m.id !== 'me');
         if (!others.length) { toast('No other members to nudge yet', 'info'); break; }
-        toast(`📣 Nudged ${others.length} member${others.length!==1?'s':''}! They'll be notified to study.`, 'success', 3500);
+        // Spam guard: 30-minute cooldown
+        const lastNudge = g._lastNudge || 0;
+        if (Date.now() - lastNudge < 30 * 60 * 1000) {
+          const minsLeft = Math.ceil((30 * 60 * 1000 - (Date.now() - lastNudge)) / 60000);
+          toast(`⏳ Nudge cooldown: ${minsLeft}m remaining before next nudge`, 'warn'); break;
+        }
+        const sc2_nu = scLoad();
+        const g2_nu  = sc2_nu.groups.find(x => x.id === g.id);
+        if (g2_nu) { g2_nu._lastNudge = Date.now(); scSave(sc2_nu); }
+        const db_nu = getDb(), fb_nu = getFb();
+        const senderName = _getUserDisplayName();
+        if (db_nu && myUid_nu && fb_nu && g.code) {
+          db_nu.collection('groups').doc(g.code).collection('nudges').add({
+            senderUid:   myUid_nu,
+            senderName,
+            message:     `📣 ${senderName} is nudging you to study!`,
+            sentAt:      fb_nu.firestore.FieldValue.serverTimestamp(),
+            memberCount: others.length,
+          }).catch(() => {});
+          // Write to group doc so all members' onSnapshot fires and shows toast
+          db_nu.collection('groups').doc(g.code).set({
+            lastNudge:       fb_nu.firestore.FieldValue.serverTimestamp(),
+            lastNudgeSender: senderName,
+          }, { merge: true }).catch(() => {});
+        }
+        toast(`📣 Nudged ${others.length} member${others.length!==1?'s':''}! They'll get a reminder to study.`, 'success', 3500);
         break;
       }
 
@@ -4920,6 +5187,7 @@
           if (!g2) break;
           g2.chatEnabled = g2.chatEnabled === false ? true : false;
           scSave(sc2);
+          _saveGroupSetting(g2.code, { chatEnabled: g2.chatEnabled });
           toast(g2.chatEnabled ? '💬 Group chat enabled' : '💬 Group chat disabled', 'success');
           renderSocial();
         }
@@ -5631,6 +5899,11 @@
       Object.keys(_groupDocUnsubs).forEach(k => {
         try { _groupDocUnsubs[k](); } catch(_) {}
         delete _groupDocUnsubs[k];
+      });
+      // Tear down all join-requests listeners
+      Object.keys(_joinRequestsUnsubs).forEach(k => {
+        try { _joinRequestsUnsubs[k](); } catch(_) {}
+        delete _joinRequestsUnsubs[k];
       });
     };
   }
