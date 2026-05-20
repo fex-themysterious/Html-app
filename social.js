@@ -5263,6 +5263,97 @@
     } catch(_) { return ''; }
   }
 
+  // ── Member-profile calendar state ────────────────────────────────────────
+  let _mpCalViewDate  = null;
+  let _mpCalMbd       = {};
+  let _mpCalInstallStr = '';
+
+  function _mpBuildCalendarInnerHTML() {
+    const mbd        = _mpCalMbd;
+    const installStr = _mpCalInstallStr;
+    const todayStr   = todayKey ? todayKey() : _mpDateKey(new Date());
+    if (!_mpCalViewDate) _mpCalViewDate = new Date();
+    const vd = _mpCalViewDate;
+    const vy = vd.getFullYear(), vm = vd.getMonth();
+    const mp = `${String(vy).padStart(4,'0')}-${String(vm+1).padStart(2,'0')}`;
+    let monthMin = 0;
+    Object.entries(mbd).forEach(([k,v]) => { if (k.startsWith(mp)) monthMin += v; });
+    const mFmt = monthMin > 0 ? _mpFmtMin(monthMin) + ' this month' : 'No study data';
+    const now  = new Date();
+    const inst = new Date((installStr || todayStr) + 'T00:00:00');
+    const canPrev = !(vy < inst.getFullYear() || (vy === inst.getFullYear() && vm <= inst.getMonth()));
+    const canNext = !(vy > now.getFullYear() || (vy === now.getFullYear() && vm >= now.getMonth()));
+    const monthLabel  = vd.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    const firstDow    = (new Date(vy, vm, 1).getDay() + 6) % 7;
+    const daysInMonth = new Date(vy, vm + 1, 0).getDate();
+    let cells = '';
+    for (let i = 0; i < firstDow; i++) cells += `<div class="mp-cal-cell mp-cal-empty"></div>`;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const ds       = `${mp}-${String(d).padStart(2,'0')}`;
+      const isFuture = ds > todayStr, isToday = ds === todayStr;
+      const min = mbd[ds] || 0, hrs = min / 60;
+      const isOff = !isFuture && !isToday && min === 0 && installStr && ds >= installStr;
+      const lvl = isFuture ? 'mp-cal-future'
+        : isOff  ? 'lv-off'
+        : min === 0 ? 'lv0'
+        : hrs < 3   ? 'lv1'
+        : hrs < 6   ? 'lv2'
+        : hrs < 9   ? 'lv3'
+        : hrs < 12  ? 'lv4' : 'lv5';
+      const tip = isFuture ? '—' : isOff ? 'Off day'
+        : min === 0 ? 'No focus'
+        : min < 60  ? `${min}m` : `${Math.floor(min/60)}h${min%60?' '+min%60+'m':''}`;
+      cells += `<div class="mp-cal-cell ${lvl}${isToday?' mp-cal-today':''}" title="${tip}">${d}</div>`;
+    }
+    return `
+      <div class="mp-cal-header">
+        <button class="mp-cal-nav" id="mp-cal-prev" aria-label="Prev" ${canPrev?'':'disabled'}>‹</button>
+        <div class="mp-cal-month-info">
+          <div class="mp-cal-month-label">${monthLabel}</div>
+          <div class="mp-cal-month-sub">${mFmt}</div>
+        </div>
+        <button class="mp-cal-nav" id="mp-cal-next" aria-label="Next" ${canNext?'':'disabled'}>›</button>
+      </div>
+      <div class="mp-cal-dow-row"><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span></div>
+      <div class="mp-cal-cells">${cells}</div>
+      <div class="mp-cal-legend">
+        <div class="mp-cal-leg-item"><div class="mp-cal-cell lv-off mp-cal-leg-swatch"></div><span>Off</span></div>
+        <span class="mp-cal-leg-txt">Less</span>
+        <div class="mp-cal-cell lv0 mp-cal-leg-swatch"></div>
+        <div class="mp-cal-cell lv1 mp-cal-leg-swatch"></div>
+        <div class="mp-cal-cell lv2 mp-cal-leg-swatch"></div>
+        <div class="mp-cal-cell lv3 mp-cal-leg-swatch"></div>
+        <div class="mp-cal-cell lv4 mp-cal-leg-swatch"></div>
+        <div class="mp-cal-cell lv5 mp-cal-leg-swatch"></div>
+        <span class="mp-cal-leg-txt">More</span>
+        <div class="mp-cal-leg-scale">
+          <span style="color:rgba(248,113,113,.8)">Off</span><span>0h</span>
+          <span style="color:rgba(167,108,255,.95)">1–3h</span>
+          <span style="color:rgba(6,182,212,.95)">3–6h</span>
+          <span style="color:#4ade80">6–9h</span>
+          <span style="color:#f97316">9–12h</span>
+          <span style="color:#ef4444">12h+</span>
+        </div>
+      </div>`;
+  }
+
+  function _mpBindCalNav(sheetEl) {
+    const ctr = sheetEl.querySelector('#mp-cal-container');
+    if (!ctr) return;
+    const prev = ctr.querySelector('#mp-cal-prev');
+    const next = ctr.querySelector('#mp-cal-next');
+    if (prev) prev.onclick = () => {
+      _mpCalViewDate = new Date(_mpCalViewDate.getFullYear(), _mpCalViewDate.getMonth() - 1, 1);
+      ctr.innerHTML = _mpBuildCalendarInnerHTML();
+      _mpBindCalNav(sheetEl);
+    };
+    if (next) next.onclick = () => {
+      _mpCalViewDate = new Date(_mpCalViewDate.getFullYear(), _mpCalViewDate.getMonth() + 1, 1);
+      ctr.innerHTML = _mpBuildCalendarInnerHTML();
+      _mpBindCalNav(sheetEl);
+    };
+  }
+
   function _closeMemberProfile() {
     const overlay = document.getElementById('mp-overlay');
     if (!overlay) return;
@@ -5273,6 +5364,7 @@
 
   async function _openMemberProfile(uid, displayName, groupCode) {
     document.getElementById('mp-overlay')?.remove();
+    _mpCalViewDate = null;
     const myUid  = getUserId();
     const isSelf = uid === myUid;
 
@@ -5346,6 +5438,7 @@
 
     sheet.querySelector('.mp-close-btn')
          ?.addEventListener('click', _closeMemberProfile);
+    _mpBindCalNav(sheet);
   }
 
   function _buildMemberProfileHTML(uid, displayName, userData, parsedState, isSelf, groupCode) {
@@ -5429,32 +5522,36 @@
     const groupRankStr = gRankIdx >= 0 && ranked[gRankIdx].mins > 0
       ? `#${gRankIdx + 1} in group today` : '';
 
-    // ── Heatmap — 5 weeks × 7 days, week-aligned (Sun–Sat) ──────────────
-    const heatCells = [];
-    const todayDate = new Date(today + 'T00:00:00');
-    const todayDow  = todayDate.getDay();   // 0=Sun … 6=Sat
-    // Go back to last Sunday of the oldest week we want to show
-    const daysBack  = todayDow + 4 * 7;    // e.g. Wed=3 → 31 days back to that Sunday
-    for (let i = daysBack; i >= 0; i--) {
-      const dk   = _mpAddDays(today, -i);
-      const mins = mbd[dk] || 0;
-      const hrs  = mins / 60;
-      let intensity = 0;
-      if (hrs > 0) intensity = hrs < 0.5 ? 1 : hrs < 1.5 ? 2 : hrs < 3 ? 3 : hrs < 5 ? 4 : 5;
-      const isToday = dk === today;
-      const d       = new Date(dk + 'T00:00:00');
-      const tip     = d.toLocaleDateString(undefined, { weekday:'short', month:'short', day:'numeric' });
-      const timeLbl = mins > 0 ? (mins >= 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins}m`) : 'No study';
-      heatCells.push(
-        `<div class="mp-heat-cell mp-heat-${intensity}${isToday ? ' mp-heat-today' : ''}" title="${tip} · ${timeLbl}"></div>`
-      );
-    }
-    // Pad remaining days of current week with empty cells so row 5 is complete
-    for (let j = 0; j < (6 - todayDow); j++) {
-      heatCells.push(`<div class="mp-heat-cell mp-heat-filler"></div>`);
-    }
-    const dayNames = ['Su','Mo','Tu','We','Th','Fr','Sa'];
-    const labelRow = dayNames.map(d => `<div class="mp-heat-label">${d}</div>`).join('');
+    // ── Calendar state (shared with _mpBuildCalendarInnerHTML) ───────────
+    const installStr = parsedState?.burnout?.installDate || today;
+    _mpCalMbd        = mbd;
+    _mpCalInstallStr = installStr;
+    if (!_mpCalViewDate) _mpCalViewDate = new Date();
+
+    // ── Custom badge & title ──────────────────────────────────────────────
+    const badgeId   = ((parsedState?.customBadgeOwned || (parsedState?.inventory?.custom_badge || 0) > 0) && parsedState?.selectedBadge)
+      ? parsedState.selectedBadge : '';
+    const badgeHTML = window._cmkBadgeHTML ? window._cmkBadgeHTML(badgeId) : '';
+    const titleHTML = window._cmkTitleHTML ? window._cmkTitleHTML(parsedState?.equippedItems) : '';
+
+    // ── Tagline ────────────────────────────────────────────────────────────
+    const tagline = (parsedState?.profile?.tagline || '').trim();
+
+    // ── Upcoming exam ──────────────────────────────────────────────────────
+    const exams = Array.isArray(parsedState?.exams) ? parsedState.exams : [];
+    const upcomingExam = exams.filter(e => e.date >= today).sort((a, b) => a.date.localeCompare(b.date))[0] || null;
+
+    // ── Syllabus progress ──────────────────────────────────────────────────
+    const subjects = Array.isArray(parsedState?.subjects) ? parsedState.subjects : [];
+    const subjectProgress = subjects.map(sub => {
+      let topTot = 0, topDn = 0;
+      for (const ch of (sub.chapters || [])) for (const t of (ch.topics || [])) { topTot++; if (t.done) topDn++; }
+      const pct = topTot ? Math.round((topDn / topTot) * 100) : 0;
+      return { name: sub.name, color: sub.color || '#ff7a1a', pct, topDn, topTot };
+    }).filter(s => s.topTot > 0);
+    let sylTot = 0, sylDn = 0;
+    subjects.forEach(sub => (sub.chapters || []).forEach(ch => (ch.topics || []).forEach(t => { sylTot++; if (t.done) sylDn++; })));
+    const overallSylPct = sylTot > 0 ? Math.round((sylDn / sylTot) * 100) : 0;
 
     // ── Achievements ──────────────────────────────────────────────────────
     const ACHS         = window._sc_ACHIEVEMENTS || [];
@@ -5494,6 +5591,8 @@
           <div class="mp-display-name">${esc(name)}</div>
           ${roleLabel ? `<div class="mp-role-chip">${roleLabel}</div>` : ''}
         </div>
+        ${tagline ? `<div class="mp-tagline">"${esc(tagline)}"</div>` : ''}
+        ${(badgeHTML || titleHTML) ? `<div class="mp-badge-title-row">${badgeHTML}${titleHTML}</div>` : ''}
         <div class="mp-meta-row">
           <div class="mp-rank-pill" style="color:${rank.color};border-color:${rank.color}44;background:${rank.color}12">${rank.icon} ${rank.label}</div>
           ${joinedStr ? `<div class="mp-joined-str">📅 Since ${joinedStr}</div>` : ''}
@@ -5562,16 +5661,10 @@
           </div>
         </div>
 
-        <!-- Activity Heatmap -->
-        <div class="mp-section-title">Activity <span class="mp-section-sub">Last 5 weeks</span></div>
-        <div class="mp-heatmap-wrap">
-          <div class="mp-heatmap-dow">${labelRow}</div>
-          <div class="mp-heatmap-grid">${heatCells.join('')}</div>
-          <div class="mp-heat-legend">
-            <span class="mp-heat-leg-lbl">Less</span>
-            ${[0,1,2,3,4,5].map(i => `<div class="mp-heat-cell mp-heat-${i}" style="width:12px;height:12px;flex-shrink:0"></div>`).join('')}
-            <span class="mp-heat-leg-lbl">More</span>
-          </div>
+        <!-- Focus Calendar -->
+        <div class="mp-section-title">Focus Calendar</div>
+        <div class="mp-cal-wrap" id="mp-cal-container">
+          ${_mpBuildCalendarInnerHTML()}
         </div>
 
         <!-- Rank Card -->
@@ -5594,6 +5687,42 @@
               : `<span style="color:${rank.color}">✦ Maximum rank achieved — Legend status</span>`}
           </div>
         </div>
+
+        <!-- Target Exam -->
+        ${upcomingExam ? (() => {
+          const daysLeft = Math.ceil((new Date(upcomingExam.date + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000);
+          const urgency  = daysLeft <= 7 ? 'high' : daysLeft <= 21 ? 'med' : 'low';
+          const uColor   = urgency === 'high' ? '#f87171' : urgency === 'med' ? '#f59e0b' : '#4ade80';
+          const uLabel   = urgency === 'high' ? '⚠️ Urgent' : urgency === 'med' ? '⏳ On Track' : '✅ Comfortable';
+          const dLabel   = daysLeft > 0 ? `${daysLeft}d left` : daysLeft === 0 ? 'Today!' : `${Math.abs(daysLeft)}d ago`;
+          return `<div class="mp-section-title">Target Exam</div>
+        <div class="mp-exam-card" style="--ec:${uColor}">
+          <div class="mp-exam-icon">🎯</div>
+          <div class="mp-exam-info">
+            <div class="mp-exam-name">${esc(upcomingExam.name)}</div>
+            <div class="mp-exam-date">${upcomingExam.date} · ${dLabel}</div>
+          </div>
+          <span class="mp-exam-badge" style="color:${uColor};border-color:${uColor}44;background:${uColor}14">${uLabel}</span>
+        </div>`;
+        })() : ''}
+
+        <!-- Syllabus Progress -->
+        ${subjectProgress.length ? `
+        <div class="mp-section-title">Syllabus <span class="mp-section-sub">${overallSylPct}% overall</span></div>
+        <div class="mp-syl-wrap">
+          <div class="mp-syl-overall-bar">
+            <div class="mp-syl-overall-fill" style="width:${overallSylPct}%"></div>
+          </div>
+          ${subjectProgress.slice(0, 5).map(s => `
+          <div class="mp-syl-row">
+            <div class="mp-syl-row-top">
+              <span class="mp-syl-dot" style="background:${s.color}"></span>
+              <span class="mp-syl-name">${esc(s.name)}</span>
+              <span class="mp-syl-pct" style="color:${s.color}">${s.pct}%</span>
+            </div>
+            <div class="mp-syl-bar"><div class="mp-syl-bar-fill" style="width:${s.pct}%;background:${s.color}"></div></div>
+          </div>`).join('')}
+        </div>` : ''}
 
         <!-- Achievements -->
         <div class="mp-section-title">Achievements <span class="mp-section-sub">${unlockedAchs.length} / ${ACHS.length}</span></div>

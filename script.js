@@ -1983,6 +1983,7 @@
 
   // Expose to social.js (loaded after this IIFE)
   window._cmkBadgeHTML  = _cmkBadgeHTML;
+  window._cmkTitleHTML  = _cmkTitleHTML;
   window._BADGE_DEFS    = _BADGE_DEFS;
   // Returns the current user's equipped badge id, or '' if none
   window._lsGetMyBadge  = () => (state.customBadgeOwned && state.selectedBadge) ? state.selectedBadge : '';
