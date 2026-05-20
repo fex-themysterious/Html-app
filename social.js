@@ -538,14 +538,18 @@
     if (_statsDebounce[code]) return;
     _statsDebounce[code] = setTimeout(() => { delete _statsDebounce[code]; }, 20000);
     const tk = todayKey();
+    // Look up current group to get goal-based attendance threshold
+    const sc = scLoad();
+    const grp = sc.groups.find(x => x.code === code);
+    const required = _attMinRequired(grp || {});
     db.collection('groups').doc(code).collection('members').get()
       .then(snap => {
         if (snap.empty) return;
         const members = snap.docs.map(d => d.data());
         const total  = members.length;
-        // Attendance = members who studied at least 15 minutes today (not just currently active)
-        const active = members.filter(m => m.dateKey === tk && (m.elapsedTimeToday || 0) >= 15).length;
-        const attendancePct  = total > 0 ? Math.round(active / total * 100) : 0;
+        // Present = studied at least the group's minimum attendance minutes today
+        const present = members.filter(m => m.dateKey === tk && (m.elapsedTimeToday || 0) >= required).length;
+        const attendancePct  = total > 0 ? Math.round(present / total * 100) : 0;
         const dailyMinsTotal = members.reduce(
           (sum, m) => sum + (m.dateKey === tk ? Math.round(m.elapsedTimeToday || 0) : 0), 0
         );
@@ -555,6 +559,58 @@
           memberCount: total,
         }).catch(() => {});
       }).catch(() => {});
+  }
+
+  // ── Attendance helpers ────────────────────────────────────────────────────
+  // Minimum minutes required to count as "Present" for a group day
+  function _attMinRequired(g) {
+    if (g && g.minAttendanceMins > 0) return g.minAttendanceMins;
+    // 25% of daily goal, floor 30 mins
+    return Math.max(30, Math.round(((g && g.dailyGoalHrs) || 2) * 15));
+  }
+
+  // 7 day objects for the current Fri–Thu week
+  function _attWeekDays() {
+    const fridayStr  = _weekStart(); // already Friday-based
+    const fridayDate = new Date(fridayStr + 'T00:00:00');
+    const today      = new Date(); today.setHours(0, 0, 0, 0);
+    const dayNames   = ['Fri','Sat','Sun','Mon','Tue','Wed','Thu'];
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(fridayDate); d.setDate(d.getDate() + i);
+      const key = d.toISOString().slice(0, 10);
+      days.push({
+        key,
+        dayName:  dayNames[i],
+        dayNum:   d.getDate(),
+        isToday:  d.getTime() === today.getTime(),
+        isFuture: d.getTime() >  today.getTime(),
+      });
+    }
+    return days;
+  }
+
+  // Canonical attendance status for a single day
+  // 'present' | 'missed' | 'future' | 'unknown' | 'offday'
+  function _attStatus(mins, isFuture, hasData, required, isOffDay) {
+    if (isFuture)  return 'future';
+    if (isOffDay)  return 'offday';
+    if (!hasData)  return 'unknown';
+    return mins >= required ? 'present' : 'missed';
+  }
+
+  // Consecutive present-day streak for the current user going backwards from today
+  function _attStreak(mbd, required) {
+    let streak = 0;
+    for (let i = 0; i <= 365; i++) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const key  = d.toISOString().slice(0, 10);
+      const mins = mbd[key] || 0;
+      if (mins >= required) { streak++; }
+      else if (i === 0)     { /* today not present yet — skip, don't break */ }
+      else                  { break; }
+    }
+    return streak;
   }
 
   // ── Subscribe to each local group's Firestore doc for live memberCount ────
@@ -2816,58 +2872,138 @@
   }
 
   function _renderSrAttendance(g, sc) {
-    const ms      = getMainState();
-    const mbd     = ((ms.focusStats || {}).minutesByDate) || {};
-    const members = _getGroupMembers(g);   // ← centralized realtime source
-    const days    = [];
-    for (let i = 13; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-      days.push({ key, label: String(d.getDate()).padStart(2,'0') });
-    }
-    const myUid   = getUserId();
-    const tk      = todayKey();
-    const amOff   = _isOffDayToday(myUid);
+    const ms       = getMainState();
+    const mbd      = ((ms.focusStats || {}).minutesByDate) || {};
+    const members  = _getGroupMembers(g);
+    const myUid    = getUserId();
+    const tk       = todayKey();
+    const amOff    = _isOffDayToday(myUid);
+    const required = _attMinRequired(g);
+    const weekDays = _attWeekDays();   // 7 days: Fri → Thu
+
+    // Week label  e.g. "Nov 8 – Nov 14"
+    const fmt = d => {
+      const [, mm, dd] = d.key.split('-');
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return `${months[parseInt(mm,10)-1]} ${parseInt(dd,10)}`;
+    };
+    const weekLabel = `${fmt(weekDays[0])} – ${fmt(weekDays[6])}`;
+
+    // My summary stats for this week
+    let myPresent = 0, myMissed = 0;
+    weekDays.forEach(day => {
+      if (day.isFuture) return;
+      const mins   = mbd[day.key] || 0;
+      const isOff  = amOff && day.isToday; // off-day only affects today
+      const status = _attStatus(mins, day.isFuture, true, required, isOff);
+      if (status === 'present' || status === 'offday') myPresent++;
+      else if (status === 'missed') myMissed++;
+    });
+    const myStreak  = _attStreak(mbd, required);
+    const myPct     = (myPresent + myMissed) > 0
+      ? Math.round(myPresent / (myPresent + myMissed) * 100) : 0;
+
+    // Status icon/classes
+    const statusCell = (status, isToday, mins, required) => {
+      const icons = { present: '✓', missed: '✗', future: '·', unknown: '·', offday: '○' };
+      const cls   = `sr-att-status sr-att-status--${status}${isToday ? ' sr-att-status--today' : ''}`;
+      const tip   = status === 'present' ? `${Math.floor(mins/60)}h ${mins%60}m` :
+                    status === 'missed'  ? (mins > 0 ? `${mins}m (need ${required}m)` : 'No session') :
+                    status === 'offday'  ? 'Off day' : '';
+      return `<div class="${cls}" title="${tip}">${icons[status] || '·'}</div>`;
+    };
+
     return `
       <div class="sr-att-view">
-        <div class="sr-att-offday-row">
-          <div class="sr-att-offday-info">
-            <div class="sr-att-offday-title">Off Day</div>
-            <div class="sr-att-offday-sub">${amOff ? 'You\'re off today — rest up! 🛋️' : 'Mark today as a rest day for this group'}</div>
+
+        <div class="sr-att-topbar">
+          <div class="sr-att-week-label">
+            <span class="sr-att-week-title">Week</span>
+            <span class="sr-att-week-range">${weekLabel}</span>
           </div>
-          <button class="sr-att-offday-btn${amOff ? ' sr-att-offday-active' : ''}" data-sc="sr-set-offday">
-            ${amOff ? '✓ Off Day' : 'Set Off Day'}
+          <button class="sr-att-offday-btn${amOff ? ' sr-att-offday-active' : ''}" data-sc="sr-set-offday"
+            title="${amOff ? 'Cancel off day' : 'Mark today as rest day'}">
+            ${amOff ? '🛋 Off' : '😴 Off Day'}
           </button>
         </div>
-        <div class="sr-section-head">Attendance — Last 14 Days</div>
-        ${members.length === 0
-          ? `<div class="sr-empty-grid">No members yet.</div>`
-          : members.map(m => {
-              const rawName   = m.name || '?';
-              const shortName = rawName.length > 9 ? rawName.slice(0, 8) + '…' : rawName;
-              const lm        = _liveMembers[m.uid] || null;
-              const cells = days.map(day => {
-                let mins = 0;
-                if (m.isMe) {
-                  mins = mbd[day.key] || 0;
-                } else if (day.key === tk && lm) {
-                  // For today: use Firebase elapsedTimeToday + live elapsed
-                  mins = (lm.elapsedTimeToday || 0) +
-                    (lm.isStudying && lm.studyStartedAt
-                      ? Math.floor((Date.now() - lm.studyStartedAt) / 1000 / 60) : 0);
-                }
-                const present = mins > 0;
-                const tip     = present ? `${Math.floor(mins/60)}h${mins%60}m` : '—';
-                return `<div class="sr-att-cell${present ? ' sr-att-present' : ''}" title="${day.key}: ${tip}">${day.label}</div>`;
-              }).join('');
-              return `
-                <div class="sr-att-member-row">
-                  <div class="sr-att-member-av" style="background:${_avatarColor(rawName)}">${rawName[0].toUpperCase()}</div>
-                  <div class="sr-att-member-name">${esc(shortName)}${m.isMe ? ' <span class="sr-att-you">you</span>' : ''}</div>
-                  <div class="sr-att-cells">${cells}</div>
-                </div>`;
-            }).join('')}
+
+        ${amOff ? `<div class="sr-att-offday-banner">🛋️ You've marked today as a rest day — enjoy your break!</div>` : ''}
+
+        <div class="sr-att-grid-wrap">
+          <div class="sr-att-grid">
+
+            <div class="sr-att-grid-head">
+              <div class="sr-att-mem-col"></div>
+              ${weekDays.map(d => `
+                <div class="sr-att-day-hdr${d.isToday ? ' sr-att-day-hdr--today' : ''}${d.isFuture ? ' sr-att-day-hdr--future' : ''}">
+                  <div class="sr-att-day-name">${d.dayName}</div>
+                  <div class="sr-att-day-num">${d.dayNum}</div>
+                </div>`).join('')}
+            </div>
+
+            ${members.length === 0
+              ? `<div class="sr-empty-grid" style="grid-column:1/-1">No members yet.</div>`
+              : members.map(m => {
+                  const rawName  = m.name || '?';
+                  const dispName = rawName.length > 8 ? rawName.slice(0, 7) + '…' : rawName;
+                  const lm       = _liveMembers[m.uid] || null;
+                  const isOff    = _isOffDayToday(m.uid);
+
+                  const cells = weekDays.map(day => {
+                    let mins = 0, hasData = false;
+                    if (m.isMe) {
+                      mins    = mbd[day.key] || 0;
+                      hasData = true;
+                    } else if (day.isToday && lm) {
+                      // Today: live elapsedTimeToday from Firestore member doc
+                      const baseMins = (lm.dateKey === day.key ? (lm.elapsedTimeToday || 0) : 0);
+                      const liveMins = lm.isStudying && lm.studyStartedAt
+                        ? Math.floor((Date.now() - lm.studyStartedAt) / 1000 / 60) : 0;
+                      mins    = baseMins + liveMins;
+                      hasData = lm.dateKey === day.key; // only trust if dateKey matches today
+                    }
+                    const status = _attStatus(mins, day.isFuture, hasData, required, isOff && day.isToday);
+                    return statusCell(status, day.isToday, mins, required);
+                  }).join('');
+
+                  return `
+                    <div class="sr-att-member-row">
+                      <div class="sr-att-mem-col sr-att-mem-info-col">
+                        <div class="sr-att-member-av" style="background:${_avatarColor(rawName)}">${rawName[0].toUpperCase()}</div>
+                        <div class="sr-att-member-name">${esc(dispName)}${m.isMe ? '<span class="sr-att-you">you</span>' : ''}</div>
+                      </div>
+                      ${cells}
+                    </div>`;
+                }).join('')}
+          </div>
+        </div>
+
+        <div class="sr-att-legend">
+          <span class="sr-att-legend-item"><span class="sr-att-legend-dot sr-att-legend-dot--present"></span>Present</span>
+          <span class="sr-att-legend-item"><span class="sr-att-legend-dot sr-att-legend-dot--missed"></span>Missed</span>
+          <span class="sr-att-legend-item"><span class="sr-att-legend-dot sr-att-legend-dot--offday"></span>Off Day</span>
+          <span class="sr-att-legend-item sr-att-legend-req">Min: ${required >= 60 ? Math.round(required/60*10)/10 + 'h' : required + 'm'}/day</span>
+        </div>
+
+        <div class="sr-att-summary">
+          <div class="sr-att-sum-card">
+            <div class="sr-att-sum-val sr-att-sum-val--green">${myPresent}</div>
+            <div class="sr-att-sum-lbl">Present</div>
+          </div>
+          <div class="sr-att-sum-card">
+            <div class="sr-att-sum-val sr-att-sum-val--red">${myMissed}</div>
+            <div class="sr-att-sum-lbl">Missed</div>
+          </div>
+          <div class="sr-att-sum-card">
+            <div class="sr-att-sum-val">${myPct}%</div>
+            <div class="sr-att-sum-lbl">Rate</div>
+          </div>
+          <div class="sr-att-sum-card">
+            <div class="sr-att-sum-val">${myStreak}🔥</div>
+            <div class="sr-att-sum-lbl">Streak</div>
+          </div>
+        </div>
+
       </div>`;
   }
 

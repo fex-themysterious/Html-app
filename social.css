@@ -1463,68 +1463,127 @@
 }
 
 /* ── Attendance ───────────────────────────────────────────────────────────── */
-.sr-att-view { padding: 14px 14px 28px; }
+/* ── Attendance — Premium Weekly Redesign ─────────────────────────────── */
+.sr-att-view { padding: 12px 14px 32px; }
 
-.sr-att-member-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
+/* Top bar: week label + off-day button */
+.sr-att-topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px; gap: 10px;
+}
+.sr-att-week-label { display: flex; flex-direction: column; }
+.sr-att-week-title { font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .06em; }
+.sr-att-week-range { font-size: 14px; font-weight: 800; color: #e2e8f0; }
+.sr-att-offday-banner {
+  font-size: 12px; color: #fb923c; background: rgba(251,146,60,.1);
+  border: 1px solid rgba(251,146,60,.25); border-radius: 10px;
+  padding: 8px 12px; margin-bottom: 12px; text-align: center;
+}
+
+/* Grid */
+.sr-att-grid-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; margin-bottom: 10px; }
+.sr-att-grid-wrap::-webkit-scrollbar { display: none; }
+.sr-att-grid {
+  display: grid;
+  grid-template-columns: 80px repeat(7, 1fr);
+  gap: 3px;
+  min-width: 320px;
+}
+
+/* Day header row */
+.sr-att-grid-head { display: contents; }
+.sr-att-mem-col {
+  display: flex; align-items: center;
+  font-size: 10px; color: #475569; font-weight: 600;
+}
+.sr-att-day-hdr {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 5px 2px; border-radius: 7px;
+  background: rgba(255,255,255,.03); border: 1px solid transparent;
+}
+.sr-att-day-hdr--today {
+  background: rgba(124,58,237,.15); border-color: rgba(124,58,237,.35);
+}
+.sr-att-day-hdr--future { opacity: .45; }
+.sr-att-day-name { font-size: 9px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .04em; }
+.sr-att-day-num  { font-size: 12px; font-weight: 800; color: #e2e8f0; line-height: 1.2; }
+.sr-att-day-hdr--today .sr-att-day-name { color: #a78bfa; }
+.sr-att-day-hdr--today .sr-att-day-num  { color: #c4b5fd; }
+
+/* Member rows */
+.sr-att-member-row { display: contents; }
+.sr-att-mem-col.sr-att-mem-info-col {
+  display: flex; align-items: center; gap: 5px; padding: 4px 0;
 }
 .sr-att-member-av {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 700;
-  color: #fff;
-  flex-shrink: 0;
+  width: 24px; height: 24px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; color: #fff; flex-shrink: 0;
 }
 .sr-att-member-name {
-  font-size: 11px;
-  font-weight: 600;
-  color: #64748b;
-  width: 54px;
-  flex-shrink: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 10px; font-weight: 600; color: #94a3b8;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
 }
 .sr-att-you {
-  font-size: 9px;
-  font-weight: 700;
-  color: #a78bfa;
-  background: rgba(124,58,237,.15);
-  border-radius: 4px;
-  padding: 1px 4px;
-  margin-left: 2px;
-  vertical-align: middle;
+  display: inline-block; font-size: 8px; font-weight: 700; color: #a78bfa;
+  background: rgba(124,58,237,.18); border-radius: 3px;
+  padding: 1px 3px; margin-left: 2px; vertical-align: middle;
 }
-.sr-att-cells {
-  display: flex;
-  gap: 3px;
-  flex: 1;
-  overflow-x: auto;
-  scrollbar-width: none;
+
+/* Status cells */
+.sr-att-status {
+  display: flex; align-items: center; justify-content: center;
+  height: 36px; border-radius: 7px; font-size: 13px; font-weight: 800;
+  border: 1px solid transparent; transition: opacity .15s;
+  cursor: default;
 }
-.sr-att-cells::-webkit-scrollbar { display: none; }
-.sr-att-cell {
-  width: 20px;
-  height: 20px;
-  border-radius: 4px;
-  background: rgba(255,255,255,.05);
-  border: 1px solid rgba(255,255,255,.06);
-  flex-shrink: 0;
-  font-size: 8px;
-  color: transparent;
+.sr-att-status--present {
+  background: rgba(34,197,94,.18); border-color: rgba(34,197,94,.4); color: #4ade80;
 }
-.sr-att-present {
-  background: rgba(255,122,26,.28);
-  border-color: rgba(255,122,26,.5);
+.sr-att-status--missed  {
+  background: rgba(248,113,113,.12); border-color: rgba(248,113,113,.3); color: #f87171;
 }
+.sr-att-status--future  {
+  background: rgba(255,255,255,.03); border-color: rgba(255,255,255,.04); color: rgba(100,116,139,.4);
+  font-size: 16px;
+}
+.sr-att-status--unknown {
+  background: rgba(255,255,255,.03); border-color: rgba(255,255,255,.04); color: rgba(100,116,139,.25);
+  font-size: 16px;
+}
+.sr-att-status--offday  {
+  background: rgba(251,146,60,.12); border-color: rgba(251,146,60,.3); color: #fb923c;
+}
+.sr-att-status--today {
+  box-shadow: 0 0 0 1.5px rgba(124,58,237,.5);
+}
+
+/* Legend */
+.sr-att-legend {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 14px; padding: 0 2px;
+}
+.sr-att-legend-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: #64748b; }
+.sr-att-legend-dot {
+  width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0;
+}
+.sr-att-legend-dot--present { background: #4ade80; }
+.sr-att-legend-dot--missed  { background: #f87171; }
+.sr-att-legend-dot--offday  { background: #fb923c; }
+.sr-att-legend-req { margin-left: auto; font-weight: 700; color: #94a3b8; }
+
+/* Summary stats */
+.sr-att-summary {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+}
+.sr-att-sum-card {
+  background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07);
+  border-radius: 12px; padding: 10px 6px; text-align: center;
+}
+.sr-att-sum-val { font-size: 20px; font-weight: 900; color: #e2e8f0; line-height: 1; margin-bottom: 3px; }
+.sr-att-sum-val--green { color: #4ade80; }
+.sr-att-sum-val--red   { color: #f87171; }
+.sr-att-sum-lbl { font-size: 9px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: .05em; }
 
 /* ── Rankings ─────────────────────────────────────────────────────────────── */
 .sr-rank-view { padding: 14px 14px 28px; }
