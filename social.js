@@ -802,6 +802,8 @@
   let _globalLbDailyUnsub  = null;
   let _globalLbWeeklyUnsub = null;
   let _globalLbSubDate     = null; // track date to re-sub at midnight
+  let _lbLastUpdated       = 0;   // timestamp of last successful snapshot
+  let _lbLoading           = true; // true until first snapshot arrives
   // Chat state
   let _chatUnsub           = null;
   let _chatMessages        = {};   // { groupCode: Message[] }
@@ -925,20 +927,23 @@
     if (period === 'daily') {
       if (_globalLbDailyUnsub) return;
       const dateVal = today;
+      const _onDailySnap = (snap) => {
+        _globalLbDailyData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        _lbLastUpdated = Date.now(); _lbLoading = false;
+        if (_tab === 'leaderboard' && _lbPeriod === 'daily' && window._currentTab === 'social') _scheduleRender();
+      };
       const tryIndexed = () => {
         try {
           _globalLbDailyUnsub = db.collection('global_lb')
             .where('dailyResetDate', '==', dateVal)
             .orderBy('dailyStudyTime', 'desc')
             .limit(100)
-            .onSnapshot(snap => {
-              _globalLbDailyData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-              if (_tab === 'leaderboard' && _lbPeriod === 'daily' && window._currentTab === 'social') _scheduleRender();
-            }, () => { _globalLbDailyUnsub = null; tryFallback(); });
+            .onSnapshot(_onDailySnap, () => { _globalLbDailyUnsub = null; tryFallback(); });
         } catch(_) { _globalLbDailyUnsub = null; tryFallback(); }
       };
       const tryFallback = () => {
         try {
+          // Fallback without orderBy (composite index may be missing)
           _globalLbDailyUnsub = db.collection('global_lb')
             .where('dailyResetDate', '==', dateVal)
             .limit(200)
@@ -946,6 +951,23 @@
               _globalLbDailyData = snap.docs.map(d => ({ id: d.id, ...d.data() }))
                 .filter(u => (u.dailyStudyTime || 0) > 0)
                 .sort((a, b) => (b.dailyStudyTime || 0) - (a.dailyStudyTime || 0));
+              _lbLastUpdated = Date.now(); _lbLoading = false;
+              if (_tab === 'leaderboard' && _lbPeriod === 'daily' && window._currentTab === 'social') _scheduleRender();
+            }, () => { _globalLbDailyUnsub = null; tryLastResortDaily(); });
+        } catch(_) { _globalLbDailyUnsub = null; tryLastResortDaily(); }
+      };
+      const tryLastResortDaily = () => {
+        try {
+          // Last resort: all users with daily time > 0, sort client-side
+          _globalLbDailyUnsub = db.collection('global_lb')
+            .where('dailyStudyTime', '>', 0)
+            .orderBy('dailyStudyTime', 'desc')
+            .limit(100)
+            .onSnapshot(snap => {
+              const today2 = todayKey();
+              _globalLbDailyData = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+                .filter(u => u && u.id && (!u.dailyResetDate || u.dailyResetDate === today2));
+              _lbLastUpdated = Date.now(); _lbLoading = false;
               if (_tab === 'leaderboard' && _lbPeriod === 'daily' && window._currentTab === 'social') _scheduleRender();
             }, () => { _globalLbDailyUnsub = null; });
         } catch(_) { _globalLbDailyUnsub = null; }
@@ -953,55 +975,68 @@
       tryIndexed();
     } else {
       if (_globalLbWeeklyUnsub) return;
-      const dateVal = weekStart;
-      // Query all users whose lastActive is >= this week's Friday start.
-      // This catches every format of data — including users who don't have weeklyResetDate,
-      // or whose weeklyResetDate was written with the old UTC _weekStartKey bug.
+      const dateVal = weekStart; // kept for reference; primary query no longer uses date filter
       const _wkSort = (a, b) => {
         const td = (b.weeklyStudyTime||0) - (a.weeklyStudyTime||0); if (td) return td;
         const sd = (b.sessions||0) - (a.sessions||0); if (sd) return sd;
         return (b.streak||0) - (a.streak||0);
       };
+      // Drop entries whose weeklyResetDate is explicitly from a prior week
+      // (means weeklyStudyTime is stale). Entries with no weeklyResetDate are kept.
       const _wkFilter = (docs) => {
         const wkStart = _weekStart();
-        return docs
-          .filter(u => {
-            if (!u || !u.id) return false;
-            if ((u.weeklyStudyTime||0) <= 0) return false;
-            // Exclude if weeklyResetDate is explicitly from a PREVIOUS week
-            if (u.weeklyResetDate && u.weeklyResetDate < wkStart) return false;
-            return true;
-          })
-          .sort(_wkSort);
+        return docs.filter(u => {
+          if (!u || !u.id) return false;
+          if (u.weeklyResetDate && u.weeklyResetDate < wkStart) return false;
+          return true;
+        });
+      };
+      const _onWeeklySnap = (snap) => {
+        _globalLbWeeklyData = _wkFilter(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        _lbLastUpdated = Date.now();
+        _lbLoading = false;
+        if (_tab === 'leaderboard' && _lbPeriod === 'weekly' && window._currentTab === 'social') _scheduleRender();
       };
       const tryIndexed = () => {
         try {
-          // Primary: users active this week (no composite index needed for single-field range)
+          // PRIMARY: ALL users with weeklyStudyTime > 0, sorted descending.
+          // inequality filter + orderBy on SAME field = valid single-field index (no composite needed).
+          // This catches every user regardless of when they were last active.
           _globalLbWeeklyUnsub = db.collection('global_lb')
-            .where('lastActive', '>=', dateVal)
-            .limit(200)
-            .onSnapshot(snap => {
-              _globalLbWeeklyData = _wkFilter(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-              if (_tab === 'leaderboard' && _lbPeriod === 'weekly' && window._currentTab === 'social') _scheduleRender();
-            }, () => { _globalLbWeeklyUnsub = null; tryFallback(); });
+            .where('weeklyStudyTime', '>', 0)
+            .orderBy('weeklyStudyTime', 'desc')
+            .limit(100)
+            .onSnapshot(_onWeeklySnap, () => { _globalLbWeeklyUnsub = null; tryFallback(); });
         } catch(_) { _globalLbWeeklyUnsub = null; tryFallback(); }
       };
       const tryFallback = () => {
         try {
-          // Broad fallback: latest 500 entries, filter this week client-side
+          // FALLBACK: order by weeklyStudyTime desc without inequality filter
+          _globalLbWeeklyUnsub = db.collection('global_lb')
+            .orderBy('weeklyStudyTime', 'desc')
+            .limit(200)
+            .onSnapshot(snap => {
+              const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+                .filter(u => u && u.id && (u.weeklyStudyTime||0) > 0);
+              _globalLbWeeklyData = _wkFilter(docs).slice(0, 100);
+              _lbLastUpdated = Date.now(); _lbLoading = false;
+              if (_tab === 'leaderboard' && _lbPeriod === 'weekly' && window._currentTab === 'social') _scheduleRender();
+            }, () => { _globalLbWeeklyUnsub = null; tryLastResort(); });
+        } catch(_) { _globalLbWeeklyUnsub = null; tryLastResort(); }
+      };
+      const tryLastResort = () => {
+        try {
+          // LAST RESORT: broadest possible, full client-side filter+sort
           _globalLbWeeklyUnsub = db.collection('global_lb')
             .orderBy('updatedAt', 'desc')
             .limit(500)
             .onSnapshot(snap => {
-              const wkStart = _weekStart();
-              const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-                .filter(u => {
-                  if (!u || !u.id) return false;
-                  if ((u.weeklyStudyTime||0) <= 0) return false;
-                  if (u.weeklyResetDate && u.weeklyResetDate < wkStart) return false;
-                  return (u.lastActive && u.lastActive >= wkStart) || u.weeklyResetDate === wkStart;
-                });
-              _globalLbWeeklyData = docs.sort(_wkSort);
+              _globalLbWeeklyData = _wkFilter(
+                snap.docs.map(d => ({ id: d.id, ...d.data() }))
+                  .filter(u => u && u.id && (u.weeklyStudyTime||0) > 0)
+                  .sort(_wkSort)
+              ).slice(0, 100);
+              _lbLastUpdated = Date.now(); _lbLoading = false;
               if (_tab === 'leaderboard' && _lbPeriod === 'weekly' && window._currentTab === 'social') _scheduleRender();
             }, () => { _globalLbWeeklyUnsub = null; });
         } catch(_) { _globalLbWeeklyUnsub = null; }
@@ -3411,6 +3446,17 @@
     </div>`;
   }
 
+  // Format "Updated X ago" label
+  function _lbUpdatedAgo() {
+    if (!_lbLastUpdated) return '';
+    const secs = Math.floor((Date.now() - _lbLastUpdated) / 1000);
+    if (secs < 10)  return 'Updated just now';
+    if (secs < 60)  return `Updated ${secs}s ago`;
+    const mins = Math.floor(secs / 60);
+    if (mins < 60)  return `Updated ${mins}m ago`;
+    return `Updated ${Math.floor(mins/60)}h ago`;
+  }
+
   function _renderLeaderboard() {
     const ms          = getMainState();
     const mins        = (ms.focusStats || {}).minutesByDate || {};
@@ -3422,7 +3468,7 @@
     const uid         = getUserId();
     const weekStartKey = _weekStart();
     const goal        = _lbPeriod === 'daily' ? 480 : 3360;
-    const goalLabel   = _lbPeriod === 'daily' ? '8h / day' : '56h / week';
+    const goalLabel   = _lbPeriod === 'daily' ? '8h / day (Fri–Thu)' : '56h / week (Fri–Thu)';
     const streak      = ms.streak?.count ?? ms.streak?.current ?? ms.currentStreak ?? 0;
     const sessions    = ms.focusStats?.sessions?.[today] ?? 0;
 
@@ -3516,11 +3562,23 @@
         <div class="sc-lb-myrank-hint">Keep going to reach the Top 100! 🚀</div>
       </div>` : '';
 
+    // Skeleton rows while loading
+    const skeletonRows = _lbLoading && top100.length === 0 ? `
+      <div class="sc-lb-skeleton-wrap">
+        ${[1,2,3].map(i => `<div class="sc-lb-skel-podium sc-lb-skel-podium--${i}"></div>`).join('')}
+        ${[1,2,3,4,5].map(() => `<div class="sc-lb-skel-row"><div class="sc-lb-skel-av"></div><div class="sc-lb-skel-lines"><div class="sc-lb-skel-line sc-lb-skel-line--wide"></div><div class="sc-lb-skel-line sc-lb-skel-line--narrow"></div></div><div class="sc-lb-skel-time"></div></div>`).join('')}
+      </div>` : '';
+
+    const updatedLabel = _lbLastUpdated ? `<span class="sc-lb-updated" id="sc-lb-updated">${_lbUpdatedAgo()}</span>` : `<span class="sc-lb-updated sc-lb-updated--live">● Live</span>`;
+
     return `
       <div class="sc-section sc-lb-global">
 
         <div class="sc-lb-header-row">
-          <span class="sc-section-title">🏆 Rankings</span>
+          <div class="sc-lb-title-col">
+            <span class="sc-section-title">🏆 Rankings</span>
+            ${updatedLabel}
+          </div>
           <div class="sc-lb-period-tabs">
             <button class="sc-lb-tab-btn${_lbPeriod==='daily'?' sc-lb-tab-active':''}" data-sc="lb-period" data-period="daily">Daily</button>
             <button class="sc-lb-tab-btn${_lbPeriod==='weekly'?' sc-lb-tab-active':''}" data-sc="lb-period" data-period="weekly">Weekly</button>
@@ -3548,25 +3606,30 @@
           </div>
         </div>
 
-        ${top100.length === 0 ? `
+        ${skeletonRows}
+
+        ${!skeletonRows && top100.length === 0 ? `
           <div class="sc-lb-empty">
-            <div class="sc-lb-empty-icon">🏆</div>
-            <div class="sc-lb-empty-title">No one ranked yet ${_lbPeriod === 'daily' ? 'today' : 'this week'}</div>
-            <div class="sc-lb-empty-sub">Start a focus session to claim #1!</div>
+            <div class="sc-lb-empty-icon">${_lbPeriod === 'daily' ? '📅' : '📆'}</div>
+            <div class="sc-lb-empty-title">No ${_lbPeriod === 'daily' ? 'daily' : 'weekly'} rankings yet</div>
+            <div class="sc-lb-empty-sub">Complete a focus session to appear on the leaderboard!</div>
+            <button class="sc-lb-retry-btn" data-sc="lb-retry">Retry</button>
           </div>
-        ` : `
+        ` : ''}
+
+        ${top100.length > 0 ? `
           ${top3.length > 0 ? _renderLbPodium(top3, uid, _lbPeriod) : ''}
 
           ${rest.length > 0 ? `
             <div class="sc-glb-section">
               <div class="sc-glb-header">
-                <span class="sc-block-title">Top 100</span>
+                <span class="sc-block-title">Top ${top100.length}</span>
                 <span class="sc-glb-count">${top100.length} studier${top100.length !== 1 ? 's' : ''}</span>
               </div>
               ${rest.map((u, i) => _renderLbRow(u, i + 4, uid, _lbPeriod, deltas[u.id] || 0)).join('')}
             </div>
           ` : ''}
-        `}
+        ` : ''}
 
         ${myRankFooter}
 
@@ -4300,6 +4363,16 @@
 
       case 'lb-period':
         _lbPeriod = el.dataset.period || 'daily';
+        _lbLoading = _lbPeriod === 'daily' ? _globalLbDailyData.length === 0 : _globalLbWeeklyData.length === 0;
+        renderSocial();
+        break;
+
+      case 'lb-retry':
+        // Force re-subscribe by tearing down and restarting
+        _unsubscribeGlobalLb();
+        _globalLbDailyData = []; _globalLbWeeklyData = [];
+        _lbLoading = true; _lbLastUpdated = 0;
+        _subscribeGlobalLb();
         renderSocial();
         break;
 

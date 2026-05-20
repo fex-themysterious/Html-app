@@ -1,11 +1,11 @@
-const CACHE_NAME = 'syllabus-tracker-v199';
+const CACHE_NAME = 'syllabus-tracker-v200';
 const STATIC = [
   '/',
   '/index.html',
   '/style.css?v=130',
-  '/social.css?v=20',
+  '/social.css?v=21',
   '/script.js?v=205',
-  '/social.js?v=31',
+  '/social.js?v=32',
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png'
