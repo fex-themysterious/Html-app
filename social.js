@@ -1928,7 +1928,12 @@
   }
 
   function _bindChatLongPress(el, code, g) {
-    let pressTimer = null, startX = 0, startY = 0, longFired = false;
+    let pressTimer = null, startX = 0, startY = 0, longFired = false, activeMsgEl = null;
+
+    const _cancelPress = () => {
+      if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+      if (activeMsgEl) { activeMsgEl.classList.remove('sr-msg-pressing'); activeMsgEl = null; }
+    };
 
     el.addEventListener('touchstart', e => {
       // Ignore taps on interactive sub-elements (reaction pills, reply quotes)
@@ -1938,30 +1943,37 @@
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       longFired = false;
+      activeMsgEl = msgEl;
+      // Instant visual press feedback
+      msgEl.classList.add('sr-msg-pressing');
       const msgId = msgEl.dataset.msgId;
       pressTimer = setTimeout(() => {
         longFired = true;
-        try { if (navigator.vibrate) navigator.vibrate(18); } catch(_) {}
+        if (activeMsgEl) { activeMsgEl.classList.remove('sr-msg-pressing'); activeMsgEl = null; }
+        try { if (navigator.vibrate) navigator.vibrate([12]); } catch(_) {}
         _openChatActionSheet(code, g, msgId);
-      }, 480);
-    }, { passive: true }); // passive:true so scroll is never blocked
+      }, 280);
+    }, { passive: true });
 
     el.addEventListener('touchmove', e => {
       if (!pressTimer) return;
-      if (Math.abs(e.touches[0].clientX - startX) > 8 ||
-          Math.abs(e.touches[0].clientY - startY) > 8) {
-        clearTimeout(pressTimer); pressTimer = null;
+      // Only cancel on real scroll movement (>12px), not micro-jitter
+      if (Math.abs(e.touches[0].clientX - startX) > 12 ||
+          Math.abs(e.touches[0].clientY - startY) > 12) {
+        _cancelPress();
       }
     }, { passive: true });
 
     el.addEventListener('touchend', e => {
-      clearTimeout(pressTimer); pressTimer = null;
+      const wasFired = longFired;
+      _cancelPress();
+      longFired = false;
       // Suppress the click that fires after a long-press so no accidental actions
-      if (longFired) { e.preventDefault(); longFired = false; }
+      if (wasFired) e.preventDefault();
     }, { passive: false });
 
     el.addEventListener('touchcancel', () => {
-      clearTimeout(pressTimer); pressTimer = null; longFired = false;
+      _cancelPress(); longFired = false;
     });
 
     // Desktop: right-click context menu
@@ -2147,7 +2159,7 @@
     const panel = document.getElementById('sr-cas-panel');
     if (panel) {
       panel.classList.remove('sr-cas-open');
-      setTimeout(() => document.getElementById('sr-cas')?.remove(), 270);
+      setTimeout(() => document.getElementById('sr-cas')?.remove(), 180);
     } else {
       document.getElementById('sr-cas')?.remove();
     }

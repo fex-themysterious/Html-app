@@ -2011,7 +2011,7 @@
   border-radius: 22px 22px 0 0;
   padding: 0 0 max(22px, env(safe-area-inset-bottom, 16px));
   transform: translateY(100%);
-  transition: transform .26s cubic-bezier(.34,1.26,.64,1);
+  transition: transform .16s cubic-bezier(.25,1,.4,1);
   will-change: transform;
   border-top: 1px solid rgba(255,255,255,.09);
   box-shadow: 0 -8px 40px rgba(0,0,0,.5);
@@ -2041,18 +2041,33 @@
   border-bottom: 1px solid rgba(255,255,255,.07);
   margin-bottom: 4px;
 }
+@keyframes sr-emoji-popin {
+  0%   { transform: scale(0.4) translateY(6px); opacity: 0; }
+  70%  { transform: scale(1.15) translateY(-2px); opacity: 1; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+.sr-cas-panel.sr-cas-open .sr-cas-emoji {
+  animation: sr-emoji-popin .18s cubic-bezier(.34,1.4,.64,1) both;
+}
+.sr-cas-panel.sr-cas-open .sr-cas-emoji:nth-child(1) { animation-delay: .03s; }
+.sr-cas-panel.sr-cas-open .sr-cas-emoji:nth-child(2) { animation-delay: .055s; }
+.sr-cas-panel.sr-cas-open .sr-cas-emoji:nth-child(3) { animation-delay: .08s; }
+.sr-cas-panel.sr-cas-open .sr-cas-emoji:nth-child(4) { animation-delay: .105s; }
+.sr-cas-panel.sr-cas-open .sr-cas-emoji:nth-child(5) { animation-delay: .13s; }
+.sr-cas-panel.sr-cas-open .sr-cas-emoji:nth-child(6) { animation-delay: .155s; }
 .sr-cas-emoji {
-  font-size: 26px;
+  font-size: 28px;
   background: none;
   border: none;
   cursor: pointer;
   border-radius: 10px;
   padding: 6px 8px;
   -webkit-tap-highlight-color: transparent;
-  transition: transform .1s, background .1s;
+  transition: transform 60ms, background 60ms;
   line-height: 1;
+  touch-action: manipulation;
 }
-.sr-cas-emoji:active { transform: scale(1.35); background: rgba(255,255,255,.08); }
+.sr-cas-emoji:active { transform: scale(1.4); background: rgba(255,255,255,.08); transition: none; }
 .sr-cas-emoji-active {
   background: rgba(255,122,26,.18);
   outline: 1.5px solid rgba(255,122,26,.45);
@@ -2080,6 +2095,14 @@
 .sr-cas-action:hover { background: rgba(255,255,255,.06); }
 .sr-cas-danger { color: #f87171; }
 .sr-cas-danger svg { stroke: #f87171; opacity: 1; }
+
+/* Long-press visual feedback on message bubble */
+.sr-msg-pressing {
+  transition: transform 80ms ease, opacity 80ms ease !important;
+  transform: scale(0.97) !important;
+  opacity: 0.85 !important;
+}
+.sr-chat-row { touch-action: pan-y; }
 
 /* ── Off Day — member card ───────────────────────────────────────────────── */
 .sr-card-icon-wrap {
