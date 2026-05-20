@@ -2868,11 +2868,19 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 /* ================================================================
    STATS ENHANCEMENTS
    ================================================================ */
-.stats-subject-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; }
+.stats-subject-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 10px; }
 .stat-mini { background: rgba(255,255,255,0.025); border: 1px solid var(--border); border-radius: var(--radius-xs); padding: 7px 5px; text-align: center; }
 .stat-mini .v { font-size: 15px; font-weight: 800; color: var(--text); line-height: 1.2; }
 .stat-mini .k { font-size: 9.5px; color: var(--text-muted); margin-top: 2px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
-.stats-subject-card { border-left: 3px solid transparent; }
+.stats-subject-card { border-left: 3px solid transparent; padding: 14px 15px; }
+/* Premium subject card parts */
+.ssc-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.ssc-name { font-weight: 700; flex: 1; font-size: 15px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ssc-pct { font-weight: 900; font-size: 18px; flex-shrink: 0; }
+.ssc-bar-wrap { margin-bottom: 7px; }
+.ssc-bar-track { height: 8px; background: rgba(255,255,255,0.07); border-radius: 999px; overflow: hidden; }
+.ssc-bar-fill { height: 100%; border-radius: 999px; transition: width 0.55s cubic-bezier(.32,1,.23,1); min-width: 3px; }
+.ssc-ch-label { font-size: 11px; font-weight: 600; color: var(--text-muted); margin-bottom: 2px; letter-spacing: 0.01em; }
 
 /* Pill overrides — unified */
 .pill-high { background: rgba(248,115,115,0.12); color: #fca5a5; border: 1px solid rgba(248,115,115,0.22); }

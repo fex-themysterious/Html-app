@@ -7302,14 +7302,19 @@
       const tpct = topTot ? Math.round((topDn/topTot)*100) : 0;
       const pri = sub.priority;
       const priPill = pri ? `<span class="pill pill-${pri === 'high' ? 'high' : pri === 'medium' ? 'med' : 'low'}">${pri}</span>` : '';
-      return `<div class="card stats-subject-card" style="padding:13px 14px;margin-bottom:10px;border-left:3px solid ${sub.color}">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-          <span class="color-dot" style="background:${sub.color}"></span>
-          <span style="font-weight:700;flex:1;font-size:15px">${escapeHTML(sub.name)}</span>
-          ${priPill}<span style="font-weight:800;color:var(--primary);font-size:17px">${pct}%</span>
+      return `<div class="card stats-subject-card" style="margin-bottom:10px;border-left:3px solid ${sub.color};background:linear-gradient(135deg,${sub.color}0d 0%,rgba(255,255,255,0.015) 100%)">
+        <div class="ssc-header">
+          <span class="color-dot" style="background:${sub.color};box-shadow:0 0 6px ${sub.color}66"></span>
+          <span class="ssc-name">${escapeHTML(sub.name)}</span>
+          ${priPill}
+          <span class="ssc-pct" style="color:${sub.color}">${pct}%</span>
         </div>
-        <div class="progress" style="margin-bottom:4px"><span style="width:${pct}%"></span></div>
-        <div style="font-size:10px;color:var(--text-muted);margin-bottom:8px">${dn}/${tot} chapters · ${topDn}/${topTot} topics</div>
+        <div class="ssc-bar-wrap">
+          <div class="ssc-bar-track">
+            <div class="ssc-bar-fill" style="width:${pct}%;background:linear-gradient(90deg,${sub.color},${sub.color}88)"></div>
+          </div>
+        </div>
+        <div class="ssc-ch-label">${dn} / ${tot} Chapter${tot !== 1 ? 's' : ''} Completed</div>
         <div class="stats-subject-grid">
           <div class="stat-mini"><div class="v">${tpct}%</div><div class="k">Topics</div></div>
           <div class="stat-mini"><div class="v" style="${weakCount > 0 ? 'color:#f59e0b' : ''}">${weakCount}</div><div class="k">Weak</div></div>

@@ -5824,17 +5824,22 @@
     const exams = Array.isArray(parsedState?.exams) ? parsedState.exams : [];
     const upcomingExam = exams.filter(e => e.date >= today).sort((a, b) => a.date.localeCompare(b.date))[0] || null;
 
-    // ── Syllabus progress ──────────────────────────────────────────────────
+    // ── Syllabus progress (chapter-based) ─────────────────────────────────
     const subjects = Array.isArray(parsedState?.subjects) ? parsedState.subjects : [];
+    function _mpChDone(ch) {
+      const tops = ch.topics || [];
+      if (tops.length === 0) return !!ch.done;
+      return tops.every(t => t.done);
+    }
     const subjectProgress = subjects.map(sub => {
-      let topTot = 0, topDn = 0;
-      for (const ch of (sub.chapters || [])) for (const t of (ch.topics || [])) { topTot++; if (t.done) topDn++; }
-      const pct = topTot ? Math.round((topDn / topTot) * 100) : 0;
-      return { name: sub.name, color: sub.color || '#ff7a1a', pct, topDn, topTot };
-    }).filter(s => s.topTot > 0);
-    let sylTot = 0, sylDn = 0;
-    subjects.forEach(sub => (sub.chapters || []).forEach(ch => (ch.topics || []).forEach(t => { sylTot++; if (t.done) sylDn++; })));
-    const overallSylPct = sylTot > 0 ? Math.round((sylDn / sylTot) * 100) : 0;
+      let chTot = 0, chDn = 0;
+      for (const ch of (sub.chapters || [])) { chTot++; if (_mpChDone(ch)) chDn++; }
+      const pct = chTot ? Math.round((chDn / chTot) * 100) : 0;
+      return { name: sub.name, color: sub.color || '#ff7a1a', pct, chDn, chTot };
+    }).filter(s => s.chTot > 0);
+    let allChTot = 0, allChDn = 0;
+    subjectProgress.forEach(s => { allChTot += s.chTot; allChDn += s.chDn; });
+    const overallSylPct = allChTot > 0 ? Math.round((allChDn / allChTot) * 100) : 0;
 
     // ── Achievements ──────────────────────────────────────────────────────
     const ACHS         = window._sc_ACHIEVEMENTS || [];
@@ -5991,19 +5996,25 @@
 
         <!-- Syllabus Progress -->
         ${subjectProgress.length ? `
-        <div class="mp-section-title">Syllabus <span class="mp-section-sub">${overallSylPct}% overall</span></div>
-        <div class="mp-syl-wrap">
-          <div class="mp-syl-overall-bar">
-            <div class="mp-syl-overall-fill" style="width:${overallSylPct}%"></div>
+        <div class="mp-section-title">Syllabus <span class="mp-section-sub">${overallSylPct}% · ${allChDn}/${allChTot} chapters</span></div>
+        <div class="mp-syl2-overall-wrap">
+          <div class="mp-syl2-overall-track">
+            <div class="mp-syl2-overall-fill" style="width:${overallSylPct}%"></div>
           </div>
-          ${subjectProgress.slice(0, 5).map(s => `
-          <div class="mp-syl-row">
-            <div class="mp-syl-row-top">
-              <span class="mp-syl-dot" style="background:${s.color}"></span>
-              <span class="mp-syl-name">${esc(s.name)}</span>
-              <span class="mp-syl-pct" style="color:${s.color}">${s.pct}%</span>
+          <span class="mp-syl2-overall-pct">${overallSylPct}%</span>
+        </div>
+        <div class="mp-syl2-grid">
+          ${subjectProgress.slice(0, 6).map(s => `
+          <div class="mp-syl2-card" style="--sc:${s.color}">
+            <div class="mp-syl2-card-header">
+              <span class="mp-syl2-dot" style="background:${s.color};box-shadow:0 0 5px ${s.color}66"></span>
+              <span class="mp-syl2-name">${esc(s.name)}</span>
+              <span class="mp-syl2-pct" style="color:${s.color}">${s.pct}%</span>
             </div>
-            <div class="mp-syl-bar"><div class="mp-syl-bar-fill" style="width:${s.pct}%;background:${s.color}"></div></div>
+            <div class="mp-syl2-bar-track">
+              <div class="mp-syl2-bar-fill" style="width:${s.pct}%;background:linear-gradient(90deg,${s.color},${s.color}88)"></div>
+            </div>
+            <div class="mp-syl2-ch-label">${s.chDn} / ${s.chTot} Chapter${s.chTot !== 1 ? 's' : ''}</div>
           </div>`).join('')}
         </div>` : ''}
 
