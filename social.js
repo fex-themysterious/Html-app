@@ -582,6 +582,11 @@
           if (typeof data.maxMembers === 'number' && local.maxMembers !== data.maxMembers) { local.maxMembers = data.maxMembers; changed = true; }
           if (typeof data.isPrivate === 'boolean' && local.isPrivate !== data.isPrivate) { local.isPrivate = data.isPrivate; changed = true; }
           if (data.leader && local.leader !== data.leader) { local.leader = data.leader; changed = true; }
+          // Sync pinned message so all members see the same banner in real-time
+          const newPin = data.pinnedMsg ?? null;
+          const oldPin = local.pinnedMsg ?? null;
+          const pinChanged = JSON.stringify(newPin) !== JSON.stringify(oldPin);
+          if (pinChanged) { local.pinnedMsg = newPin; changed = true; }
           if (data.category && local.category !== data.category) { local.category = data.category; changed = true; }
           // Sync live attendance and focus-time from Firestore
           if (typeof data.dailyMinsTotal === 'number' && local.dailyMinsTotal !== data.dailyMinsTotal) {
@@ -1873,8 +1878,19 @@
     if (!msgs.length) return `<div class="sr-chat-empty">No messages yet — say hello! 👋</div>`;
     return msgs.map(msg => {
       const isMe = msg.authorId === myUid || msg.authorId === 'me';
+      // Deleted messages render as a subtle tombstone — no text content
+      if (msg._deleted) {
+        return `
+          <div class="sr-chat-row ${isMe ? 'sr-chat-mine' : 'sr-chat-theirs'}" data-msg-id="${esc(msg.id)}">
+            ${!isMe ? `<div class="sr-chat-av" style="background:#1e293b;font-size:10px;color:#475569">🗑</div>` : ''}
+            <div class="sr-chat-col">
+              <div class="sr-chat-deleted">🗑 Message deleted</div>
+            </div>
+          </div>`;
+      }
+      // Reply quote — data-reply-id enables scroll-to-original on tap
       const replyHtml = msg.replyToId ? `
-        <div class="sr-chat-reply-quote">
+        <div class="sr-chat-reply-quote" data-reply-id="${esc(msg.replyToId)}">
           <span class="sr-chat-reply-author">${esc(msg.replyToAuthor || 'Unknown')}</span>
           <span class="sr-chat-reply-text">${esc((msg.replyToText || '').slice(0, 60))}${(msg.replyToText || '').length > 60 ? '…' : ''}</span>
         </div>` : '';
@@ -1895,58 +1911,212 @@
   }
 
   function _bindChatLongPress(el, code, g) {
-    let pressTimer = null;
+    let pressTimer = null, startX = 0, startY = 0, longFired = false;
+
     el.addEventListener('touchstart', e => {
-      const bubble = e.target.closest('[data-msg-id]');
-      if (!bubble) return;
-      const msgId = bubble.dataset.msgId;
-      pressTimer = setTimeout(() => { _openChatContextMenu(code, g, msgId); }, 500);
+      // Ignore taps on interactive sub-elements (reaction pills, reply quotes)
+      if (e.target.closest('.sr-reaction-pill, .sr-chat-reply-quote')) return;
+      const msgEl = e.target.closest('[data-msg-id]');
+      if (!msgEl) return;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      longFired = false;
+      const msgId = msgEl.dataset.msgId;
+      pressTimer = setTimeout(() => {
+        longFired = true;
+        try { if (navigator.vibrate) navigator.vibrate(18); } catch(_) {}
+        _openChatActionSheet(code, g, msgId);
+      }, 480);
+    }, { passive: true }); // passive:true so scroll is never blocked
+
+    el.addEventListener('touchmove', e => {
+      if (!pressTimer) return;
+      if (Math.abs(e.touches[0].clientX - startX) > 8 ||
+          Math.abs(e.touches[0].clientY - startY) > 8) {
+        clearTimeout(pressTimer); pressTimer = null;
+      }
     }, { passive: true });
-    el.addEventListener('touchend',  () => clearTimeout(pressTimer), { passive: true });
-    el.addEventListener('touchmove', () => clearTimeout(pressTimer), { passive: true });
-    // Desktop right-click for testing
+
+    el.addEventListener('touchend', e => {
+      clearTimeout(pressTimer); pressTimer = null;
+      // Suppress the click that fires after a long-press so no accidental actions
+      if (longFired) { e.preventDefault(); longFired = false; }
+    }, { passive: false });
+
+    el.addEventListener('touchcancel', () => {
+      clearTimeout(pressTimer); pressTimer = null; longFired = false;
+    });
+
+    // Desktop: right-click context menu
     el.addEventListener('contextmenu', e => {
-      const bubble = e.target.closest('[data-msg-id]');
-      if (!bubble) return;
+      const msgEl = e.target.closest('[data-msg-id]');
+      if (!msgEl) return;
       e.preventDefault();
-      _openChatContextMenu(code, g, bubble.dataset.msgId);
+      _openChatActionSheet(code, g, msgEl.dataset.msgId);
+    });
+
+    // Tap on reply quote → scroll to original message with highlight flash
+    el.addEventListener('click', e => {
+      const quote = e.target.closest('.sr-chat-reply-quote');
+      if (!quote || !quote.dataset.replyId) return;
+      const target = el.querySelector(`.sr-chat-row[data-msg-id="${quote.dataset.replyId}"]`);
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.classList.add('sr-msg-highlight');
+        setTimeout(() => target.classList.remove('sr-msg-highlight'), 1400);
+      }
     });
   }
 
-  function _openChatContextMenu(code, g, msgId) {
+  // ── Chat action sheet (replaces openModal context menu) ──────────────────
+  // Renders a DOM-injected bottom sheet so we get a proper mobile feel:
+  // slide-up animation, haptic feedback, backdrop dismiss, no modal overhead.
+  function _openChatActionSheet(code, g, msgId) {
+    document.getElementById('sr-cas')?.remove();
     const msgs = _chatMessages[code] || [];
     const msg  = msgs.find(m => m.id === msgId);
-    if (!msg) return;
+    if (!msg || msg._deleted) return;
     const uid     = getUserId();
     const isMe    = msg.authorId === uid || msg.authorId === 'me';
-    const isAdmin = g.role === 'admin';
+    const isAdmin = g.ownerUid === uid || g.createdByUid === uid ||
+                    (Array.isArray(g.adminUids) && g.adminUids.includes(uid)) ||
+                    g.role === 'admin';
+    const myName  = _getUserDisplayName();
     const EMOJIS  = ['👍','❤️','😂','😮','😢','🔥'];
-    const emojiRow = EMOJIS.map(e =>
-      `<button class="sr-ctx-emoji" data-sc="sr-chat-react" data-code="${esc(code)}" data-mid="${esc(msgId)}" data-emoji="${esc(e)}" data-close>${e}</button>`
-    ).join('');
-    openModal(`
-      <div class="sr-ctx-menu">
-        <div class="sr-ctx-preview">${esc((msg.text || '').slice(0, 80))}${(msg.text||'').length > 80 ? '…' : ''}</div>
-        <div class="sr-ctx-emoji-row">${emojiRow}</div>
-        <div class="sr-ctx-actions">
-          <button class="sr-ctx-action" data-sc="sr-chat-reply" data-code="${esc(code)}" data-mid="${esc(msgId)}" data-close>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
-            Reply
-          </button>
-          ${isMe ? `
-          <button class="sr-ctx-action" data-sc="sr-chat-edit-ctx" data-code="${esc(code)}" data-mid="${esc(msgId)}" data-text="${esc(msg.text)}" data-close>
-            ${ICON.edit} Edit
-          </button>
-          <button class="sr-ctx-action sr-ctx-danger" data-sc="sr-chat-delete" data-code="${esc(code)}" data-mid="${esc(msgId)}" data-close>
-            ${ICON.trash} Delete for Everyone
-          </button>` : (isAdmin ? `
-          <button class="sr-ctx-action sr-ctx-danger" data-sc="sr-chat-delete" data-code="${esc(code)}" data-mid="${esc(msgId)}" data-close>
-            ${ICON.trash} Delete (Admin)
-          </button>` : '')}
+
+    const sheet = document.createElement('div');
+    sheet.id = 'sr-cas';
+    sheet.className = 'sr-cas-backdrop';
+    sheet.innerHTML = `
+      <div class="sr-cas-panel" id="sr-cas-panel">
+        <div class="sr-cas-handle"></div>
+        <div class="sr-cas-preview">${esc((msg.text || '').slice(0, 80))}${(msg.text||'').length > 80 ? '…' : ''}</div>
+        <div class="sr-cas-emoji-row">
+          ${EMOJIS.map(e => {
+            const reacted = Array.isArray((msg.reactions||{})[e]) && msg.reactions[e].includes(uid);
+            return `<button class="sr-cas-emoji${reacted ? ' sr-cas-emoji-active' : ''}" data-action="react" data-emoji="${esc(e)}">${e}</button>`;
+          }).join('')}
         </div>
-      </div>
-    `);
+        <div class="sr-cas-divider"></div>
+        <button class="sr-cas-action" data-action="reply">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
+          Reply
+        </button>
+        <button class="sr-cas-action" data-action="copy">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          Copy Text
+        </button>
+        ${isMe ? `
+        <button class="sr-cas-action" data-action="edit">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          Edit
+        </button>` : ''}
+        ${isAdmin ? `
+        <button class="sr-cas-action" data-action="pin">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17z"/></svg>
+          Pin Message
+        </button>` : ''}
+        ${(isMe || isAdmin) ? `
+        <button class="sr-cas-action sr-cas-danger" data-action="delete">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+          ${isMe ? 'Delete for Everyone' : 'Delete (Admin)'}
+        </button>` : ''}
+      </div>`;
+
+    document.body.appendChild(sheet);
+    // Slide-up animation
+    requestAnimationFrame(() => requestAnimationFrame(() =>
+      document.getElementById('sr-cas-panel')?.classList.add('sr-cas-open')
+    ));
+    // Backdrop tap → close
+    sheet.addEventListener('click', e => { if (e.target === sheet) _closeChatActionSheet(); });
+
+    // Action handlers — closured over (code, msgId, msg, uid, myName)
+    sheet.querySelectorAll('[data-action]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const action = btn.dataset.action;
+        _closeChatActionSheet();
+
+        if (action === 'react') {
+          const emoji = btn.dataset.emoji;
+          const db2 = getDb(), fb2 = getFb();
+          if (!code || !msgId || !emoji || !uid || !db2 || !fb2) return;
+          const msgRef = db2.collection('groups').doc(code).collection('messages').doc(msgId);
+          db2.runTransaction(t => t.get(msgRef).then(snap => {
+            if (!snap.exists) return;
+            const reacs = { ...(snap.data().reactions || {}) };
+            const arr   = [...(reacs[emoji] || [])];
+            const idx   = arr.indexOf(uid);
+            if (idx >= 0) arr.splice(idx, 1); else arr.push(uid);
+            reacs[emoji] = arr;
+            t.update(msgRef, { reactions: reacs });
+          })).catch(() => {});
+
+        } else if (action === 'reply') {
+          _replyTo   = { id: msgId, text: msg.text || '', author: msg.author || 'Unknown' };
+          _editMsgId = null;
+          renderSocial();
+          setTimeout(() => document.getElementById('sr-chat-input')?.focus(), 80);
+
+        } else if (action === 'copy') {
+          try {
+            navigator.clipboard.writeText(msg.text || '')
+              .then(() => toast('Copied!', 'success', 1500))
+              .catch(() => {});
+          } catch(_) {}
+
+        } else if (action === 'edit') {
+          _editMsgId = msgId;
+          _replyTo   = null;
+          renderSocial();
+          setTimeout(() => {
+            const inp = document.getElementById('sr-chat-input');
+            if (inp) { inp.value = msg.text || ''; inp.focus(); }
+          }, 80);
+
+        } else if (action === 'pin') {
+          const db3 = getDb(), fb3 = getFb();
+          if (!db3 || !fb3) return;
+          db3.collection('groups').doc(code).update({
+            pinnedMsg: { id: msgId, text: msg.text || '', author: msg.author || '',
+                         pinnedBy: myName, pinnedAt: fb3.firestore.FieldValue.serverTimestamp() }
+          }).then(() => {
+            const sc_ = scLoad();
+            const gL  = sc_.groups.find(gg => gg.code === code);
+            if (gL) { gL.pinnedMsg = { id: msgId, text: msg.text || '', author: msg.author || '', pinnedBy: myName }; scSave(sc_); }
+            renderSocial();
+            toast('📌 Message pinned', 'success', 1500);
+          }).catch(() => {});
+
+        } else if (action === 'delete') {
+          const db4 = getDb();
+          if (!db4) return;
+          db4.collection('groups').doc(code).collection('messages').doc(msgId)
+            .update({ _deleted: true, text: '' }).catch(() => {});
+          // Optimistic local update so the tombstone appears immediately
+          const localMsgs = _chatMessages[code];
+          if (localMsgs) {
+            const m_ = localMsgs.find(x => x.id === msgId);
+            if (m_) { m_._deleted = true; m_.text = ''; }
+          }
+          renderSocial();
+        }
+      });
+    });
   }
+
+  function _closeChatActionSheet() {
+    const panel = document.getElementById('sr-cas-panel');
+    if (panel) {
+      panel.classList.remove('sr-cas-open');
+      setTimeout(() => document.getElementById('sr-cas')?.remove(), 270);
+    } else {
+      document.getElementById('sr-cas')?.remove();
+    }
+  }
+
+  // Thin alias — kept so any stray call-sites don't break
+  function _openChatContextMenu(code, g, msgId) { _openChatActionSheet(code, g, msgId); }
 
   function _writeSelfPresence(code, isStudying, todayMins, subjectName, avatarStage, setStartTime) {
     const db = getDb(), uid = getUserId(), fb = getFb();
@@ -2682,8 +2852,24 @@
         <button class="sr-preview-cancel" data-sc="sr-chat-cancel-edit">✕</button>
       </div>` : '';
 
+    // Pinned message banner — shown to all room members, live-synced via group doc
+    const pinnedMsg  = g.pinnedMsg || null;
+    const isRoomAdmin = g.ownerUid === uid || g.createdByUid === uid ||
+                        (Array.isArray(g.adminUids) && g.adminUids.includes(uid)) ||
+                        g.role === 'admin';
+    const pinnedBanner = pinnedMsg ? `
+      <div class="sr-pinned-banner" data-sc="sr-goto-pin" data-code="${esc(code)}" data-mid="${esc(pinnedMsg.id)}">
+        <div class="sr-pinned-icon">📌</div>
+        <div class="sr-pinned-body">
+          <div class="sr-pinned-label">Pinned by ${esc(pinnedMsg.pinnedBy || 'Admin')}</div>
+          <div class="sr-pinned-text">${esc((pinnedMsg.text || '').slice(0, 50))}${(pinnedMsg.text||'').length > 50 ? '…' : ''}</div>
+        </div>
+        ${isRoomAdmin ? `<button class="sr-pinned-unpin" data-sc="sr-chat-unpin" data-code="${esc(code)}">✕</button>` : ''}
+      </div>` : '';
+
     return `
       <div class="sr-chat-view">
+        ${pinnedBanner}
         <div class="sr-chat-messages" id="sr-chat-msgs">
           ${_renderChatMessages(code, uid, myName)}
         </div>
@@ -4648,7 +4834,8 @@
         break;
       }
 
-      // ── Chat: react (from pill or context menu) ──────────────────────────
+      // ── Chat: react (from existing reaction pills under messages) ────────
+      // Uses runTransaction for atomic toggle — no lost-update race conditions.
       case 'sr-chat-react': {
         const code2 = el.dataset.code;
         const mid   = el.dataset.mid;
@@ -4658,14 +4845,45 @@
         const db2 = getDb();
         if (!db2) break;
         const msgRef = db2.collection('groups').doc(code2).collection('messages').doc(mid);
-        msgRef.get().then(snap => {
+        db2.runTransaction(t => t.get(msgRef).then(snap => {
           if (!snap.exists) return;
-          const reacs  = { ...(snap.data().reactions || {}) };
-          const arr    = [...(reacs[emoji] || [])];
-          const idx    = arr.indexOf(uid3);
+          const reacs = { ...(snap.data().reactions || {}) };
+          const arr   = [...(reacs[emoji] || [])];
+          const idx   = arr.indexOf(uid3);
           if (idx >= 0) arr.splice(idx, 1); else arr.push(uid3);
           reacs[emoji] = arr;
-          return msgRef.update({ reactions: reacs });
+          t.update(msgRef, { reactions: reacs });
+        })).catch(() => {});
+        break;
+      }
+
+      // ── Chat: scroll to pinned message ───────────────────────────────────
+      case 'sr-goto-pin': {
+        const pMid  = el.dataset.mid;
+        if (!pMid) break;
+        const msgsEl = document.getElementById('sr-chat-msgs');
+        if (!msgsEl) break;
+        const target = msgsEl.querySelector(`.sr-chat-row[data-msg-id="${pMid}"]`);
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          target.classList.add('sr-msg-highlight');
+          setTimeout(() => target.classList.remove('sr-msg-highlight'), 1400);
+        }
+        break;
+      }
+
+      // ── Chat: unpin message (admin only) ─────────────────────────────────
+      case 'sr-chat-unpin': {
+        const upCode = el.dataset.code;
+        if (!upCode) break;
+        const db5 = getDb(), fb5 = getFb();
+        if (!db5 || !fb5) break;
+        db5.collection('groups').doc(upCode).update({ pinnedMsg: null }).then(() => {
+          const sc_ = scLoad();
+          const gL  = sc_.groups.find(gg => gg.code === upCode);
+          if (gL) { gL.pinnedMsg = null; scSave(sc_); }
+          renderSocial();
+          toast('📌 Unpinned', 'info', 1500);
         }).catch(() => {});
         break;
       }

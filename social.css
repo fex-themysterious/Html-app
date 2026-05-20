@@ -1642,6 +1642,8 @@
   align-items: flex-end;
   gap: 8px;
   max-width: 86%;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .sr-chat-mine   { align-self: flex-end;   flex-direction: row-reverse; }
 .sr-chat-theirs { align-self: flex-start; }
@@ -1675,6 +1677,12 @@
   max-width: 240px;
   word-wrap: break-word;
   word-break: break-word;
+  /* Prevent browser text-selection / native copy popup on long press */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: default;
 }
 .sr-chat-mine .sr-chat-bubble {
   background: #ff7a1a;
@@ -1914,6 +1922,164 @@
 .sr-ctx-action:hover { background: rgba(255,255,255,.07); }
 .sr-ctx-danger { color: #f87171; }
 .sr-ctx-danger svg { stroke: #f87171; }
+
+/* ── Chat: deleted message tombstone ─────────────────────────────────────── */
+.sr-chat-deleted {
+  font-size: 12px;
+  font-style: italic;
+  color: #475569;
+  padding: 7px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.07);
+  background: rgba(255,255,255,.03);
+}
+
+/* ── Chat: reply quote clickable ─────────────────────────────────────────── */
+.sr-chat-reply-quote {
+  cursor: pointer;
+}
+.sr-chat-reply-quote:active { opacity: .7; }
+
+/* ── Chat: message highlight flash (scroll-to-reply) ─────────────────────── */
+@keyframes sr-msg-flash {
+  0%   { background: rgba(255,122,26,.25); }
+  100% { background: transparent; }
+}
+.sr-msg-highlight {
+  border-radius: 12px;
+  animation: sr-msg-flash 1.4s ease-out forwards;
+}
+
+/* ── Chat: pinned message banner ─────────────────────────────────────────── */
+.sr-pinned-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: rgba(255,122,26,.08);
+  border-bottom: 1px solid rgba(255,122,26,.18);
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.sr-pinned-banner:active { background: rgba(255,122,26,.14); }
+.sr-pinned-icon { font-size: 15px; flex-shrink: 0; line-height: 1; }
+.sr-pinned-body { flex: 1; overflow: hidden; }
+.sr-pinned-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #ff7a1a;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  margin-bottom: 1px;
+}
+.sr-pinned-text {
+  font-size: 12px;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sr-pinned-unpin {
+  background: none;
+  border: none;
+  color: #475569;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.sr-pinned-unpin:active { color: #94a3b8; background: rgba(255,255,255,.08); }
+
+/* ── Chat: bottom action sheet ───────────────────────────────────────────── */
+.sr-cas-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  z-index: 9990;
+  display: flex;
+  align-items: flex-end;
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+.sr-cas-panel {
+  width: 100%;
+  background: #141c2b;
+  border-radius: 22px 22px 0 0;
+  padding: 0 0 max(22px, env(safe-area-inset-bottom, 16px));
+  transform: translateY(100%);
+  transition: transform .26s cubic-bezier(.34,1.26,.64,1);
+  will-change: transform;
+  border-top: 1px solid rgba(255,255,255,.09);
+  box-shadow: 0 -8px 40px rgba(0,0,0,.5);
+}
+.sr-cas-panel.sr-cas-open { transform: translateY(0); }
+.sr-cas-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 99px;
+  background: rgba(255,255,255,.15);
+  margin: 10px auto 14px;
+}
+.sr-cas-preview {
+  font-size: 13px;
+  color: #64748b;
+  padding: 0 18px 12px;
+  border-bottom: 1px solid rgba(255,255,255,.07);
+  margin-bottom: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sr-cas-emoji-row {
+  display: flex;
+  justify-content: space-around;
+  padding: 8px 14px 12px;
+  border-bottom: 1px solid rgba(255,255,255,.07);
+  margin-bottom: 4px;
+}
+.sr-cas-emoji {
+  font-size: 26px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  border-radius: 10px;
+  padding: 6px 8px;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .1s, background .1s;
+  line-height: 1;
+}
+.sr-cas-emoji:active { transform: scale(1.35); background: rgba(255,255,255,.08); }
+.sr-cas-emoji-active {
+  background: rgba(255,122,26,.18);
+  outline: 1.5px solid rgba(255,122,26,.45);
+}
+.sr-cas-divider { height: 1px; background: rgba(255,255,255,.06); margin: 2px 0; }
+.sr-cas-action {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  background: none;
+  border: none;
+  color: #cbd5e1;
+  font-size: 15px;
+  font-weight: 500;
+  padding: 13px 20px;
+  cursor: pointer;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .12s;
+  font-family: inherit;
+}
+.sr-cas-action svg { flex-shrink: 0; opacity: .75; }
+.sr-cas-action:active,
+.sr-cas-action:hover { background: rgba(255,255,255,.06); }
+.sr-cas-danger { color: #f87171; }
+.sr-cas-danger svg { stroke: #f87171; opacity: 1; }
 
 /* ── Off Day — member card ───────────────────────────────────────────────── */
 .sr-card-icon-wrap {
