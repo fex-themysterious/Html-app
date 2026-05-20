@@ -3938,6 +3938,22 @@
       document.querySelectorAll('.vault-celeb-overlay').forEach(el => el.remove());
       document.querySelectorAll('.confetti-piece').forEach(el => el.remove());
     }
+    // Remove any stuck full-screen overlays that can cover the bottom nav and block touches.
+    // fs-overlay: full-focus session overlay (z-index 9999) — normally removed by endFullSession()
+    //             but can get stuck if JS error occurs mid-session or user navigates away.
+    // lss-ov: live-study subject picker sheet — appended to body, should self-remove on close.
+    if (tab !== 'focus') {
+      document.getElementById('fs-overlay')?.remove();
+    }
+    document.querySelectorAll('.lss-ov').forEach(el => el.remove());
+    // Guarantee the bottom nav is always interactive after any tab switch.
+    const nav = document.querySelector('.bottom-nav');
+    if (nav) {
+      nav.style.pointerEvents = 'auto';
+      nav.style.display = '';
+      nav.style.visibility = 'visible';
+      nav.style.opacity = '1';
+    }
     // Stop social live timers when leaving the social tab to prevent ghost DOM queries
     if (tab !== 'social') _stopSocialLiveTimers();
     updateMiniTimer();

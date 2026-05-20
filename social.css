@@ -1195,7 +1195,7 @@
 }
 
 /* Hide the main bottom nav while inside a group room */
-#view-social:has(.sr-room) ~ .bottom-nav {
+#view-social.active:has(.sr-room) ~ .bottom-nav {
   display: none !important;
   pointer-events: none !important;
 }
