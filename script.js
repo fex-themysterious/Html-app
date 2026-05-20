@@ -5275,8 +5275,10 @@
       weeklyStudyTime: totalWeekly,
       weeklyResetDate: _weekStartKey(),
       name:            userName,
+      nameLower:       (userName || '').toLowerCase(),
       lastActive:      today,
       avatarStage:     avStageNow,
+      isStudying:      true,
       updatedAt:       firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true }).catch(() => {});
     // Keep group presence alive while the live timer is running on any tab.
@@ -5484,8 +5486,10 @@
       weeklyStudyTime: finalWeeklyMins,
       weeklyResetDate: _weekStartKey(),
       name:            saveName,
+      nameLower:       (saveName || '').toLowerCase(),
       lastActive:      todayStr2,
       avatarStage:     _lsCurrentAvatarStage >= 0 ? _lsCurrentAvatarStage : 0,
+      isStudying:      false,
       updatedAt:       firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true }).catch(() => {});
     // ── Save today's session count to Firebase for real-time cross-device sync ──
@@ -6024,6 +6028,25 @@
       awardXP(elapsedMin, todayStr);
       _sUpdatePresence('break').catch(() => {});
       _sContributeToGoals(elapsedMin).catch(() => {});
+      // Write completed Pomodoro session to global leaderboard
+      if (_db && _userId && typeof firebase !== 'undefined') {
+        const _pomDailyMins  = state.focusStats.minutesByDate[todayStr] || 0;
+        const _pomWeeklyMins = _computeWeekMins(_pomDailyMins);
+        const _pomName = (state.profile && state.profile.name) ||
+          (firebase.auth().currentUser && firebase.auth().currentUser.displayName) || 'Anonymous';
+        _db.collection('global_lb').doc(_userId).set({
+          dailyStudyTime:  _pomDailyMins,
+          dailyResetDate:  todayStr,
+          weeklyStudyTime: _pomWeeklyMins,
+          weeklyResetDate: _weekStartKey(),
+          name:            _pomName,
+          nameLower:       (_pomName || '').toLowerCase(),
+          lastActive:      todayStr,
+          avatarStage:     0,
+          isStudying:      false,
+          updatedAt:       firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true }).catch(() => {});
+      }
       bumpActivity(); saveState();
       checkBadges({ sessionMinutes: elapsedMin });
       // Re-render the active tab, and patch live stats widgets on home/dashboard if visible
@@ -9649,6 +9672,24 @@
             _sContributeToGoals(elapsedMin).catch(() => {});
             checkBadges({ sessionMinutes: elapsedMin });
             saveState();
+            // Update global leaderboard with partial session time
+            if (_db && _userId && typeof firebase !== 'undefined') {
+              const _ptDailyMins  = state.focusStats.minutesByDate[todayStr] || 0;
+              const _ptWeeklyMins = _computeWeekMins(_ptDailyMins);
+              const _ptName = (state.profile && state.profile.name) ||
+                (firebase.auth().currentUser && firebase.auth().currentUser.displayName) || 'Anonymous';
+              _db.collection('global_lb').doc(_userId).set({
+                dailyStudyTime:  _ptDailyMins,
+                dailyResetDate:  todayStr,
+                weeklyStudyTime: _ptWeeklyMins,
+                weeklyResetDate: _weekStartKey(),
+                name:            _ptName,
+                nameLower:       (_ptName || '').toLowerCase(),
+                lastActive:      todayStr,
+                isStudying:      false,
+                updatedAt:       firebase.firestore.FieldValue.serverTimestamp()
+              }, { merge: true }).catch(() => {});
+            }
           }
         }
         if (_socialRoomCode && focusMode === 'work' && focusSeconds > 0) _sHandleFocusBounty().catch(() => {});
@@ -9695,6 +9736,24 @@
           _sContributeToGoals(elapsedMin).catch(() => {});
           checkBadges({ sessionMinutes: elapsedMin });
           saveState();
+          // Update global leaderboard on reset
+          if (_db && _userId && typeof firebase !== 'undefined') {
+            const _rstDailyMins  = state.focusStats.minutesByDate[todayStr] || 0;
+            const _rstWeeklyMins = _computeWeekMins(_rstDailyMins);
+            const _rstName = (state.profile && state.profile.name) ||
+              (firebase.auth().currentUser && firebase.auth().currentUser.displayName) || 'Anonymous';
+            _db.collection('global_lb').doc(_userId).set({
+              dailyStudyTime:  _rstDailyMins,
+              dailyResetDate:  todayStr,
+              weeklyStudyTime: _rstWeeklyMins,
+              weeklyResetDate: _weekStartKey(),
+              name:            _rstName,
+              nameLower:       (_rstName || '').toLowerCase(),
+              lastActive:      todayStr,
+              isStudying:      false,
+              updatedAt:       firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true }).catch(() => {});
+          }
         }
         if (_socialRoomCode && focusSeconds > 0) _sHandleFocusBounty().catch(() => {});
         if (_socialRoomCode) _sUpdatePresence('break').catch(() => {});
@@ -9724,6 +9783,24 @@
             _sContributeToGoals(elapsedMin).catch(() => {});
             checkBadges({ sessionMinutes: elapsedMin });
             saveState();
+            // Update global leaderboard on full-session stop
+            if (_db && _userId && typeof firebase !== 'undefined') {
+              const _fsDailyMins  = state.focusStats.minutesByDate[todayStr] || 0;
+              const _fsWeeklyMins = _computeWeekMins(_fsDailyMins);
+              const _fsName = (state.profile && state.profile.name) ||
+                (firebase.auth().currentUser && firebase.auth().currentUser.displayName) || 'Anonymous';
+              _db.collection('global_lb').doc(_userId).set({
+                dailyStudyTime:  _fsDailyMins,
+                dailyResetDate:  todayStr,
+                weeklyStudyTime: _fsWeeklyMins,
+                weeklyResetDate: _weekStartKey(),
+                name:            _fsName,
+                nameLower:       (_fsName || '').toLowerCase(),
+                lastActive:      todayStr,
+                isStudying:      false,
+                updatedAt:       firebase.firestore.FieldValue.serverTimestamp()
+              }, { merge: true }).catch(() => {});
+            }
           }
         }
         if (_socialRoomCode && focusMode === 'work' && focusSeconds > 0) _sHandleFocusBounty().catch(() => {});
