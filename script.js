@@ -10291,6 +10291,12 @@
   //  Called by live-study.js whenever it commits focus minutes/XP.
   //  Updates the in-memory state so tab-switches show fresh data.
   // ═══════════════════════════════════════════════════════════
+  // ── Profile helpers exposed for social.js ─────────────────────────────────
+  window._sc_calculateLevel = xp  => gamificationManager.calculateLevel(xp);
+  window._sc_calculateRank  = hrs => calculateRank(hrs);
+  window._sc_ACHIEVEMENTS   = ACHIEVEMENTS;
+  window._sc_getMyState     = ()  => state;
+
   window._lsSync = function (data) {
     try {
       const { xpEarned, minutesEarned, today } = data || {};

@@ -1915,9 +1915,9 @@
       const tsVal = msg.ts?.toMillis?.() ?? (typeof msg.ts === 'number' ? msg.ts : 0);
       return `
         <div class="sr-chat-row ${isMe ? 'sr-chat-mine' : 'sr-chat-theirs'}" data-msg-id="${esc(msg.id)}">
-          ${!isMe ? `<div class="sr-chat-av" style="background:${_avatarColor(msg.author||'')}">${(msg.author||'?')[0].toUpperCase()}</div>` : ''}
+          ${!isMe ? `<div class="sr-chat-av" data-sc="sr-view-profile" data-uid="${esc(msg.authorId||'')}" data-name="${esc(msg.author||'')}" data-code="${esc(code)}" style="background:${_avatarColor(msg.author||'')};cursor:pointer">${(msg.author||'?')[0].toUpperCase()}</div>` : ''}
           <div class="sr-chat-col">
-            ${!isMe ? `<div class="sr-chat-author">${esc(msg.author || 'Unknown')}</div>` : ''}
+            ${!isMe ? `<div class="sr-chat-author" data-sc="sr-view-profile" data-uid="${esc(msg.authorId||'')}" data-name="${esc(msg.author||'')}" data-code="${esc(code)}" style="cursor:pointer">${esc(msg.author || 'Unknown')}</div>` : ''}
             ${replyHtml}
             <div class="sr-chat-bubble" data-msg-id="${esc(msg.id)}">${esc(msg.text)}${msg.isEdited ? ' <span class="sr-edited-tag">edited</span>' : ''}</div>
             ${reactionsHtml}
@@ -2666,7 +2666,8 @@
       const showLastSeen = !active && !isOff && timerId !== 'me' && lmData;
       const lastSeenStr  = showLastSeen ? _fmtLastSeen(lmData) : '';
       return `
-        <div class="sr-member-card ${cardClass}" data-sr-card="${esc(m.id)}">
+        <div class="sr-member-card ${cardClass}" data-sr-card="${esc(m.id)}"
+             data-sc="sr-view-profile" data-uid="${esc(realUid)}" data-name="${esc(name)}" data-code="${esc(g.code||g.id||'')}">
           <div class="sr-card-icon-wrap">
             <div class="sr-card-icon">${active ? SR_ACTIVE_DESK : SR_IDLE_DESK}</div>
             ${isOff ? `<div class="sr-off-badge">OFF</div>` : ''}
@@ -3927,6 +3928,18 @@
       case 'sgs-back': {
         _settingsView = false;
         renderSocial();
+        break;
+      }
+
+      // ── Member Profile ────────────────────────────────────────────────────
+      case 'sr-view-profile': {
+        let tUid  = el.dataset.uid || '';
+        const tName = el.dataset.name || 'Member';
+        const tCode = el.dataset.code || '';
+        const myUid = getUserId();
+        if (!tUid || tUid === 'me') tUid = myUid;
+        if (!tUid) break;
+        _openMemberProfile(tUid, tName, tCode);
         break;
       }
 
@@ -5208,6 +5221,392 @@
         delete _groupDocUnsubs[k];
       });
     };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  GROUP MEMBER PROFILE MODAL
+  //  Opens a full-screen slide-up sheet with study stats, heatmap, level/rank,
+  //  achievements and social info for any group member.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Local date arithmetic — no dependency on script.js addDaysISO
+  function _mpDateKey(d) {
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  }
+  function _mpAddDays(yyyy_mm_dd, days) {
+    const d = new Date(yyyy_mm_dd + 'T00:00:00');
+    d.setDate(d.getDate() + days);
+    return _mpDateKey(d);
+  }
+  function _mpFmtMin(m) {
+    if (!m || m <= 0) return '0m';
+    const h = Math.floor(m / 60), min = m % 60;
+    return h > 0 ? `${h}h${min > 0 ? ` ${min}m` : ''}` : `${min}m`;
+  }
+  function _mpFmtDate(ts) {
+    if (!ts) return '';
+    try {
+      const d = ts.toDate ? ts.toDate() : new Date(ts);
+      return d.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+    } catch(_) { return ''; }
+  }
+
+  function _closeMemberProfile() {
+    const overlay = document.getElementById('mp-overlay');
+    if (!overlay) return;
+    const sheet = document.getElementById('mp-sheet');
+    if (sheet) sheet.classList.remove('mp-sheet-open');
+    setTimeout(() => overlay.remove(), 340);
+  }
+
+  async function _openMemberProfile(uid, displayName, groupCode) {
+    document.getElementById('mp-overlay')?.remove();
+    const myUid  = getUserId();
+    const isSelf = uid === myUid;
+
+    // ── Skeleton overlay ──────────────────────────────────────────────────
+    const overlay = document.createElement('div');
+    overlay.id    = 'mp-overlay';
+    overlay.className = 'mp-overlay';
+    overlay.innerHTML = `
+      <div class="mp-sheet" id="mp-sheet">
+        <div class="mp-handle"></div>
+        <div class="mp-skel-banner"></div>
+        <div class="mp-body">
+          <div class="mp-skel-row mp-skel-name"></div>
+          <div class="mp-skel-row mp-skel-rank"></div>
+          <div class="mp-skel-row mp-skel-bar"></div>
+          <div class="mp-skel-stats"></div>
+          <div class="mp-skel-row" style="height:120px;margin-top:16px;border-radius:12px"></div>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      document.getElementById('mp-sheet')?.classList.add('mp-sheet-open');
+    }));
+    overlay.addEventListener('click', e => { if (e.target === overlay) _closeMemberProfile(); });
+
+    // ── Fetch data ────────────────────────────────────────────────────────
+    let userData    = {};
+    let parsedState = null;
+    const db        = getDb();
+
+    if (isSelf && window._sc_getMyState) {
+      parsedState = window._sc_getMyState();
+      const lm    = _liveMembers[uid] || {};
+      userData = {
+        displayName:      _getUserDisplayName() || displayName,
+        isStudying:       !!(window._scIsStudying?.() || lm.isStudying),
+        studyStartedAt:   lm.studyStartedAt || null,
+        currentSubject:   lm.currentSubject  || '',
+        elapsedTimeToday: lm.elapsedTimeToday || 0,
+        joinedAt:         null,
+        role:             'me',
+      };
+    } else {
+      try {
+        if (db && uid) {
+          const snap = await db.collection('users').doc(uid).get();
+          if (snap.exists) {
+            const raw = snap.data() || {};
+            userData  = raw;
+            if (raw.data) { try { parsedState = JSON.parse(raw.data); } catch(_) {} }
+          }
+        }
+      } catch(_) {}
+      // Merge live presence on top of Firestore snapshot
+      const lm = _liveMembers[uid] || {};
+      if (lm.isStudying     != null) userData.isStudying      = lm.isStudying;
+      if (lm.currentSubject)         userData.currentSubject  = lm.currentSubject;
+      if (lm.elapsedTimeToday != null) userData.elapsedTimeToday = lm.elapsedTimeToday;
+      if (lm.studyStartedAt)         userData.studyStartedAt  = lm.studyStartedAt;
+      if (lm.displayName && !userData.displayName) userData.displayName = lm.displayName;
+      if (lm.role)                   userData.role            = lm.role;
+    }
+
+    // ── Render ────────────────────────────────────────────────────────────
+    const sheet = document.getElementById('mp-sheet');
+    if (!sheet) return;
+    sheet.classList.remove('mp-skel-loading');
+    sheet.innerHTML =
+      '<div class="mp-handle"></div>' +
+      _buildMemberProfileHTML(uid, displayName, userData, parsedState, isSelf, groupCode);
+
+    sheet.querySelector('.mp-close-btn')
+         ?.addEventListener('click', _closeMemberProfile);
+  }
+
+  function _buildMemberProfileHTML(uid, displayName, userData, parsedState, isSelf, groupCode) {
+    const name        = (userData.displayName || displayName || 'Unknown').trim();
+    const avatarColor = _avatarColor(name);
+    const avatarLetter= (name[0] || '?').toUpperCase();
+
+    // ── XP & Level ────────────────────────────────────────────────────────
+    const xpTotal = parsedState?.xp?.total || 0;
+    const lvInfo  = window._sc_calculateLevel
+      ? window._sc_calculateLevel(xpTotal)
+      : { level: 1, percent: 0, currentLevelXP: 0, nextLevelXP: 100 };
+
+    // ── Focus stats ────────────────────────────────────────────────────────
+    const mbd      = parsedState?.focusStats?.minutesByDate || {};
+    const today    = todayKey ? todayKey() : _mpDateKey(new Date());
+    const totalMin = Object.values(mbd).reduce((a, b) => a + b, 0);
+    // Today: prefer live elapsedTimeToday when studying, fall back to stored
+    const liveTodayMin = (userData.isStudying && userData.elapsedTimeToday)
+      ? userData.elapsedTimeToday : 0;
+    const todayMin = Math.max(liveTodayMin, mbd[today] || 0);
+
+    let weekMin = 0;
+    for (let i = 0; i < 7;  i++) weekMin  += mbd[_mpAddDays(today, -i)] || 0;
+    let monthMin = 0;
+    for (let i = 0; i < 30; i++) monthMin += mbd[_mpAddDays(today, -i)] || 0;
+
+    // Sessions
+    const sbd          = parsedState?.focusStats?.sessions || {};
+    const totalSess    = Object.values(sbd).reduce((a, b) => a + b, 0);
+
+    // ── Rank ──────────────────────────────────────────────────────────────
+    const totalHrs = totalMin / 60;
+    const rank     = window._sc_calculateRank
+      ? window._sc_calculateRank(totalHrs)
+      : { label: 'Seeker', icon: '🌱', color: '#94a3b8', glow: 'rgba(148,163,184,0.45)', pct: 0, next: null, hrsToNext: 0, group: 'Novice', tierIndex: 0 };
+
+    // ── Streak ────────────────────────────────────────────────────────────
+    const focusStreak  = parsedState?.focusStreak || {};
+    const legStreak    = parsedState?.streak       || {};
+    const streakCount  = focusStreak.count  || legStreak.count || 0;
+    const bestStreak   = Math.max(focusStreak.best || 0, legStreak.best || 0, streakCount);
+
+    // ── Max session ───────────────────────────────────────────────────────
+    const maxSess = Math.max(0, ...Object.values(parsedState?.focusStats?.maxSessionMin || {}));
+
+    // ── Live session times ────────────────────────────────────────────────
+    const isStudying = !!userData.isStudying;
+    const subject    = (userData.currentSubject || '').trim();
+    let startStr = '';
+    if (isStudying && userData.studyStartedAt) {
+      try {
+        const t = typeof userData.studyStartedAt === 'number'
+          ? userData.studyStartedAt
+          : userData.studyStartedAt.toMillis?.() || Number(userData.studyStartedAt);
+        startStr = new Date(t).toLocaleTimeString(undefined,
+          { hour: 'numeric', minute: '2-digit', hour12: true });
+      } catch(_) {}
+    }
+
+    // ── Last active ───────────────────────────────────────────────────────
+    const lmData = _liveMembers[uid] || {};
+    const isOnline = isStudying || (!_isMemberStale(lmData) && lmData.lastHeartbeatAt);
+    const lastSeenStr = (!isStudying && lmData.lastHeartbeatAt) ? _fmtLastSeen(lmData) : '';
+
+    // ── Joined date ───────────────────────────────────────────────────────
+    const joinedStr = _mpFmtDate(userData.joinedAt || userData.createdAt);
+
+    // ── Role ──────────────────────────────────────────────────────────────
+    const role = userData.role || lmData.role || '';
+    const roleLabel = role === 'owner' ? '👑 Owner'
+                    : role === 'admin' ? '🛡 Admin'
+                    : isSelf           ? '👤 You'
+                    : '';
+
+    // ── Group rank by today's focus ───────────────────────────────────────
+    const ranked = Object.entries(_liveMembers)
+      .map(([u, d]) => ({ uid: u, mins: d.elapsedTimeToday || 0 }))
+      .sort((a, b) => b.mins - a.mins);
+    const gRankIdx = ranked.findIndex(e => e.uid === uid);
+    const groupRankStr = gRankIdx >= 0 && ranked[gRankIdx].mins > 0
+      ? `#${gRankIdx + 1} in group today` : '';
+
+    // ── Heatmap — 5 weeks × 7 days, week-aligned (Sun–Sat) ──────────────
+    const heatCells = [];
+    const todayDate = new Date(today + 'T00:00:00');
+    const todayDow  = todayDate.getDay();   // 0=Sun … 6=Sat
+    // Go back to last Sunday of the oldest week we want to show
+    const daysBack  = todayDow + 4 * 7;    // e.g. Wed=3 → 31 days back to that Sunday
+    for (let i = daysBack; i >= 0; i--) {
+      const dk   = _mpAddDays(today, -i);
+      const mins = mbd[dk] || 0;
+      const hrs  = mins / 60;
+      let intensity = 0;
+      if (hrs > 0) intensity = hrs < 0.5 ? 1 : hrs < 1.5 ? 2 : hrs < 3 ? 3 : hrs < 5 ? 4 : 5;
+      const isToday = dk === today;
+      const d       = new Date(dk + 'T00:00:00');
+      const tip     = d.toLocaleDateString(undefined, { weekday:'short', month:'short', day:'numeric' });
+      const timeLbl = mins > 0 ? (mins >= 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins}m`) : 'No study';
+      heatCells.push(
+        `<div class="mp-heat-cell mp-heat-${intensity}${isToday ? ' mp-heat-today' : ''}" title="${tip} · ${timeLbl}"></div>`
+      );
+    }
+    // Pad remaining days of current week with empty cells so row 5 is complete
+    for (let j = 0; j < (6 - todayDow); j++) {
+      heatCells.push(`<div class="mp-heat-cell mp-heat-filler"></div>`);
+    }
+    const dayNames = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+    const labelRow = dayNames.map(d => `<div class="mp-heat-label">${d}</div>`).join('');
+
+    // ── Achievements ──────────────────────────────────────────────────────
+    const ACHS         = window._sc_ACHIEVEMENTS || [];
+    const badges       = parsedState?.badges || {};
+    const tierColor    = { easy: '#22c55e', medium: '#38bdf8', hard: '#f59e0b' };
+    const unlockedAchs = ACHS.filter(a => badges[a.id]);
+    const lockedAchs   = ACHS.filter(a => !badges[a.id]).slice(0, Math.max(0, 6 - unlockedAchs.length));
+
+    // ── Banner gradient based on rank color ───────────────────────────────
+    const bannerBg = `linear-gradient(160deg, ${rank.color}28 0%, #0f172a 55%)`;
+
+    // ── Avg daily ─────────────────────────────────────────────────────────
+    const activeDays = Object.values(mbd).filter(v => v > 0).length;
+    const avgDayMin  = activeDays > 0 ? Math.round(totalMin / activeDays) : 0;
+
+    return `
+      <div class="mp-banner" style="background:${bannerBg}">
+        <button class="mp-close-btn" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        <div class="mp-av-wrap">
+          <div class="mp-avatar" style="background:${avatarColor};box-shadow:0 0 0 3px ${rank.color}66,0 0 22px ${rank.color}33">${avatarLetter}</div>
+          <div class="mp-status-dot ${isStudying ? 'mp-dot-live' : isOnline ? 'mp-dot-online' : 'mp-dot-offline'}"></div>
+        </div>
+        <div class="mp-banner-status">
+          ${isStudying
+            ? `<span class="mp-banner-live-badge"><span class="mp-live-pulse"></span>LIVE</span>${subject ? `<span class="mp-banner-subj">${esc(subject)}</span>` : ''}`
+            : isOnline
+              ? '<span class="mp-banner-online">● Online</span>'
+              : lastSeenStr ? `<span class="mp-banner-offline">Last seen ${lastSeenStr}</span>` : ''}
+        </div>
+      </div>
+
+      <div class="mp-body">
+        <!-- Identity -->
+        <div class="mp-identity-row">
+          <div class="mp-display-name">${esc(name)}</div>
+          ${roleLabel ? `<div class="mp-role-chip">${roleLabel}</div>` : ''}
+        </div>
+        <div class="mp-meta-row">
+          <div class="mp-rank-pill" style="color:${rank.color};border-color:${rank.color}44;background:${rank.color}12">${rank.icon} ${rank.label}</div>
+          ${joinedStr ? `<div class="mp-joined-str">📅 Since ${joinedStr}</div>` : ''}
+        </div>
+
+        <!-- XP Bar -->
+        <div class="mp-xp-section">
+          <div class="mp-xp-label-row">
+            <span class="mp-xp-level" style="color:${rank.color}">Level ${lvInfo.level}</span>
+            <span class="mp-xp-nums">${xpTotal.toLocaleString()} XP total</span>
+          </div>
+          <div class="mp-xp-track">
+            <div class="mp-xp-fill" style="width:${lvInfo.percent}%;background:linear-gradient(90deg,${rank.color}88,${rank.color})${lvInfo.percent > 0 ? ';min-width:6px' : ''}"></div>
+          </div>
+          <div class="mp-xp-sub-row">
+            <span>${lvInfo.currentLevelXP.toLocaleString()} / ${lvInfo.nextLevelXP.toLocaleString()} XP to next level</span>
+            ${groupRankStr ? `<span class="mp-group-rank-str">${groupRankStr}</span>` : ''}
+          </div>
+        </div>
+
+        <!-- Live Focus Banner -->
+        ${isStudying ? `
+        <div class="mp-live-banner">
+          <span class="mp-live-pulse-dot"></span>
+          <div class="mp-live-banner-text">
+            <strong>Currently Studying</strong>${subject ? ` · ${esc(subject)}` : ''}
+            ${startStr ? `<div class="mp-live-banner-since">Started at ${startStr}</div>` : ''}
+          </div>
+          <div class="mp-live-banner-time">${_mpFmtMin(todayMin)}</div>
+        </div>` : ''}
+
+        <!-- Stats Grid -->
+        <div class="mp-section-title">Study Stats</div>
+        <div class="mp-stats-grid">
+          <div class="mp-stat-card">
+            <div class="mp-stat-val">${_mpFmtMin(todayMin)}</div>
+            <div class="mp-stat-lbl">Today</div>
+          </div>
+          <div class="mp-stat-card">
+            <div class="mp-stat-val">${_mpFmtMin(weekMin)}</div>
+            <div class="mp-stat-lbl">This Week</div>
+          </div>
+          <div class="mp-stat-card">
+            <div class="mp-stat-val">${_mpFmtMin(monthMin)}</div>
+            <div class="mp-stat-lbl">This Month</div>
+          </div>
+          <div class="mp-stat-card">
+            <div class="mp-stat-val">${_mpFmtMin(totalMin)}</div>
+            <div class="mp-stat-lbl">All Time</div>
+          </div>
+          <div class="mp-stat-card">
+            <div class="mp-stat-val">🔥 ${streakCount}</div>
+            <div class="mp-stat-lbl">Streak</div>
+          </div>
+          <div class="mp-stat-card">
+            <div class="mp-stat-val">🏆 ${bestStreak}</div>
+            <div class="mp-stat-lbl">Best Streak</div>
+          </div>
+          <div class="mp-stat-card">
+            <div class="mp-stat-val">${_mpFmtMin(avgDayMin)}</div>
+            <div class="mp-stat-lbl">Avg / Day</div>
+          </div>
+          <div class="mp-stat-card">
+            <div class="mp-stat-val">${totalSess}</div>
+            <div class="mp-stat-lbl">Sessions</div>
+          </div>
+        </div>
+
+        <!-- Activity Heatmap -->
+        <div class="mp-section-title">Activity <span class="mp-section-sub">Last 5 weeks</span></div>
+        <div class="mp-heatmap-wrap">
+          <div class="mp-heatmap-dow">${labelRow}</div>
+          <div class="mp-heatmap-grid">${heatCells.join('')}</div>
+          <div class="mp-heat-legend">
+            <span class="mp-heat-leg-lbl">Less</span>
+            ${[0,1,2,3,4,5].map(i => `<div class="mp-heat-cell mp-heat-${i}" style="width:12px;height:12px;flex-shrink:0"></div>`).join('')}
+            <span class="mp-heat-leg-lbl">More</span>
+          </div>
+        </div>
+
+        <!-- Rank Card -->
+        <div class="mp-section-title">Rank Progress</div>
+        <div class="mp-rank-card" style="border-color:${rank.color}33">
+          <div class="mp-rank-card-top">
+            <span class="mp-rank-big-icon">${rank.icon}</span>
+            <div class="mp-rank-card-info">
+              <div class="mp-rank-label" style="color:${rank.color}">${rank.label}</div>
+              <div class="mp-rank-group" style="color:${rank.color}99">${rank.group || ''} · Tier #${(rank.tierIndex || 0) + 1}</div>
+            </div>
+            <div class="mp-rank-total">${Math.floor(totalHrs)}h</div>
+          </div>
+          <div class="mp-rank-bar-track">
+            <div class="mp-rank-bar-fill" style="width:${rank.pct}%;background:linear-gradient(90deg,${rank.color}88,${rank.color})"></div>
+          </div>
+          <div class="mp-rank-next">
+            ${rank.next
+              ? `🎯 ${rank.hrsToNext}h more → ${rank.next.icon} <strong style="color:${rank.next.color}">${rank.next.label}</strong>`
+              : `<span style="color:${rank.color}">✦ Maximum rank achieved — Legend status</span>`}
+          </div>
+        </div>
+
+        <!-- Achievements -->
+        <div class="mp-section-title">Achievements <span class="mp-section-sub">${unlockedAchs.length} / ${ACHS.length}</span></div>
+        <div class="mp-badges-grid">
+          ${unlockedAchs.map(a => {
+            const c = tierColor[a.tier] || '#fbbf24';
+            // Parse hex → r,g,b for cross-browser rgba usage
+            const r = parseInt(c.slice(1,3),16), g = parseInt(c.slice(3,5),16), b = parseInt(c.slice(5,7),16);
+            return `
+            <div class="mp-badge mp-badge-unlocked" style="--ac-bg:rgba(${r},${g},${b},0.10);--ac-bd:rgba(${r},${g},${b},0.28)" title="${esc(a.desc)}">
+              <div class="mp-badge-icon">${a.icon}</div>
+              <div class="mp-badge-name" style="color:rgba(${r},${g},${b},0.9)">${esc(a.name)}</div>
+            </div>`;
+          }).join('')}
+          ${lockedAchs.map(a => `
+            <div class="mp-badge mp-badge-locked" title="${esc(a.desc)}">
+              <div class="mp-badge-icon mp-badge-icon-locked">🔒</div>
+              <div class="mp-badge-name mp-badge-name-locked">${esc(a.name)}</div>
+            </div>`).join('')}
+          ${unlockedAchs.length === 0 && lockedAchs.length === 0
+            ? '<div class="mp-no-data">No achievement data available</div>' : ''}
+        </div>
+
+        <div style="height:40px"></div>
+      </div>`;
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
