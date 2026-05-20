@@ -797,8 +797,11 @@
   let _ptrHideTimer        = null;    // safety timeout to hide PTR bar if snapshot stalls
   let _memberUnsub         = null;
   let _liveMembers         = {};
-  let _globalLbData        = [];
-  let _globalLbUnsub       = null;
+  let _globalLbDailyData   = [];
+  let _globalLbWeeklyData  = [];
+  let _globalLbDailyUnsub  = null;
+  let _globalLbWeeklyUnsub = null;
+  let _globalLbSubDate     = null; // track date to re-sub at midnight
   // Chat state
   let _chatUnsub           = null;
   let _chatMessages        = {};   // { groupCode: Message[] }
@@ -908,35 +911,90 @@
     return total;
   }
 
-  function _subscribeGlobalLb() {
-    if (_globalLbUnsub) return;
+  function _subscribeGlobalLbPeriod(period) {
     const db = getDb();
-    if (!db) { setTimeout(_subscribeGlobalLb, 1500); return; }
-    try {
-      // Order by updatedAt so we get the most recently active users for both daily + weekly
-      _globalLbUnsub = db.collection('global_lb')
-        .orderBy('updatedAt', 'desc')
-        .limit(500)
-        .onSnapshot(snap => {
-          _globalLbData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-          if (_tab === 'leaderboard' && window._currentTab === 'social') _scheduleRender();
-        }, () => {
-          // Fallback: if updatedAt index missing, try without orderBy
-          _globalLbUnsub = null;
-          try {
-            _globalLbUnsub = db.collection('global_lb')
-              .limit(500)
-              .onSnapshot(snap => {
-                _globalLbData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                if (_tab === 'leaderboard' && window._currentTab === 'social') _scheduleRender();
-              }, () => { _globalLbUnsub = null; });
-          } catch(_) { _globalLbUnsub = null; }
-        });
-    } catch(_) { _globalLbUnsub = null; }
+    if (!db) { setTimeout(() => _subscribeGlobalLbPeriod(period), 1500); return; }
+
+    const today     = todayKey();
+    const weekStart = _weekStart();
+    _globalLbSubDate = today;
+
+    if (period === 'daily') {
+      if (_globalLbDailyUnsub) return;
+      const dateVal = today;
+      const tryIndexed = () => {
+        try {
+          _globalLbDailyUnsub = db.collection('global_lb')
+            .where('dailyResetDate', '==', dateVal)
+            .orderBy('dailyStudyTime', 'desc')
+            .limit(100)
+            .onSnapshot(snap => {
+              _globalLbDailyData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+              if (_tab === 'leaderboard' && _lbPeriod === 'daily' && window._currentTab === 'social') _scheduleRender();
+            }, () => { _globalLbDailyUnsub = null; tryFallback(); });
+        } catch(_) { _globalLbDailyUnsub = null; tryFallback(); }
+      };
+      const tryFallback = () => {
+        try {
+          _globalLbDailyUnsub = db.collection('global_lb')
+            .where('dailyResetDate', '==', dateVal)
+            .limit(200)
+            .onSnapshot(snap => {
+              _globalLbDailyData = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+                .filter(u => (u.dailyStudyTime || 0) > 0)
+                .sort((a, b) => (b.dailyStudyTime || 0) - (a.dailyStudyTime || 0));
+              if (_tab === 'leaderboard' && _lbPeriod === 'daily' && window._currentTab === 'social') _scheduleRender();
+            }, () => { _globalLbDailyUnsub = null; });
+        } catch(_) { _globalLbDailyUnsub = null; }
+      };
+      tryIndexed();
+    } else {
+      if (_globalLbWeeklyUnsub) return;
+      const dateVal = weekStart;
+      const tryIndexed = () => {
+        try {
+          _globalLbWeeklyUnsub = db.collection('global_lb')
+            .where('weeklyResetDate', '==', dateVal)
+            .orderBy('weeklyStudyTime', 'desc')
+            .limit(100)
+            .onSnapshot(snap => {
+              _globalLbWeeklyData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+              if (_tab === 'leaderboard' && _lbPeriod === 'weekly' && window._currentTab === 'social') _scheduleRender();
+            }, () => { _globalLbWeeklyUnsub = null; tryFallback(); });
+        } catch(_) { _globalLbWeeklyUnsub = null; tryFallback(); }
+      };
+      const tryFallback = () => {
+        try {
+          _globalLbWeeklyUnsub = db.collection('global_lb')
+            .where('weeklyResetDate', '==', dateVal)
+            .limit(200)
+            .onSnapshot(snap => {
+              _globalLbWeeklyData = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+                .filter(u => (u.weeklyStudyTime || 0) > 0)
+                .sort((a, b) => (b.weeklyStudyTime || 0) - (a.weeklyStudyTime || 0));
+              if (_tab === 'leaderboard' && _lbPeriod === 'weekly' && window._currentTab === 'social') _scheduleRender();
+            }, () => { _globalLbWeeklyUnsub = null; });
+        } catch(_) { _globalLbWeeklyUnsub = null; }
+      };
+      tryIndexed();
+    }
+  }
+
+  function _subscribeGlobalLb() {
+    // Reset subscriptions if the date has changed (midnight rollover)
+    const today = todayKey();
+    if (_globalLbSubDate && _globalLbSubDate !== today) {
+      _unsubscribeGlobalLb();
+      _globalLbDailyData = [];
+      _globalLbWeeklyData = [];
+    }
+    _subscribeGlobalLbPeriod('daily');
+    _subscribeGlobalLbPeriod('weekly');
   }
 
   function _unsubscribeGlobalLb() {
-    if (_globalLbUnsub) { try { _globalLbUnsub(); } catch(_) {} _globalLbUnsub = null; }
+    if (_globalLbDailyUnsub)  { try { _globalLbDailyUnsub();  } catch(_) {} _globalLbDailyUnsub  = null; }
+    if (_globalLbWeeklyUnsub) { try { _globalLbWeeklyUnsub(); } catch(_) {} _globalLbWeeklyUnsub = null; }
   }
 
   // ── Live leaderboard ticker (updates your-card time in-place + periodic rank re-render) ──
@@ -3244,7 +3302,6 @@
     const validTop3 = (top3 || []).filter(u => u && u.id && (uTime(u) > 0));
     if (validTop3.length === 0) return '';
 
-    // Single user: solo champion card without podium base to avoid the floating box
     if (validTop3.length === 1) {
       const u = validTop3[0];
       const isMe = uid && u.id === uid;
@@ -3254,18 +3311,18 @@
         <div class="sc-lb-podium-slot sc-lb-podium-slot--champ" style="--glow:rgba(251,191,36,.35)">
           <div class="sc-lb-crown">👑</div>
           <div class="sc-lb-podium-avatar-wrap">
-            ${_lbAvatar(u.name, u.id, 60)}
+            ${_lbAvatar(u.name, u.id, 64)}
             <div class="sc-lb-podium-rank sc-lb-podium-rank--gold">1</div>
             ${studying ? '<div class="sc-lb-studying-pulse"></div>' : ''}
           </div>
           <div class="sc-lb-podium-name">${esc((u.name || 'Studier').split(' ')[0])}${isMe ? ' <span class="sc-glb-you-tag">you</span>' : ''}${studying ? ' <span class="sc-lb-live-dot">●</span>' : ''}</div>
           <div class="sc-lb-podium-time">${minsToHrs(uTime(u))}</div>
           ${avS > 0 ? _lbAvatarLabel(avS) : ''}
+          ${(u.streak || 0) > 0 ? `<div class="sc-lb-podium-streak">${u.streak}🔥</div>` : ''}
         </div>
       </div>`;
     }
 
-    // 2-user layout: side-by-side (rank 2 left, rank 1 right) — no empty slots
     if (validTop3.length === 2) {
       const pSlots   = [validTop3[1], validTop3[0]];
       const pRanks   = [2, 1];
@@ -3281,7 +3338,7 @@
           return `<div class="sc-lb-podium-slot${isMe ? ' sc-lb-podium-slot--me' : ''}" style="--glow:${pGlows[si]}">
             ${pCrowns[si] ? `<div class="sc-lb-crown">${pCrowns[si]}</div>` : ''}
             <div class="sc-lb-podium-avatar-wrap">
-              ${_lbAvatar(u.name, u.id, rank === 1 ? 52 : 44)}
+              ${_lbAvatar(u.name, u.id, rank === 1 ? 54 : 46)}
               <div class="sc-lb-podium-rank sc-lb-podium-rank--${rank === 1 ? 'gold' : 'silver'}">${rank}</div>
               ${studying ? '<div class="sc-lb-studying-pulse"></div>' : ''}
             </div>
@@ -3294,12 +3351,11 @@
       </div>`;
     }
 
-    // Standard 3-person podium: Order: 2nd, 1st, 3rd (visual podium layout)
-    const slots  = [validTop3[1], validTop3[0], validTop3[2]];
-    const ranks  = [2, 1, 3];
-    const heights = ['72px', '92px', '58px'];
-    const glows  = ['rgba(148,163,184,.25)', 'rgba(251,191,36,.35)', 'rgba(205,127,50,.3)'];
-    const crowns = ['', '👑', ''];
+    const slots   = [validTop3[1], validTop3[0], validTop3[2]];
+    const ranks   = [2, 1, 3];
+    const heights = ['72px', '96px', '58px'];
+    const glows   = ['rgba(148,163,184,.3)', 'rgba(251,191,36,.4)', 'rgba(205,127,50,.3)'];
+    const crowns  = ['', '👑', ''];
     return `<div class="sc-lb-podium">
       ${slots.map((u, si) => {
         if (!u) return '';
@@ -3307,16 +3363,17 @@
         const isMe  = uid && u.id === uid;
         const avS   = typeof u.avatarStage === 'number' ? u.avatarStage : 0;
         const studying = u.isStudying === true;
-        return `<div class="sc-lb-podium-slot${isMe ? ' sc-lb-podium-slot--me' : ''}" style="--glow:${glows[si]}">
+        return `<div class="sc-lb-podium-slot${rank === 1 ? ' sc-lb-podium-slot--champ' : ''}${isMe ? ' sc-lb-podium-slot--me' : ''}" style="--glow:${glows[si]}">
           ${crowns[si] ? `<div class="sc-lb-crown">${crowns[si]}</div>` : ''}
           <div class="sc-lb-podium-avatar-wrap">
-            ${_lbAvatar(u.name, u.id, rank === 1 ? 52 : 44)}
+            ${_lbAvatar(u.name, u.id, rank === 1 ? 56 : 44)}
             <div class="sc-lb-podium-rank sc-lb-podium-rank--${rank === 1 ? 'gold' : rank === 2 ? 'silver' : 'bronze'}">${rank}</div>
             ${studying ? '<div class="sc-lb-studying-pulse"></div>' : ''}
           </div>
           <div class="sc-lb-podium-name">${esc((u.name || 'Studier').split(' ')[0])}${isMe ? ' <span class="sc-glb-you-tag">you</span>' : ''}${studying ? ' <span class="sc-lb-live-dot">●</span>' : ''}</div>
           <div class="sc-lb-podium-time">${minsToHrs(uTime(u))}</div>
           ${avS > 0 ? _lbAvatarLabel(avS) : ''}
+          ${(u.streak || 0) > 1 ? `<div class="sc-lb-podium-streak">${u.streak}🔥</div>` : ''}
           <div class="sc-lb-podium-base" style="height:${heights[si]};background:${glows[si]};border-color:${glows[si]}"></div>
         </div>`;
       }).join('')}
@@ -3324,10 +3381,11 @@
   }
 
   function _renderLbRow(u, rank, uid, period, delta) {
-    const uTime  = period === 'daily' ? (u.dailyStudyTime || 0) : (u.weeklyStudyTime || 0);
-    const isMe   = uid && u.id === uid;
-    const avS    = typeof u.avatarStage === 'number' ? u.avatarStage : 0;
+    const uTime    = period === 'daily' ? (u.dailyStudyTime || 0) : (u.weeklyStudyTime || 0);
+    const isMe     = uid && u.id === uid;
+    const avS      = typeof u.avatarStage === 'number' ? u.avatarStage : 0;
     const studying = u.isStudying === true;
+    const uStreak  = u.streak   || 0;
     let deltaHtml = '';
     if (delta > 0)      deltaHtml = `<span class="sc-lb-delta sc-lb-delta--up">▲${delta}</span>`;
     else if (delta < 0) deltaHtml = `<span class="sc-lb-delta sc-lb-delta--dn">▼${Math.abs(delta)}</span>`;
@@ -3340,7 +3398,7 @@
       </div>
       <div class="sc-glb-info">
         <div class="sc-glb-name">${esc(u.name || 'Studier')}${isMe ? ' <span class="sc-glb-you-tag">you</span>' : ''}${studying ? ' <span class="sc-lb-live-dot">●</span>' : ''}</div>
-        ${avS > 0 ? _lbAvatarLabel(avS) : ''}
+        <div class="sc-lb-row-sub">${avS > 0 ? _lbAvatarLabel(avS) : ''}${uStreak > 0 ? ` <span class="sc-lb-streak-chip">${uStreak}🔥</span>` : ''}</div>
       </div>
       ${deltaHtml}
       <div class="sc-glb-time">${minsToHrs(uTime)}</div>
@@ -3348,104 +3406,109 @@
   }
 
   function _renderLeaderboard() {
-    const ms         = getMainState();
-    const mins       = (ms.focusStats || {}).minutesByDate || {};
-    const today      = todayKey();
-    const todayMins  = mins[today] || 0;
-    const weekMins   = _weekMinsLocal();
+    const ms          = getMainState();
+    const mins        = (ms.focusStats || {}).minutesByDate || {};
+    const today       = todayKey();
+    const todayMins   = mins[today] || 0;
+    const weekMins    = _weekMinsLocal();
     const displayMins = _lbPeriod === 'daily' ? todayMins : weekMins;
-    const studying   = isStudying();
-    const uid        = getUserId();
+    const studying    = isStudying();
+    const uid         = getUserId();
     const weekStartKey = _weekStart();
-    const goal       = _lbPeriod === 'daily' ? 480 : 3360;
-    const goalLabel  = _lbPeriod === 'daily' ? '8h / day' : '56h / week (Fri–Thu)';
-    const streak     = ms.streak?.current ?? ms.currentStreak ?? 0;
-    const sessions   = ms.focusStats?.sessions?.[today] ?? 0;
+    const goal        = _lbPeriod === 'daily' ? 480 : 3360;
+    const goalLabel   = _lbPeriod === 'daily' ? '8h / day' : '56h / week';
+    const streak      = ms.streak?.count ?? ms.streak?.current ?? ms.currentStreak ?? 0;
+    const sessions    = ms.focusStats?.sessions?.[today] ?? 0;
 
-    // Kick off real-time subscription (idempotent)
+    // Start real-time subscriptions (idempotent, handles midnight rollover)
     _subscribeGlobalLb();
 
-    // ── Build a clean, validated dataset ──────────────────────────────────────
-    const seen = new Set();
-    const rawFiltered = _globalLbData
-      .filter(u => {
-        // Must have a valid ID and name to appear
-        if (!u || !u.id || typeof u.id !== 'string') return false;
-        if (seen.has(u.id)) return false;
-        seen.add(u.id);
-        // Skip entries with no meaningful name
-        if (!u.name || typeof u.name !== 'string' || u.name.trim() === '') return false;
-        if (_lbPeriod === 'daily') {
-          // Primary: has correct reset date. Fallback: lastActive === today (handles race conditions)
-          const hasTime = (u.dailyStudyTime || 0) > 0;
-          if (!hasTime) return false;
-          return u.dailyResetDate === today || u.lastActive === today;
-        }
-        // Weekly: primary check by weeklyResetDate; fallback by lastActive within the week
-        const hasTime = (u.weeklyStudyTime || 0) > 0;
-        if (!hasTime) return false;
-        return u.weeklyResetDate === weekStartKey ||
-          (u.lastActive && u.lastActive >= weekStartKey && u.lastActive <= today);
-      });
+    // ── Pick dataset for current period ──────────────────────────────────────
+    const rawData = _lbPeriod === 'daily' ? _globalLbDailyData : _globalLbWeeklyData;
 
-    // ── Inject current user from local state if not already present ───────────
-    // This ensures the current user always sees themselves even when Firebase
-    // hasn't yet written or the listener hasn't fired yet.
+    // ── Dedup + validate ──────────────────────────────────────────────────────
+    const seen = new Set();
+    const rawFiltered = rawData.filter(u => {
+      if (!u || !u.id || typeof u.id !== 'string') return false;
+      if (seen.has(u.id)) return false;
+      seen.add(u.id);
+      if (!u.name || typeof u.name !== 'string' || u.name.trim() === '') return false;
+      const time = _lbPeriod === 'daily' ? (u.dailyStudyTime || 0) : (u.weeklyStudyTime || 0);
+      return time > 0;
+    });
+
+    // ── Inject current user if missing from server data ───────────────────────
     const currentUserInList = uid ? rawFiltered.some(u => u.id === uid) : true;
-    if (uid && !currentUserInList) {
-      const localMins = _lbPeriod === 'daily' ? todayMins : weekMins;
-      if (localMins > 0) {
-        const userName = (ms.profile && ms.profile.name) ||
-          (typeof firebase !== 'undefined' && firebase.auth?.()?.currentUser?.displayName) ||
-          'You';
-        rawFiltered.push({
-          id:               uid,
-          name:             userName,
-          dailyStudyTime:   todayMins,
-          dailyResetDate:   today,
-          weeklyStudyTime:  weekMins,
-          weeklyResetDate:  weekStartKey,
-          lastActive:       today,
-          avatarStage:      window._lsGetCurrentAvStage?.() || 0,
-          isStudying:       studying,
-          _local:           true,
-        });
-      }
+    if (uid && !currentUserInList && displayMins > 0) {
+      const userName = _getUserDisplayName();
+      rawFiltered.push({
+        id:              uid,
+        name:            userName,
+        dailyStudyTime:  todayMins,
+        dailyResetDate:  today,
+        weeklyStudyTime: weekMins,
+        weeklyResetDate: weekStartKey,
+        lastActive:      today,
+        avatarStage:     window._lsGetCurrentAvStage?.() || 0,
+        isStudying:      studying,
+        streak:          streak,
+        sessions:        sessions,
+        _local:          true,
+      });
     } else if (uid && studying) {
-      // Update the existing entry's isStudying flag optimistically
-      const existingIdx = rawFiltered.findIndex(u => u.id === uid);
-      if (existingIdx >= 0 && !rawFiltered[existingIdx].isStudying) {
-        rawFiltered[existingIdx] = { ...rawFiltered[existingIdx], isStudying: true };
+      const idx = rawFiltered.findIndex(u => u.id === uid);
+      if (idx >= 0 && !rawFiltered[idx].isStudying) {
+        rawFiltered[idx] = { ...rawFiltered[idx], isStudying: true };
       }
     }
 
-    // ── Sort descending by time, stable tiebreak by id ─────────────────────────
-    const filtered = rawFiltered.sort((a, b) => {
-      const aT = _lbPeriod === 'daily' ? (a.dailyStudyTime || 0) : (a.weeklyStudyTime || 0);
-      const bT = _lbPeriod === 'daily' ? (b.dailyStudyTime || 0) : (b.weeklyStudyTime || 0);
-      if (bT !== aT) return bT - aT;
+    // ── Sort: time → sessions → streak → id (stable) ─────────────────────────
+    const getTime     = u => _lbPeriod === 'daily' ? (u.dailyStudyTime || 0) : (u.weeklyStudyTime || 0);
+    const allSorted = rawFiltered.sort((a, b) => {
+      const tDiff = getTime(b) - getTime(a);
+      if (tDiff !== 0) return tDiff;
+      const sDiff = (b.sessions || 0) - (a.sessions || 0);
+      if (sDiff !== 0) return sDiff;
+      const stDiff = (b.streak || 0) - (a.streak || 0);
+      if (stDiff !== 0) return stDiff;
       return (a.id || '').localeCompare(b.id || '');
     });
 
-    const myRankIdx = uid ? filtered.findIndex(u => u.id === uid) : -1;
-    const myRank    = myRankIdx >= 0 ? myRankIdx + 1 : 0;
-    const progPct   = Math.min(100, ((displayMins / goal) * 100)).toFixed(1);
+    const myRankIdx   = uid ? allSorted.findIndex(u => u.id === uid) : -1;
+    const myRank      = myRankIdx >= 0 ? myRankIdx + 1 : 0;
+    const progPct     = Math.min(100, (displayMins / goal) * 100).toFixed(1);
 
-    // Compute rank deltas then save new ranks
+    // ── Rank deltas ───────────────────────────────────────────────────────────
     const deltas = {};
-    filtered.forEach((u, i) => { deltas[u.id] = _lbRankDelta(u.id, i + 1); });
-    _lbSaveRanks(filtered);
+    allSorted.forEach((u, i) => { deltas[u.id] = _lbRankDelta(u.id, i + 1); });
+    _lbSaveRanks(allSorted);
 
-    // Start live ticker for the your-card
     setTimeout(_startLbLive, 80);
 
-    // My rank pill
+    const top100  = allSorted.slice(0, 100);
+    const top3    = top100.slice(0, 3);
+    const rest    = top100.slice(3);
+
     const myRankPill = myRank > 0
       ? `<div class="sc-lb-you-rank-pill">${myRank === 1 ? '👑' : myRank === 2 ? '🥈' : myRank === 3 ? '🥉' : ''}#${myRank}</div>`
       : `<div class="sc-lb-you-rank-pill sc-lb-you-rank-pill--none">Unranked</div>`;
 
-    const top3  = filtered.slice(0, 3);
-    const rest  = filtered.slice(3, 50);
+    // "Your rank" section if outside top 100
+    const myEntry = (myRank > 100 && myRankIdx >= 0) ? allSorted[myRankIdx] : null;
+    const myRankFooter = myEntry ? `
+      <div class="sc-lb-myrank-section">
+        <div class="sc-lb-myrank-label">YOUR RANK</div>
+        <div class="sc-glb-row sc-glb-row--me sc-lb-myrank-row">
+          <div class="sc-glb-rank"><span class="sc-glb-rank-num">#${myRank}</span></div>
+          <div class="sc-glb-avatar-wrap">${_lbAvatar(myEntry.name, myEntry.id, 36)}</div>
+          <div class="sc-glb-info">
+            <div class="sc-glb-name">${esc(myEntry.name || 'You')} <span class="sc-glb-you-tag">you</span></div>
+            <div class="sc-lb-row-sub">${sessions} session${sessions !== 1 ? 's' : ''}${streak > 0 ? ` <span class="sc-lb-streak-chip">${streak}🔥</span>` : ''}</div>
+          </div>
+          <div class="sc-glb-time">${minsToHrs(displayMins)}</div>
+        </div>
+        <div class="sc-lb-myrank-hint">Keep going to reach the Top 100! 🚀</div>
+      </div>` : '';
 
     return `
       <div class="sc-section sc-lb-global">
@@ -3465,7 +3528,7 @@
               <div class="sc-lb-you-time" data-lb-live="time">${minsToHrs(displayMins)}</div>
               <div class="sc-lb-you-meta">
                 ${studying ? `<div class="sc-lb-studying-badge" data-lb-live="studying">● Live</div>` : `<div class="sc-lb-studying-badge" data-lb-live="studying" style="display:none">● Live</div>`}
-                <div class="sc-lb-you-sessions">${sessions} session${sessions !== 1 ? 's' : ''} today</div>
+                <div class="sc-lb-you-sessions">${sessions} session${sessions !== 1 ? 's' : ''} · ${streak > 0 ? `${streak}🔥` : 'No streak'}</div>
               </div>
             </div>
             ${myRankPill}
@@ -3479,11 +3542,11 @@
           </div>
         </div>
 
-        ${filtered.length === 0 ? `
+        ${top100.length === 0 ? `
           <div class="sc-lb-empty">
             <div class="sc-lb-empty-icon">🏆</div>
             <div class="sc-lb-empty-title">No one ranked yet ${_lbPeriod === 'daily' ? 'today' : 'this week'}</div>
-            <div class="sc-lb-empty-sub">Start a focus session to claim the top spot!</div>
+            <div class="sc-lb-empty-sub">Start a focus session to claim #1!</div>
           </div>
         ` : `
           ${top3.length > 0 ? _renderLbPodium(top3, uid, _lbPeriod) : ''}
@@ -3491,13 +3554,15 @@
           ${rest.length > 0 ? `
             <div class="sc-glb-section">
               <div class="sc-glb-header">
-                <span class="sc-block-title">All Rankings</span>
-                <span class="sc-glb-count">${filtered.length} studier${filtered.length !== 1 ? 's' : ''}</span>
+                <span class="sc-block-title">Top 100</span>
+                <span class="sc-glb-count">${top100.length} studier${top100.length !== 1 ? 's' : ''}</span>
               </div>
               ${rest.map((u, i) => _renderLbRow(u, i + 4, uid, _lbPeriod, deltas[u.id] || 0)).join('')}
             </div>
           ` : ''}
         `}
+
+        ${myRankFooter}
 
         <div class="sc-lb-stats-section">
           <div class="sc-block-title sc-lb-stats-title">Your Stats</div>
@@ -3511,7 +3576,7 @@
               <div class="sc-stat-label">This Week</div>
             </div>
             <div class="sc-stat-chip">
-              <div class="sc-stat-value">${streak}🔥</div>
+              <div class="sc-stat-value">${streak > 0 ? streak + '🔥' : '—'}</div>
               <div class="sc-stat-label">Streak</div>
             </div>
           </div>

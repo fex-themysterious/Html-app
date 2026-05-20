@@ -900,6 +900,42 @@
 .sc-lb-delta--dn   { color: #f87171; }
 .sc-lb-delta--same { color: rgba(148,163,184,.35); }
 
+/* ── Row sub-label (avatar label + streak chip) ── */
+.sc-lb-row-sub {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 11px; color: var(--sc-muted); margin-top: 2px; flex-wrap: wrap;
+}
+.sc-lb-streak-chip {
+  display: inline-flex; align-items: center; gap: 2px;
+  font-size: 10px; font-weight: 700;
+  background: rgba(251,146,60,.15); border: 1px solid rgba(251,146,60,.3);
+  color: #fb923c; border-radius: 20px; padding: 1px 6px;
+}
+
+/* ── Podium streak badge ── */
+.sc-lb-podium-streak {
+  font-size: 11px; font-weight: 700; color: #fb923c;
+  background: rgba(251,146,60,.15); border: 1px solid rgba(251,146,60,.25);
+  border-radius: 20px; padding: 2px 8px; margin-top: 4px; display: inline-block;
+}
+
+/* ── "Your rank" section (when outside top 100) ── */
+.sc-lb-myrank-section {
+  margin: 12px 16px 4px;
+  background: linear-gradient(135deg, rgba(99,102,241,.08), rgba(139,92,246,.08));
+  border: 1px solid rgba(99,102,241,.25);
+  border-radius: 14px; padding: 12px;
+}
+.sc-lb-myrank-label {
+  font-size: 10px; font-weight: 800; letter-spacing: .1em;
+  color: var(--sc-accent); margin-bottom: 8px; text-transform: uppercase;
+}
+.sc-lb-myrank-row { background: transparent; border: none; padding: 0; margin: 0; }
+.sc-lb-myrank-hint {
+  font-size: 11px; color: var(--sc-muted); text-align: center;
+  margin-top: 8px; font-style: italic;
+}
+
 /* ── Stats section ── */
 .sc-lb-stats-section { margin: 0 16px 20px; }
 .sc-lb-stats-title   { margin-bottom: 10px; }

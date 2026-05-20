@@ -5279,6 +5279,9 @@
       lastActive:      today,
       avatarStage:     avStageNow,
       isStudying:      true,
+      streak:          state.streak ? (state.streak.count || 0) : 0,
+      sessions:        state.focusStats && state.focusStats.sessions ? (state.focusStats.sessions[today] || 0) : 0,
+      xpTotal:         state.xp ? (state.xp.total || 0) : 0,
       updatedAt:       firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true }).catch(() => {});
     // Keep group presence alive while the live timer is running on any tab.
@@ -5490,6 +5493,9 @@
       lastActive:      todayStr2,
       avatarStage:     _lsCurrentAvatarStage >= 0 ? _lsCurrentAvatarStage : 0,
       isStudying:      false,
+      streak:          state.streak ? (state.streak.count || 0) : 0,
+      sessions:        state.focusStats && state.focusStats.sessions ? (state.focusStats.sessions[todayStr2] || 0) : 0,
+      xpTotal:         state.xp ? (state.xp.total || 0) : 0,
       updatedAt:       firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true }).catch(() => {});
     // ── Save today's session count to Firebase for real-time cross-device sync ──
@@ -6044,6 +6050,9 @@
           lastActive:      todayStr,
           avatarStage:     0,
           isStudying:      false,
+          streak:          state.streak ? (state.streak.count || 0) : 0,
+          sessions:        state.focusStats && state.focusStats.sessions ? (state.focusStats.sessions[todayStr] || 0) : 0,
+          xpTotal:         state.xp ? (state.xp.total || 0) : 0,
           updatedAt:       firebase.firestore.FieldValue.serverTimestamp()
         }, { merge: true }).catch(() => {});
       }
@@ -9687,6 +9696,9 @@
                 nameLower:       (_ptName || '').toLowerCase(),
                 lastActive:      todayStr,
                 isStudying:      false,
+                streak:          state.streak ? (state.streak.count || 0) : 0,
+                sessions:        state.focusStats && state.focusStats.sessions ? (state.focusStats.sessions[todayStr] || 0) : 0,
+                xpTotal:         state.xp ? (state.xp.total || 0) : 0,
                 updatedAt:       firebase.firestore.FieldValue.serverTimestamp()
               }, { merge: true }).catch(() => {});
             }
@@ -9751,6 +9763,9 @@
               nameLower:       (_rstName || '').toLowerCase(),
               lastActive:      todayStr,
               isStudying:      false,
+              streak:          state.streak ? (state.streak.count || 0) : 0,
+              sessions:        state.focusStats && state.focusStats.sessions ? (state.focusStats.sessions[todayStr] || 0) : 0,
+              xpTotal:         state.xp ? (state.xp.total || 0) : 0,
               updatedAt:       firebase.firestore.FieldValue.serverTimestamp()
             }, { merge: true }).catch(() => {});
           }
@@ -9798,6 +9813,9 @@
                 nameLower:       (_fsName || '').toLowerCase(),
                 lastActive:      todayStr,
                 isStudying:      false,
+                streak:          state.streak ? (state.streak.count || 0) : 0,
+                sessions:        state.focusStats && state.focusStats.sessions ? (state.focusStats.sessions[todayStr] || 0) : 0,
+                xpTotal:         state.xp ? (state.xp.total || 0) : 0,
                 updatedAt:       firebase.firestore.FieldValue.serverTimestamp()
               }, { merge: true }).catch(() => {});
             }
