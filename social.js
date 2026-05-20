@@ -759,10 +759,28 @@
   }
 
   // ── Global Leaderboard subscription ──────────────────────────────────────
+  // Friday-Thursday weekly cycle (matches script.js _weekStartKey)
   function _weekStart() {
-    const d = new Date(), day = d.getDay() || 7;
-    d.setDate(d.getDate() - day + 1);
+    const d = new Date();
+    const daysSinceFri = (d.getDay() + 2) % 7;
+    d.setDate(d.getDate() - daysSinceFri);
     return d.toISOString().slice(0, 10);
+  }
+
+  // Sum local focus minutes from Friday of current week to today
+  function _weekMinsLocal() {
+    const ms   = getMainState();
+    const mins = (ms.focusStats || {}).minutesByDate || {};
+    const fridayStr  = _weekStart();
+    const fridayDate = new Date(fridayStr + 'T00:00:00');
+    const today      = new Date(); today.setHours(0,0,0,0);
+    const dayDiff    = Math.round((today - fridayDate) / 86400000);
+    let total = 0;
+    for (let i = 0; i <= Math.max(0, dayDiff); i++) {
+      const d = new Date(fridayDate); d.setDate(d.getDate() + i);
+      total += mins[d.toISOString().slice(0, 10)] || 0;
+    }
+    return total;
   }
 
   function _subscribeGlobalLb() {
@@ -770,18 +788,68 @@
     const db = getDb();
     if (!db) { setTimeout(_subscribeGlobalLb, 1500); return; }
     try {
+      // Order by updatedAt so we get the most recently active users for both daily + weekly
       _globalLbUnsub = db.collection('global_lb')
-        .orderBy('dailyStudyTime', 'desc')
-        .limit(200)
+        .orderBy('updatedAt', 'desc')
+        .limit(500)
         .onSnapshot(snap => {
           _globalLbData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
           if (_tab === 'leaderboard' && window._currentTab === 'social') _scheduleRender();
-        }, () => { _globalLbUnsub = null; });
+        }, () => {
+          // Fallback: if updatedAt index missing, try without orderBy
+          _globalLbUnsub = null;
+          try {
+            _globalLbUnsub = db.collection('global_lb')
+              .limit(500)
+              .onSnapshot(snap => {
+                _globalLbData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                if (_tab === 'leaderboard' && window._currentTab === 'social') _scheduleRender();
+              }, () => { _globalLbUnsub = null; });
+          } catch(_) { _globalLbUnsub = null; }
+        });
     } catch(_) { _globalLbUnsub = null; }
   }
 
   function _unsubscribeGlobalLb() {
     if (_globalLbUnsub) { try { _globalLbUnsub(); } catch(_) {} _globalLbUnsub = null; }
+  }
+
+  // ── Live leaderboard ticker (updates your-card time in-place, no full re-render) ──
+  let _lbLiveInterval = null;
+  function _startLbLive() {
+    _stopLbLive();
+    _lbLiveInterval = setInterval(() => {
+      if (_tab !== 'leaderboard' || window._currentTab !== 'social') { _stopLbLive(); return; }
+      const ms       = getMainState();
+      const mins     = (ms.focusStats || {}).minutesByDate || {};
+      const todayStr = todayKey();
+      const todayMins = mins[todayStr] || 0;
+      const wkMins   = _weekMinsLocal();
+      const dm       = _lbPeriod === 'daily' ? todayMins : wkMins;
+      const goal     = _lbPeriod === 'daily' ? 480 : 3360;
+      const timeEl   = document.querySelector('[data-lb-live="time"]');
+      const progEl   = document.querySelector('[data-lb-live="progress"]');
+      const stuEl    = document.querySelector('[data-lb-live="studying"]');
+      if (timeEl) timeEl.textContent = minsToHrs(dm);
+      if (progEl) progEl.style.width = Math.min(100, (dm / goal) * 100).toFixed(1) + '%';
+      if (stuEl)  stuEl.style.display = (window._focusActive === true) ? '' : 'none';
+    }, 1000);
+  }
+  function _stopLbLive() {
+    if (_lbLiveInterval) { clearInterval(_lbLiveInterval); _lbLiveInterval = null; }
+  }
+
+  // ── Rank movement tracking ────────────────────────────────────────────────
+  let _lbPrevRanks = {}; // { [uid]: rank }
+  function _lbRankDelta(uid, newRank) {
+    const prev = _lbPrevRanks[uid];
+    if (prev == null) return 0;
+    return prev - newRank; // positive = improved (moved up)
+  }
+  function _lbSaveRanks(sorted) {
+    const next = {};
+    sorted.forEach((u, i) => { next[u.id] = i + 1; });
+    _lbPrevRanks = next;
   }
 
   // ── Render debounce — prevents rapid-fire re-renders from snapshot callbacks ─
@@ -2948,116 +3016,194 @@
   }
 
   // ── Leaderboard ───────────────────────────────────────────────────────────
+  function _lbAvatar(name, id, size) {
+    const initial = (name || '?').charAt(0).toUpperCase();
+    const color   = _avatarColor(name || id || '');
+    const sz = size || 38;
+    return `<div class="sc-glb-avatar" style="background:${color};width:${sz}px;height:${sz}px;font-size:${Math.round(sz*0.38)}px">${initial}</div>`;
+  }
+
+  function _lbAvatarLabel(avS) {
+    const avLabels = window._lsAvLabels || ['IDLE','FOCUSED','STUDYING','DEEP STUDY','SCHOLAR','SAGE','WARRIOR','BLAZING','INFERNO','LEGENDARY'];
+    const cls = avS >= 9 ? 'sr-av-pill--legend' : avS >= 6 ? 'sr-av-pill--fire' : avS >= 3 ? 'sr-av-pill--warm' : 'sr-av-pill--dim';
+    return `<span class="sr-av-pill ${cls}">${avLabels[Math.max(0, avS)]}</span>`;
+  }
+
+  function _renderLbPodium(top3, uid, period) {
+    const uTime = u => period === 'daily' ? (u.dailyStudyTime || 0) : (u.weeklyStudyTime || 0);
+    // Order: 2nd, 1st, 3rd  (visual podium layout)
+    const slots = [top3[1], top3[0], top3[2]];
+    const ranks = [2, 1, 3];
+    const heights = ['72px', '92px', '58px'];
+    const glows  = ['rgba(148,163,184,.25)', 'rgba(251,191,36,.35)', 'rgba(205,127,50,.3)'];
+    const crowns = ['', '👑', ''];
+    return `<div class="sc-lb-podium">
+      ${slots.map((u, si) => {
+        if (!u) return `<div class="sc-lb-podium-slot sc-lb-podium-slot--empty"></div>`;
+        const rank  = ranks[si];
+        const isMe  = uid && u.id === uid;
+        const avS   = typeof u.avatarStage === 'number' ? u.avatarStage : 0;
+        return `<div class="sc-lb-podium-slot${isMe ? ' sc-lb-podium-slot--me' : ''}" style="--glow:${glows[si]}">
+          ${crowns[si] ? `<div class="sc-lb-crown">${crowns[si]}</div>` : ''}
+          <div class="sc-lb-podium-avatar-wrap">
+            ${_lbAvatar(u.name, u.id, rank === 1 ? 52 : 44)}
+            <div class="sc-lb-podium-rank sc-lb-podium-rank--${rank === 1 ? 'gold' : rank === 2 ? 'silver' : 'bronze'}">${rank}</div>
+          </div>
+          <div class="sc-lb-podium-name">${esc((u.name || 'Studier').split(' ')[0])}${isMe ? ' <span class="sc-glb-you-tag">you</span>' : ''}</div>
+          <div class="sc-lb-podium-time">${minsToHrs(uTime(u))}</div>
+          ${avS > 0 ? _lbAvatarLabel(avS) : ''}
+          <div class="sc-lb-podium-base" style="height:${heights[si]};background:${glows[si]};border-color:${glows[si]}"></div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  function _renderLbRow(u, rank, uid, period, delta) {
+    const uTime  = period === 'daily' ? (u.dailyStudyTime || 0) : (u.weeklyStudyTime || 0);
+    const isMe   = uid && u.id === uid;
+    const avS    = typeof u.avatarStage === 'number' ? u.avatarStage : 0;
+    let deltaHtml = '';
+    if (delta > 0)      deltaHtml = `<span class="sc-lb-delta sc-lb-delta--up">▲${delta}</span>`;
+    else if (delta < 0) deltaHtml = `<span class="sc-lb-delta sc-lb-delta--dn">▼${Math.abs(delta)}</span>`;
+    else                deltaHtml = `<span class="sc-lb-delta sc-lb-delta--same">—</span>`;
+    return `<div class="sc-glb-row${isMe ? ' sc-glb-row--me' : ''}">
+      <div class="sc-glb-rank"><span class="sc-glb-rank-num">#${rank}</span></div>
+      ${_lbAvatar(u.name, u.id, 36)}
+      <div class="sc-glb-info">
+        <div class="sc-glb-name">${esc(u.name || 'Studier')}${isMe ? ' <span class="sc-glb-you-tag">you</span>' : ''}</div>
+        ${avS > 0 ? _lbAvatarLabel(avS) : ''}
+      </div>
+      ${deltaHtml}
+      <div class="sc-glb-time">${minsToHrs(uTime)}</div>
+    </div>`;
+  }
+
   function _renderLeaderboard() {
-    const ms    = getMainState();
-    const mins  = (ms.focusStats||{}).minutesByDate || {};
-    const today = todayKey();
-    const todayMins = mins[today] || 0;
-    let weekMins = 0;
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(); d.setDate(d.getDate() - i);
-      weekMins += (mins[d.toISOString().slice(0,10)] || 0);
-    }
+    const ms         = getMainState();
+    const mins       = (ms.focusStats || {}).minutesByDate || {};
+    const today      = todayKey();
+    const todayMins  = mins[today] || 0;
+    const weekMins   = _weekMinsLocal();
     const displayMins = _lbPeriod === 'daily' ? todayMins : weekMins;
-    const studying    = isStudying();
-    const uid         = getUserId();
+    const studying   = isStudying();
+    const uid        = getUserId();
     const weekStartKey = _weekStart();
+    const goal       = _lbPeriod === 'daily' ? 480 : 3360;
+    const goalLabel  = _lbPeriod === 'daily' ? '8h / day' : '56h / week (Fri–Thu)';
+    const streak     = ms.streak?.current ?? ms.currentStreak ?? 0;
+    const sessions   = ms.focusStats?.sessions?.[today] ?? 0;
 
     // Kick off real-time subscription (idempotent)
     _subscribeGlobalLb();
 
-    // Filter + sort for the selected period
+    // Deduplicate by uid, filter for current period, sort descending by time
+    const seen = new Set();
     const filtered = _globalLbData
       .filter(u => {
-        if (_lbPeriod === 'daily')  return u.dailyResetDate  === today        && (u.dailyStudyTime  || 0) > 0;
+        if (!u.id || seen.has(u.id)) return false;
+        seen.add(u.id);
+        if (_lbPeriod === 'daily') {
+          return u.dailyResetDate === today && (u.dailyStudyTime || 0) > 0;
+        }
         return u.weeklyResetDate === weekStartKey && (u.weeklyStudyTime || 0) > 0;
       })
       .sort((a, b) => {
-        const aT = _lbPeriod === 'daily' ? (a.dailyStudyTime  || 0) : (a.weeklyStudyTime || 0);
-        const bT = _lbPeriod === 'daily' ? (b.dailyStudyTime  || 0) : (b.weeklyStudyTime || 0);
-        return bT - aT;
+        const aT = _lbPeriod === 'daily' ? (a.dailyStudyTime || 0) : (a.weeklyStudyTime || 0);
+        const bT = _lbPeriod === 'daily' ? (b.dailyStudyTime || 0) : (b.weeklyStudyTime || 0);
+        if (bT !== aT) return bT - aT;
+        return (a.id || '').localeCompare(b.id || ''); // stable tiebreak
       });
 
-    const topRows  = filtered.slice(0, 50);
     const myRankIdx = uid ? filtered.findIndex(u => u.id === uid) : -1;
     const myRank    = myRankIdx >= 0 ? myRankIdx + 1 : 0;
+    const progPct   = Math.min(100, ((displayMins / goal) * 100)).toFixed(1);
 
-    const rankBadge = rank => {
-      if (rank === 1) return `<span class="sc-glb-medal">🥇</span>`;
-      if (rank === 2) return `<span class="sc-glb-medal">🥈</span>`;
-      if (rank === 3) return `<span class="sc-glb-medal">🥉</span>`;
-      return `<span class="sc-glb-rank-num">#${rank}</span>`;
-    };
+    // Compute rank deltas then save new ranks
+    const deltas = {};
+    filtered.forEach((u, i) => { deltas[u.id] = _lbRankDelta(u.id, i + 1); });
+    _lbSaveRanks(filtered);
 
-    const avatar = (name, id) => {
-      const initial = (name || '?').charAt(0).toUpperCase();
-      const color   = _avatarColor(name || id || '');
-      return `<div class="sc-glb-avatar" style="background:${color}">${initial}</div>`;
-    };
+    // Start live ticker for the your-card
+    setTimeout(_startLbLive, 80);
+
+    // My rank pill
+    const myRankPill = myRank > 0
+      ? `<div class="sc-lb-you-rank-pill">${myRank === 1 ? '👑' : myRank === 2 ? '🥈' : myRank === 3 ? '🥉' : ''}#${myRank}</div>`
+      : `<div class="sc-lb-you-rank-pill sc-lb-you-rank-pill--none">Unranked</div>`;
+
+    const top3  = filtered.slice(0, 3);
+    const rest  = filtered.slice(3, 50);
 
     return `
       <div class="sc-section sc-lb-global">
-        <div class="sc-section-header">
+
+        <div class="sc-lb-header-row">
           <span class="sc-section-title">🏆 Rankings</span>
-          <div class="sc-toggle-row">
-            <button class="sc-toggle-btn${_lbPeriod==='daily'?' sc-active':''}" data-sc="lb-period" data-period="daily">Daily</button>
-            <button class="sc-toggle-btn${_lbPeriod==='weekly'?' sc-active':''}" data-sc="lb-period" data-period="weekly">Weekly</button>
+          <div class="sc-lb-period-tabs">
+            <button class="sc-lb-tab-btn${_lbPeriod==='daily'?' sc-lb-tab-active':''}" data-sc="lb-period" data-period="daily">Daily</button>
+            <button class="sc-lb-tab-btn${_lbPeriod==='weekly'?' sc-lb-tab-active':''}" data-sc="lb-period" data-period="weekly">Weekly</button>
           </div>
         </div>
 
         <div class="sc-lb-you-card">
-          <div class="sc-lb-you-label">YOUR STUDY TIME ${_lbPeriod==='daily'?'TODAY':'THIS WEEK'}</div>
-          <div class="sc-lb-you-time">${minsToHrs(displayMins)}</div>
-          ${studying ? '<div class="sc-lb-studying-badge">● Currently Studying</div>' : ''}
-          <div class="sc-lb-progress-wrap">
-            <div class="sc-lb-progress-bar" style="width:${Math.min(100,(displayMins/(_lbPeriod==='daily'?480:3360))*100).toFixed(1)}%"></div>
-          </div>
-          <div class="sc-lb-goal-label">
-            Goal: ${_lbPeriod==='daily'?'8h / day':'56h / week'}
-            ${myRank > 0 ? ` &nbsp;·&nbsp; Your rank: <strong style="color:#a78bfa">#${myRank}</strong>` : ''}
-          </div>
-        </div>
-
-        <div class="sc-glb-section">
-          <div class="sc-glb-header">
-            <span class="sc-block-title">🌍 Global Leaderboard</span>
-            <span class="sc-glb-count">${filtered.length} studier${filtered.length !== 1 ? 's' : ''}</span>
-          </div>
-          ${topRows.length === 0 ? `
-            <div class="sc-lb-info-card">
-              <div class="sc-lb-info-icon">${ICON.trophy}</div>
-              <div class="sc-lb-info-text">
-                <strong>No one ranked yet ${_lbPeriod === 'daily' ? 'today' : 'this week'}</strong><br>
-                Start a study session to claim the top spot!
+          <div class="sc-lb-you-inner">
+            <div class="sc-lb-you-left">
+              <div class="sc-lb-you-label">YOUR ${_lbPeriod==='daily'?'TODAY':'THIS WEEK'}</div>
+              <div class="sc-lb-you-time" data-lb-live="time">${minsToHrs(displayMins)}</div>
+              <div class="sc-lb-you-meta">
+                ${studying ? `<div class="sc-lb-studying-badge" data-lb-live="studying">● Live</div>` : `<div class="sc-lb-studying-badge" data-lb-live="studying" style="display:none">● Live</div>`}
+                <div class="sc-lb-you-sessions">${sessions} session${sessions !== 1 ? 's' : ''} today</div>
               </div>
             </div>
-          ` : topRows.map((u, i) => {
-            const rank     = i + 1;
-            const isMe     = uid && u.id === uid;
-            const uTime    = _lbPeriod === 'daily' ? (u.dailyStudyTime || 0) : (u.weeklyStudyTime || 0);
-            const avS      = typeof u.avatarStage === 'number' ? u.avatarStage : -1;
-            const avLabels = window._lsAvLabels || ['IDLE','FOCUSED','STUDYING','DEEP STUDY','SCHOLAR','SAGE','WARRIOR','BLAZING','INFERNO','LEGENDARY'];
-            const avPillCls = avS >= 9 ? 'sr-av-pill--legend' : avS >= 6 ? 'sr-av-pill--fire' : avS >= 3 ? 'sr-av-pill--warm' : 'sr-av-pill--dim';
-            return `<div class="sc-glb-row${isMe ? ' sc-glb-row--me' : ''}${rank <= 3 ? ' sc-glb-row--top' : ''}">
-              <div class="sc-glb-rank">${rankBadge(rank)}</div>
-              ${avatar(u.name, u.id)}
-              <div class="sc-glb-info">
-                <div class="sc-glb-name">${esc(u.name || 'Anonymous')}${isMe ? ' <span class="sc-glb-you-tag">You</span>' : ''}</div>
-                ${avS > 0 ? `<span class="sr-av-pill ${avPillCls}" style="margin-top:3px">${avLabels[avS]}</span>` : ''}
-              </div>
-              <div class="sc-glb-time">${minsToHrs(uTime)}</div>
-            </div>`;
-          }).join('')}
-        </div>
-
-        <div class="sc-lb-streaks">
-          <div class="sc-block-title" style="margin-bottom:10px">Your Stats</div>
-          <div class="sc-stats-grid">
-            <div class="sc-stat-chip"><div class="sc-stat-value">${minsToHrs(todayMins)}</div><div class="sc-stat-label">Today</div></div>
-            <div class="sc-stat-chip"><div class="sc-stat-value">${minsToHrs(weekMins)}</div><div class="sc-stat-label">This Week</div></div>
-            <div class="sc-stat-chip"><div class="sc-stat-value">${ms.streak?.current??ms.currentStreak??0}🔥</div><div class="sc-stat-label">Streak</div></div>
+            ${myRankPill}
+          </div>
+          <div class="sc-lb-progress-wrap">
+            <div class="sc-lb-progress-bar" data-lb-live="progress" style="width:${progPct}%"></div>
+          </div>
+          <div class="sc-lb-goal-row">
+            <span class="sc-lb-goal-label">Goal: ${goalLabel}</span>
+            <span class="sc-lb-goal-pct">${progPct}%</span>
           </div>
         </div>
+
+        ${filtered.length === 0 ? `
+          <div class="sc-lb-empty">
+            <div class="sc-lb-empty-icon">🏆</div>
+            <div class="sc-lb-empty-title">No one ranked yet ${_lbPeriod === 'daily' ? 'today' : 'this week'}</div>
+            <div class="sc-lb-empty-sub">Start a focus session to claim the top spot!</div>
+          </div>
+        ` : `
+          ${top3.length > 0 ? _renderLbPodium(top3, uid, _lbPeriod) : ''}
+
+          ${rest.length > 0 ? `
+            <div class="sc-glb-section">
+              <div class="sc-glb-header">
+                <span class="sc-block-title">All Rankings</span>
+                <span class="sc-glb-count">${filtered.length} studier${filtered.length !== 1 ? 's' : ''}</span>
+              </div>
+              ${rest.map((u, i) => _renderLbRow(u, i + 4, uid, _lbPeriod, deltas[u.id] || 0)).join('')}
+            </div>
+          ` : ''}
+        `}
+
+        <div class="sc-lb-stats-section">
+          <div class="sc-block-title sc-lb-stats-title">Your Stats</div>
+          <div class="sc-stats-grid">
+            <div class="sc-stat-chip">
+              <div class="sc-stat-value">${minsToHrs(todayMins)}</div>
+              <div class="sc-stat-label">Today</div>
+            </div>
+            <div class="sc-stat-chip">
+              <div class="sc-stat-value">${minsToHrs(weekMins)}</div>
+              <div class="sc-stat-label">This Week</div>
+            </div>
+            <div class="sc-stat-chip">
+              <div class="sc-stat-value">${streak}🔥</div>
+              <div class="sc-stat-label">Streak</div>
+            </div>
+          </div>
+        </div>
+
       </div>`;
   }
 
@@ -3755,6 +3901,7 @@
   function _dispatch(act, el) {
     switch (act) {
       case 'tab':
+        if (_tab === 'leaderboard') _stopLbLive();
         _tab = el.dataset.tab || _tab;
         _groupView = null;
         renderSocial();

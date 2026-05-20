@@ -5218,16 +5218,25 @@
   }
 
   function _weekStartKey() {
-    const d = new Date(), day = d.getDay() || 7;
-    d.setDate(d.getDate() - day + 1);
+    // Friday-Thursday weekly cycle
+    // day: 0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri,6=Sat
+    // daysSinceFri: Fri=0,Sat=1,Sun=2,Mon=3,Tue=4,Wed=5,Thu=6
+    const d = new Date();
+    const daysSinceFri = (d.getDay() + 2) % 7;
+    d.setDate(d.getDate() - daysSinceFri);
     return d.toISOString().slice(0, 10);
   }
 
   function _computeWeekMins(todayOverride) {
     const today = todayKey();
+    const fridayStr  = _weekStartKey();
+    const fridayDate = new Date(fridayStr + 'T00:00:00');
+    const todayDate  = new Date(today + 'T00:00:00');
+    const dayDiff = Math.round((todayDate - fridayDate) / 86400000);
     let total = 0;
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(); d.setDate(d.getDate() - i);
+    for (let i = 0; i <= Math.max(0, dayDiff); i++) {
+      const d = new Date(fridayDate);
+      d.setDate(d.getDate() + i);
       const key = d.toISOString().slice(0, 10);
       total += (key === today && todayOverride !== undefined)
         ? todayOverride
