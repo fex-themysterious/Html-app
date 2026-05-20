@@ -1834,9 +1834,26 @@
         .orderBy('ts', 'asc')
         .limit(100)
         .onSnapshot(snap => {
-          _chatMessages[code] = snap.docs
-            .map(d => ({ id: d.id, ...d.data() }))
-            .filter(m => !m._deleted);
+          const allMsgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          // ── Auto-unpin if the pinned message was deleted ─────────────────
+          // Check BEFORE filtering so _deleted:true is still visible here.
+          try {
+            const sc0  = scLoad();
+            const g0   = sc0.groups.find(gg => gg.code === code);
+            if (g0?.pinnedMsg?.id) {
+              const pinnedInSnap = allMsgs.find(m => m.id === g0.pinnedMsg.id);
+              if (pinnedInSnap?._deleted) {
+                const db0 = getDb(), fb0 = getFb();
+                if (db0 && fb0) {
+                  db0.collection('groups').doc(code)
+                    .update({ pinnedMsg: fb0.firestore.FieldValue.delete() })
+                    .catch(() => {});
+                  g0.pinnedMsg = null; scSave(sc0);
+                }
+              }
+            }
+          } catch(_) {}
+          _chatMessages[code] = allMsgs.filter(m => !m._deleted);
           // Patch chat DOM without full re-render when chat view is active
           const msgsEl = document.getElementById('sr-chat-msgs');
           if (!msgsEl) return;
@@ -2045,10 +2062,22 @@
           db2.runTransaction(t => t.get(msgRef).then(snap => {
             if (!snap.exists) return;
             const reacs = { ...(snap.data().reactions || {}) };
-            const arr   = [...(reacs[emoji] || [])];
-            const idx   = arr.indexOf(uid);
-            if (idx >= 0) arr.splice(idx, 1); else arr.push(uid);
-            reacs[emoji] = arr;
+            // Find which emoji this user currently has (one reaction per user rule)
+            let currentEmoji = null;
+            Object.entries(reacs).forEach(([e, uids]) => {
+              if (Array.isArray(uids) && uids.includes(uid)) currentEmoji = e;
+            });
+            // Remove user from every emoji array first
+            Object.keys(reacs).forEach(e => {
+              if (Array.isArray(reacs[e])) reacs[e] = reacs[e].filter(u => u !== uid);
+            });
+            // If tapping a different emoji → add it. If same emoji → just removed (toggle off).
+            if (emoji !== currentEmoji) {
+              if (!Array.isArray(reacs[emoji])) reacs[emoji] = [];
+              reacs[emoji].push(uid);
+            }
+            // Prune empty arrays so Firestore stays clean
+            Object.keys(reacs).forEach(e => { if (!reacs[e].length) delete reacs[e]; });
             t.update(msgRef, { reactions: reacs });
           })).catch(() => {});
 
@@ -2089,10 +2118,19 @@
           }).catch(() => {});
 
         } else if (action === 'delete') {
-          const db4 = getDb();
+          const db4 = getDb(), fb4 = getFb();
           if (!db4) return;
-          db4.collection('groups').doc(code).collection('messages').doc(msgId)
-            .update({ _deleted: true, text: '' }).catch(() => {});
+          const batch4 = db4.batch();
+          const msgRef4 = db4.collection('groups').doc(code).collection('messages').doc(msgId);
+          batch4.update(msgRef4, { _deleted: true, text: '' });
+          // If this is the pinned message — atomically unpin it in the same batch
+          const sc4 = scLoad();
+          const gL4 = sc4.groups.find(gg => gg.code === code);
+          if (gL4?.pinnedMsg?.id === msgId && fb4) {
+            batch4.update(db4.collection('groups').doc(code), { pinnedMsg: fb4.firestore.FieldValue.delete() });
+            gL4.pinnedMsg = null; scSave(sc4);
+          }
+          batch4.commit().catch(() => {});
           // Optimistic local update so the tombstone appears immediately
           const localMsgs = _chatMessages[code];
           if (localMsgs) {
@@ -4835,7 +4873,7 @@
       }
 
       // ── Chat: react (from existing reaction pills under messages) ────────
-      // Uses runTransaction for atomic toggle — no lost-update race conditions.
+      // One reaction per user: removes any previous emoji before adding new.
       case 'sr-chat-react': {
         const code2 = el.dataset.code;
         const mid   = el.dataset.mid;
@@ -4848,10 +4886,22 @@
         db2.runTransaction(t => t.get(msgRef).then(snap => {
           if (!snap.exists) return;
           const reacs = { ...(snap.data().reactions || {}) };
-          const arr   = [...(reacs[emoji] || [])];
-          const idx   = arr.indexOf(uid3);
-          if (idx >= 0) arr.splice(idx, 1); else arr.push(uid3);
-          reacs[emoji] = arr;
+          // Find current emoji for this user
+          let currentEmoji = null;
+          Object.entries(reacs).forEach(([e, uids]) => {
+            if (Array.isArray(uids) && uids.includes(uid3)) currentEmoji = e;
+          });
+          // Remove user from all arrays
+          Object.keys(reacs).forEach(e => {
+            if (Array.isArray(reacs[e])) reacs[e] = reacs[e].filter(u => u !== uid3);
+          });
+          // Add to new emoji only if different from current (same → toggle off)
+          if (emoji !== currentEmoji) {
+            if (!Array.isArray(reacs[emoji])) reacs[emoji] = [];
+            reacs[emoji].push(uid3);
+          }
+          // Prune empty arrays
+          Object.keys(reacs).forEach(e => { if (!reacs[e].length) delete reacs[e]; });
           t.update(msgRef, { reactions: reacs });
         })).catch(() => {});
         break;
@@ -4872,19 +4922,23 @@
         break;
       }
 
-      // ── Chat: unpin message (admin only) ─────────────────────────────────
+      // ── Chat: unpin message (admin only, with confirmation) ──────────────
       case 'sr-chat-unpin': {
         const upCode = el.dataset.code;
         if (!upCode) break;
-        const db5 = getDb(), fb5 = getFb();
-        if (!db5 || !fb5) break;
-        db5.collection('groups').doc(upCode).update({ pinnedMsg: null }).then(() => {
-          const sc_ = scLoad();
-          const gL  = sc_.groups.find(gg => gg.code === upCode);
-          if (gL) { gL.pinnedMsg = null; scSave(sc_); }
-          renderSocial();
-          toast('📌 Unpinned', 'info', 1500);
-        }).catch(() => {});
+        confirmModal('Remove the pinned message from this group?', () => {
+          const db5 = getDb(), fb5 = getFb();
+          if (!db5 || !fb5) return;
+          db5.collection('groups').doc(upCode)
+            .update({ pinnedMsg: fb5.firestore.FieldValue.delete() })
+            .then(() => {
+              const sc_ = scLoad();
+              const gL  = sc_.groups.find(gg => gg.code === upCode);
+              if (gL) { gL.pinnedMsg = null; scSave(sc_); }
+              renderSocial();
+              toast('Unpinned', 'info', 1500);
+            }).catch(() => {});
+        }, { title: 'Unpin Message?', yesLabel: 'Unpin', yesClass: 'btn btn-danger', noLabel: 'Cancel' });
         break;
       }
 
@@ -4916,15 +4970,26 @@
         break;
       }
 
-      // ── Chat: delete message ─────────────────────────────────────────────
+      // ── Chat: delete message (legacy data-sc path, auto-unpin if needed) ──
       case 'sr-chat-delete': {
         const code4 = el.dataset.code;
         const mid4  = el.dataset.mid;
         if (!code4 || !mid4) break;
-        const db3 = getDb();
+        const db3 = getDb(), fb3b = getFb();
         if (!db3) break;
-        db3.collection('groups').doc(code4).collection('messages').doc(mid4)
-          .update({ _deleted: true, text: '' }).catch(() => {});
+        const batch3 = db3.batch();
+        batch3.update(
+          db3.collection('groups').doc(code4).collection('messages').doc(mid4),
+          { _deleted: true, text: '' }
+        );
+        // Auto-unpin if this message is currently pinned
+        const sc3 = scLoad();
+        const g3  = sc3.groups.find(gg => gg.code === code4);
+        if (g3?.pinnedMsg?.id === mid4 && fb3b) {
+          batch3.update(db3.collection('groups').doc(code4), { pinnedMsg: fb3b.firestore.FieldValue.delete() });
+          g3.pinnedMsg = null; scSave(sc3);
+        }
+        batch3.commit().catch(() => {});
         break;
       }
 
