@@ -345,6 +345,101 @@
     _recalcMemberCount(code);
   }
 
+  // ── Unread message tracking ───────────────────────────────────────────────
+  const _unreadCounts   = {};  // { [groupCode]: number }
+  const _lastSeenTs     = {};  // { [groupCode]: ms timestamp }
+  const _nudgeListeners = {};  // { [groupCode]: unsub fn }
+
+  function _updateLastSeen(code) {
+    if (!code) return;
+    _lastSeenTs[code]   = Date.now();
+    _unreadCounts[code] = 0;
+    const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
+    if (db_ && uid_ && fb_) {
+      db_.collection('groups').doc(code).collection('members').doc(uid_)
+        .set({ lastSeen: fb_.firestore.FieldValue.serverTimestamp() }, { merge: true })
+        .catch(() => {});
+    }
+    _refreshUnreadBadges();
+  }
+
+  function _recomputeUnread(code) {
+    if (!code) return;
+    const msgs     = (_chatMessages && _chatMessages[code]) || [];
+    const lastSeen = _lastSeenTs[code] || 0;
+    const uid_     = getUserId();
+    let count = 0;
+    msgs.forEach(m => {
+      if (m._deleted) return;
+      const ts = m.ts?.toMillis?.() ?? (typeof m.ts === 'number' ? m.ts : 0);
+      if (ts > lastSeen && m.authorId !== uid_) count++;
+    });
+    _unreadCounts[code] = count;
+    _refreshUnreadBadges();
+  }
+
+  function _refreshUnreadBadges() {
+    try {
+      const chatBtn = document.querySelector('.sr-nav-btn[data-tab="chat"]');
+      if (chatBtn) {
+        const sc_  = scLoad();
+        const code = _groupView ? sc_.groups.find(x => x.id === _groupView)?.code : null;
+        const cnt  = code ? (_unreadCounts[code] || 0) : 0;
+        let badge  = chatBtn.querySelector('.sr-unread-badge');
+        if (cnt > 0) {
+          if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'sr-unread-badge';
+            chatBtn.style.position = 'relative';
+            chatBtn.appendChild(badge);
+          }
+          badge.textContent = cnt > 99 ? '99+' : String(cnt);
+        } else {
+          badge?.remove();
+        }
+      }
+    } catch(_) {}
+  }
+
+  function _subscribeNudges(code) {
+    if (!code || _nudgeListeners[code]) return;
+    const db_ = getDb(), uid_ = getUserId();
+    if (!db_ || !uid_) return;
+    try {
+      const cutoffMs = Date.now() - 10 * 60 * 1000;
+      _nudgeListeners[code] = db_.collection('groups').doc(code)
+        .collection('nudges')
+        .orderBy('sentAt', 'desc')
+        .limit(1)
+        .onSnapshot(snap => {
+          if (snap.empty) return;
+          const nudge  = snap.docs[0].data();
+          const sentMs = nudge.sentAt?.toMillis?.() ?? (typeof nudge.sentAt === 'number' ? nudge.sentAt : 0);
+          if (!sentMs || sentMs < cutoffMs) return;
+          if (nudge.senderUid === uid_) return;
+          const sc_     = scLoad();
+          const gL      = sc_.groups.find(x => x.code === code);
+          const prevMs  = gL?._lastNudgeReceived || 0;
+          if (sentMs <= prevMs) return;
+          if (gL) { gL._lastNudgeReceived = sentMs; scSave(sc_); }
+          toast(`📣 ${esc(nudge.senderName || 'Admin')} is nudging you to study!`, 'info', 5000);
+          try { if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 300]); } catch(_) {}
+          if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            try {
+              new Notification('📢 Study Reminder', {
+                body:     nudge.message || `${nudge.senderName || 'Admin'} is nudging you to study!`,
+                icon:     '/icon-192.png',
+                badge:    '/icon-192.png',
+                tag:      `nudge-${code}`,
+                renotify: true,
+                vibrate:  [200, 100, 200],
+              });
+            } catch(_) {}
+          }
+        }, () => { delete _nudgeListeners[code]; });
+    } catch(_) { delete _nudgeListeners[code]; }
+  }
+
   // ── Global presence broadcaster ───────────────────────────────────────────
   // Single source of truth for the current user's study session start time.
   // Stored once when a session begins; reused for all group member doc writes
@@ -664,7 +759,10 @@
               local._lastNudgeReceived = nudgeMs;
               const myUid_n = getUserId();
               if (myUid_n && data.lastNudgeSender) {
-                setTimeout(() => toast(`📣 ${esc(data.lastNudgeSender)} is nudging you to study!`, 'info', 5000), 600);
+                setTimeout(() => {
+                  toast(`📣 ${esc(data.lastNudgeSender)} is nudging you to study!`, 'info', 5000);
+                  try { if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 300]); } catch(_) {}
+                }, 600);
               }
               changed = true;
             }
@@ -2599,6 +2697,10 @@
             }
           } catch(_) {}
           _chatMessages[code] = allMsgs.filter(m => !m._deleted);
+          // Recompute unread count for this group (updates badge in DOM)
+          if (_srTab !== 'chat' || _groupView !== ((() => { const sc_u = scLoad(); return sc_u.groups.find(x => x.code === code)?.id; })())) {
+            _recomputeUnread(code);
+          }
           // Patch chat DOM without full re-render when chat view is active
           const msgsEl = document.getElementById('sr-chat-msgs');
           if (!msgsEl) return;
@@ -3343,11 +3445,19 @@
           ${tabContent}
         </div>
         <nav class="sr-bottom-nav">
-          ${SR_TABS.map(t => `
-            <button class="sr-nav-btn${_srTab === t.id ? ' sr-nav-active' : ''}" data-sc="sr-tab" data-tab="${t.id}">
-              <span class="sr-nav-icon">${t.icon}</span>
+          ${SR_TABS.map(t => {
+            const isChatTab = t.id === 'chat';
+            const code_     = g.code;
+            const unread_   = isChatTab ? (_unreadCounts[code_] || 0) : 0;
+            const badgeHtml = (isChatTab && unread_ > 0)
+              ? `<span class="sr-unread-badge">${unread_ > 99 ? '99+' : unread_}</span>`
+              : '';
+            return `
+            <button class="sr-nav-btn${_srTab === t.id ? ' sr-nav-active' : ''}" data-sc="sr-tab" data-tab="${t.id}" style="position:relative">
+              <span class="sr-nav-icon">${t.icon}${badgeHtml}</span>
               <span class="sr-nav-label">${t.label}</span>
-            </button>`).join('')}
+            </button>`;
+          }).join('')}
         </nav>
       </div>`;
   }
@@ -3724,11 +3834,42 @@
   }
 
   function _renderSrChat(g, sc) {
-    const myName = _getUserDisplayName();
-    const uid    = getUserId();
-    const code   = g.code;
+    const myName  = _getUserDisplayName();
+    const uid     = getUserId();
+    const code    = g.code;
+    const chatOn  = g.chatEnabled !== false;
+
     // Kick off Firebase subscription (idempotent)
     if (code) _subscribeChatMessages(code);
+    // Start nudge listener so all members get vibrated / notified
+    if (code) _subscribeNudges(code);
+
+    // Chat disabled state — show banner and disable input for non-admins
+    if (!chatOn) {
+      const isRoomAdminCheck = g.ownerUid === uid || g.createdByUid === uid ||
+                               (Array.isArray(g.adminUids) && g.adminUids.includes(uid)) ||
+                               g.role === 'admin';
+      return `
+        <div class="sr-chat-view">
+          <div class="sr-chat-disabled-banner">
+            <span class="sr-chat-disabled-icon">🔇</span>
+            <span class="sr-chat-disabled-msg">Group chat is disabled by admin</span>
+          </div>
+          <div class="sr-chat-messages sr-chat-messages--disabled" id="sr-chat-msgs">
+            ${_renderChatMessages(code, uid, myName)}
+          </div>
+          <div class="sr-chat-compose sr-chat-compose--disabled">
+            <div class="sr-chat-input-area">
+              <input class="sr-chat-input" type="text"
+                     placeholder="Chat is currently disabled" maxlength="500"
+                     autocomplete="off" disabled readonly/>
+              <button class="sr-chat-send-btn" disabled style="opacity:.35;cursor:not-allowed">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>`;
+    }
 
     const replyBar = _replyTo ? `
       <div class="sr-reply-preview">
@@ -4601,11 +4742,62 @@
     } else if (hasPassword) {
       _modalEnterPassword(code, data);
     } else {
-      _doJoinGroupWithData(code, data);
-      toast(`Joined "${data.name || code}"! 🎉`, 'success');
-      _tab = 'rooms';
-      renderSocial();
+      _checkNicknameBeforeJoin(code, data, () => {
+        _doJoinGroupWithData(code, data);
+        toast(`Joined "${data.name || code}"! 🎉`, 'success');
+        _tab = 'rooms';
+        renderSocial();
+      });
     }
+  }
+
+  // Show a nickname modal when nicknameRequired is ON and user has no nickname set.
+  function _checkNicknameBeforeJoin(code, data, onContinue) {
+    if (!data.nicknameRequired) { onContinue(); return; }
+    const current = _getUserDisplayName();
+    // If user already has a real name (not the generic fallback), skip modal
+    const uid_ = getUserId();
+    if (current && current !== 'Studier' && current !== uid_ && current.trim() !== '') {
+      onContinue(); return;
+    }
+    openModal(`
+      <h3 class="sc-modal-title">Nickname Required</h3>
+      <p class="sc-modal-sub">This group requires a nickname to join. Enter one below.</p>
+      <div class="sc-field">
+        <input id="sc-nickname-inp" type="text" maxlength="30" placeholder="Your display name"
+               class="sc-input" autocomplete="off" value="${esc(current !== 'Studier' ? current : '')}"/>
+      </div>
+      <div id="sc-nickname-err" class="sc-field-err" style="display:none"></div>
+      <div class="actions" style="margin-top:16px">
+        <button class="btn btn-ghost" data-close>Cancel</button>
+        <button class="btn sc-modal-submit" id="sc-nickname-ok">Join Group</button>
+      </div>
+    `, root => {
+      const inp = root.querySelector('#sc-nickname-inp');
+      const err = root.querySelector('#sc-nickname-err');
+      const ok  = root.querySelector('#sc-nickname-ok');
+      inp.focus();
+      ok.addEventListener('click', () => {
+        const val = (inp.value || '').trim();
+        if (!val || val.length < 2) { err.textContent = 'Please enter at least 2 characters.'; err.style.display = ''; return; }
+        // Save nickname using the existing display name setter
+        try {
+          if (window._lsSetDisplayName) window._lsSetDisplayName(val);
+          else {
+            const ms = getMainState?.() || {};
+            ms.displayName = val;
+            if (window.saveMainState) window.saveMainState(ms);
+          }
+        } catch(_) {}
+        // Also persist to Firestore
+        const db_ = getDb(), uid2 = getUserId(), fb_ = getFb();
+        if (db_ && uid2 && fb_) {
+          db_.collection('users').doc(uid2).set({ displayName: val }, { merge: true }).catch(() => {});
+        }
+        closeModal();
+        onContinue();
+      });
+    });
   }
 
   // ── Direct join for public groups (no invite code needed) ────────────────
@@ -5019,7 +5211,11 @@
           if (_srTab === 'chat' && _groupView) {
             const sc0 = scLoad();
             const g0  = sc0.groups.find(x => x.id === _groupView);
-            if (g0 && g0.code) _subscribeChatMessages(g0.code);
+            if (g0 && g0.code) {
+              _subscribeChatMessages(g0.code);
+              _subscribeNudges(g0.code);
+              _updateLastSeen(g0.code);
+            }
           }
           renderSocial();
         }
@@ -5717,10 +5913,10 @@
         const myUid_nu  = getUserId();
         const others    = (g.members||[]).filter(m => m.id !== myUid_nu && m.id !== 'me');
         if (!others.length) { toast('No other members to nudge yet', 'info'); break; }
-        // Spam guard: 30-minute cooldown
+        // Spam guard: 15-minute cooldown
         const lastNudge = g._lastNudge || 0;
-        if (Date.now() - lastNudge < 30 * 60 * 1000) {
-          const minsLeft = Math.ceil((30 * 60 * 1000 - (Date.now() - lastNudge)) / 60000);
+        if (Date.now() - lastNudge < 15 * 60 * 1000) {
+          const minsLeft = Math.ceil((15 * 60 * 1000 - (Date.now() - lastNudge)) / 60000);
           toast(`⏳ Nudge cooldown: ${minsLeft}m remaining before next nudge`, 'warn'); break;
         }
         const sc2_nu = scLoad();

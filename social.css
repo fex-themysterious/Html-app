@@ -1368,6 +1368,51 @@
   max-width: 100%;
 }
 
+/* ── Unread message badge on Chat nav button ──────────────────────────────── */
+.sr-unread-badge {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  background: #ff3b30;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  line-height: 1;
+  pointer-events: none;
+  box-shadow: 0 1px 6px rgba(255,59,48,.55);
+  border: 1.5px solid var(--bg-card, #1a1a2e);
+  animation: sr-badge-pop .22s cubic-bezier(.34,1.56,.64,1) both;
+}
+@keyframes sr-badge-pop {
+  from { transform: scale(0); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+
+/* ── Chat disabled state ──────────────────────────────────────────────────── */
+.sr-chat-disabled-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(148,163,184,.08);
+  border: 1px solid rgba(148,163,184,.18);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin: 8px 12px 0;
+  font-size: 13px;
+  color: rgba(148,163,184,.7);
+}
+.sr-chat-disabled-icon { font-size: 18px; }
+.sr-chat-disabled-msg  { flex: 1; font-weight: 500; }
+.sr-chat-messages--disabled { opacity: 0.5; pointer-events: none; }
+.sr-chat-compose--disabled  { opacity: 0.5; }
+
 /* ── Home — wrapper ───────────────────────────────────────────────────────── */
 .sr-home-view { padding: 6px 12px 32px; }
 

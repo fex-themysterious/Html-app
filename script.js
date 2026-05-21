@@ -1112,7 +1112,11 @@
       // Listen for clicks from bg notifications via SW
       if (navigator.serviceWorker) {
         navigator.serviceWorker.addEventListener('message', e => {
-          if (e.data && e.data.type === 'FCM_NAVIGATE') _handleFCMNavigate(e.data.url);
+          if (e.data && (e.data.type === 'fcm-navigate' || e.data.type === 'FCM_NAVIGATE')) {
+            const navData = e.data.data || e.data;
+            const navUrl  = navData.url || e.data.url || '/';
+            _handleFCMNavigate(navUrl);
+          }
         });
       }
       return _messaging;
