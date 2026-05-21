@@ -4835,3 +4835,152 @@
   box-shadow: 0 0 16px rgba(99,102,241,0.3);
 }
 
+/* ── LIVE pulse dot ──────────────────────────────────────────────────────── */
+.tn-live-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  background: #10b981;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+  animation: tnLivePulse 1.4s ease-in-out infinite;
+  box-shadow: 0 0 6px rgba(16,185,129,0.7);
+}
+@keyframes tnLivePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(0.7); }
+}
+
+/* ── Joined button state ─────────────────────────────────────────────────── */
+.tn-btn-joined {
+  background: rgba(16,185,129,0.15) !important;
+  color: #10b981 !important;
+  border: 1px solid rgba(16,185,129,0.35) !important;
+  cursor: default !important;
+  box-shadow: 0 0 10px rgba(16,185,129,0.15);
+}
+.tn-btn-joined:disabled { opacity: 1 !important; }
+
+/* ── Full button state ───────────────────────────────────────────────────── */
+.tn-btn-full {
+  background: rgba(100,116,139,0.15) !important;
+  color: #64748b !important;
+  border: 1px solid rgba(100,116,139,0.25) !important;
+  cursor: default !important;
+}
+
+/* ── Live countdown in card ──────────────────────────────────────────────── */
+.tn-cd-live {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #f97316;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.tn-cd-icon { font-size: 13px; flex-shrink: 0; }
+.tn-time-soon { color: #f59e0b; display: flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 600; }
+
+/* ── Admin 3-dot button ──────────────────────────────────────────────────── */
+.tn-admin-dot {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 7px;
+  padding: 3px 9px;
+  font-size: 18px;
+  color: #94a3b8;
+  cursor: pointer;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.tn-admin-dot:active {
+  background: rgba(255,255,255,0.12);
+  color: #e2e8f0;
+}
+
+/* ── Detail modal header ─────────────────────────────────────────────────── */
+.tn-detail-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+/* ── Detail modal countdown ──────────────────────────────────────────────── */
+.tn-detail-countdown {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 10px 0;
+  padding: 10px 14px;
+  background: rgba(249,115,22,0.08);
+  border: 1px solid rgba(249,115,22,0.2);
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 800;
+  color: #f97316;
+  font-variant-numeric: tabular-nums;
+  animation: cdGlow 2s ease-in-out infinite;
+}
+@keyframes cdGlow {
+  0%, 100% { box-shadow: 0 0 0 rgba(249,115,22,0); }
+  50%       { box-shadow: 0 0 12px rgba(249,115,22,0.2); }
+}
+
+/* ── Rank row layout fix ─────────────────────────────────────────────────── */
+.tn-rank-row {
+  display: grid;
+  grid-template-columns: 28px 32px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.05);
+  background: rgba(255,255,255,0.03);
+  transition: background 0.2s, border-color 0.2s, transform 0.3s;
+}
+.tn-rank-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.tn-rank-moved {
+  animation: tnRankSlide 0.4s ease;
+}
+@keyframes tnRankSlide {
+  0%   { transform: translateY(-6px); opacity: 0.5; }
+  100% { transform: translateY(0);    opacity: 1; }
+}
+.tn-crown  { font-size: 18px; text-align: center; }
+.tn-medal  { font-size: 16px; text-align: center; }
+.tn-rank-sc {
+  font-size: 14px;
+  font-weight: 800;
+  color: #f97316;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/* ── Card action row spacing ─────────────────────────────────────────────── */
+.tn-card-acts {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+  padding-top: 6px;
+  flex-wrap: wrap;
+}
+
+/* ── Firestore deleted card fade-out ─────────────────────────────────────── */
+.tn-card--ended-now {
+  opacity: 0.5;
+  pointer-events: none;
+  transition: opacity 0.5s ease;
+}
+

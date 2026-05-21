@@ -52,15 +52,19 @@
   let _duelStartServerMs= 0;
   let _pendingInvites   = new Set();
   let _invitePopupEl    = null;
-  let _groupTournaments = [];
-  let _duelHistory      = [];
-  let _historyLoaded    = false;
-  let _bgHideStart      = 0;
-  let _bgHideCount      = 0;
-  let _visHandler       = null;
-  let _duelSubTab       = 'challenges';
-  let _confettiInterval = null;
-  let _taskSnapshotCache= 0;
+  let _groupTournaments     = [];
+  let _myJoinedTournaments  = new Set();   // tournament IDs current user has joined
+  let _partSubsMap          = {};          // tid -> unsubscribe fn for participant doc
+  let _tournCountdownTimer  = null;        // setInterval for live countdown ticks
+  let _adminTargetTid       = null;        // tournament id for pending admin action
+  let _duelHistory          = [];
+  let _historyLoaded        = false;
+  let _bgHideStart          = 0;
+  let _bgHideCount          = 0;
+  let _visHandler           = null;
+  let _duelSubTab           = 'challenges';
+  let _confettiInterval     = null;
+  let _taskSnapshotCache    = 0;
 
   // ─── FIREBASE ACCESSORS ──────────────────────────────────────────────────────
   const _db   = () => { try { return window.appUI?.getDb?.() ?? null; } catch(_) { return null; } };
@@ -147,9 +151,13 @@
   }
 
   function _cleanTourn() {
-    if (_tournSub) { try { _tournSub(); } catch(_) {} _tournSub = null; }
+    if (_tournSub)       { try { _tournSub(); }       catch(_) {} _tournSub = null; }
     if (_tournDetailSub) { try { _tournDetailSub(); } catch(_) {} _tournDetailSub = null; }
-    _groupTournaments = [];
+    _stopTournCountdown();
+    Object.values(_partSubsMap).forEach(unsub => { try { unsub(); } catch(_) {} });
+    _partSubsMap = {};
+    _groupTournaments    = [];
+    _myJoinedTournaments = new Set();
   }
 
   // ─── CONFETTI ────────────────────────────────────────────────────────────────
@@ -725,6 +733,49 @@
       .then(s => merge(s.docs)).catch(() => {});
   }
 
+  // ─── TOURNAMENT COUNTDOWN TICKER ─────────────────────────────────────────────
+  function _startTournCountdown() {
+    _stopTournCountdown();
+    _tournCountdownTimer = setInterval(() => {
+      const now = Date.now();
+      document.querySelectorAll('[data-tn-end]').forEach(el => {
+        const endMs = parseInt(el.dataset.tnEnd, 10);
+        const left  = endMs - now;
+        if (left <= 0) {
+          el.textContent = 'Ended';
+          el.closest('.tn-card')?.classList.add('tn-card--ended-now');
+        } else {
+          el.textContent = _fmtMsLong(left) + ' remaining';
+        }
+      });
+      document.querySelectorAll('[data-tn-start]').forEach(el => {
+        const startMs = parseInt(el.dataset.tnStart, 10);
+        const toStart = startMs - now;
+        if (toStart <= 0) {
+          el.textContent = 'Starting…';
+        } else {
+          el.textContent = 'Starts in ' + _fmtMsLong(toStart);
+        }
+      });
+    }, 1000);
+  }
+
+  function _stopTournCountdown() {
+    if (_tournCountdownTimer) { clearInterval(_tournCountdownTimer); _tournCountdownTimer = null; }
+  }
+
+  // Format milliseconds as HH:MM:SS (long form for countdowns)
+  function _fmtMsLong(ms) {
+    if (ms <= 0) return '0:00:00';
+    const s   = Math.floor(ms / 1000);
+    const sec = s % 60;
+    const m   = Math.floor(s / 60);
+    const min = m % 60;
+    const h   = Math.floor(m / 60);
+    if (h > 0) return `${h}:${String(min).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+    return `${min}:${String(sec).padStart(2,'0')}`;
+  }
+
   // ─── TOURNAMENT ───────────────────────────────────────────────────────────────
   function _subTournaments(groupCode) {
     const db2 = _db();
@@ -734,22 +785,88 @@
     try {
       _tournSub = db2.collection('tournaments')
         .where('groupCode', '==', groupCode)
-        .limit(10)
+        .limit(20)
         .onSnapshot(snap => {
-          _groupTournaments = snap.docs.map(d => ({ ...d.data(), id: d.id }));
-          // Auto-update ended tournaments
           const now = Date.now();
+          _groupTournaments = snap.docs
+            .map(d => ({ ...d.data(), id: d.id }))
+            .filter(t => !t.deleted && t.status !== 'deleted');
+
+          // Auto-update statuses server-side
           _groupTournaments.forEach(t => {
             if (t.status === 'active' && _toMs(t.endTime) < now) {
-              db2.collection('tournaments').doc(t.id).update({ status: 'completed' }).catch(() => {});
+              db2.collection('tournaments').doc(t.id).update({ status: 'completed', endedAt: _sts() }).catch(() => {});
             }
             if (t.status === 'upcoming' && _toMs(t.startTime) <= now) {
               db2.collection('tournaments').doc(t.id).update({ status: 'active' }).catch(() => {});
             }
           });
+
+          // Subscribe to this user's participant doc in each tournament
+          const uid = _uid();
+          if (uid) {
+            _groupTournaments.forEach(t => {
+              if (_partSubsMap[t.id]) return; // already subscribed
+              const unsub = db2.collection('tournaments').doc(t.id)
+                .collection('participants').doc(uid)
+                .onSnapshot(pSnap => {
+                  if (pSnap.exists) {
+                    _myJoinedTournaments.add(t.id);
+                  } else {
+                    _myJoinedTournaments.delete(t.id);
+                  }
+                  // Update join button in DOM without full re-render
+                  _updateJoinButtonDOM(t.id);
+                }, () => {});
+              _partSubsMap[t.id] = unsub;
+            });
+            // Unsubscribe from tournaments no longer in the list
+            const currentIds = new Set(_groupTournaments.map(t => t.id));
+            Object.keys(_partSubsMap).forEach(tid => {
+              if (!currentIds.has(tid)) {
+                try { _partSubsMap[tid](); } catch(_) {}
+                delete _partSubsMap[tid];
+                _myJoinedTournaments.delete(tid);
+              }
+            });
+          }
+
           _rerender();
+          _startTournCountdown();
         }, () => {});
     } catch(_) {}
+  }
+
+  function _updateJoinButtonDOM(tid) {
+    const joined = _myJoinedTournaments.has(tid);
+    // Update card join button
+    const btn = document.querySelector(`[data-tn-join-btn="${tid}"]`);
+    if (btn) {
+      if (joined) {
+        btn.textContent = '✓ Joined';
+        btn.disabled    = true;
+        btn.classList.add('tn-btn-joined');
+        btn.classList.remove('dt-btn-primary');
+      } else {
+        btn.textContent = 'Join';
+        btn.disabled    = false;
+        btn.classList.remove('tn-btn-joined');
+        btn.classList.add('dt-btn-primary');
+      }
+    }
+    // Update modal join button if open
+    const modalBtn = document.getElementById('tn-join-modal');
+    if (modalBtn && modalBtn.dataset.tid === tid) {
+      if (joined) {
+        modalBtn.textContent = '✓ Joined';
+        modalBtn.disabled    = true;
+        modalBtn.classList.add('tn-btn-joined');
+      } else {
+        modalBtn.textContent = 'Join';
+        modalBtn.disabled    = false;
+        modalBtn.classList.remove('tn-btn-joined');
+      }
+    }
   }
 
   function _createTournament(groupCode, s) {
@@ -786,34 +903,146 @@
   }
 
   function _joinTournament(tid) {
-    const db2 = _db(), uid = _uid();
-    if (!db2 || !uid) return;
+    const db2 = _db(), uid = _uid(), fb = _fb();
+    if (!db2 || !uid || !fb) return;
+
+    // Prevent joining if already joined
+    if (_myJoinedTournaments.has(tid)) {
+      _toast('You already joined this tournament', 'info'); return;
+    }
 
     const t = _groupTournaments.find(x => x.id === tid);
-    if (t && t.status === 'completed') { _toast('Tournament has ended', 'warn'); return; }
+    if (!t) { _toast('Tournament not found', 'warn'); return; }
+    if (t.status === 'completed' || _toMs(t.endTime) < Date.now()) {
+      _toast('Tournament has ended', 'warn'); return;
+    }
+    if (t.participantLimit && (t.participantCount || 0) >= t.participantLimit) {
+      _toast('Tournament is full', 'warn'); return;
+    }
 
-    const batch = db2.batch();
-    batch.set(
-      db2.collection('tournaments').doc(tid).collection('participants').doc(uid),
-      { uid, name: _myName(), score: 0, rank: 0, joinedAt: _sts() },
-      { merge: true }
-    );
-    const inc = _inc(1);
-    if (inc) batch.update(db2.collection('tournaments').doc(tid), { participantCount: inc });
+    // Show optimistic joined state immediately
+    _myJoinedTournaments.add(tid);
+    _updateJoinButtonDOM(tid);
 
-    batch.commit()
-      .then(() => { _toast('🏆 Joined tournament!', 'success'); updateTournamentScore(); })
-      .catch(() => _toast('Already joined or failed', 'info'));
+    // Use Firestore transaction to atomically check + join (prevents duplicates + race conditions)
+    const tRef    = db2.collection('tournaments').doc(tid);
+    const partRef = tRef.collection('participants').doc(uid);
+
+    db2.runTransaction(async tx => {
+      const partSnap = await tx.get(partRef);
+      if (partSnap.exists) throw new Error('already_joined');
+      const tSnap = await tx.get(tRef);
+      const data  = tSnap.data() || {};
+      if (data.participantLimit && (data.participantCount || 0) >= data.participantLimit) {
+        throw new Error('tournament_full');
+      }
+      tx.set(partRef, { uid, name: _myName(), score: 0, rank: 0, joinedAt: _sts() });
+      tx.update(tRef, { participantCount: fb.firestore.FieldValue.increment(1) });
+    }).then(() => {
+      _toast('🏆 Joined tournament!', 'success');
+      updateTournamentScore();
+    }).catch(err => {
+      const msg = err.message === 'already_joined' ? 'Already joined!'
+                : err.message === 'tournament_full' ? 'Tournament is full!'
+                : 'Could not join — try again';
+      _toast(msg, err.message === 'already_joined' ? 'info' : 'warn');
+      // Revert optimistic state if it was a real failure
+      if (err.message !== 'already_joined') {
+        _myJoinedTournaments.delete(tid);
+        _updateJoinButtonDOM(tid);
+      }
+    });
   }
 
   function _leaveTournament(tid) {
+    const db2 = _db(), uid = _uid(), fb = _fb();
+    if (!db2 || !uid || !fb) return;
+    const tRef    = db2.collection('tournaments').doc(tid);
+    const partRef = tRef.collection('participants').doc(uid);
+    db2.runTransaction(async tx => {
+      const snap = await tx.get(partRef);
+      if (!snap.exists) return;
+      tx.delete(partRef);
+      tx.update(tRef, { participantCount: fb.firestore.FieldValue.increment(-1) });
+    }).then(() => {
+      _myJoinedTournaments.delete(tid);
+      _updateJoinButtonDOM(tid);
+      _toast('Left tournament', 'info');
+    }).catch(() => _toast('Could not leave — try again', 'warn'));
+  }
+
+  function _deleteTournament(tid, g) {
     const db2 = _db(), uid = _uid();
     if (!db2 || !uid) return;
-    const batch = db2.batch();
-    batch.delete(db2.collection('tournaments').doc(tid).collection('participants').doc(uid));
-    const dec = _inc(-1);
-    if (dec) batch.update(db2.collection('tournaments').doc(tid), { participantCount: dec });
-    batch.commit().then(() => _toast('Left tournament', 'info')).catch(() => {});
+    const role = _getMyRole(g);
+    if (role !== 'owner' && role !== 'admin') {
+      _toast('Only owners and admins can delete tournaments', 'warn'); return;
+    }
+    _confirm(
+      'Delete this tournament permanently? This action cannot be undone.',
+      () => {
+        // Mark as deleted (soft delete so listeners clean up gracefully)
+        db2.collection('tournaments').doc(tid).update({
+          deleted: true, status: 'deleted', deletedAt: _sts(), deletedBy: uid
+        }).then(() => {
+          // Clean up participant subscription
+          if (_partSubsMap[tid]) {
+            try { _partSubsMap[tid](); } catch(_) {}
+            delete _partSubsMap[tid];
+          }
+          _myJoinedTournaments.delete(tid);
+          _groupTournaments = _groupTournaments.filter(t => t.id !== tid);
+          _toast('🗑️ Tournament deleted', 'success');
+          _rerender();
+        }).catch(() => _toast('Delete failed — try again', 'error'));
+      },
+      { title: '⚠️ Delete Tournament?', yesLabel: 'Delete', yesClass: 'btn btn-danger', noLabel: 'Cancel' }
+    );
+  }
+
+  function _endTournamentEarly(tid) {
+    const db2 = _db();
+    if (!db2) return;
+    _confirm(
+      'End this tournament now? Scores will be frozen and rewards distributed.',
+      () => {
+        db2.collection('tournaments').doc(tid).update({
+          status: 'completed', endTime: new Date(), endedAt: _sts(), endedEarly: true
+        }).then(() => {
+          _toast('Tournament ended early', 'success');
+        }).catch(() => _toast('Failed to end tournament', 'error'));
+      },
+      { title: 'End Tournament Early?', yesLabel: 'End Now', yesClass: 'btn btn-danger', noLabel: 'Cancel' }
+    );
+  }
+
+  function _openAdminSheet(tid, g) {
+    const t = _groupTournaments.find(x => x.id === tid);
+    if (!t) return;
+    _modal(`
+      <div class="dt-chal-modal">
+        <h3 class="sc-modal-title">⚙️ Admin Controls</h3>
+        <p style="font-size:13px;color:var(--sc-muted,#8892a4);margin:0 0 16px">${_esc(t.title)}</p>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <button class="dt-btn dt-btn-outline" id="tn-adm-end" style="justify-content:flex-start;gap:10px">
+            <span>🏁</span><span>End Tournament Early</span>
+          </button>
+          <button class="dt-btn" id="tn-adm-del" style="background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.25);justify-content:flex-start;gap:10px">
+            <span>🗑️</span><span>Delete Tournament</span>
+          </button>
+        </div>
+        <div style="margin-top:14px;padding:10px;background:rgba(239,68,68,.06);border-radius:8px;border:1px solid rgba(239,68,68,.15)">
+          <div style="font-size:11px;color:#ef4444;font-weight:600">⚠️ This action cannot be undone</div>
+          <div style="font-size:11px;color:var(--sc-muted);margin-top:4px">Deleting will remove the tournament for all members immediately.</div>
+        </div>
+        <div class="actions" style="margin-top:16px">
+          <button class="btn btn-ghost" data-close>Cancel</button>
+        </div>
+      </div>
+    `, root => {
+      root.querySelector('#tn-adm-end').addEventListener('click', () => { _close(); _endTournamentEarly(tid); });
+      root.querySelector('#tn-adm-del').addEventListener('click', () => { _close(); _deleteTournament(tid, g); });
+    });
   }
 
   // ─── CHECK FOR EXISTING ACTIVE DUEL ─────────────────────────────────────────
@@ -1100,7 +1329,6 @@
 
   // ─── RENDER: TOURNAMENT SECTION ──────────────────────────────────────────────
   function _renderTournamentSection(g) {
-    const uid      = _uid();
     const canAdmin = _getMyRole(g) === 'owner' || _getMyRole(g) === 'admin';
 
     // Sort: active first, then upcoming, then completed
@@ -1109,7 +1337,10 @@
       return (order[a.status] ?? 1) - (order[b.status] ?? 1);
     });
 
-    const cards = sorted.map(t => _renderTournCard(t, uid)).join('');
+    const cards = sorted.map(t => _renderTournCard(t, g, canAdmin)).join('');
+
+    // Restart ticker after render
+    setTimeout(_startTournCountdown, 100);
 
     return `<div class="tn-tab">
       ${canAdmin ? `<button class="dt-btn dt-btn-primary tn-new-btn" data-sc="ds-create-tournament" data-gid="${_esc(g.id)}">🏆 Create Tournament</button>` : ''}
@@ -1123,15 +1354,18 @@
     </div>`;
   }
 
-  function _renderTournCard(t, uid) {
+  function _renderTournCard(t, g, canAdmin) {
+    const uid     = _uid();
     const type    = TOURNAMENT_TYPES.find(x => x.id === t.type) || TOURNAMENT_TYPES[0];
     const startMs = _toMs(t.startTime);
     const endMs   = _toMs(t.endTime);
     const now     = Date.now();
 
     const isActive    = t.status === 'active' || (t.status !== 'completed' && now >= startMs && now <= endMs);
-    const isCompleted = t.status === 'completed' || now > endMs;
+    const isCompleted = t.status === 'completed' || (endMs > 0 && now > endMs);
     const isUpcoming  = !isActive && !isCompleted;
+    const isFull      = t.participantLimit && (t.participantCount || 0) >= t.participantLimit;
+    const joined      = _myJoinedTournaments.has(t.id);
 
     const statusLabel = isCompleted ? 'ENDED' : isActive ? 'LIVE' : 'SOON';
     const stCls       = isCompleted ? 'tn-badge-done' : isActive ? 'tn-badge-live' : 'tn-badge-soon';
@@ -1141,24 +1375,45 @@
       return new Date(ms).toLocaleDateString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
     };
 
-    // Countdown for active tournaments
+    // Live countdown — uses data attributes updated by _startTournCountdown ticker
     let timeHint = '';
     if (isActive && endMs) {
       const left = endMs - now;
-      timeHint = `<div class="tn-time-left">⏱ ${_fmtMs(left)} remaining</div>`;
+      const initTxt = left > 0 ? _fmtMsLong(left) + ' remaining' : 'Ended';
+      timeHint = `<div class="tn-time-left tn-cd-live"><span class="tn-cd-icon">⏱</span><span data-tn-end="${endMs}">${initTxt}</span></div>`;
     } else if (isUpcoming && startMs) {
       const toStart = startMs - now;
-      timeHint = `<div class="tn-time-left tn-time-soon">🕐 Starts in ${_fmtMs(toStart)}</div>`;
+      const initTxt = toStart > 0 ? 'Starts in ' + _fmtMsLong(toStart) : 'Starting…';
+      timeHint = `<div class="tn-time-left tn-time-soon"><span class="tn-cd-icon">🕐</span><span data-tn-start="${startMs}">${initTxt}</span></div>`;
     }
 
     const cardCls = isActive ? 'tn-card tn-card-active' : isCompleted ? 'tn-card tn-card-done' : 'tn-card tn-card-upcoming';
 
+    // Join button state
+    let joinBtn = '';
+    if (!isCompleted) {
+      if (joined) {
+        joinBtn = `<button class="dt-btn dt-btn-sm tn-btn-joined" disabled data-tn-join-btn="${_esc(t.id)}">✓ Joined</button>`;
+      } else if (isFull) {
+        joinBtn = `<button class="dt-btn dt-btn-sm tn-btn-full" disabled data-tn-join-btn="${_esc(t.id)}">Full</button>`;
+      } else {
+        joinBtn = `<button class="dt-btn dt-btn-sm dt-btn-primary" data-sc="ds-join-tournament" data-tid="${_esc(t.id)}" data-tn-join-btn="${_esc(t.id)}">Join</button>`;
+      }
+    }
+
+    // Admin 3-dot menu
+    const adminMenu = canAdmin ? `
+      <button class="tn-admin-dot" data-sc="ds-admin-tournament" data-tid="${_esc(t.id)}" data-gid="${g ? _esc(g.id) : ''}" title="Admin controls" aria-label="Admin options">⋯</button>` : '';
+
     return `
-    <div class="${cardCls}">
+    <div class="${cardCls}" data-tn-card="${_esc(t.id)}">
       ${isActive ? '<div class="tn-glow-border"></div>' : ''}
       <div class="tn-card-hdr">
         <span class="tn-card-type">${type.icon} ${type.label}</span>
-        <span class="tn-badge ${stCls}">${statusLabel}</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="tn-badge ${stCls}">${isActive ? '<span class="tn-live-dot"></span>' : ''}${statusLabel}</span>
+          ${adminMenu}
+        </div>
       </div>
       <div class="tn-card-title">${_esc(t.title)}</div>
       ${t.description ? `<div class="tn-card-desc">${_esc(t.description.slice(0,80))}${t.description.length>80?'…':''}</div>` : ''}
@@ -1171,7 +1426,7 @@
       ${t.rewards ? `<div class="tn-reward">🎁 ${_esc(t.rewards.slice(0,60))}</div>` : ''}
       <div class="tn-card-acts">
         <button class="dt-btn dt-btn-sm dt-btn-outline" data-sc="ds-view-tournament" data-tid="${_esc(t.id)}">📊 Leaderboard</button>
-        ${!isCompleted ? `<button class="dt-btn dt-btn-sm dt-btn-primary" data-sc="ds-join-tournament" data-tid="${_esc(t.id)}">Join</button>` : ''}
+        ${joinBtn}
       </div>
     </div>`;
   }
@@ -1329,50 +1584,102 @@
   function _openTournamentDetail(tid) {
     const t = _groupTournaments.find(x => x.id === tid);
     if (!t) return;
-    const type = TOURNAMENT_TYPES.find(x => x.id === t.type) || TOURNAMENT_TYPES[0];
-    const isCompleted = t.status === 'completed' || _toMs(t.endTime) < Date.now();
+    const type        = TOURNAMENT_TYPES.find(x => x.id === t.type) || TOURNAMENT_TYPES[0];
+    const endMs       = _toMs(t.endTime);
+    const isCompleted = t.status === 'completed' || (endMs > 0 && endMs < Date.now());
+    const joined      = _myJoinedTournaments.has(tid);
+    const isFull      = t.participantLimit && (t.participantCount || 0) >= t.participantLimit;
+
+    // Determine join button initial state
+    let joinBtnHtml = '';
+    if (!isCompleted) {
+      if (joined) {
+        joinBtnHtml = `<button class="btn sc-modal-submit tn-btn-joined" id="tn-join-modal" data-tid="${_esc(tid)}" disabled>✓ Joined</button>`;
+      } else if (isFull) {
+        joinBtnHtml = `<button class="btn sc-modal-submit" id="tn-join-modal" data-tid="${_esc(tid)}" disabled style="opacity:.5">Tournament Full</button>`;
+      } else {
+        joinBtnHtml = `<button class="btn sc-modal-submit" id="tn-join-modal" data-tid="${_esc(tid)}">Join</button>`;
+      }
+    }
 
     _modal(`
       <div class="dt-chal-modal dt-tourn-detail">
-        <h3 class="sc-modal-title">${type.icon} ${_esc(t.title)}</h3>
-        ${t.description ? `<p style="color:var(--sc-muted,#8892a4);font-size:13px;margin:4px 0 12px">${_esc(t.description)}</p>` : ''}
-        ${t.rewards ? `<div class="tn-reward" style="margin-bottom:12px">🎁 ${_esc(t.rewards)}</div>` : ''}
-        ${t.rules ? `<div class="tn-rules">📜 ${_esc(t.rules)}</div>` : ''}
+        <div class="tn-detail-hdr">
+          <h3 class="sc-modal-title" style="margin:0">${type.icon} ${_esc(t.title)}</h3>
+          <span class="tn-badge ${isCompleted ? 'tn-badge-done' : 'tn-badge-live'}" style="flex-shrink:0">
+            ${isCompleted ? '' : '<span class="tn-live-dot"></span>'}${isCompleted ? 'FINAL' : 'LIVE'}
+          </span>
+        </div>
+        ${t.description ? `<p style="color:var(--sc-muted,#8892a4);font-size:13px;margin:8px 0 12px">${_esc(t.description)}</p>` : ''}
+        ${t.rewards ? `<div class="tn-reward" style="margin-bottom:10px">🎁 ${_esc(t.rewards)}</div>` : ''}
+        ${t.rules   ? `<div class="tn-rules">📜 ${_esc(t.rules)}</div>` : ''}
+        ${!isCompleted && endMs ? `<div class="tn-detail-countdown"><span class="tn-cd-icon">⏱</span><span id="tn-detail-cd" data-tn-end="${endMs}">${_fmtMsLong(Math.max(0, endMs - Date.now()))} remaining</span></div>` : ''}
         <div class="tn-lb-header">
           <span>🏆 Live Leaderboard</span>
           <span class="tn-lb-badge${isCompleted ? ' tn-lb-done' : ' tn-lb-live'}">${isCompleted ? 'FINAL' : '● LIVE'}</span>
         </div>
         <div id="tn-part-list" class="tn-rank-list-wrap"><div class="dt-loading-msg">Loading…</div></div>
-        <div class="actions" style="margin-top:16px">
+        <div class="actions" style="margin-top:16px;position:sticky;bottom:0;background:var(--sc-surface,#1e293b);padding-top:10px">
           <button class="btn btn-ghost" data-close>Close</button>
-          ${!isCompleted ? `<button class="btn sc-modal-submit" id="tn-join-modal" data-tid="${_esc(tid)}">Join</button>` : ''}
+          ${joinBtnHtml}
         </div>
       </div>`, root => {
-        root.querySelector('#tn-join-modal')?.addEventListener('click', () => {
-          _close(); _joinTournament(tid);
-        });
+        // Join button handler — updates in-place after join
+        const joinEl = root.querySelector('#tn-join-modal');
+        if (joinEl && !joinEl.disabled) {
+          joinEl.addEventListener('click', () => {
+            joinEl.textContent = 'Joining…';
+            joinEl.disabled = true;
+            _joinTournament(tid);
+            // The participant listener will update _myJoinedTournaments and call _updateJoinButtonDOM
+            // which handles the card; update modal button directly here too
+            setTimeout(() => {
+              if (_myJoinedTournaments.has(tid)) {
+                joinEl.textContent = '✓ Joined';
+                joinEl.classList.add('tn-btn-joined');
+              } else {
+                joinEl.textContent = 'Join';
+                joinEl.disabled = false;
+              }
+            }, 2500);
+          });
+        }
 
         const db2 = _db();
         if (!db2) return;
 
+        let prevParts = [];
         const renderList = snap => {
-          const uid = _uid();
+          const uid  = _uid();
           const docs = snap.docs || snap;
           const parts = docs.map(d => ({ ...d.data(), _id: d.id }));
           parts.sort((a, b) => (b.score||0) - (a.score||0));
 
+          // Detect rank changes for animation
+          const prevMap = {};
+          prevParts.forEach((p, i) => { prevMap[p.uid] = i; });
+          prevParts = parts;
+
+          const maxScore = parts[0]?.score || 1;
+
           const rows = parts.map((p, i) => {
-            const isMe = p.uid === uid;
-            const crown = i === 0 ? '<span class="tn-crown">👑</span>' : `<span class="tn-rank-pos">#${i+1}</span>`;
+            const isMe     = p.uid === uid;
+            const prevRank = prevMap[p.uid];
+            const moved    = prevRank !== undefined && prevRank !== i;
+            const rankIcon = i === 0 ? '<span class="tn-crown">👑</span>'
+                           : i === 1 ? '<span class="tn-medal">🥈</span>'
+                           : i === 2 ? '<span class="tn-medal">🥉</span>'
+                           : `<span class="tn-rank-pos">#${i+1}</span>`;
             const scoreFmt = t.type === 'focus_time' ? _fmtMs(p.score||0) : String(p.score||0);
-            return `<div class="tn-rank-row${isMe?' tn-rank-me':''}${i===0?' tn-rank-first':''}">
-              ${crown}
+            const barPct   = maxScore > 0 ? Math.min(100, (p.score||0) / maxScore * 100) : 0;
+            return `<div class="tn-rank-row${isMe?' tn-rank-me':''}${i===0?' tn-rank-first':''}${moved?' tn-rank-moved':''}">
+              ${rankIcon}
               <div class="tn-rank-av" style="background:${_avatarBg(p.name||'')}">${(p.name||'?')[0].toUpperCase()}</div>
-              <span class="tn-rank-nm">${_esc(p.name||'Unknown')}${isMe?' <span class="dt-you-tag">You</span>':''}</span>
-              <div class="tn-rank-right">
-                <span class="tn-rank-sc">${scoreFmt}</span>
-                <div class="tn-rank-bar-track"><div class="tn-rank-bar" style="width:${parts[0].score > 0 ? Math.min(100, (p.score||0)/parts[0].score*100) : 0}%"></div></div>
+              <div class="tn-rank-info">
+                <span class="tn-rank-nm">${_esc(p.name||'Unknown')}${isMe?' <span class="dt-you-tag">You</span>':''}</span>
+                <div class="tn-rank-bar-track"><div class="tn-rank-bar" style="width:${barPct}%"></div></div>
               </div>
+              <span class="tn-rank-sc">${scoreFmt}</span>
             </div>`;
           }).join('');
 
@@ -1380,16 +1687,16 @@
           if (el) el.innerHTML = `<div class="tn-rank-list">${rows||'<div class="dt-loading-msg">No participants yet</div>'}</div>`;
         };
 
-        // Realtime leaderboard
+        // Realtime leaderboard subscription
         if (_tournDetailSub) { try { _tournDetailSub(); } catch(_) {} _tournDetailSub = null; }
         _tournDetailSub = db2.collection('tournaments').doc(tid).collection('participants')
-          .orderBy('score', 'desc').limit(30)
+          .orderBy('score', 'desc').limit(50)
           .onSnapshot(renderList, () => {
             const el = root.querySelector('#tn-part-list');
-            if (el) el.innerHTML = '<div class="dt-loading-msg">Unable to load</div>';
+            if (el) el.innerHTML = '<div class="dt-loading-msg">Unable to load rankings</div>';
           });
 
-        // Clean up when modal closes
+        // Clean up on modal close
         root.addEventListener('modal-close', () => {
           if (_tournDetailSub) { try { _tournDetailSub(); } catch(_) {} _tournDetailSub = null; }
         });
@@ -1449,6 +1756,21 @@
         const tid = el.dataset.tid;
         if (tid) _confirm('Leave this tournament?', () => _leaveTournament(tid),
           { title:'Leave Tournament?', yesLabel:'Leave', yesClass:'btn btn-danger' });
+        break;
+      }
+      case 'ds-delete-tournament': {
+        const tid = el.dataset.tid;
+        if (tid) _deleteTournament(tid, g);
+        break;
+      }
+      case 'ds-admin-tournament': {
+        const tid = el.dataset.tid;
+        if (tid) _openAdminSheet(tid, g);
+        break;
+      }
+      case 'ds-end-tournament-early': {
+        const tid = el.dataset.tid;
+        if (tid) _endTournamentEarly(tid);
         break;
       }
     }

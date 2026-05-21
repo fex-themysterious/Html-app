@@ -6176,7 +6176,10 @@
       case 'ds-create-tournament':
       case 'ds-join-tournament':
       case 'ds-view-tournament':
-      case 'ds-leave-tournament': {
+      case 'ds-leave-tournament':
+      case 'ds-delete-tournament':
+      case 'ds-admin-tournament':
+      case 'ds-end-tournament-early': {
         const _sc_ds = scLoad();
         const _g_ds  = _groupView ? _sc_ds.groups.find(x => x.id === _groupView) : null;
         window.DuelSystem?.handleEvent(act, el, _g_ds);
