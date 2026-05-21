@@ -89,16 +89,24 @@
     } catch(_) { return null; }
   }
 
-  // Auto-migrate old group document — adds missing ownerUid/admins fields to Firestore
+  // Auto-migrate old group document — ONLY fills missing ownerUid from existing creator fields.
+  // NEVER changes ownership to the calling uid unless they are the verified creator.
+  // NEVER adds the calling uid to admins unless they are the verified creator.
   function _autoMigrateGroupDoc(code, data, uid) {
     const db = getDb(), fb_ = getFb();
     if (!db || !fb_ || !code) return;
     const patch = {};
-    if (!data.ownerUid && data.createdByUid)  patch.ownerUid = data.createdByUid;
-    if (!data.ownerUid && !data.createdByUid) patch.ownerUid = uid;
-    if (!data.createdByUid)                   patch.createdByUid = uid;
-    const admins = Array.isArray(data.admins) ? data.admins : [];
-    if (!admins.includes(uid)) patch.admins = fb_.firestore.FieldValue.arrayUnion(uid);
+    // Fix missing ownerUid by using the existing createdByUid/createdBy — NOT the calling uid
+    if (!data.ownerUid && data.createdByUid) patch.ownerUid = data.createdByUid;
+    else if (!data.ownerUid && data.createdBy) patch.ownerUid = data.createdBy;
+    // Fix missing createdByUid from createdBy — NOT from calling uid
+    if (!data.createdByUid && data.createdBy) patch.createdByUid = data.createdBy;
+    // Only add uid to admins if they are the VERIFIED creator of this group
+    const verifiedCreator = data.createdBy === uid || data.createdByUid === uid || data.ownerUid === uid;
+    if (verifiedCreator) {
+      const admins = Array.isArray(data.admins) ? data.admins : [];
+      if (!admins.includes(uid)) patch.admins = fb_.firestore.FieldValue.arrayUnion(uid);
+    }
     if (Object.keys(patch).length > 0) {
       db.collection('groups').doc(code).set(patch, { merge: true }).catch(() => {});
     }
@@ -751,7 +759,19 @@
           if (data.nicknameRequired !== undefined && local.nicknameRequired !== data.nicknameRequired) { local.nicknameRequired = data.nicknameRequired; changed = true; }
           if (data.joinQuestion !== undefined && local.joinQuestion !== data.joinQuestion) { local.joinQuestion = data.joinQuestion; changed = true; }
           if (data.joinPassword !== undefined && local.joinPassword !== data.joinPassword) { local.joinPassword = data.joinPassword; changed = true; }
-          if (Array.isArray(data.admins) && JSON.stringify(local.admins) !== JSON.stringify(data.admins)) { local.admins = data.admins; changed = true; }
+          if (Array.isArray(data.admins) && JSON.stringify(local.admins) !== JSON.stringify(data.admins)) {
+            local.admins = data.admins;
+            changed = true;
+            // Detect self-demotion: if my uid was removed from admins by an owner
+            const myUid_gd = getUserId();
+            if (myUid_gd && !data.admins.includes(myUid_gd)) {
+              const isOwner_ = local.ownerUid === myUid_gd || local.createdByUid === myUid_gd || local.createdBy === myUid_gd;
+              if (!isOwner_ && (local.role === 'admin' || local.role === 'owner')) {
+                local.role = 'member';
+                toast('Your admin role in "' + (local.name || g.code) + '" was revoked', 'info', 4000);
+              }
+            }
+          }
           if (data.lastNudge !== undefined) {
             const nudgeMs = data.lastNudge?.toMillis?.() ?? (typeof data.lastNudge === 'number' ? data.lastNudge : 0);
             const prevMs  = local._lastNudgeReceived || 0;
@@ -781,11 +801,72 @@
     try {
       const sc_ = scLoad();
       sc_.groups.forEach(g => {
+        if (g.code) _subscribeSelfMembership(g.code); // real-time self-kick detection
         if (g.code && (_getMyRole(g) === 'owner' || _getMyRole(g) === 'admin')) {
           _subscribeJoinRequests(g.code);
         }
       });
     } catch(_) {}
+  }
+
+  // ── Self-membership listener — detects when the current user is kicked ────
+  // Listens to groups/{code}/members/{uid}. If the doc disappears, the user
+  // was kicked or banned. Immediately removes the group from local state,
+  // cleans up all related subscriptions, and shows a notification.
+  function _subscribeSelfMembership(code) {
+    if (!code || _selfMemberUnsubs[code]) return;
+    const db_ = getDb(), uid_ = getUserId();
+    if (!db_ || !uid_) return;
+    let _initialLoad = true; // skip the first snapshot (just confirms presence)
+    try {
+      _selfMemberUnsubs[code] = db_.collection('groups').doc(code)
+        .collection('members').doc(uid_)
+        .onSnapshot(snap => {
+          if (_initialLoad) { _initialLoad = false; return; } // ignore first snapshot
+          if (!snap.exists) {
+            // Self was removed — purge group from local state immediately
+            const sc_ = scLoad();
+            const removedGroup = sc_.groups.find(x => x.code === code);
+            if (!removedGroup) return; // already gone
+            const groupName = removedGroup.name || code;
+            sc_.groups = sc_.groups.filter(x => x.code !== code);
+            delete sc_.pendingRequests?.[code];
+            scSave(sc_);
+            // Tear down all subscriptions for this code
+            if (_selfMemberUnsubs[code]) { try { _selfMemberUnsubs[code](); } catch(_) {} delete _selfMemberUnsubs[code]; }
+            if (_groupDocUnsubs[code])   { try { _groupDocUnsubs[code](); }   catch(_) {} delete _groupDocUnsubs[code]; }
+            if (_joinRequestsUnsubs[code]) { try { _joinRequestsUnsubs[code](); } catch(_) {} delete _joinRequestsUnsubs[code]; }
+            if (_pendingReqUnsubs[code]) { try { _pendingReqUnsubs[code](); } catch(_) {} delete _pendingReqUnsubs[code]; }
+            // If currently inside this group's room view, navigate back
+            if (_groupView) {
+              const sc2_ = scLoad();
+              const cur = sc2_.groups.find(x => x.id === _groupView);
+              if (!cur) {
+                _groupView = null; _settingsView = false; _srTab = 'home';
+                _stopSrTicker(); _unsubscribeRoomMembers();
+                toast(`You were removed from "${groupName}" by an admin`, 'warn', 5000);
+              } else {
+                toast(`You were removed from "${groupName}"`, 'info', 4000);
+              }
+            } else {
+              toast(`You were removed from "${groupName}" by an admin`, 'info', 4000);
+            }
+            if (!_destroyed) _scheduleRender();
+          } else {
+            // Doc still exists — sync role if an admin demoted this user's member doc role
+            const data = snap.data();
+            if (data.role && data.role !== 'admin' && data.role !== 'owner') {
+              const sc_ = scLoad();
+              const g_ = sc_.groups.find(x => x.code === code);
+              if (g_ && g_.role !== data.role) {
+                g_.role = data.role;
+                scSave(sc_);
+                if (!_destroyed) _scheduleRender();
+              }
+            }
+          }
+        }, () => { delete _selfMemberUnsubs[code]; });
+    } catch(_) { delete _selfMemberUnsubs[code]; }
   }
 
   // ── Firebase helper: save a group settings patch to Firestore ─────────────
@@ -804,11 +885,24 @@
     if (!g || !g.code) return;
     const gRef = db_ && db_.collection('groups').doc(g.code);
     if (gRef && fb_) {
-      gRef.collection('members').doc(targetUid).delete().then(() => {
-        const patch = { memberCount: fb_.firestore.FieldValue.increment(-1) };
-        if (ban) patch.bannedUids = fb_.firestore.FieldValue.arrayUnion(targetUid);
-        gRef.set(patch, { merge: true }).catch(() => {});
-      }).catch(() => {});
+      // Use a batch so member delete + group patch + admins removal are atomic
+      const batch_ = db_.batch();
+      batch_.delete(gRef.collection('members').doc(targetUid));
+      const patch = {
+        memberCount: fb_.firestore.FieldValue.increment(-1),
+        // Always strip from admins and adminUids arrays — prevents ghost-admin bug
+        admins:    fb_.firestore.FieldValue.arrayRemove(targetUid),
+        adminUids: fb_.firestore.FieldValue.arrayRemove(targetUid),
+      };
+      if (ban) patch.bannedUids = fb_.firestore.FieldValue.arrayUnion(targetUid);
+      batch_.set(gRef, patch, { merge: true });
+      batch_.commit()
+        .then(() => _recalcMemberCount(g.code))
+        .catch(() => {
+          // Fallback: fire individually
+          gRef.collection('members').doc(targetUid).delete().catch(() => {});
+          gRef.set(patch, { merge: true }).catch(() => {});
+        });
       db_.collection('users').doc(targetUid).set({
         joinedRooms:  fb_.firestore.FieldValue.arrayRemove(g.code),
         joinedGroups: fb_.firestore.FieldValue.arrayRemove(g.code),
@@ -816,10 +910,12 @@
     }
     // Purge from _liveMembers immediately so UI reflects change at once
     delete _liveMembers[targetUid];
-    // Update local state
+    // Update local state: remove from members AND admins arrays
     const sc_ = scLoad(), g_ = sc_.groups.find(x => x.code === g.code || x.id === g.id);
     if (g_) {
-      g_.members = (g_.members||[]).filter(m => (m.id||m.uid) !== targetUid);
+      g_.members   = (g_.members||[]).filter(m => (m.id||m.uid) !== targetUid);
+      g_.admins    = (g_.admins||[]).filter(a => a !== targetUid);
+      g_.adminUids = (g_.adminUids||[]).filter(a => a !== targetUid);
       if (ban) { if (!g_.bannedUids) g_.bannedUids = []; if (!g_.bannedUids.includes(targetUid)) g_.bannedUids.push(targetUid); }
       scSave(sc_);
     }
@@ -955,11 +1051,21 @@
         if (act === 'promote') {
           confirmModal(`Promote ${name} to Admin? They can manage group settings.`, () => {
             if (db_mm && fb_mm) {
-              db_mm.collection('groups').doc(g.code).set({ admins: fb_mm.firestore.FieldValue.arrayUnion(tuid) }, { merge: true }).catch(() => {});
+              // Write to both admins and adminUids for full consistency
+              db_mm.collection('groups').doc(g.code).set({
+                admins:    fb_mm.firestore.FieldValue.arrayUnion(tuid),
+                adminUids: fb_mm.firestore.FieldValue.arrayUnion(tuid),
+              }, { merge: true }).catch(() => {});
               db_mm.collection('groups').doc(g.code).collection('members').doc(tuid).set({ role: 'admin' }, { merge: true }).catch(() => {});
             }
             const sc_ = scLoad(), g_ = sc_.groups.find(x => x.code === g.code || x.id === g.id);
-            if (g_) { if (!g_.admins) g_.admins = []; if (!g_.admins.includes(tuid)) g_.admins.push(tuid); scSave(sc_); }
+            if (g_) {
+              if (!g_.admins)    g_.admins    = [];
+              if (!g_.adminUids) g_.adminUids = [];
+              if (!g_.admins.includes(tuid))    g_.admins.push(tuid);
+              if (!g_.adminUids.includes(tuid)) g_.adminUids.push(tuid);
+              scSave(sc_);
+            }
             toast(`${name} promoted to Admin ⚡`, 'success');
           }, { title:`Promote ${name}?`, yesLabel:'Promote', yesClass:'btn sc-modal-submit' });
           return;
@@ -968,11 +1074,19 @@
           if (!iAmOwner) return;
           confirmModal(`Remove ${name}'s Admin role?`, () => {
             if (db_mm && fb_mm) {
-              db_mm.collection('groups').doc(g.code).set({ admins: fb_mm.firestore.FieldValue.arrayRemove(tuid) }, { merge: true }).catch(() => {});
+              // Remove from both admins and adminUids for full consistency
+              db_mm.collection('groups').doc(g.code).set({
+                admins:    fb_mm.firestore.FieldValue.arrayRemove(tuid),
+                adminUids: fb_mm.firestore.FieldValue.arrayRemove(tuid),
+              }, { merge: true }).catch(() => {});
               db_mm.collection('groups').doc(g.code).collection('members').doc(tuid).set({ role: 'member' }, { merge: true }).catch(() => {});
             }
             const sc_ = scLoad(), g_ = sc_.groups.find(x => x.code === g.code || x.id === g.id);
-            if (g_) { if (g_.admins) g_.admins = g_.admins.filter(a => a !== tuid); scSave(sc_); }
+            if (g_) {
+              g_.admins    = (g_.admins    || []).filter(a => a !== tuid);
+              g_.adminUids = (g_.adminUids || []).filter(a => a !== tuid);
+              scSave(sc_);
+            }
             toast(`${name} demoted to Member`, 'info');
           }, { title:`Demote ${name}?`, yesLabel:'Demote', yesClass:'btn btn-danger' });
           return;
@@ -1307,6 +1421,8 @@
   let _editMsgId           = null; // string msgId currently being edited
   // Group doc live subscriptions (for real-time memberCount in Your Groups list)
   const _groupDocUnsubs    = {};   // { code: unsubFn }
+  // Self-membership listeners — detects when the current user is kicked from a group
+  const _selfMemberUnsubs  = {};   // { code: unsubFn }
   let _liveSubscribedCode  = null; // code currently subscribed to in _subscribeRoomMembers
   // Per-member global presence subscriptions: users/{uid} → overrides per-group elapsedTimeToday
   let _memberPresenceUnsubs = {};  // { uid: unsubFn }
@@ -3094,13 +3210,27 @@
           const data = snap.data();
           const sc2 = scLoad();
           if (sc2.groups.some(g => g.code === code)) return;
-          let myRole = 'member';
-          // Creator always gets admin role
-          if (data.createdBy === uid || data.createdByUid === uid) myRole = 'admin';
+          // Verify the user is the creator OR has an actual Firestore member doc.
+          // Never add a group to local state without confirmed membership.
+          const isCreator = data.createdBy === uid || data.createdByUid === uid || data.ownerUid === uid;
+          let myRole = isCreator ? 'admin' : 'member';
+          let hasMemberDoc = false;
           try {
             const mSnap = await db.collection('groups').doc(code).collection('members').doc(uid).get();
-            if (mSnap.exists) myRole = mSnap.data().role || myRole;
+            hasMemberDoc = mSnap.exists;
+            if (hasMemberDoc) myRole = mSnap.data().role || myRole;
           } catch(_) {}
+          // Guard: skip if user is neither creator nor has a member doc
+          if (!hasMemberDoc && !isCreator) {
+            // Remove stale code from user's joinedRooms to prevent future confusion
+            const fb_guard = getFb();
+            if (fb_guard) {
+              db.collection('users').doc(uid).set({
+                joinedRooms: fb_guard.firestore.FieldValue.arrayRemove(code),
+              }, { merge: true }).catch(() => {});
+            }
+            return;
+          }
           const rawCat = data.category || 'General';
           sc2.groups.push({
             id:           data.groupId || code,
@@ -3116,8 +3246,11 @@
             promoted:     false,
             createdAt:    data.createdAt?.toMillis?.() ?? Date.now(),
             dailyMinsTotal: 0, attendancePct: 0,
-            role:    myRole,
-            members: [{ id: uid, name: myName, role: myRole, joinedAt: Date.now() }],
+            role:         myRole,
+            ownerUid:     data.ownerUid || data.createdByUid || data.createdBy || null,
+            createdByUid: data.createdByUid || data.createdBy || null,
+            admins:       Array.isArray(data.admins) ? data.admins : (isCreator ? [uid] : []),
+            members:      [{ id: uid, name: myName, role: myRole, joinedAt: Date.now() }],
           });
           scSave(sc2);
         } catch(_) {}
@@ -3132,7 +3265,14 @@
         }, { merge: true }).catch(() => {});
       }
 
-      if (missing.length > 0 && window._currentTab === 'social') renderSocial();
+      // Start self-kick detection for all restored groups
+      if (missing.length > 0) {
+        setTimeout(() => {
+          const sc_r = scLoad();
+          sc_r.groups.forEach(g => { if (g.code) _subscribeSelfMembership(g.code); });
+        }, 600);
+        if (window._currentTab === 'social') renderSocial();
+      }
     } catch(_) {}
   }
 
@@ -4537,6 +4677,8 @@
       }, { merge: true }).catch(() => {});
     }
     setTimeout(_ensureGroupDocSubs, 300);
+    // Start self-kick detection for the newly joined group
+    setTimeout(() => _subscribeSelfMembership(code), 500);
   }
 
   // Offline fallback: adds group locally when Firestore is unavailable
