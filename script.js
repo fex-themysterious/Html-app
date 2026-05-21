@@ -4958,8 +4958,7 @@
     const ov = document.createElement('div');
     ov.id = 'sct-sheet-ov';
     ov.className = 'lss-ov';
-    const renderRows = (filter) => items
-      .filter(item => !filter || item.name.toLowerCase().includes(filter.toLowerCase()))
+    const renderRows = () => items
       .map(item => `
         <button class="lss-sheet-row${currentId === item.id ? ' lss-sheet-row--on' : ''}" data-sid="${escapeHTML(item.id)}">
           <span class="lss-sheet-dot" style="background:${item.color||'#7c3aed'}"></span>
@@ -4970,35 +4969,19 @@
       <div class="lss-sheet" id="sct-sheet">
         <div class="lss-sheet-bar"></div>
         <div class="lss-sheet-ttl">${title}</div>
-        <div class="sct-search-wrap">
-          <span class="sct-search-icon">🔍</span>
-          <input class="sct-search-input" id="sct-search" placeholder="Search…" autocomplete="off" spellcheck="false"/>
-        </div>
-        <div class="lss-sheet-list" id="sct-sheet-list">${renderRows('')}</div>
+        <div class="lss-sheet-list" id="sct-sheet-list">${renderRows()}</div>
       </div>`;
     const close = () => { ov.classList.remove('lss-ov--in'); setTimeout(() => ov.remove(), 280); };
     ov.addEventListener('click',    e => { if (e.target === ov) close(); });
     ov.addEventListener('touchend', e => { if (e.target === ov) { e.preventDefault(); close(); } }, { passive: false });
-    const bindRows = () => {
-      ov.querySelectorAll('.lss-sheet-row').forEach(btn => {
-        const pick = () => { close(); onPick(btn.dataset.sid); setTimeout(() => renderFocus(), 290); };
-        let touched = false;
-        btn.addEventListener('touchend', e => { e.preventDefault(); e.stopPropagation(); touched = true; pick(); setTimeout(() => { touched = false; }, 500); }, { passive: false });
-        btn.addEventListener('click',    e => { e.stopPropagation(); if (!touched) pick(); });
-      });
-    };
-    bindRows();
-    // Realtime search filter
-    ov.querySelector('#sct-search').addEventListener('input', function() {
-      const list = ov.querySelector('#sct-sheet-list');
-      list.innerHTML = renderRows(this.value);
-      bindRows();
+    ov.querySelectorAll('.lss-sheet-row').forEach(btn => {
+      const pick = () => { close(); onPick(btn.dataset.sid); setTimeout(() => renderFocus(), 290); };
+      let touched = false;
+      btn.addEventListener('touchend', e => { e.preventDefault(); e.stopPropagation(); touched = true; pick(); setTimeout(() => { touched = false; }, 500); }, { passive: false });
+      btn.addEventListener('click',    e => { e.stopPropagation(); if (!touched) pick(); });
     });
     document.body.appendChild(ov);
-    requestAnimationFrame(() => {
-      ov.classList.add('lss-ov--in');
-      setTimeout(() => { const inp = ov.querySelector('#sct-search'); if (inp) inp.focus(); }, 320);
-    });
+    requestAnimationFrame(() => ov.classList.add('lss-ov--in'));
   }
 
   function _sctOpenSubSheet() {

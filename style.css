@@ -2373,35 +2373,36 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 .lss-ov--in { opacity: 1; }
 .lss-ov--in .lss-sheet { transform: translateY(0); }
 .lss-sheet {
-  width: 100%; max-width: 480px; max-height: 75vh; overflow-y: auto;
+  width: 100%; max-width: 480px; max-height: 82vh; overflow-y: auto;
   background: #0e1117; border-top: 1px solid rgba(255,122,26,0.2);
-  border-radius: 24px 24px 0 0; padding: 14px 16px 48px;
+  border-radius: 24px 24px 0 0; padding: 12px 14px 36px;
   box-shadow: 0 -4px 40px rgba(0,0,0,0.6);
-  transform: translateY(100%); transition: transform 0.28s cubic-bezier(0.32,0.72,0,1);
+  transform: translateY(100%); transition: transform 0.26s cubic-bezier(0.32,0.72,0,1);
+  -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
 }
 .lss-sheet-bar {
   width: 36px; height: 4px; border-radius: 2px;
-  background: rgba(255,255,255,0.15); margin: 0 auto 16px;
+  background: rgba(255,255,255,0.15); margin: 0 auto 12px;
 }
 .lss-sheet-ttl {
   font-size: 13px; font-weight: 800; color: rgba(255,122,26,0.8);
-  text-transform: uppercase; letter-spacing: 0.18em; text-align: center; margin-bottom: 14px;
+  text-transform: uppercase; letter-spacing: 0.18em; text-align: center; margin-bottom: 10px;
 }
-.lss-sheet-list { display: flex; flex-direction: column; gap: 6px; }
+.lss-sheet-list { display: flex; flex-direction: column; gap: 5px; }
 .lss-sheet-row {
   width: 100%; display: flex; align-items: center; gap: 12px;
   background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 14px; padding: 14px 16px; cursor: pointer;
+  border-radius: 12px; padding: 12px 14px; cursor: pointer;
   font-family: inherit; text-align: left;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.14s, border-color 0.14s;
   -webkit-tap-highlight-color: transparent;
 }
-.lss-sheet-row:active { background: rgba(255,255,255,0.07); }
+.lss-sheet-row:active { background: rgba(255,255,255,0.07); transform: scale(0.985); }
 .lss-sheet-row--on {
   background: rgba(255,122,26,0.1); border-color: rgba(255,122,26,0.4);
 }
 .lss-sheet-dot  { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-.lss-sheet-nm   { flex: 1; font-size: 15px; font-weight: 600; color: #f0f6ff; }
+.lss-sheet-nm   { flex: 1; font-size: 14px; font-weight: 600; color: #f0f6ff; line-height: 1.2; }
 .lss-sheet-tick { font-size: 15px; font-weight: 900; color: #ff7a1a; min-width: 16px; text-align: right; }
 
 /* ================================================================
@@ -2748,24 +2749,6 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   filter: grayscale(30%);
 }
 
-/* Search input inside bottom sheet */
-.sct-search-wrap {
-  display: flex; align-items: center; gap: 8px;
-  background: rgba(255,255,255,0.05); border: 1px solid rgba(77,168,255,0.2);
-  border-radius: 12px; padding: 9px 14px; margin-bottom: 12px;
-  transition: border-color 0.18s, box-shadow 0.18s;
-}
-.sct-search-wrap:focus-within {
-  border-color: rgba(77,168,255,0.55);
-  box-shadow: 0 0 0 2px rgba(77,168,255,0.12);
-}
-.sct-search-icon { font-size: 14px; flex-shrink: 0; }
-.sct-search-input {
-  flex: 1; background: none; border: none; outline: none;
-  font-size: 14px; font-weight: 500; color: #f0f6ff; font-family: inherit;
-  caret-color: #4da8ff;
-}
-.sct-search-input::placeholder { color: rgba(148,163,184,0.4); }
 
 .focus-sct-crumb {
   font-size: 11px; font-weight: 700; color: rgba(255,122,26,0.75);
