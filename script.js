@@ -5884,15 +5884,116 @@
   }
 
   // ========== Mini Floating Timer Bubble ==========
+
+  // ── Drag state ────────────────────────────────────────────────────────────
+  let _fmtDragging    = false;
+  let _fmtDragOffX    = 0, _fmtDragOffY    = 0;
+  let _fmtDragStartX  = 0, _fmtDragStartY  = 0;
+  let _fmtHasDragged  = false;
+  const _FMT_DRAG_THRESHOLD = 6; // px — below this it's a tap, not a drag
+  const _FMT_POS_KEY = 'fmt_pos_v1';
+
+  // Save / restore position in localStorage
+  function _fmtSavePos(x, y) {
+    try { localStorage.setItem(_FMT_POS_KEY, JSON.stringify({ x, y })); } catch(_) {}
+  }
+  function _fmtLoadPos() {
+    try { return JSON.parse(localStorage.getItem(_FMT_POS_KEY) || 'null'); } catch(_) { return null; }
+  }
+
+  // Clamp and apply position using top/left (overrides CSS bottom/right)
+  function _fmtApplyPos(bubble, x, y) {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const w  = bubble.offsetWidth  || 134;
+    const h  = bubble.offsetHeight || 42;
+    const cx = Math.max(4, Math.min(x, vw - w - 4));
+    const cy = Math.max(4, Math.min(y, vh - h - 4));
+    bubble.style.left   = cx + 'px';
+    bubble.style.top    = cy + 'px';
+    bubble.style.bottom = 'auto';
+    bubble.style.right  = 'auto';
+    return { x: cx, y: cy };
+  }
+
   function initMiniTimer() {
     if (document.getElementById('focus-mini-timer')) return;
     const bubble = document.createElement('div');
-    bubble.id = 'focus-mini-timer';
-    bubble.title = 'Tap to go to Focus tab';
+    bubble.id    = 'focus-mini-timer';
+    bubble.title = 'Drag to move · Tap to open Focus tab';
     bubble.innerHTML = `<span class="fmt-icon">⏱</span><span id="fmt-time">25:00</span><span class="fmt-label">Focus</span>`;
     bubble.style.display = 'none';
     document.body.appendChild(bubble);
-    bubble.addEventListener('click', () => switchTab('focus'));
+
+    // Restore saved drag position
+    const saved = _fmtLoadPos();
+    if (saved) _fmtApplyPos(bubble, saved.x, saved.y);
+
+    // ── Pointer Events — handles mouse AND touch in one handler ──
+    bubble.addEventListener('pointerdown', e => {
+      // Only primary button / single touch
+      if (e.button && e.button !== 0) return;
+      e.preventDefault();
+      bubble.setPointerCapture(e.pointerId);
+
+      // Convert current rendered position to top/left so drag maths work
+      const rect = bubble.getBoundingClientRect();
+      _fmtApplyPos(bubble, rect.left, rect.top);
+
+      _fmtDragOffX   = e.clientX - rect.left;
+      _fmtDragOffY   = e.clientY - rect.top;
+      _fmtDragStartX = e.clientX;
+      _fmtDragStartY = e.clientY;
+      _fmtHasDragged = false;
+      _fmtDragging   = true;
+      bubble.classList.add('fmt-dragging');
+    });
+
+    bubble.addEventListener('pointermove', e => {
+      if (!_fmtDragging) return;
+      e.preventDefault();
+
+      // Detect real drag (beyond threshold)
+      if (!_fmtHasDragged &&
+          (Math.abs(e.clientX - _fmtDragStartX) > _FMT_DRAG_THRESHOLD ||
+           Math.abs(e.clientY - _fmtDragStartY) > _FMT_DRAG_THRESHOLD)) {
+        _fmtHasDragged = true;
+      }
+
+      if (_fmtHasDragged) {
+        const nx = e.clientX - _fmtDragOffX;
+        const ny = e.clientY - _fmtDragOffY;
+        _fmtApplyPos(bubble, nx, ny);
+      }
+    });
+
+    const _onPointerEnd = e => {
+      if (!_fmtDragging) return;
+      _fmtDragging = false;
+      bubble.classList.remove('fmt-dragging');
+
+      // Save final position
+      const rect = bubble.getBoundingClientRect();
+      const { x, y } = _fmtApplyPos(bubble, rect.left, rect.top);
+      _fmtSavePos(x, y);
+
+      // If pointer barely moved → treat as a tap → navigate to Focus tab
+      if (!_fmtHasDragged) switchTab('focus');
+    };
+
+    bubble.addEventListener('pointerup',     _onPointerEnd);
+    bubble.addEventListener('pointercancel', _onPointerEnd);
+
+    // Re-clamp on orientation change / resize so button never hides off-screen
+    window.addEventListener('resize', () => {
+      const b = document.getElementById('focus-mini-timer');
+      if (!b || b.style.display === 'none') return;
+      const hasCustomPos = b.style.left && b.style.left !== '' && b.style.bottom === 'auto';
+      if (hasCustomPos) {
+        const { x, y } = _fmtApplyPos(b, parseFloat(b.style.left), parseFloat(b.style.top));
+        _fmtSavePos(x, y);
+      }
+    });
   }
 
   /* ── Alarm + Overtime helpers ─────────────────────────────── */
