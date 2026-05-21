@@ -1212,6 +1212,9 @@
   let _liveSubscribedCode  = null; // code currently subscribed to in _subscribeRoomMembers
   // Per-member global presence subscriptions: users/{uid} → overrides per-group elapsedTimeToday
   let _memberPresenceUnsubs = {};  // { uid: unsubFn }
+  // Expose live members map + tab-setter for DuelSystem
+  window._scLiveMembers = () => _liveMembers;
+  window._scSetSrTab    = tab => { if (_srTab !== tab) { _srTab = tab; _scheduleRender(); } };
   // Cache of latest users/{uid} presence data — survives group member snapshot rebuilds
   // so timers stay consistent even when the group roster snapshot re-fires.
   let _cachedUserPresence  = {};   // { uid: { todayFocusMinutes, isStudying, studyStartedAt, ... } }
@@ -1546,6 +1549,7 @@
         _bindEvents(view);
         // Always start the Firebase member subscription regardless of which tab is active
         if (g.code) _subscribeRoomMembers(g.code);
+        if (g.code) window.DuelSystem?.onGroupEnter(g.code);
         if (_srTab === 'home') _startSrTicker(_groupView);
         if (_srTab === 'chat') {
           if (g.code) _subscribeChatMessages(g.code);
@@ -3285,6 +3289,8 @@
       { id:'rankings',   icon: SR_NAV_ICONS.rankings,   label:'Rankings' },
       { id:'invite',     icon: SR_NAV_ICONS.invite,     label:'Invite' },
       { id:'chat',       icon: SR_NAV_ICONS.chat,       label:'Chat' },
+      { id:'duels',      icon: '⚔️',                    label:'Duels' },
+      { id:'tournament', icon: '🏆',                    label:'Tourn.' },
     ];
     const tabContent = (() => {
       switch (_srTab) {
@@ -3292,6 +3298,8 @@
         case 'rankings':   return _renderSrRankings(g, sc);
         case 'invite':     return _renderSrInvite(g);
         case 'chat':       return _renderSrChat(g, sc);
+        case 'duels':      return window.DuelSystem?.renderDuelsTab(g, sc) || '<div class="dt-loading-msg">Loading duel system…</div>';
+        case 'tournament': return window.DuelSystem?.renderTournamentTab(g, sc) || '<div class="dt-loading-msg">Loading tournaments…</div>';
         default:           return _renderSrHome(g, sc);
       }
     })();
@@ -5792,6 +5800,22 @@
           toast(`"${g.name}" deleted`, 'info');
           renderSocial();
         }, { title:'Delete Group?', yesLabel:'Delete', yesClass:'btn btn-danger', noLabel:'Cancel' });
+        break;
+      }
+
+      // ── Duel & Tournament Handlers (ds-*) ────────────────────────────────
+      case 'ds-open-challenge':
+      case 'ds-surrender':
+      case 'ds-cancel-duel':
+      case 'ds-accept-duel':
+      case 'ds-reject-duel':
+      case 'ds-create-tournament':
+      case 'ds-join-tournament':
+      case 'ds-view-tournament':
+      case 'ds-leave-tournament': {
+        const _sc_ds = scLoad();
+        const _g_ds  = _groupView ? _sc_ds.groups.find(x => x.id === _groupView) : null;
+        window.DuelSystem?.handleEvent(act, el, _g_ds);
         break;
       }
 

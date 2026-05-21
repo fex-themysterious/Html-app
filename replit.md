@@ -21,6 +21,7 @@ An offline-capable Progressive Web App for tracking study progress with spaced r
 - `manifest.json` — PWA manifest
 - `server.js` — Static file server with HTTP Range support for audio
 - `sounds/` — Ambient/focus audio files
+- `duel.js` — Self-contained DuelSystem module (challenge flow, battle arena RAF loop, anti-cheat, XP awards, tournament CRUD)
 
 ## Architecture decisions
 - All data persisted in `localStorage` under key `syllabus_tracker_v2` — primary store
@@ -45,7 +46,13 @@ An offline-capable Progressive Web App for tracking study progress with spaced r
 - Weak-topic detection
 - Stats dashboard with Chart.js charts, daily efficiency score, focus-by-subject bars, and achievement badge grid
 - Offline support via PWA service worker
-- Social Study Rooms (5th tab in nav): 6-digit room codes, live focus map (onSnapshot presence), XP Focus Bounty (−50 XP on early quit → distributed to online members), XP Duel (1v1, 2-hour countdown, Duel Victor badge), Subject Mastery Leaderboard, Weekly Friend Leaderboard, Group Challenges with progress bar, and Nudge/Poke system
+- Social Study Rooms (5th tab in nav): 6-digit room codes, live focus map (onSnapshot presence), XP Focus Bounty (−50 XP on early quit → distributed to online members), Subject Mastery Leaderboard, Weekly Friend Leaderboard, Group Challenges with progress bar, and Nudge/Poke system
+- **Duel Fight System** (`duel.js`): 1v1 challenge flow (send/accept/reject via `duelInvites/{uid}/incoming`), live battle arena with RAF progress loop, anti-cheat via visibilityAPI + 8s heartbeat, result modal with XP awards (winner +150 XP, loser +30 XP), Duel Victor badge; `/duels/{duelId}` Firestore doc with `participants`, `progress`, `status`, `startedAt`, `endsAt` fields
+- **Tournament System** (`duel.js`): create/join/start/cancel bracket tournaments (`/tournaments` collection), up to 8 participants, match scheduling, live standings, invite flow; participants subcollection tracks seed/status/studyTime; matches subcollection tracks round/p1/p2/winner
+- Group room bottom nav now has 7 scrollable tabs: Members · Chat · Challenges · Leaderboard · Duels · Tournament · XP Bounty
+- Duel/Tournament Firestore collections: `/duels/{duelId}`, `/duelInvites/{uid}/incoming/{duelId}`, `/tournaments/{tournamentId}`, `/tournaments/{tournamentId}/participants/{uid}`, `/tournaments/{tournamentId}/matches/{matchId}`
+- `window.appUI` bridge extended with `addXP(amt, reason)` and `checkBadges(badgeId)` for cross-module gamification
+- `window._scLiveMembers()` → live presence map; `window._scSetSrTab(tab)` → set group sub-tab programmatically; `window._socialRender()` → trigger social re-render (all exported from social.js)
 - Navigation (6 tabs): Home → Dashboard → Syllabus → Focus → Social → Stats. Home is the default landing tab.
 - Home tab: Welcome greeting, XP/level bar, progress bento grid, Today's Plan (task list with checkboxes + delete only — NO add-from-syllabus), motivational quote at bottom.
 - Dashboard tab: Study Calendar/Heatmap, Goals, Smart Suggestions, Weak Areas, Revision Zone (Due Today + Upcoming). Plan adder (add from syllabus) stays on Dashboard only.
@@ -72,7 +79,7 @@ An offline-capable Progressive Web App for tracking study progress with spaced r
 - **Chart instant update** — focus session end (`onVfmComplete`) AND Pomodoro session end both call `renderStats()` if the Stats tab is visible. No page refresh needed.
 
 ## Gotchas
-- Cache-busting: `script.js?v=205`, `social.js?v=32`, `style.css?v=130`, `social.css?v=21` — increment when making changes; SW cache is `syllabus-tracker-v200`
+- Cache-busting: `script.js?v=205`, `social.js?v=35`, `style.css?v=130`, `social.css?v=24`, `duel.js?v=1` — increment when making changes; SW cache is `syllabus-tracker-v201`
 - Audio files need HTTP Range request support (already handled in `server.js` and `sw.js`)
 - Global orientation is **portrait-locked** (manifest + JS `lock('portrait')` on startup). Full Focus Mode and Video Player expose a ⤢ landscape toggle button that calls `toggleOrientLock()`; exiting either mode calls `lockPortrait()` to restore portrait. `--real-vh` CSS var is set by JS on every `orientationchange`/`resize` for iOS Safari.
 - Full Focus overlay uses a **flat CSS Grid** layout. Direct children of `.fs-content`: `fs-top` (badge+dots), `fs-task-box`, `fs-timer-wrap`, `fs-ctrl-col`, `fs-motivation-box`, `fs-footer` (hint only). Portrait grid: `"top task" / "ring ctrl" / "moti moti" / "foot foot"`. Landscape grid (both mobile ≤500px and desktop): 3-column `"top ring task" / "moti ring ctrl" / "foot foot foot"` — left=navy motivation panel, center=dominant timer (270px/76px mobile, 300px/80px desktop), right=indigo panel (task top + controls bottom, `border-top: none` to appear seamless). `_fsMotiQuote` set once in `startFullSession()`.

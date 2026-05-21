@@ -1257,7 +1257,7 @@
   function _showChatMsgMenu()          {}
   function _sChatReact()               { return Promise.resolve(); }
   function _sNudge()                   { return Promise.resolve(); }
-  function _sChallengeDuel()           { return Promise.resolve(); }
+  function _sChallengeDuel(tUid, tName){ window.DuelSystem?.openChallengeModal(tUid, tName); return Promise.resolve(); }
   function _sAddGroupGoal()            { return Promise.resolve(); }
   function _sRemoveGroupGoal()         { return Promise.resolve(); }
   function _sDonateToVault()           { return Promise.resolve(); }
@@ -1315,6 +1315,12 @@
         return (state.profile && state.profile.name) ||
           (typeof firebase !== 'undefined' && firebase.auth().currentUser && firebase.auth().currentUser.displayName) ||
           'Anonymous';
+      },
+      addXP:             function(amt, reason) {
+        try { gamificationManager.addXP(amt, reason || 'duel'); saveState(); } catch(_) {}
+      },
+      checkBadges:       function(badgeId) {
+        try { checkBadges({ joinedRoom: badgeId === 'duel_victor' }); } catch(_) {}
       },
     };
   }, 0);

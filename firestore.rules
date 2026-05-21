@@ -2,11 +2,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ── Public groups ────────────────────────────────────────────────────────
-    // Anyone can read groups (needed for Discover tab).
-    // Only authenticated users can create groups.
-    // Only the group creator/admins can update group metadata.
-    // Only authenticated users can delete (and only their own groups).
+    // ── Public groups ─────────────────────────────────────────────────────────
     match /groups/{groupCode} {
       allow read: if true;
 
@@ -25,16 +21,11 @@ service cloud.firestore {
         resource.data.ownerUid     == request.auth.uid
       );
 
-      // ── Members subcollection ──────────────────────────────────────────────
-      // Any authenticated user can read members (for live presence/rankings).
-      // Users can only write their own member doc.
       match /members/{uid} {
         allow read:   if request.auth != null;
         allow write:  if request.auth != null && request.auth.uid == uid;
       }
 
-      // ── Messages subcollection ────────────────────────────────────────────
-      // Group members (anyone authenticated) can read/write messages.
       match /messages/{msgId} {
         allow read:   if request.auth != null;
         allow create: if request.auth != null
@@ -48,23 +39,80 @@ service cloud.firestore {
           get(/databases/$(database)/documents/groups/$(groupCode)).data.createdByUid == request.auth.uid
         );
       }
+
+      match /{sub}/{docId} {
+        allow read:   if request.auth != null;
+        allow write:  if request.auth != null;
+      }
     }
 
     // ── User profiles ─────────────────────────────────────────────────────────
-    // Users can only read/write their own profile doc.
     match /users/{uid} {
       allow read:  if request.auth != null && request.auth.uid == uid;
       allow write: if request.auth != null && request.auth.uid == uid;
     }
 
     // ── Global leaderboard ────────────────────────────────────────────────────
-    // Anyone authenticated can read; users write only their own entry.
     match /global_lb/{uid} {
       allow read:  if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == uid;
     }
 
-    // ── Default: deny everything else ─────────────────────────────────────────
+    // ── Duels ─────────────────────────────────────────────────────────────────
+    // Both challenger and opponent can read and update the duel document.
+    match /duels/{duelId} {
+      allow read:   if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.challengerUid == request.auth.uid;
+      allow update: if request.auth != null && (
+        resource.data.challengerUid == request.auth.uid ||
+        resource.data.opponentUid   == request.auth.uid
+      );
+      allow delete: if request.auth != null && (
+        resource.data.challengerUid == request.auth.uid ||
+        resource.data.opponentUid   == request.auth.uid
+      );
+    }
+
+    // ── Duel invites ──────────────────────────────────────────────────────────
+    // Users can only read their own incoming invites.
+    // Any authenticated user can create an invite for another user.
+    match /duelInvites/{recipientUid}/incoming/{duelId} {
+      allow read:   if request.auth != null && request.auth.uid == recipientUid;
+      allow create: if request.auth != null;
+      allow delete: if request.auth != null && (
+        request.auth.uid == recipientUid ||
+        resource.data.challengerUid == request.auth.uid
+      );
+    }
+
+    // ── Tournaments ───────────────────────────────────────────────────────────
+    match /tournaments/{tournamentId} {
+      allow read:   if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if request.auth != null && (
+        resource.data.createdBy == request.auth.uid ||
+        // Allow participantCount increments by any authenticated user
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participantCount'])
+      );
+      allow delete: if request.auth != null
+        && resource.data.createdBy == request.auth.uid;
+
+      // Participants subcollection
+      match /participants/{uid} {
+        allow read:   if request.auth != null;
+        allow write:  if request.auth != null && request.auth.uid == uid;
+      }
+
+      // Matches (bracket) subcollection
+      match /matches/{matchId} {
+        allow read:   if request.auth != null;
+        allow write:  if request.auth != null;
+      }
+    }
+
+    // ── Default: deny everything else ────────────────────────────────────────
     match /{document=**} {
       allow read, write: if false;
     }

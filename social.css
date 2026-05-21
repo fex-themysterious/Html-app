@@ -1307,9 +1307,14 @@
   border-top: 1px solid rgba(255,255,255,.07);
   flex-shrink: 0;
   padding-bottom: env(safe-area-inset-bottom, 0px);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
 }
+.sr-bottom-nav::-webkit-scrollbar { display: none; }
 .sr-nav-btn {
-  flex: 1;
+  flex: 0 0 auto;
+  min-width: 52px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3650,3 +3655,537 @@
   0%, 100% { box-shadow: 0 0 0 0 rgba(249,115,22,.25); }
   50%       { box-shadow: 0 0 0 5px rgba(249,115,22,.0); }
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   DUEL & TOURNAMENT SYSTEM  (duel.js v1)
+   All selectors prefixed  dt-  (duel) or  tn-  (tournament)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Tab wrappers ─────────────────────────────────────────────────────────── */
+.dt-tab, .tn-tab {
+  padding: 12px 12px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ── Loading / empty states ──────────────────────────────────────────────── */
+.dt-loading-msg {
+  text-align: center;
+  padding: 32px 16px;
+  color: #475569;
+  font-size: 14px;
+}
+.dt-empty {
+  text-align: center;
+  padding: 36px 20px;
+  background: rgba(255,255,255,.03);
+  border-radius: 14px;
+  border: 1px dashed rgba(255,255,255,.08);
+}
+.dt-empty-ico  { font-size: 36px; margin-bottom: 8px; }
+.dt-empty-ttl  { font-size: 16px; font-weight: 700; color: #e8edf5; margin-bottom: 4px; }
+.dt-empty-sub  { font-size: 13px; color: #8892a4; line-height: 1.5; }
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+.dt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity .15s, transform .12s;
+}
+.dt-btn:active { opacity: .75; transform: scale(.97); }
+.dt-btn-primary {
+  background: linear-gradient(135deg, #ff7a1a, #f97316);
+  color: #fff;
+}
+.dt-btn-ghost {
+  background: rgba(255,255,255,.07);
+  color: #cbd5e1;
+  border: 1px solid rgba(255,255,255,.10);
+}
+.dt-btn-outline {
+  background: transparent;
+  color: #ff7a1a;
+  border: 1.5px solid rgba(255,122,26,.4);
+}
+.dt-btn-duel {
+  background: rgba(255,122,26,.12);
+  color: #ff7a1a;
+  border: 1.5px solid rgba(255,122,26,.3);
+  border-radius: 8px;
+  padding: 7px 13px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.dt-btn-sm  { padding: 7px 14px; font-size: 13px; border-radius: 8px; }
+.dt-btn-xs  { padding: 5px 11px; font-size: 12px; border-radius: 7px; }
+
+/* ── Section headers ─────────────────────────────────────────────────────── */
+.dt-sec-hd {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 10px;
+}
+.dt-sec-ico   { font-size: 16px; }
+.dt-sec-title { font-size: 14px; font-weight: 700; color: #cbd5e1; letter-spacing: .2px; }
+
+/* ── BATTLE ARENA ─────────────────────────────────────────────────────────── */
+.dt-arena {
+  background: linear-gradient(160deg, #111827 0%, #0f172a 100%);
+  border: 1.5px solid rgba(255,122,26,.25);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 4px 24px rgba(255,122,26,.08);
+  overflow: hidden;
+  position: relative;
+}
+.dt-arena::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(255,122,26,.08) 0%, transparent 70%);
+  pointer-events: none;
+}
+.dt-arena-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+.dt-arena-mode {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ff7a1a;
+  background: rgba(255,122,26,.12);
+  border: 1px solid rgba(255,122,26,.25);
+  border-radius: 999px;
+  padding: 4px 12px;
+}
+.dt-arena-cd {
+  font-size: 22px;
+  font-weight: 800;
+  color: #e8edf5;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.5px;
+}
+.dt-cd-urgent { color: #f87171; animation: dt-pulse 1s ease-in-out infinite; }
+@keyframes dt-pulse { 0%,100% { opacity:1; } 50% { opacity:.55; } }
+
+/* VS layout */
+.dt-vs-wrap {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.dt-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.dt-side-me  { align-items: flex-start; }
+.dt-side-opp { align-items: flex-end; }
+
+.dt-av-wrap { position: relative; }
+.dt-av {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 800;
+  color: #fff;
+  flex-shrink: 0;
+}
+.dt-pulse {
+  position: absolute;
+  top: -3px; left: -3px; right: -3px; bottom: -3px;
+  border-radius: 50%;
+  border: 2.5px solid #10b981;
+  animation: dt-ring 1.4s ease-out infinite;
+}
+.dt-pulse-opp { border-color: #f97316; }
+@keyframes dt-ring {
+  0%   { transform: scale(1);   opacity: 1; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+.dt-side-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #e8edf5;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.dt-you-tag {
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(255,122,26,.2);
+  color: #ff7a1a;
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+.dt-warnings { font-size: 12px; letter-spacing: -1px; }
+.dt-focus-val {
+  font-size: 18px;
+  font-weight: 800;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.5px;
+  line-height: 1;
+}
+.dt-bar-track {
+  width: 100%;
+  height: 8px;
+  background: rgba(255,255,255,.08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.dt-bar {
+  height: 100%;
+  border-radius: 999px;
+  transition: width .4s cubic-bezier(.25,.8,.25,1);
+  will-change: width;
+}
+.dt-bar-me  { background: linear-gradient(90deg, #10b981, #34d399); }
+.dt-bar-opp { background: linear-gradient(90deg, #f97316, #fb923c); }
+.dt-status { font-size: 11px; color: #475569; font-weight: 600; }
+.dt-status-on { color: #10b981; }
+
+.dt-vs-orb {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.06);
+  border: 1.5px solid rgba(255,255,255,.10);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: #8892a4;
+  flex-shrink: 0;
+}
+
+.dt-arena-tip {
+  font-size: 12px;
+  color: #64748b;
+  text-align: center;
+  margin-bottom: 10px;
+}
+.dt-forfeit-btn { width: 100%; margin-top: 2px; }
+
+/* ── PENDING DUEL ─────────────────────────────────────────────────────────── */
+.dt-pending {
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 14px;
+  padding: 24px 16px;
+  text-align: center;
+}
+.dt-pending-icon  { font-size: 34px; margin-bottom: 8px; }
+.dt-pending-title { font-size: 15px; font-weight: 700; color: #e8edf5; margin-bottom: 4px; }
+.dt-pending-meta  { font-size: 13px; color: #64748b; margin-bottom: 14px; }
+.dt-pending-btns  { display: flex; gap: 10px; justify-content: center; }
+
+/* ── DUEL LOBBY ───────────────────────────────────────────────────────────── */
+.dt-lobby { background: transparent; }
+.dt-chal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dt-chal-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 12px;
+  padding: 11px 13px;
+}
+.dt-chal-av {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 800;
+  color: #fff;
+  flex-shrink: 0;
+}
+.dt-chal-info { flex: 1; min-width: 0; }
+.dt-chal-name { font-size: 14px; font-weight: 600; color: #e8edf5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dt-chal-st   { font-size: 12px; color: #64748b; margin-top: 1px; }
+
+/* ── DUEL HISTORY ─────────────────────────────────────────────────────────── */
+.dt-hist-sec {
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.dt-hist-list { display: flex; flex-direction: column; gap: 8px; }
+.dt-hist-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.dt-hist-ic { font-size: 16px; }
+.dt-hist-nm { color: #cbd5e1; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dt-hist-mo { font-size: 14px; }
+.dt-hist-res { font-size: 12px; font-weight: 700; }
+.dt-hist-w .dt-hist-res, .dt-hist-w { color: #10b981; }
+.dt-hist-d .dt-hist-res, .dt-hist-d { color: #f59e0b; }
+.dt-hist-l .dt-hist-res, .dt-hist-l { color: #ef4444; }
+
+/* ── CHALLENGE / CREATE MODALS ────────────────────────────────────────────── */
+.dt-chal-modal { padding: 0 2px 4px; }
+.dt-mode-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 6px 0;
+}
+.dt-mode-grid-sm { grid-template-columns: 1fr; }
+.dt-mode-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,.04);
+  border: 1.5px solid rgba(255,255,255,.09);
+  border-radius: 10px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color .15s, background .15s;
+  text-align: left;
+}
+.dt-mode-chip.dt-chip-on {
+  border-color: #ff7a1a;
+  background: rgba(255,122,26,.10);
+}
+.dt-chip-ico { font-size: 18px; }
+.dt-chip-lbl { font-size: 13px; font-weight: 700; color: #e8edf5; }
+.dt-chip-sub { font-size: 11px; color: #64748b; }
+.dt-dur-row  { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
+.dt-dur-chip {
+  padding: 7px 16px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.04);
+  color: #cbd5e1;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color .15s, background .15s;
+}
+.dt-dur-chip.dt-chip-on {
+  border-color: #ff7a1a;
+  background: rgba(255,122,26,.10);
+  color: #ff7a1a;
+}
+
+/* ── RESULT MODAL ─────────────────────────────────────────────────────────── */
+.dt-result-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 8px 4px 4px;
+}
+.dt-result-badge { font-size: 48px; margin-bottom: 6px; }
+.dt-result-title { font-size: 24px; font-weight: 900; margin: 0 0 4px; }
+.dt-result-sub   { font-size: 13px; color: #64748b; margin: 0 0 18px; }
+.dt-result-vs    { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; width: 100%; margin-bottom: 16px; }
+.dt-rv-player {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 8px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.04);
+  border: 1.5px solid rgba(255,255,255,.07);
+}
+.dt-rv-winner { border-color: rgba(255,122,26,.4); background: rgba(255,122,26,.08); }
+.dt-rv-av {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 800;
+  color: #fff;
+}
+.dt-rv-name  { font-size: 12px; font-weight: 700; color: #cbd5e1; }
+.dt-rv-score { font-size: 18px; font-weight: 800; color: #fff; font-variant-numeric: tabular-nums; }
+.dt-rv-sep   { font-size: 13px; font-weight: 800; color: #475569; }
+.dt-result-xp {
+  font-size: 20px;
+  font-weight: 800;
+  color: #ff7a1a;
+  background: rgba(255,122,26,.12);
+  border: 1px solid rgba(255,122,26,.2);
+  border-radius: 999px;
+  padding: 6px 20px;
+}
+
+/* ── INVITE POPUP ─────────────────────────────────────────────────────────── */
+.dt-invite-popup {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  width: min(340px, calc(100vw - 24px));
+  animation: dt-slide-in .3s cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes dt-slide-in {
+  from { transform: translateX(-50%) translateY(-20px); opacity: 0; }
+  to   { transform: translateX(-50%) translateY(0);     opacity: 1; }
+}
+.dt-invite-inner {
+  background: #1a2332;
+  border: 1.5px solid rgba(255,122,26,.35);
+  border-radius: 16px;
+  padding: 14px 14px 10px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.5), 0 0 0 1px rgba(255,122,26,.08);
+  overflow: hidden;
+  position: relative;
+}
+.dt-invite-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.dt-invite-av {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 800;
+  color: #fff;
+  flex-shrink: 0;
+}
+.dt-invite-body { flex: 1; }
+.dt-invite-from { font-size: 14px; font-weight: 700; color: #e8edf5; }
+.dt-invite-meta { font-size: 12px; color: #64748b; margin-top: 2px; }
+.dt-invite-actions { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 8px; }
+.dt-invite-timebar {
+  height: 3px;
+  background: rgba(255,255,255,.08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.dt-invite-timebar-fill {
+  height: 100%;
+  background: #ff7a1a;
+  border-radius: 999px;
+  transition: width .08s linear;
+}
+
+/* ── TOURNAMENT TAB ───────────────────────────────────────────────────────── */
+.tn-new-btn { width: 100%; }
+.tn-card {
+  background: rgba(255,255,255,.04);
+  border: 1.5px solid rgba(255,255,255,.08);
+  border-radius: 14px;
+  padding: 14px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tn-card-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tn-card-type { font-size: 12px; color: #8892a4; font-weight: 600; }
+.tn-status {
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+.tn-active   { color: #10b981; background: rgba(16,185,129,.12); border: 1px solid rgba(16,185,129,.25); }
+.tn-upcoming { color: #f59e0b; background: rgba(245,158,11,.12);  border: 1px solid rgba(245,158,11,.25); }
+.tn-done     { color: #64748b; background: rgba(100,116,139,.10); border: 1px solid rgba(100,116,139,.20); }
+.tn-card-title { font-size: 16px; font-weight: 800; color: #e8edf5; }
+.tn-card-desc  { font-size: 13px; color: #64748b; line-height: 1.5; }
+.tn-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: #64748b;
+}
+.tn-reward {
+  font-size: 12px;
+  color: #f59e0b;
+  background: rgba(245,158,11,.10);
+  border: 1px solid rgba(245,158,11,.18);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-weight: 600;
+}
+.tn-card-acts { display: flex; gap: 8px; justify-content: flex-end; padding-top: 4px; }
+
+/* Tournament detail / rankings */
+.tn-rank-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.tn-rank-row {
+  display: grid;
+  grid-template-columns: 28px 30px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(255,255,255,.03);
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.06);
+}
+.tn-rank-me { border-color: rgba(255,122,26,.3); background: rgba(255,122,26,.07); }
+.tn-rank-pos { font-size: 13px; font-weight: 800; color: #475569; text-align: center; }
+.tn-rank-av {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: #fff;
+}
+.tn-rank-nm { font-size: 13px; font-weight: 600; color: #cbd5e1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tn-rank-sc { font-size: 14px; font-weight: 800; color: #ff7a1a; font-variant-numeric: tabular-nums; }
