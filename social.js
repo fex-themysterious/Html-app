@@ -3057,7 +3057,7 @@
     home:       `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
     attendance: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`,
     rankings:   `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>`,
-    invite:     `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>`,
+    duels:      `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 17.5L3 6V3h3l11.5 11.5"/><path d="M13 19l2-2"/><path d="M20.5 6.5L22 5V3h-2l-1.5 1.5"/><path d="M5 5l9.5 9.5"/><path d="M10.5 17.5L3 21"/><path d="M21 14.5L17.5 11"/></svg>`,
     chat:       `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
   };
 
@@ -3169,6 +3169,18 @@
             ${row('📤', 'Promote Group', promotedAgo ? 'Last: ' + promotedAgo : 'Share & invite', 'sgs-promote')}
           </div>
 
+          <div class="sgs-section-label">Invite Members</div>
+          <div class="sgs-card">
+            <div class="sgs-invite-block">
+              <div class="sgs-invite-label">Group Invite Code</div>
+              <div class="sgs-invite-code-row">
+                <span class="sgs-invite-code">${esc(g.code)}</span>
+                <button class="sgs-invite-copy-btn" data-sc="sr-copy-invite" data-code="${esc(g.code)}">Copy</button>
+              </div>
+              <div class="sgs-invite-hint">Share this code with friends to invite them to the group</div>
+            </div>
+          </div>
+
           ${isOwner ? `
           <div class="sgs-section-label">Danger Zone</div>
           <div class="sgs-card sgs-card-danger">
@@ -3244,6 +3256,18 @@
             ${toggleRow('🔕', 'Mute Group', muteOn, 'mbs-mute')}
           </div>
 
+          <div class="sgs-section-label">Invite Members</div>
+          <div class="sgs-card">
+            <div class="sgs-invite-block">
+              <div class="sgs-invite-label">Group Invite Code</div>
+              <div class="sgs-invite-code-row">
+                <span class="sgs-invite-code">${esc(g.code)}</span>
+                <button class="sgs-invite-copy-btn" data-sc="sr-copy-invite" data-code="${esc(g.code)}">Copy</button>
+              </div>
+              <div class="sgs-invite-hint">Share this code with friends to invite them</div>
+            </div>
+          </div>
+
           <div class="sgs-section-label">Social</div>
           <div class="sgs-card">
             ${row('🔖', 'Bookmark Group', '', 'mbs-bookmark')}
@@ -3285,21 +3309,17 @@
   function _renderStudyRoom(g, sc) {
     const SR_TABS = [
       { id:'home',       icon: SR_NAV_ICONS.home,       label:'Home' },
-      { id:'attendance', icon: SR_NAV_ICONS.attendance, label:'Attendance' },
+      { id:'attendance', icon: SR_NAV_ICONS.attendance, label:'Attend' },
       { id:'rankings',   icon: SR_NAV_ICONS.rankings,   label:'Rankings' },
-      { id:'invite',     icon: SR_NAV_ICONS.invite,     label:'Invite' },
+      { id:'duels',      icon: SR_NAV_ICONS.duels,      label:'Duels' },
       { id:'chat',       icon: SR_NAV_ICONS.chat,       label:'Chat' },
-      { id:'duels',      icon: '⚔️',                    label:'Duels' },
-      { id:'tournament', icon: '🏆',                    label:'Tourn.' },
     ];
     const tabContent = (() => {
       switch (_srTab) {
         case 'attendance': return _renderSrAttendance(g, sc);
         case 'rankings':   return _renderSrRankings(g, sc);
-        case 'invite':     return _renderSrInvite(g);
-        case 'chat':       return _renderSrChat(g, sc);
         case 'duels':      return window.DuelSystem?.renderDuelsTab(g, sc) || '<div class="dt-loading-msg">Loading duel system…</div>';
-        case 'tournament': return window.DuelSystem?.renderTournamentTab(g, sc) || '<div class="dt-loading-msg">Loading tournaments…</div>';
+        case 'chat':       return _renderSrChat(g, sc);
         default:           return _renderSrHome(g, sc);
       }
     })();
@@ -5804,6 +5824,12 @@
       }
 
       // ── Duel & Tournament Handlers (ds-*) ────────────────────────────────
+      case 'ds-sub-tab': {
+        const sub = el.dataset.sub;
+        if (sub) window.DuelSystem?.setDuelSubTab(sub);
+        break;
+      }
+
       case 'ds-open-challenge':
       case 'ds-surrender':
       case 'ds-cancel-duel':

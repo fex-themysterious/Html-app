@@ -1301,37 +1301,72 @@
 .sr-room--chat .sr-chat-view { flex: 1; min-height: 0; }
 
 /* ── Bottom nav ───────────────────────────────────────────────────────────── */
+/* ── Bottom Navigation Bar — 5 equal tabs, glassmorphism ─────────────────── */
 .sr-bottom-nav {
-  display: flex;
-  background: #111;
-  border-top: 1px solid rgba(255,255,255,.07);
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  background: rgba(10, 10, 18, 0.92);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-top: 1px solid rgba(255, 122, 26, 0.12);
+  border-radius: 18px 18px 0 0;
   flex-shrink: 0;
   padding-bottom: env(safe-area-inset-bottom, 0px);
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
+  overflow: hidden;
+  box-shadow: 0 -4px 24px rgba(0,0,0,.45), 0 -1px 0 rgba(255,255,255,.04);
 }
-.sr-bottom-nav::-webkit-scrollbar { display: none; }
 .sr-nav-btn {
-  flex: 0 0 auto;
-  min-width: 52px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  padding: 9px 4px;
+  gap: 3px;
+  padding: 10px 4px 8px;
   border: none;
   background: transparent;
-  color: #475569;
+  color: rgba(148, 163, 184, 0.55);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: color .18s;
+  transition: color .2s ease, background .2s ease;
+  position: relative;
+  min-width: 0;
 }
-.sr-nav-btn.sr-nav-active { color: #ff7a1a; }
-.sr-nav-btn:active { opacity: .7; }
-.sr-nav-icon { display: flex; align-items: center; justify-content: center; }
-.sr-nav-label { font-size: 10px; font-weight: 600; letter-spacing: .2px; white-space: nowrap; }
+.sr-nav-btn::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 50%;
+  transform: translateX(-50%) scaleX(0);
+  width: 32px; height: 2px;
+  background: #ff7a1a;
+  border-radius: 0 0 3px 3px;
+  transition: transform .25s cubic-bezier(.34,1.56,.64,1);
+}
+.sr-nav-btn.sr-nav-active {
+  color: #ff7a1a;
+  background: rgba(255, 122, 26, 0.07);
+}
+.sr-nav-btn.sr-nav-active::before {
+  transform: translateX(-50%) scaleX(1);
+}
+.sr-nav-btn.sr-nav-active .sr-nav-icon svg {
+  filter: drop-shadow(0 0 5px rgba(255, 122, 26, 0.55));
+}
+.sr-nav-btn:active { opacity: .65; }
+.sr-nav-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px; height: 22px;
+}
+.sr-nav-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .25px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
 
 /* ── Home — wrapper ───────────────────────────────────────────────────────── */
 .sr-home-view { padding: 6px 12px 32px; }
@@ -4189,3 +4224,108 @@
 }
 .tn-rank-nm { font-size: 13px; font-weight: 600; color: #cbd5e1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tn-rank-sc { font-size: 14px; font-weight: 800; color: #ff7a1a; font-variant-numeric: tabular-nums; }
+
+/* ── Duel inner sub-nav tabs ─────────────────────────────────────────────── */
+.dt-sub-nav {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: rgba(255,255,255,.03);
+  border-bottom: 1px solid rgba(255,255,255,.06);
+  flex-shrink: 0;
+}
+.dt-sub-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 4px 7px;
+  border: none;
+  background: transparent;
+  color: rgba(148,163,184,.5);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .3px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color .18s, background .18s;
+  position: relative;
+  white-space: nowrap;
+}
+.dt-sub-btn::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 50%;
+  transform: translateX(-50%) scaleX(0);
+  width: 24px; height: 2px;
+  background: #ff7a1a;
+  border-radius: 2px 2px 0 0;
+  transition: transform .22s cubic-bezier(.34,1.56,.64,1);
+}
+.dt-sub-active {
+  color: #ff7a1a;
+  background: rgba(255,122,26,.06);
+}
+.dt-sub-active::after { transform: translateX(-50%) scaleX(1); }
+.dt-sub-ico { font-size: 14px; line-height: 1; }
+.dt-sub-lbl { font-size: 9px; font-weight: 700; }
+.dt-sub-badge {
+  position: absolute;
+  top: 4px; right: calc(50% - 16px);
+  background: #ef4444;
+  color: #fff;
+  font-size: 8px;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 1px 4px;
+  line-height: 1.3;
+}
+.dt-sub-content {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Settings panel — invite code block ─────────────────────────────────── */
+.sgs-invite-block {
+  padding: 14px 16px;
+}
+.sgs-invite-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(148,163,184,.7);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: 8px;
+}
+.sgs-invite-code-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.sgs-invite-code {
+  flex: 1;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  color: #ff7a1a;
+  font-variant-numeric: tabular-nums;
+}
+.sgs-invite-copy-btn {
+  padding: 6px 14px;
+  background: rgba(255,122,26,.15);
+  border: 1px solid rgba(255,122,26,.3);
+  border-radius: 8px;
+  color: #ff7a1a;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .18s;
+}
+.sgs-invite-copy-btn:active { background: rgba(255,122,26,.25); }
+.sgs-invite-hint {
+  font-size: 11px;
+  color: rgba(148,163,184,.5);
+}

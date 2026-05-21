@@ -50,6 +50,7 @@
   let _bgHideStart      = 0;
   let _bgHideCount      = 0;
   let _visHandler       = null;
+  let _duelSubTab       = 'challenges';
 
   // ─── FIREBASE ACCESSORS ──────────────────────────────────────────────────────
   const _db   = () => { try { return window.appUI?.getDb?.() ?? null; } catch(_) { return null; } };
@@ -659,16 +660,62 @@
 
   // ─── RENDER: DUELS TAB ───────────────────────────────────────────────────────
   function renderDuelsTab(g) {
-    const uid     = _uid();
-    const hasDuel = !!(_activeDuelId && _activeDuelData);
+    const uid       = _uid();
+    const hasDuel   = !!(_activeDuelId && _activeDuelData);
     const isActive  = hasDuel && _activeDuelData.state === 'active';
     const isPending = hasDuel && _activeDuelData.state === 'pending';
 
+    // Auto-switch to active tab when a duel is in progress
+    if ((isActive || isPending) && _duelSubTab === 'challenges') _duelSubTab = 'active';
+
+    const SUB_TABS = [
+      { id:'challenges', icon:'⚔️',  label:'Challenges' },
+      { id:'active',     icon:'🔥',  label:'Active',     badge: hasDuel ? '1' : '' },
+      { id:'tournament', icon:'🏆',  label:'Tournament' },
+      { id:'history',    icon:'📜',  label:'History' },
+    ];
+
+    let content = '';
+    switch (_duelSubTab) {
+      case 'active':
+        content = isActive ? _renderArena() : isPending ? _renderPending() : _renderNoActiveDuel();
+        break;
+      case 'tournament':
+        content = _renderTournamentSection(g);
+        break;
+      case 'history':
+        content = _renderHistory(uid) || _renderNoHistory();
+        break;
+      default:
+        content = _renderLobby(g);
+    }
+
+    const tabBar = SUB_TABS.map(t => `
+      <button class="dt-sub-btn${_duelSubTab === t.id ? ' dt-sub-active' : ''}" data-sc="ds-sub-tab" data-sub="${t.id}">
+        <span class="dt-sub-ico">${t.icon}</span>
+        <span class="dt-sub-lbl">${t.label}</span>
+        ${t.badge ? `<span class="dt-sub-badge">${t.badge}</span>` : ''}
+      </button>`).join('');
+
     return `<div class="dt-tab">
-      ${isActive  ? _renderArena()      : ''}
-      ${isPending ? _renderPending()    : ''}
-      ${!hasDuel  ? _renderLobby(g)     : ''}
-      ${_renderHistory(uid)}
+      <div class="dt-sub-nav">${tabBar}</div>
+      <div class="dt-sub-content">${content}</div>
+    </div>`;
+  }
+
+  function _renderNoActiveDuel() {
+    return `<div class="dt-empty">
+      <div class="dt-empty-ico">⚔️</div>
+      <div class="dt-empty-ttl">No active duel</div>
+      <div class="dt-empty-sub">Go to Challenges and pick a member to start a duel.</div>
+    </div>`;
+  }
+
+  function _renderNoHistory() {
+    return `<div class="dt-empty">
+      <div class="dt-empty-ico">📜</div>
+      <div class="dt-empty-ttl">No duel history yet</div>
+      <div class="dt-empty-sub">Complete your first duel — results will appear here.</div>
     </div>`;
   }
 
@@ -821,8 +868,8 @@
     </div>`;
   }
 
-  // ─── RENDER: TOURNAMENT TAB ──────────────────────────────────────────────────
-  function renderTournamentTab(g) {
+  // ─── RENDER: TOURNAMENT SECTION (inside Duels sub-tab) ──────────────────────
+  function _renderTournamentSection(g) {
     const uid      = _uid();
     const canAdmin = _getMyRole(g) === 'owner' || _getMyRole(g) === 'admin';
 
@@ -1106,10 +1153,16 @@
     _pendingInvites.clear(); _historyLoaded = false;
   }
 
+  function setDuelSubTab(tab) {
+    _duelSubTab = tab;
+    window._socialRender?.();
+  }
+
   // ─── PUBLIC API ───────────────────────────────────────────────────────────────
   window.DuelSystem = {
     onGroupEnter, destroy,
-    renderDuelsTab, renderTournamentTab,
+    renderDuelsTab,
+    setDuelSubTab,
     handleEvent, acceptDuel, rejectDuel,
     openChallengeModal,
   };
