@@ -898,11 +898,20 @@
     const sc0 = scLoad();
     const g0  = sc0.groups.find(x => x.code === code);
     if (!g0 || (_getMyRole(g0) !== 'owner' && _getMyRole(g0) !== 'admin')) return;
+    let _prevCount = -1;
     try {
       _joinRequestsUnsubs[code] = db_.collection('groups').doc(code)
         .collection('joinRequests')
         .where('status', '==', 'pending')
         .onSnapshot(snap => {
+          const count = snap.docs.length;
+          _joinRequestsCount[code] = count;
+          // Toast admin when new requests arrive (not on first load)
+          if (_prevCount >= 0 && count > _prevCount) {
+            const diff = count - _prevCount;
+            toast(`🔔 ${diff} new join request${diff > 1 ? 's' : ''} awaiting approval`, 'info', 4000);
+          }
+          _prevCount = count;
           const sc2 = scLoad();
           const grp = sc2.groups.find(x => x.code === code);
           if (!grp) return;
@@ -917,9 +926,207 @@
             };
           });
           scSave(sc2);
-          if (_settingsView && !_destroyed) _scheduleRender();
+          if ((_settingsView || _groupView) && !_destroyed) _scheduleRender();
         }, () => { delete _joinRequestsUnsubs[code]; });
     } catch(_) { delete _joinRequestsUnsubs[code]; }
+  }
+
+  // ── Subscribe to user's own pending request status across groups ──────────
+  // Watches groups/{code}/joinRequests/{uid} for status changes (approved/rejected).
+  function _subscribeMyPendingRequests() {
+    const db_ = getDb(), uid_ = getUserId();
+    if (!db_ || !uid_) return;
+    // Load known pending requests from localStorage
+    const sc_ = scLoad();
+    const pending = sc_.pendingRequests || {};
+    // Sync _myPendingGroups from localStorage
+    Object.assign(_myPendingGroups, pending);
+    // Subscribe to each pending group's join request doc
+    Object.keys(pending).forEach(code => {
+      if (_pendingReqUnsubs[code]) return; // already subscribed
+      try {
+        _pendingReqUnsubs[code] = db_.collection('groups').doc(code)
+          .collection('joinRequests').doc(uid_)
+          .onSnapshot(snap => {
+            const data = snap.data();
+            if (!snap.exists || !data) {
+              // Doc deleted = group joined normally or expired
+              delete _myPendingGroups[code];
+              const sc2 = scLoad(); delete sc2.pendingRequests[code]; scSave(sc2);
+              if (!_destroyed) _scheduleRender();
+              return;
+            }
+            const status = data.status || 'pending';
+            const prev   = _myPendingGroups[code];
+            _myPendingGroups[code] = { ...(_myPendingGroups[code] || {}), status, groupName: data.groupName || prev?.groupName || code };
+            const sc2 = scLoad();
+            sc2.pendingRequests[code] = _myPendingGroups[code];
+            scSave(sc2);
+            // Notify user on status change
+            if (prev && prev.status === 'pending' && status === 'approved') {
+              const gName = _myPendingGroups[code].groupName || code;
+              toast(`✅ Your request to join "${gName}" was approved! 🎉`, 'success', 5000);
+              // Trigger group restore so user is added to sc.groups
+              setTimeout(() => window._socialRestoreGroups?.(), 400);
+            } else if (prev && prev.status === 'pending' && status === 'rejected') {
+              const gName = _myPendingGroups[code].groupName || code;
+              toast(`Your request to join "${gName}" was not approved this time.`, 'info', 4000);
+            }
+            if (!_destroyed) _scheduleRender();
+          }, () => { delete _pendingReqUnsubs[code]; });
+      } catch(_) { delete _pendingReqUnsubs[code]; }
+    });
+  }
+
+  // Cancel a pending join request
+  function _cancelJoinRequest(code) {
+    const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
+    if (db_ && uid_) {
+      db_.collection('groups').doc(code).collection('joinRequests').doc(uid_)
+        .delete().catch(() => {});
+    }
+    delete _myPendingGroups[code];
+    if (_pendingReqUnsubs[code]) { try { _pendingReqUnsubs[code](); } catch(_) {} delete _pendingReqUnsubs[code]; }
+    const sc_ = scLoad(); delete sc_.pendingRequests[code]; scSave(sc_);
+    toast('Join request cancelled', 'info');
+    renderSocial();
+  }
+
+  // ── Realtime Waiting Room modal (Firebase onSnapshot) ────────────────────
+  function _openWaitingRoomModal(g) {
+    const db_wr = getDb(), myUid_wr = getUserId(), fb_wr = getFb();
+    if (!db_wr || !g.code) { toast('Firebase unavailable', 'warn'); return; }
+    const gName = g.name || g.code;
+    let _wrUnsub = null, _wrModalEl = null;
+
+    // Avatar color same as manage members
+    const _wrColor = (uid) => {
+      const C = ['#7c3aed','#2563eb','#059669','#d97706','#dc2626','#0891b2','#9333ea'];
+      let h = 0; for (let i = 0; i < uid.length; i++) h = (h * 31 + uid.charCodeAt(i)) | 0;
+      return C[Math.abs(h) % C.length];
+    };
+
+    const _renderWrRow = (req) => {
+      const initials  = esc((req.displayName || '?').slice(0, 2).toUpperCase());
+      const name      = esc(req.displayName || 'Anonymous');
+      const msg       = req.message ? `<div style="font-size:12px;color:var(--text-muted);font-style:italic;margin-top:3px">"${esc(req.message)}"</div>` : '';
+      const ts        = req.requestedAt?.toMillis ? req.requestedAt.toMillis() : (req.requestedAt || Date.now());
+      const timeStr   = _timeAgo(ts);
+      return `
+        <div class="jr-row" data-req-id="${esc(req.uid)}">
+          <div style="width:40px;height:40px;border-radius:50%;background:${_wrColor(req.uid)};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex-shrink:0">${initials}</div>
+          <div style="flex:1;min-width:0;margin-left:10px">
+            <div style="font-weight:600;font-size:14px">${name}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">⏱ ${timeStr}</div>
+            ${msg}
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0;margin-left:8px">
+            <button class="wr-act" data-act="approve" data-uid="${esc(req.uid)}" data-name="${name}"
+              style="width:36px;height:36px;border-radius:50%;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.35);color:#22c55e;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center" title="Approve">✓</button>
+            <button class="wr-act" data-act="reject" data-uid="${esc(req.uid)}" data-name="${name}"
+              style="width:36px;height:36px;border-radius:50%;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:#ef4444;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center" title="Reject">✕</button>
+          </div>
+        </div>`;
+    };
+
+    const _renderWrList = (docs) => {
+      const listEl  = _wrModalEl && _wrModalEl.querySelector('#wr-live-list');
+      const countEl = _wrModalEl && _wrModalEl.querySelector('#wr-live-count');
+      if (!listEl) return;
+      if (countEl) countEl.textContent = `${docs.length} pending request${docs.length !== 1 ? 's' : ''}`;
+      listEl.innerHTML = docs.length
+        ? docs.map(_renderWrRow).join('')
+        : `<div style="text-align:center;padding:32px 16px;color:var(--text-muted)">
+             <div style="font-size:36px;margin-bottom:10px">✅</div>
+             <div style="font-size:14px">No pending requests</div>
+             <div style="font-size:12px;margin-top:6px;opacity:.7">All caught up!</div>
+           </div>`;
+    };
+
+    openModal(`
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+        <span style="font-size:22px">⏳</span>
+        <div>
+          <h3 class="sc-modal-title" style="margin:0">Waiting Room</h3>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:1px">${esc(gName)}</div>
+        </div>
+      </div>
+      <p id="wr-live-count" style="font-size:13px;color:var(--text-muted);margin:8px 0 12px">Loading…</p>
+      <div id="wr-live-list" style="max-height:55vh;overflow-y:auto;margin:0 -2px">
+        <div style="text-align:center;padding:28px;color:var(--text-muted)">
+          <div style="width:26px;height:26px;border:2px solid #7c3aed;border-top-color:transparent;border-radius:50%;margin:0 auto 10px;animation:spin .7s linear infinite"></div>
+          Loading requests…
+        </div>
+      </div>
+      <div class="actions" style="margin-top:16px"><button class="btn btn-ghost" data-close>Close</button></div>
+    `, (modalEl) => {
+      _wrModalEl = modalEl;
+      try {
+        _wrUnsub = db_wr.collection('groups').doc(g.code)
+          .collection('joinRequests')
+          .where('status', '==', 'pending')
+          .onSnapshot(snap => {
+            const docs = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+            docs.sort((a, b) => (a.requestedAt?.toMillis?.() ?? a.requestedAt ?? 0) - (b.requestedAt?.toMillis?.() ?? b.requestedAt ?? 0));
+            _renderWrList(docs);
+          }, () => {
+            const el = modalEl.querySelector('#wr-live-list');
+            if (el) el.innerHTML = `<div style="text-align:center;padding:24px;color:#ef4444;font-size:13px">Failed to load — check connection</div>`;
+          });
+      } catch(_) {}
+
+      // Inline approve/reject via event delegation
+      modalEl.addEventListener('click', ev => {
+        const btn = ev.target.closest('.wr-act');
+        if (!btn) return;
+        const act  = btn.dataset.act;
+        const uid  = btn.dataset.uid;
+        const name = btn.dataset.name || 'Member';
+        if (!uid || !act) return;
+
+        if (act === 'approve') {
+          btn.disabled = true; btn.textContent = '…';
+          const gRef  = db_wr.collection('groups').doc(g.code);
+          const mRef  = gRef.collection('members').doc(uid);
+          const rRef  = gRef.collection('joinRequests').doc(uid);
+          mRef.set({
+            uid, displayName: name, role: 'member',
+            joinedAt: fb_wr.firestore.FieldValue.serverTimestamp(),
+            isStudying: false, currentSubject: null, elapsedTimeToday: 0, dateKey: todayKey(),
+          }, { merge: true }).then(() => {
+            gRef.set({ memberCount: fb_wr.firestore.FieldValue.increment(1) }, { merge: true }).catch(() => {});
+            rRef.set({ status: 'approved', approvedAt: fb_wr.firestore.FieldValue.serverTimestamp(), groupName: g.name }, { merge: true }).catch(() => {});
+            db_wr.collection('users').doc(uid).set({ joinedRooms: fb_wr.firestore.FieldValue.arrayUnion(g.code) }, { merge: true }).catch(() => {});
+            btn.closest('.jr-row')?.remove();
+            const listEl = modalEl.querySelector('#wr-live-list');
+            const remaining = listEl ? listEl.querySelectorAll('.jr-row').length : 0;
+            const countEl   = modalEl.querySelector('#wr-live-count');
+            if (countEl) countEl.textContent = `${remaining} pending request${remaining !== 1 ? 's' : ''}`;
+            toast(`✓ ${name} approved!`, 'success');
+          }).catch(() => { btn.disabled = false; btn.textContent = '✓'; toast('Failed to approve', 'error'); });
+          return;
+        }
+        if (act === 'reject') {
+          btn.disabled = true; btn.textContent = '…';
+          db_wr.collection('groups').doc(g.code).collection('joinRequests').doc(uid)
+            .set({ status: 'rejected', rejectedAt: fb_wr.firestore.FieldValue.serverTimestamp() }, { merge: true })
+            .then(() => {
+              btn.closest('.jr-row')?.remove();
+              const listEl = modalEl.querySelector('#wr-live-list');
+              const remaining = listEl ? listEl.querySelectorAll('.jr-row').length : 0;
+              const countEl   = modalEl.querySelector('#wr-live-count');
+              if (countEl) countEl.textContent = `${remaining} pending request${remaining !== 1 ? 's' : ''}`;
+              toast('Request rejected', 'info');
+            }).catch(() => { btn.disabled = false; btn.textContent = '✕'; });
+          return;
+        }
+      });
+
+      const cleanup = () => { if (_wrUnsub) { try { _wrUnsub(); } catch(_) {} _wrUnsub = null; } };
+      modalEl.querySelector('[data-close]')?.addEventListener('click', cleanup, { once: true });
+      const backdrop = modalEl.closest?.('.modal-backdrop') || modalEl.parentElement;
+      if (backdrop) backdrop.addEventListener('click', ev => { if (ev.target === backdrop) cleanup(); }, { once: true });
+    });
   }
 
   // ── Also query groups where uid is in admins[] (catches other old groups) ─
@@ -952,13 +1159,14 @@
       const raw = localStorage.getItem(SC_KEY);
       const d = raw ? JSON.parse(raw) : {};
       return {
-        groups:   Array.isArray(d.groups) ? d.groups : [],
-        tasks:    Array.isArray(d.tasks)  ? d.tasks  : [],
-        notes:    Array.isArray(d.notes)  ? d.notes  : [],
-        chats:    (d.chats    && typeof d.chats    === 'object') ? d.chats    : {},
-        requests: (d.requests && typeof d.requests === 'object') ? d.requests : {},
+        groups:          Array.isArray(d.groups) ? d.groups : [],
+        tasks:           Array.isArray(d.tasks)  ? d.tasks  : [],
+        notes:           Array.isArray(d.notes)  ? d.notes  : [],
+        chats:           (d.chats    && typeof d.chats    === 'object') ? d.chats    : {},
+        requests:        (d.requests && typeof d.requests === 'object') ? d.requests : {},
+        pendingRequests: (d.pendingRequests && typeof d.pendingRequests === 'object') ? d.pendingRequests : {},
       };
-    } catch(_) { return { groups: [], tasks: [], notes: [], chats: {} }; }
+    } catch(_) { return { groups: [], tasks: [], notes: [], chats: {}, pendingRequests: {} }; }
   }
   function scSave(d) { try { localStorage.setItem(SC_KEY, JSON.stringify(d)); } catch(_) {} }
 
@@ -1017,6 +1225,12 @@
   let _confirmedOrphans    = new Set();
   // Guard so ghost detection runs only once per subscription, not every snapshot fire.
   let _ghostCheckDone      = false;
+  // ── Join-request state ────────────────────────────────────────────────────
+  // Admin-side: pending request counts per group code (realtime from _subscribeJoinRequests)
+  let _joinRequestsCount   = {};  // { code: number }
+  // User-side: groups where current user has a pending/rejected/approved request
+  let _myPendingGroups     = {};  // { code: { status:'pending'|'approved'|'rejected', groupName, requestedAt } }
+  let _pendingReqUnsubs    = {};  // { code: unsubFn } — one listener per code
 
   const isStudying = () => { try { return window._focusActive === true; } catch(_) { return false; } };
 
@@ -1555,10 +1769,18 @@
     const promoHTML      = promoted ? ' · <span class="sc-promo-badge">Promoted</span>' : '';
     const categoryUpper  = category.toUpperCase();
 
+    const _fbCode_ = g._fbCode || g.code || '';
+    const _pendingInfo = _myPendingGroups[_fbCode_];
     let roleBadge;
     if (isOwner)       roleBadge = `<span class="sc-disc-role sc-role-owner">👑 Admin</span>`;
     else if (isAdmin)  roleBadge = `<span class="sc-disc-role sc-role-admin">🛡 Admin</span>`;
     else if (isMember) roleBadge = `<span class="sc-disc-role sc-role-member">✓ Member</span>`;
+    else if (_pendingInfo && _pendingInfo.status === 'pending')
+                       roleBadge = `<span class="sc-disc-pending-badge">⏳ Request Pending</span>`;
+    else if (_pendingInfo && _pendingInfo.status === 'rejected')
+                       roleBadge = `<span class="sc-disc-join-hint" style="color:#ef4444">✕ Not approved — Tap to retry</span>`;
+    else if (g.joinMode === 'approval')
+                       roleBadge = `<span class="sc-disc-join-hint">⏳ Approval required →</span>`;
     else if (g.isPrivate) roleBadge = `<span class="sc-disc-join-hint">🔒 Enter Invite Code →</span>`;
     else               roleBadge = `<span class="sc-disc-join-hint">Tap to Join →</span>`;
 
@@ -2919,7 +3141,11 @@
           <div class="sgs-card">
             ${row('👤', 'Manage Members', memberCount + ' member' + (memberCount !== 1 ? 's' : ''), 'sgs-manage-members')}
             ${div}
-            ${requests.length > 0 ? row('⏳', 'Waiting Room', requests.length + ' pending', 'sgs-waiting-room') + div : ''}
+            ${(joinMode === 'approval') ? (() => {
+              const liveCount = _joinRequestsCount[g.code] ?? requests.length;
+              const badge     = liveCount > 0 ? ` <span style="display:inline-block;background:#f97316;color:#fff;font-size:10px;font-weight:700;border-radius:999px;padding:1px 7px;margin-left:4px;vertical-align:middle">${liveCount}</span>` : '';
+              return row('⏳', 'Waiting Room' + badge, liveCount > 0 ? liveCount + ' pending request' + (liveCount !== 1 ? 's' : '') : 'No pending requests', 'sgs-waiting-room') + div;
+            })() : (requests.length > 0 ? row('⏳', 'Waiting Room', requests.length + ' pending', 'sgs-waiting-room') + div : '')}
             ${row('📣', 'Nudge Everyone', 'Send a study reminder', 'sgs-nudge-all')}
           </div>
 
@@ -4170,15 +4396,52 @@
   function _modalRequestApproval(code, data) {
     const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
     if (!uid_) { toast('Sign in to join groups', 'warn'); return; }
+
+    // Check if already pending → show cancel option instead
+    const alreadyPending = _myPendingGroups[code] && _myPendingGroups[code].status === 'pending';
+    if (alreadyPending) {
+      openModal(`
+        <div style="text-align:center;padding:8px 0 12px">
+          <div style="font-size:36px;margin-bottom:10px">⏳</div>
+          <h3 class="sc-modal-title" style="margin-bottom:6px">Request Pending</h3>
+          <p class="sc-modal-sub">Your request to join <strong>"${esc(data.name || code)}"</strong> is awaiting admin approval.</p>
+          <p style="font-size:12px;color:var(--text-muted);margin-top:8px">You'll be notified once the admin reviews your request.</p>
+        </div>
+        <div class="actions" style="margin-top:16px;flex-direction:column;gap:8px">
+          <button class="btn sc-modal-submit" data-close>OK, I'll wait</button>
+          <button class="btn btn-ghost" id="sc-cancel-req" style="color:#ef4444;font-size:13px">Cancel my request</button>
+        </div>
+      `, root => {
+        root.querySelector('#sc-cancel-req').addEventListener('click', () => {
+          closeModal(); _cancelJoinRequest(code);
+        });
+      });
+      return;
+    }
+
+    const hasQuestion = !!(data.joinQuestion && data.joinQuestion.trim());
     openModal(`
-      <h3 class="sc-modal-title">⏳ Request to Join</h3>
-      <p class="sc-modal-sub">"${esc(data.name || code)}" requires admin approval before you can join.</p>
-      <div class="sc-field">
-        <label class="sc-label">Message to admin <span class="sc-opt">(optional)</span></label>
-        <input id="sc-req-msg" type="text" maxlength="120"
-               placeholder="e.g. Hey, I'd love to join your study group!"
-               class="sc-input" autocomplete="off"/>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="font-size:28px">⏳</span>
+        <div>
+          <h3 class="sc-modal-title" style="margin:0">Request to Join</h3>
+          <p class="sc-modal-sub" style="margin:2px 0 0">"${esc(data.name || code)}" needs admin approval</p>
+        </div>
       </div>
+      ${hasQuestion ? `
+        <div class="sc-field">
+          <label class="sc-label">${esc(data.joinQuestion)} <span style="color:#ef4444">*</span></label>
+          <textarea id="sc-req-msg" rows="3" maxlength="200" class="sc-textarea"
+                    placeholder="Your answer…" style="margin-top:6px"></textarea>
+        </div>
+      ` : `
+        <div class="sc-field">
+          <label class="sc-label">Message to admin <span class="sc-opt">(optional)</span></label>
+          <input id="sc-req-msg" type="text" maxlength="120"
+                 placeholder="e.g. Hey, I'd love to join your study group!"
+                 class="sc-input" autocomplete="off"/>
+        </div>
+      `}
       <div id="sc-req-err" class="sc-field-err" style="display:none"></div>
       <div class="actions" style="margin-top:16px">
         <button class="btn btn-ghost" data-close>Cancel</button>
@@ -4188,8 +4451,13 @@
       const msgEl    = root.querySelector('#sc-req-msg');
       const errEl    = root.querySelector('#sc-req-err');
       const submitEl = root.querySelector('#sc-do-req');
-      msgEl.focus();
+      if (msgEl) msgEl.focus();
       const send = () => {
+        const msgVal = (msgEl?.value || '').trim();
+        if (hasQuestion && !msgVal) {
+          errEl.textContent = 'Please answer the question above.';
+          errEl.style.display = ''; msgEl?.focus(); return;
+        }
         submitEl.disabled = true; submitEl.textContent = 'Sending…';
         const myName = _getUserDisplayName();
         if (!db_ || !uid_ || !fb_) {
@@ -4203,19 +4471,49 @@
             errEl.style.display = ''; submitEl.disabled = false; submitEl.textContent = 'Send Request'; return;
           }
           return reqRef.set({
-            uid:         uid_,
-            displayName: myName,
-            message:     (msgEl.value || '').trim(),
-            status:      'pending',
+            uid: uid_, displayName: myName,
+            message: msgVal, groupName: data.name || code,
+            status: 'pending',
             requestedAt: fb_.firestore.FieldValue.serverTimestamp(),
-          }).then(() => { closeModal(); toast('Request sent! Awaiting admin approval.', 'success', 5000); });
+          }).then(() => {
+            // Track pending request locally so UI can reflect it immediately
+            const pendingEntry = { status: 'pending', groupName: data.name || code, requestedAt: Date.now() };
+            _myPendingGroups[code] = pendingEntry;
+            const sc_ = scLoad(); sc_.pendingRequests[code] = pendingEntry; scSave(sc_);
+            // Subscribe for status updates
+            if (!_pendingReqUnsubs[code]) {
+              _pendingReqUnsubs[code] = db_.collection('groups').doc(code)
+                .collection('joinRequests').doc(uid_)
+                .onSnapshot(snap => {
+                  const d_ = snap.data();
+                  if (!snap.exists || !d_) {
+                    delete _myPendingGroups[code]; const s2 = scLoad(); delete s2.pendingRequests[code]; scSave(s2);
+                    if (!_destroyed) _scheduleRender(); return;
+                  }
+                  const status_ = d_.status || 'pending';
+                  const prev_   = _myPendingGroups[code];
+                  _myPendingGroups[code] = { ...(_myPendingGroups[code] || {}), status: status_, groupName: d_.groupName || data.name || code };
+                  const s2 = scLoad(); s2.pendingRequests[code] = _myPendingGroups[code]; scSave(s2);
+                  if (prev_ && prev_.status === 'pending' && status_ === 'approved') {
+                    toast(`✅ Your request to join "${_myPendingGroups[code].groupName}" was approved! 🎉`, 'success', 5000);
+                    setTimeout(() => window._socialRestoreGroups?.(), 400);
+                  } else if (prev_ && prev_.status === 'pending' && status_ === 'rejected') {
+                    toast(`Your request to join "${_myPendingGroups[code].groupName}" was not approved.`, 'info', 4000);
+                  }
+                  if (!_destroyed) _scheduleRender();
+                }, () => { delete _pendingReqUnsubs[code]; });
+            }
+            closeModal();
+            toast('✅ Request sent! We\'ll notify you when the admin responds.', 'success', 5000);
+            renderSocial();
+          });
         }).catch(() => {
           errEl.textContent = 'Could not send request. Check your connection.';
           errEl.style.display = ''; submitEl.disabled = false; submitEl.textContent = 'Send Request';
         });
       };
       submitEl.addEventListener('click', send);
-      msgEl.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+      msgEl?.addEventListener('keydown', e => { if (e.key === 'Enter' && !hasQuestion) send(); });
     });
   }
 
@@ -4262,6 +4560,12 @@
     const uid_ = getUserId();
     if (!uid_) { toast('Sign in to join groups', 'warn'); return; }
     if ((data.memberCount || 0) >= (data.maxMembers || 50)) { toast('This group is full', 'warn'); return; }
+    // If user already has a pending request, show the pending modal (with cancel option)
+    const pendingInfo = _myPendingGroups[code];
+    if (pendingInfo && pendingInfo.status === 'pending') {
+      _modalRequestApproval(code, data);
+      return;
+    }
     const joinMode    = data.joinMode    || 'open';
     const hasPassword = !!(data.joinPassword && data.joinPassword.length);
     if (joinMode === 'approval') {
@@ -5041,32 +5345,46 @@
         if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
         const gid = g.id;
         const cur = g.joinMode || 'open';
+        const hasPw = !!(g.joinPassword && g.joinPassword.length);
         openModal(`
-          <h3 class="sc-modal-title">How to Join</h3>
-          <p style="font-size:13px;color:var(--text-muted);margin:0 0 16px">Choose how new members can enter this group.</p>
+          <h3 class="sc-modal-title" style="margin-bottom:4px">🔒 Privacy & Join Mode</h3>
+          <p style="font-size:12px;color:var(--text-muted);margin:0 0 16px">Control how new members enter your group.</p>
           <div style="display:flex;flex-direction:column;gap:10px">
-            <label class="sgs-radio-row ${cur==='open'?'sgs-radio-selected':''}">
-              <input type="radio" name="jm" value="open" ${cur==='open'?'checked':''} style="display:none"/>
+            <label class="sgs-radio-row ${cur==='open' && !hasPw ? 'sgs-radio-selected':''}">
+              <input type="radio" name="jm" value="open" ${cur==='open' && !hasPw ? 'checked':''} style="display:none"/>
               <div class="sgs-radio-content">
-                <div style="font-size:15px;font-weight:600">🚪 Join immediately</div>
-                <div style="font-size:12px;color:var(--text-muted);margin-top:3px">Anyone with the code can join right away</div>
+                <div style="font-size:14px;font-weight:700">🌐 Open — join immediately</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:3px">Anyone with the invite code can join instantly. No friction.</div>
               </div>
-              <div class="sgs-radio-dot ${cur==='open'?'sgs-radio-dot-on':''}"></div>
+              <div class="sgs-radio-dot ${cur==='open' && !hasPw ? 'sgs-radio-dot-on':''}"></div>
             </label>
             <label class="sgs-radio-row ${cur==='approval'?'sgs-radio-selected':''}">
               <input type="radio" name="jm" value="approval" ${cur==='approval'?'checked':''} style="display:none"/>
               <div class="sgs-radio-content">
-                <div style="font-size:15px;font-weight:600">⏳ Join after approval</div>
-                <div style="font-size:12px;color:var(--text-muted);margin-top:3px">You review and approve each request</div>
+                <div style="font-size:14px;font-weight:700">⏳ Approval required</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:3px">New members send a request. You review and approve each one.</div>
               </div>
               <div class="sgs-radio-dot ${cur==='approval'?'sgs-radio-dot-on':''}"></div>
             </label>
+            <label class="sgs-radio-row ${hasPw?'sgs-radio-selected':''}">
+              <input type="radio" name="jm" value="password" ${hasPw?'checked':''} style="display:none"/>
+              <div class="sgs-radio-content">
+                <div style="font-size:14px;font-weight:700">🔑 Password protected</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:3px">Members must enter the correct password to join.</div>
+              </div>
+              <div class="sgs-radio-dot ${hasPw?'sgs-radio-dot-on':''}"></div>
+            </label>
+          </div>
+          <div id="jm-pw-wrap" style="margin-top:14px;display:${hasPw?'block':'none'}">
+            <label class="sc-label" style="font-size:12px">Password</label>
+            <input id="jm-pw-inp" type="text" maxlength="30" value="${esc(g.joinPassword||'')}" class="sc-input" placeholder="e.g. study2026" autocomplete="off" style="margin-top:6px"/>
           </div>
           <div class="actions" style="margin-top:20px">
             <button class="btn btn-ghost" data-close>Cancel</button>
             <button class="btn sc-modal-submit" id="jm-save">Save</button>
           </div>
         `, root => {
+          const pwWrap = root.querySelector('#jm-pw-wrap');
           root.querySelectorAll('.sgs-radio-row').forEach(row => {
             row.addEventListener('click', () => {
               root.querySelectorAll('.sgs-radio-row').forEach(r => r.classList.remove('sgs-radio-selected'));
@@ -5074,21 +5392,36 @@
               row.classList.add('sgs-radio-selected');
               row.querySelector('.sgs-radio-dot').classList.add('sgs-radio-dot-on');
               row.querySelector('input[type=radio]').checked = true;
+              const val = row.querySelector('input[type=radio]').value;
+              pwWrap.style.display = val === 'password' ? 'block' : 'none';
             });
           });
           root.querySelector('#jm-save').addEventListener('click', () => {
-            const val = root.querySelector('input[name=jm]:checked')?.value || 'open';
-            const sc2 = scLoad();
-            const g2  = sc2.groups.find(x => x.id === gid);
+            const val    = root.querySelector('input[name=jm]:checked')?.value || 'open';
+            const pwVal  = (root.querySelector('#jm-pw-inp')?.value || '').trim();
+            const sc2    = scLoad();
+            const g2     = sc2.groups.find(x => x.id === gid);
             if (!g2) return;
-            g2.joinMode = val;
-            g2.isPrivate = val === 'approval';
-            scSave(sc2);
-            _saveGroupSetting(g2.code, { joinMode: val, isPrivate: val === 'approval' });
-            if (val === 'approval' && g2.code) _subscribeJoinRequests(g2.code);
-            closeModal();
-            toast(val === 'approval' ? '⏳ Approval required to join' : '🚪 Open join enabled', 'success');
-            renderSocial();
+            if (val === 'password' && !pwVal) {
+              root.querySelector('#jm-pw-inp').focus(); return;
+            }
+            if (val === 'approval') {
+              g2.joinMode = 'approval'; g2.isPrivate = true; g2.joinPassword = '';
+              scSave(sc2);
+              _saveGroupSetting(g2.code, { joinMode: 'approval', isPrivate: true, joinPassword: '' });
+              if (g2.code) _subscribeJoinRequests(g2.code);
+              closeModal(); toast('⏳ Approval required to join', 'success'); renderSocial();
+            } else if (val === 'password') {
+              g2.joinMode = 'open'; g2.isPrivate = false; g2.joinPassword = pwVal;
+              scSave(sc2);
+              _saveGroupSetting(g2.code, { joinMode: 'open', isPrivate: false, joinPassword: pwVal });
+              closeModal(); toast('🔑 Group is now password-protected', 'success'); renderSocial();
+            } else {
+              g2.joinMode = 'open'; g2.isPrivate = false; g2.joinPassword = '';
+              scSave(sc2);
+              _saveGroupSetting(g2.code, { joinMode: 'open', isPrivate: false, joinPassword: '' });
+              closeModal(); toast('🌐 Group is now open to everyone', 'success'); renderSocial();
+            }
           });
         });
         break;
@@ -5203,43 +5536,10 @@
 
       // ── Management Section ────────────────────────────────────────────────
       case 'sgs-waiting-room': {
-        const sc  = scLoad();
-        const g   = sc.groups.find(x => x.id === el.dataset.gid);
+        const sc = scLoad();
+        const g  = sc.groups.find(x => x.id === el.dataset.gid);
         if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
-        const gid  = g.id;
-        const reqs = (sc.requests && sc.requests[gid]) || [];
-        if (!reqs.length) {
-          openModal(`
-            <h3 class="sc-modal-title">⏳ Waiting Room</h3>
-            <div style="text-align:center;padding:28px 0;color:var(--text-muted)">
-              <div style="font-size:36px;margin-bottom:12px">✅</div>
-              <div>No pending join requests</div>
-            </div>
-            <div class="actions"><button class="btn btn-ghost" data-close>Close</button></div>
-          `);
-          break;
-        }
-        const rows = reqs.map(r => `
-          <div class="adm-member-row" data-req-id="${esc(r.id)}" style="margin-bottom:10px">
-            <div class="adm-member-av-wrap">
-              <div class="adm-member-av" style="width:36px;height:36px;border-radius:50%;background:#7c3aed;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex-shrink:0">${esc((r.name||'?').slice(0,2).toUpperCase())}</div>
-            </div>
-            <div class="adm-member-info" style="flex:1;min-width:0;margin-left:10px">
-              <div style="font-weight:600;font-size:14px">${esc(r.name||'Anonymous')}</div>
-              ${r.answer ? `<div style="font-size:12px;color:var(--text-muted);font-style:italic;margin-top:2px">"${esc(r.answer)}"</div>` : ''}
-              <div style="font-size:11px;color:var(--text-dim);margin-top:2px">${new Date(r.requestedAt||Date.now()).toLocaleString()}</div>
-            </div>
-            <div style="display:flex;gap:6px;flex-shrink:0">
-              <button class="btn" style="padding:6px 12px;font-size:12px;background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3)" data-sc="sgs-approve-req" data-gid="${esc(gid)}" data-rid="${esc(r.id)}" data-name="${esc(r.name||'Member')}">✓</button>
-              <button class="btn btn-danger" style="padding:6px 12px;font-size:12px" data-sc="sgs-reject-req" data-gid="${esc(gid)}" data-rid="${esc(r.id)}">✕</button>
-            </div>
-          </div>`).join('');
-        openModal(`
-          <h3 class="sc-modal-title">⏳ Waiting Room</h3>
-          <p style="font-size:13px;color:var(--text-muted);margin:0 0 14px">${reqs.length} pending request${reqs.length!==1?'s':''}</p>
-          <div id="wr-list">${rows}</div>
-          <div class="actions" style="margin-top:16px"><button class="btn btn-ghost" data-close>Close</button></div>
-        `);
+        _openWaitingRoomModal(g);
         break;
       }
 
@@ -5261,18 +5561,17 @@
           }
         }
         scSave(sc);
-        // Firebase: mark request approved + add to members subcollection
         const db_ap = getDb(), fb_ap = getFb();
         if (db_ap && fb_ap && g.code) {
-          const gRef_ap  = db_ap.collection('groups').doc(g.code);
+          const gRef_ap   = db_ap.collection('groups').doc(g.code);
           const reqRef_ap = gRef_ap.collection('joinRequests').doc(rid);
           const mRef_ap   = gRef_ap.collection('members').doc(rid);
-          reqRef_ap.set({ status: 'approved', approvedAt: fb_ap.firestore.FieldValue.serverTimestamp() }, { merge: true }).catch(() => {});
+          // Mark approved + include groupName so user's listener can display notification
+          reqRef_ap.set({ status: 'approved', approvedAt: fb_ap.firestore.FieldValue.serverTimestamp(), groupName: g.name || g.code }, { merge: true }).catch(() => {});
           mRef_ap.set({
             uid: rid, displayName: name, role: 'member',
             joinedAt: fb_ap.firestore.FieldValue.serverTimestamp(),
-            isStudying: false, currentSubject: null,
-            elapsedTimeToday: 0, dateKey: todayKey(),
+            isStudying: false, currentSubject: null, elapsedTimeToday: 0, dateKey: todayKey(),
           }, { merge: true }).then(() => {
             gRef_ap.set({ memberCount: fb_ap.firestore.FieldValue.increment(1) }, { merge: true }).catch(() => {});
           }).catch(() => {});
@@ -5293,11 +5592,11 @@
         if (!sc.requests[gid]) sc.requests[gid] = [];
         sc.requests[gid] = sc.requests[gid].filter(r => r.id !== rid);
         scSave(sc);
-        // Firebase: mark request rejected
-        const db_rj = getDb();
+        const db_rj = getDb(), fb_rj = getFb();
         if (db_rj && g_rj?.code) {
+          // Include groupName so user's listener can show a polite notification
           db_rj.collection('groups').doc(g_rj.code).collection('joinRequests').doc(rid)
-            .set({ status: 'rejected' }, { merge: true }).catch(() => {});
+            .set({ status: 'rejected', rejectedAt: fb_rj?.firestore?.FieldValue?.serverTimestamp?.() ?? null, groupName: g_rj.name || g_rj.code }, { merge: true }).catch(() => {});
         }
         toast('Request rejected', 'info');
         el.closest('.adm-member-row')?.remove();
@@ -6035,6 +6334,7 @@
       _subscribeMyGroupsByOwner();
       _subscribeMyGroupsByAdmin();
       _subscribeGroupDocs();            // per-group doc listeners for live memberCount
+      _subscribeMyPendingRequests();    // watch user's own pending join requests
       _restoreGroupsFromFirebase().catch(() => {});
     }, 500);
 
