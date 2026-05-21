@@ -1706,8 +1706,7 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   .brb-title { font-size: 12px; }
   .brb-sub   { font-size: 10px; }
 
-  /* ── Mini floating timer bubble ─────────────────────────────── */
-  #focus-mini-timer { bottom: 10px; right: 12px; }
+  /* ── Mini floating timer bubble — position via JS vars only ── */
 
   /* ═══════════════════════════════════════════════════════════════
      HOME TAB — two-column hero cards
@@ -3600,8 +3599,8 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 /* ── Mini Floating Timer Bubble ────────────────────────────── */
 #focus-mini-timer {
   position: fixed;
-  bottom: 74px;
-  right: 14px;
+  left: 0;
+  top: 0;
   z-index: 950;
   display: none;
   align-items: center;
@@ -3614,22 +3613,30 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   cursor: grab;
   user-select: none;
   touch-action: none;
-  transition: transform 0.15s, box-shadow 0.15s;
-  animation: fmt-pop 0.25s cubic-bezier(0.34,1.56,0.64,1);
+  /* Position driven entirely by --fmt-x / --fmt-y — no top/left reflow */
+  transform: translate3d(var(--fmt-x,0px), var(--fmt-y,0px), 0);
+  transition: box-shadow 0.15s;
   will-change: transform;
+  animation: fmt-pop 0.25s cubic-bezier(0.34,1.56,0.64,1);
 }
-#focus-mini-timer:hover { transform: scale(1.05); }
-#focus-mini-timer:active { transform: scale(0.97); }
+#focus-mini-timer:hover {
+  transform: translate3d(var(--fmt-x,0px), var(--fmt-y,0px), 0) scale(1.05);
+}
+#focus-mini-timer:active {
+  transform: translate3d(var(--fmt-x,0px), var(--fmt-y,0px), 0) scale(0.97);
+}
 #focus-mini-timer.fmt-dragging {
   cursor: grabbing !important;
-  transform: scale(1.06) !important;
+  transform: translate3d(var(--fmt-x,0px), var(--fmt-y,0px), 0) scale(1.06) !important;
   box-shadow: 0 8px 28px rgba(99,102,241,0.65) !important;
-  transition: box-shadow 0.15s !important;
+  transition: none !important;
   animation: none !important;
 }
 #focus-mini-timer.fmt-dragging:hover,
-#focus-mini-timer.fmt-dragging:active { transform: scale(1.06) !important; }
-@keyframes fmt-pop { from { transform: scale(0.6) translateY(10px); opacity: 0; } to { transform: scale(1) translateY(0); opacity: 1; } }
+#focus-mini-timer.fmt-dragging:active {
+  transform: translate3d(var(--fmt-x,0px), var(--fmt-y,0px), 0) scale(1.06) !important;
+}
+@keyframes fmt-pop { from { opacity: 0; } to { opacity: 1; } }
 .fmt-icon { font-size: 15px; }
 #fmt-time {
   font-size: 17px;

@@ -5885,35 +5885,13 @@
 
   // ========== Mini Floating Timer Bubble ==========
 
-  // ── Drag state ────────────────────────────────────────────────────────────
-  let _fmtDragging    = false;
-  let _fmtDragOffX    = 0, _fmtDragOffY    = 0;
-  let _fmtDragStartX  = 0, _fmtDragStartY  = 0;
-  let _fmtHasDragged  = false;
-  const _FMT_DRAG_THRESHOLD = 6; // px — below this it's a tap, not a drag
+  // ── Persistent position helpers ───────────────────────────────────────────
   const _FMT_POS_KEY = 'fmt_pos_v1';
-
-  // Save / restore position in localStorage
   function _fmtSavePos(x, y) {
     try { localStorage.setItem(_FMT_POS_KEY, JSON.stringify({ x, y })); } catch(_) {}
   }
   function _fmtLoadPos() {
     try { return JSON.parse(localStorage.getItem(_FMT_POS_KEY) || 'null'); } catch(_) { return null; }
-  }
-
-  // Clamp and apply position using top/left (overrides CSS bottom/right)
-  function _fmtApplyPos(bubble, x, y) {
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const w  = bubble.offsetWidth  || 134;
-    const h  = bubble.offsetHeight || 42;
-    const cx = Math.max(4, Math.min(x, vw - w - 4));
-    const cy = Math.max(4, Math.min(y, vh - h - 4));
-    bubble.style.left   = cx + 'px';
-    bubble.style.top    = cy + 'px';
-    bubble.style.bottom = 'auto';
-    bubble.style.right  = 'auto';
-    return { x: cx, y: cy };
   }
 
   function initMiniTimer() {
@@ -5925,74 +5903,87 @@
     bubble.style.display = 'none';
     document.body.appendChild(bubble);
 
-    // Restore saved drag position
-    const saved = _fmtLoadPos();
-    if (saved) _fmtApplyPos(bubble, saved.x, saved.y);
+    // ── Position via CSS custom properties — zero reflow, GPU-composited ──
+    let posX = 0, posY = 0;
 
-    // ── Pointer Events — handles mouse AND touch in one handler ──
+    function _setPos(x, y) {
+      const w  = bubble.offsetWidth  || 134;
+      const h  = bubble.offsetHeight || 42;
+      posX = Math.max(0, Math.min(x, window.innerWidth  - w));
+      posY = Math.max(0, Math.min(y, window.innerHeight - h));
+      bubble.style.setProperty('--fmt-x', posX + 'px');
+      bubble.style.setProperty('--fmt-y', posY + 'px');
+    }
+
+    function _defaultPos() {
+      const w = bubble.offsetWidth  || 134;
+      const h = bubble.offsetHeight || 42;
+      return { x: window.innerWidth - w - 14, y: window.innerHeight - h - 74 };
+    }
+
+    // Restore saved position; default to bottom-right on first use
+    const saved = _fmtLoadPos();
+    if (saved) {
+      _setPos(saved.x, saved.y);
+    } else {
+      const dp = _defaultPos();
+      _setPos(dp.x, dp.y);
+    }
+
+    // ── Drag state (local — not shared with outer scope) ──────────────────
+    let dragging = false, hasDragged = false;
+    let offX = 0, offY = 0, startX = 0, startY = 0;
+    const DRAG_THRESHOLD = 6;
+
+    // pointerdown on the bubble
     bubble.addEventListener('pointerdown', e => {
-      // Only primary button / single touch
       if (e.button && e.button !== 0) return;
       e.preventDefault();
-      bubble.setPointerCapture(e.pointerId);
-
-      // Convert current rendered position to top/left so drag maths work
-      const rect = bubble.getBoundingClientRect();
-      _fmtApplyPos(bubble, rect.left, rect.top);
-
-      _fmtDragOffX   = e.clientX - rect.left;
-      _fmtDragOffY   = e.clientY - rect.top;
-      _fmtDragStartX = e.clientX;
-      _fmtDragStartY = e.clientY;
-      _fmtHasDragged = false;
-      _fmtDragging   = true;
+      e.stopPropagation();
+      offX      = e.clientX - posX;
+      offY      = e.clientY - posY;
+      startX    = e.clientX;
+      startY    = e.clientY;
+      hasDragged = false;
+      dragging   = true;
       bubble.classList.add('fmt-dragging');
-    });
+    }, { passive: false });
 
-    bubble.addEventListener('pointermove', e => {
-      if (!_fmtDragging) return;
+    // ── Move + End bound to WINDOW — fast drag never loses the pointer ──
+    function _onMove(e) {
+      if (!dragging) return;
       e.preventDefault();
-
-      // Detect real drag (beyond threshold)
-      if (!_fmtHasDragged &&
-          (Math.abs(e.clientX - _fmtDragStartX) > _FMT_DRAG_THRESHOLD ||
-           Math.abs(e.clientY - _fmtDragStartY) > _FMT_DRAG_THRESHOLD)) {
-        _fmtHasDragged = true;
+      if (!hasDragged &&
+          (Math.abs(e.clientX - startX) > DRAG_THRESHOLD ||
+           Math.abs(e.clientY - startY) > DRAG_THRESHOLD)) {
+        hasDragged = true;
       }
+      if (hasDragged) _setPos(e.clientX - offX, e.clientY - offY);
+    }
 
-      if (_fmtHasDragged) {
-        const nx = e.clientX - _fmtDragOffX;
-        const ny = e.clientY - _fmtDragOffY;
-        _fmtApplyPos(bubble, nx, ny);
-      }
-    });
-
-    const _onPointerEnd = e => {
-      if (!_fmtDragging) return;
-      _fmtDragging = false;
+    function _onEnd() {
+      if (!dragging) return;
+      dragging = false;
       bubble.classList.remove('fmt-dragging');
+      _fmtSavePos(posX, posY);
+      if (!hasDragged) switchTab('focus');
+    }
 
-      // Save final position
-      const rect = bubble.getBoundingClientRect();
-      const { x, y } = _fmtApplyPos(bubble, rect.left, rect.top);
-      _fmtSavePos(x, y);
+    window.addEventListener('pointermove',   _onMove, { passive: false });
+    window.addEventListener('pointerup',     _onEnd);
+    window.addEventListener('pointercancel', _onEnd);
 
-      // If pointer barely moved → treat as a tap → navigate to Focus tab
-      if (!_fmtHasDragged) switchTab('focus');
-    };
+    // Block page scroll while dragging on PWA / iOS touch
+    window.addEventListener('touchmove', e => {
+      if (dragging) e.preventDefault();
+    }, { passive: false });
 
-    bubble.addEventListener('pointerup',     _onPointerEnd);
-    bubble.addEventListener('pointercancel', _onPointerEnd);
-
-    // Re-clamp on orientation change / resize so button never hides off-screen
+    // Re-clamp when orientation changes or browser chrome resizes
     window.addEventListener('resize', () => {
       const b = document.getElementById('focus-mini-timer');
       if (!b || b.style.display === 'none') return;
-      const hasCustomPos = b.style.left && b.style.left !== '' && b.style.bottom === 'auto';
-      if (hasCustomPos) {
-        const { x, y } = _fmtApplyPos(b, parseFloat(b.style.left), parseFloat(b.style.top));
-        _fmtSavePos(x, y);
-      }
+      _setPos(posX, posY);
+      _fmtSavePos(posX, posY);
     });
   }
 
