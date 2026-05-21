@@ -68,6 +68,12 @@
   let _confettiInterval     = null;
   let _taskSnapshotCache    = 0;
 
+  // ─── TOURNAMENT ENGINE STATE ─────────────────────────────────────────────────
+  let _tournProcessedTasks  = {};   // { [tid]: Set<taskKey> } — in-memory dedup for task_battle
+  let _xpDebounceTimer      = null;
+  let _tournHeartbeatTimer  = null;
+  const TOURN_HEARTBEAT_MS  = 30000;
+
   // ─── FIREBASE ACCESSORS ──────────────────────────────────────────────────────
   const _db   = () => { try { return window.appUI?.getDb?.() ?? null; } catch(_) { return null; } };
   const _uid  = () => { try { return window.appUI?.getUserId?.() ?? null; } catch(_) { return null; } };
@@ -156,6 +162,7 @@
     if (_tournSub)       { try { _tournSub(); }       catch(_) {} _tournSub = null; }
     if (_tournDetailSub) { try { _tournDetailSub(); } catch(_) {} _tournDetailSub = null; }
     _stopTournCountdown();
+    _stopTournHeartbeat();
     Object.values(_partSubsMap).forEach(unsub => { try { unsub(); } catch(_) {} });
     _partSubsMap = {};
     Object.values(_partCountSubsMap).forEach(unsub => { try { unsub(); } catch(_) {} });
@@ -163,6 +170,7 @@
     _tournParticipantCounts = {};
     _groupTournaments    = [];
     _myJoinedTournaments = new Set();
+    _tournProcessedTasks = {};
   }
 
   // ─── CONFETTI ────────────────────────────────────────────────────────────────
@@ -509,36 +517,186 @@
     } catch(_) { return 0; }
   }
 
-  // ─── TOURNAMENT SCORE UPDATE (called externally when tasks complete) ──────────
+  // ─── TOURNAMENT SCORE UPDATE (absolute-value sync for XP & streak) ──────────
+  // Only syncs most_xp and streak — incremental types (focus_time, most_sessions,
+  // task_battle) are managed via the event engine below to avoid overwriting
+  // atomic increments with stale absolute readings.
   function updateTournamentScore() {
     const uid = _uid();
     const db2 = _db();
     if (!uid || !db2 || !_groupCode) return;
 
-    const active = _groupTournaments.filter(t => {
-      const now = Date.now();
-      const startMs = _toMs(t.startTime);
-      const endMs   = _toMs(t.endTime);
-      return t.status !== 'completed' && now >= startMs && now <= endMs;
-    });
+    const active = _getActiveJoinedTournaments();
+    if (!active.length) return;
+
+    const st    = _ms();
+    const xp    = st.xp?.total || 0;
+    const streak= st.focusStreak?.count || 0;
 
     active.forEach(t => {
-      const st = _ms();
-      const today = _todayKey();
-      let score = 0;
-
-      if (t.type === 'task_battle')   score = _completedTasks();
-      if (t.type === 'most_xp')       score = st.xp?.total || 0;
-      if (t.type === 'most_sessions')  score = ((st.focusStats?.sessions)||{})[today] || 0;
-      if (t.type === 'streak')         score = st.streakCount || 0;
-      if (t.type === 'focus_time')     score = st.focusStats?.totalMs || 0;
-
-      if (score === 0 && t.type !== 'task_battle') return;
+      let score = null;
+      if (t.type === 'most_xp') score = xp;
+      if (t.type === 'streak')  score = streak;
+      if (score === null) return; // incremental types handled by event engine
 
       db2.collection('tournaments').doc(t.id).collection('participants').doc(uid)
         .set({ score, updatedAt: _sts() }, { merge: true })
         .catch(() => {});
     });
+  }
+
+  // ─── TOURNAMENT EVENT ENGINE ──────────────────────────────────────────────────
+  // Returns active tournaments the current user has joined, excluding ended/deleted.
+  function _getActiveJoinedTournaments() {
+    const uid = _uid();
+    if (!uid || !_groupCode) return [];
+    const now = Date.now();
+    return _groupTournaments.filter(t => {
+      if (!_myJoinedTournaments.has(t.id)) return false;
+      if (t.status === 'completed' || t.status === 'deleted') return false;
+      const endMs   = _toMs(t.endTime);
+      const startMs = _toMs(t.startTime);
+      if (endMs   && endMs   < now) return false;
+      if (startMs && startMs > now) return false;
+      return true;
+    });
+  }
+
+  // Restore dedup set from a Firestore participant snapshot's processedTaskIds array.
+  function _initProcessedTasksFromSnap(tid, data) {
+    if (!_tournProcessedTasks[tid]) _tournProcessedTasks[tid] = new Set();
+    const ids = data?.processedTaskIds;
+    if (Array.isArray(ids)) ids.forEach(id => _tournProcessedTasks[tid].add(id));
+  }
+
+  // ── Task completed ────────────────────────────────────────────────────────────
+  // Atomically increments task_battle score once per unique taskKey per tournament.
+  function onTaskCompleted(taskKey) {
+    const uid = _uid(), db2 = _db();
+    if (!uid || !db2 || !taskKey) return;
+    const active = _getActiveJoinedTournaments().filter(t => t.type === 'task_battle');
+    if (!active.length) return;
+
+    const fb = _fb();
+    active.forEach(t => {
+      if (!_tournProcessedTasks[t.id]) _tournProcessedTasks[t.id] = new Set();
+      if (_tournProcessedTasks[t.id].has(taskKey)) return; // already counted
+      _tournProcessedTasks[t.id].add(taskKey);
+
+      const ref   = db2.collection('tournaments').doc(t.id).collection('participants').doc(uid);
+      const patch = { updatedAt: _sts() };
+      const inc   = _inc(1);
+      if (inc) patch.score = inc;
+      const au = fb?.firestore?.FieldValue?.arrayUnion?.(taskKey);
+      if (au) patch.processedTaskIds = au;
+      ref.set(patch, { merge: true }).catch(() => {
+        // Rollback local dedup on failure
+        _tournProcessedTasks[t.id]?.delete(taskKey);
+      });
+    });
+  }
+
+  // ── Task unchecked ────────────────────────────────────────────────────────────
+  // Atomically decrements task_battle score if this taskKey was previously counted.
+  function onTaskUnchecked(taskKey) {
+    const uid = _uid(), db2 = _db();
+    if (!uid || !db2 || !taskKey) return;
+    const active = _getActiveJoinedTournaments().filter(t => t.type === 'task_battle');
+    if (!active.length) return;
+
+    const fb = _fb();
+    active.forEach(t => {
+      if (!_tournProcessedTasks[t.id]?.has(taskKey)) return; // wasn't counted
+      _tournProcessedTasks[t.id].delete(taskKey);
+
+      const ref   = db2.collection('tournaments').doc(t.id).collection('participants').doc(uid);
+      const patch = { updatedAt: _sts() };
+      const inc   = _inc(-1);
+      if (inc) patch.score = inc;
+      const ar = fb?.firestore?.FieldValue?.arrayRemove?.(taskKey);
+      if (ar) patch.processedTaskIds = ar;
+      ref.set(patch, { merge: true }).catch(() => {
+        // Rollback local dedup on failure
+        if (!_tournProcessedTasks[t.id]) _tournProcessedTasks[t.id] = new Set();
+        _tournProcessedTasks[t.id].add(taskKey);
+      });
+    });
+  }
+
+  // ── Focus session completed ───────────────────────────────────────────────────
+  // Increments focus_time score by minutes*60*1000 and most_sessions score by 1.
+  // Only called when a session fully completes (not cancelled/paused mid-session).
+  function onFocusSessionCompleted(minutes) {
+    const uid = _uid(), db2 = _db();
+    if (!uid || !db2 || !minutes || minutes <= 0) return;
+    const active = _getActiveJoinedTournaments();
+    if (!active.length) return;
+
+    const focusTournaments   = active.filter(t => t.type === 'focus_time');
+    const sessionTournaments = active.filter(t => t.type === 'most_sessions');
+    const focusMs = Math.round(minutes * 60 * 1000);
+
+    focusTournaments.forEach(t => {
+      const ref = db2.collection('tournaments').doc(t.id).collection('participants').doc(uid);
+      const inc = _inc(focusMs);
+      const patch = { updatedAt: _sts() };
+      if (inc) patch.score = inc;
+      ref.set(patch, { merge: true }).catch(() => {});
+    });
+
+    sessionTournaments.forEach(t => {
+      const ref = db2.collection('tournaments').doc(t.id).collection('participants').doc(uid);
+      const inc = _inc(1);
+      const patch = { updatedAt: _sts() };
+      if (inc) patch.score = inc;
+      ref.set(patch, { merge: true }).catch(() => {});
+    });
+  }
+
+  // ── XP earned ────────────────────────────────────────────────────────────────
+  // Sets most_xp score to the user's current total XP (debounced to avoid write storms).
+  function onXPEarned(totalXP) {
+    if (_xpDebounceTimer) clearTimeout(_xpDebounceTimer);
+    _xpDebounceTimer = setTimeout(() => {
+      _xpDebounceTimer = null;
+      const uid = _uid(), db2 = _db();
+      if (!uid || !db2) return;
+      const active = _getActiveJoinedTournaments().filter(t => t.type === 'most_xp');
+      if (!active.length) return;
+      const xp = (typeof totalXP === 'number' ? totalXP : null) ?? (_ms()?.xp?.total || 0);
+      active.forEach(t => {
+        db2.collection('tournaments').doc(t.id).collection('participants').doc(uid)
+          .set({ score: xp, updatedAt: _sts() }, { merge: true }).catch(() => {});
+      });
+    }, 1500);
+  }
+
+  // ── Streak updated ────────────────────────────────────────────────────────────
+  // Sets streak score to the user's current consecutive focus-day count.
+  function onStreakUpdated(streak) {
+    const uid = _uid(), db2 = _db();
+    if (!uid || !db2) return;
+    const active = _getActiveJoinedTournaments().filter(t => t.type === 'streak');
+    if (!active.length) return;
+    active.forEach(t => {
+      db2.collection('tournaments').doc(t.id).collection('participants').doc(uid)
+        .set({ score: streak || 0, updatedAt: _sts() }, { merge: true }).catch(() => {});
+    });
+  }
+
+  // ── Tournament heartbeat ──────────────────────────────────────────────────────
+  // Runs every 30s as a safety net: re-syncs absolute-value metrics (XP, streak)
+  // so stale scores are corrected even if an event hook was missed.
+  function _startTournHeartbeat() {
+    _stopTournHeartbeat();
+    _tournHeartbeatTimer = setInterval(() => {
+      updateTournamentScore();
+    }, TOURN_HEARTBEAT_MS);
+  }
+
+  function _stopTournHeartbeat() {
+    if (_tournHeartbeatTimer) { clearInterval(_tournHeartbeatTimer); _tournHeartbeatTimer = null; }
+    if (_xpDebounceTimer)    { clearTimeout(_xpDebounceTimer);       _xpDebounceTimer    = null; }
   }
 
   // ─── BATTLE DOM RAF LOOP ─────────────────────────────────────────────────────
@@ -824,6 +982,17 @@
                   _updateJoinButtonDOM(t.id);
                 }, () => {});
               _partSubsMap[t.id] = unsub;
+            });
+
+            // Pre-load processedTaskIds for task_battle dedup on reconnect
+            _groupTournaments.forEach(t => {
+              if (t.type !== 'task_battle') return;
+              if (_tournProcessedTasks[t.id]) return; // already loaded
+              _tournProcessedTasks[t.id] = new Set();
+              db2.collection('tournaments').doc(t.id).collection('participants').doc(uid)
+                .get().then(snap => {
+                  if (snap.exists) _initProcessedTasksFromSnap(t.id, snap.data());
+                }).catch(() => {});
             });
 
             // Subscribe to full participant collection for real-time count
@@ -2137,10 +2306,12 @@
     }
     _subTournaments(groupCode);
     _checkActiveDuel(uid);
+    _startTournHeartbeat();
   }
 
   function destroy() {
     _cleanDuel(); _cleanInvite(); _cleanTourn();
+    _stopTournHeartbeat();
     _groupCode = null; _duelHistory = [];
     _pendingInvites.clear(); _historyLoaded = false;
   }
@@ -2157,7 +2328,14 @@
     setDuelSubTab,
     handleEvent, acceptDuel, rejectDuel,
     openChallengeModal,
+    // Legacy sync (used by heartbeat + direct callers)
     updateTournamentScore,
+    // Event-driven hooks — called by script.js on every relevant activity
+    onTaskCompleted,
+    onTaskUnchecked,
+    onFocusSessionCompleted,
+    onXPEarned,
+    onStreakUpdated,
   };
 
   window._scChallengeDuelLegacy = openChallengeModal;

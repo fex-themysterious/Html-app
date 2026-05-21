@@ -1732,6 +1732,8 @@
       this.addXP(amount, 'focus');
       this._updateFocusStreak(elapsedMin, dateStr);
       this.checkStreakBonus();
+      try { window.DuelSystem?.onFocusSessionCompleted?.(elapsedMin); } catch(_) {}
+      try { window.DuelSystem?.onXPEarned?.(state.xp?.total); } catch(_) {}
       // Float near the timer ring (works in both normal and full-session views)
       const ringEl = document.querySelector('.focus-ring-center') ||
                      document.querySelector('.fs-timer-wrap')     ||
@@ -1751,6 +1753,7 @@
       state.xp.taskAwards[taskKey] = amount;   // record so we can reverse it exactly
       this.addXP(amount, 'task');
       showXPFloat(amount, sourceEl || null);
+      try { window.DuelSystem?.onXPEarned?.(state.xp?.total); } catch(_) {}
     },
 
     // Remove the exact XP that was awarded for taskKey (called on uncheck or task delete)
@@ -1829,6 +1832,7 @@
         state.focusStreak.lastDate = d;
         if (!state.focusStreak.best || state.focusStreak.count > state.focusStreak.best)
           state.focusStreak.best = state.focusStreak.count;
+        try { window.DuelSystem?.onStreakUpdated?.(state.focusStreak.count); } catch(_) {}
       }
     }
   };
@@ -8781,12 +8785,12 @@
             gamificationManager.addTaskXP(_ck, el);
             onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true);
             _justPoppedKey = `auto:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`;
-            try { window.DuelSystem?.updateTournamentScore?.(); } catch(_) {}
+            try { window.DuelSystem?.onTaskCompleted?.(_ck); } catch(_) {}
           } else {
             gamificationManager.removeTaskXP(_ck, el);
             trackCompletion(_ck, false);
             onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, false);
-            try { window.DuelSystem?.updateTournamentScore?.(); } catch(_) {}
+            try { window.DuelSystem?.onTaskUnchecked?.(_ck); } catch(_) {}
           }
           const tasks = getActivePlanTasks();
           if (tasks.length > 0 && tasks.every(x => x.done) && !wasDone) _justCompletedDay = todayKey();
@@ -8803,10 +8807,10 @@
             if (ct.done) {
               bumpActivity();
               gamificationManager.addTaskXP(_ck, el);
-              try { window.DuelSystem?.updateTournamentScore?.(); } catch(_) {}
+              try { window.DuelSystem?.onTaskCompleted?.(_ck); } catch(_) {}
             } else {
               gamificationManager.removeTaskXP(_ck, el);
-              try { window.DuelSystem?.updateTournamentScore?.(); } catch(_) {}
+              try { window.DuelSystem?.onTaskUnchecked?.(_ck); } catch(_) {}
             }
             saveState();
             renderAll();
