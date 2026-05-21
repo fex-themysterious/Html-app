@@ -52,10 +52,12 @@
   let _duelStartServerMs= 0;
   let _pendingInvites   = new Set();
   let _invitePopupEl    = null;
-  let _groupTournaments     = [];
-  let _myJoinedTournaments  = new Set();   // tournament IDs current user has joined
-  let _partSubsMap          = {};          // tid -> unsubscribe fn for participant doc
-  let _tournCountdownTimer  = null;        // setInterval for live countdown ticks
+  let _groupTournaments         = [];
+  let _myJoinedTournaments      = new Set();   // tournament IDs current user has joined
+  let _partSubsMap              = {};          // tid -> unsubscribe fn for participant doc
+  let _partCountSubsMap         = {};          // tid -> unsubscribe fn for count listener
+  let _tournParticipantCounts   = {};          // tid -> real-time participant count
+  let _tournCountdownTimer      = null;        // setInterval for live countdown ticks
   let _adminTargetTid       = null;        // tournament id for pending admin action
   let _duelHistory          = [];
   let _historyLoaded        = false;
@@ -156,6 +158,9 @@
     _stopTournCountdown();
     Object.values(_partSubsMap).forEach(unsub => { try { unsub(); } catch(_) {} });
     _partSubsMap = {};
+    Object.values(_partCountSubsMap).forEach(unsub => { try { unsub(); } catch(_) {} });
+    _partCountSubsMap = {};
+    _tournParticipantCounts = {};
     _groupTournaments    = [];
     _myJoinedTournaments = new Set();
   }
@@ -820,6 +825,19 @@
                 }, () => {});
               _partSubsMap[t.id] = unsub;
             });
+
+            // Subscribe to full participant collection for real-time count
+            _groupTournaments.forEach(t => {
+              if (_partCountSubsMap[t.id]) return; // already subscribed
+              const countUnsub = db2.collection('tournaments').doc(t.id)
+                .collection('participants')
+                .onSnapshot(cSnap => {
+                  _tournParticipantCounts[t.id] = cSnap.size;
+                  _updateParticipantCountDOM(t.id);
+                }, () => {});
+              _partCountSubsMap[t.id] = countUnsub;
+            });
+
             // Unsubscribe from tournaments no longer in the list
             const currentIds = new Set(_groupTournaments.map(t => t.id));
             Object.keys(_partSubsMap).forEach(tid => {
@@ -827,6 +845,13 @@
                 try { _partSubsMap[tid](); } catch(_) {}
                 delete _partSubsMap[tid];
                 _myJoinedTournaments.delete(tid);
+              }
+            });
+            Object.keys(_partCountSubsMap).forEach(tid => {
+              if (!currentIds.has(tid)) {
+                try { _partCountSubsMap[tid](); } catch(_) {}
+                delete _partCountSubsMap[tid];
+                delete _tournParticipantCounts[tid];
               }
             });
           }
@@ -869,6 +894,22 @@
     }
   }
 
+  function _updateParticipantCountDOM(tid) {
+    const t     = _groupTournaments.find(x => x.id === tid);
+    if (!t) return;
+    const count = _tournParticipantCounts[tid] ?? (t.participantCount || 0);
+    const limit = t.participantLimit;
+    const text  = `👥 ${count}${limit ? '/' + limit : ''}`;
+    document.querySelectorAll(`[data-tn-count="${tid}"]`).forEach(el => {
+      el.textContent = text;
+    });
+    // Also update modal count if open
+    const modalCount = document.getElementById('tn-detail-count');
+    if (modalCount && modalCount.dataset.tid === tid) {
+      modalCount.textContent = `${count}${limit ? '/' + limit : ''} participants`;
+    }
+  }
+
   function _createTournament(groupCode, s) {
     const db2 = _db(), uid = _uid();
     if (!db2 || !uid) return;
@@ -877,29 +918,100 @@
     const sts   = _sts();
     const batch = db2.batch();
 
+    // Build prize distribution
+    const prizePoolXP       = parseInt(s.prizePoolXP) || 0;
+    const rewardDistribution= [];
+    if (prizePoolXP > 0) {
+      const p1 = parseInt(s.prize1) || 0;
+      const p2 = parseInt(s.prize2) || 0;
+      const p3 = parseInt(s.prize3) || 0;
+      if (p1 > 0) rewardDistribution.push({ rank: 1, xp: p1 });
+      if (p2 > 0) rewardDistribution.push({ rank: 2, xp: p2 });
+      if (p3 > 0) rewardDistribution.push({ rank: 3, xp: p3 });
+    }
+
     batch.set(db2.collection('tournaments').doc(tid), {
       groupCode,
-      title:            s.title || 'Group Tournament',
-      description:      s.desc  || '',
-      type:             s.type  || 'focus_time',
-      status:           'upcoming',
-      startTime:        s.startTime ? new Date(s.startTime) : new Date(Date.now() + 60000),
-      endTime:          s.endTime   ? new Date(s.endTime)   : new Date(Date.now() + 7*86400000),
-      participantLimit: parseInt(s.limit) || 16,
-      participantCount: 1,
-      createdBy:        uid,
-      createdByName:    _myName(),
-      rewards:          s.rewards || '',
-      rules:            s.rules   || '',
-      createdAt:        sts,
+      title:              s.title || 'Group Tournament',
+      description:        s.desc  || '',
+      type:               s.type  || 'focus_time',
+      tournamentStatus:   'upcoming',
+      status:             'upcoming',
+      startTime:          s.startTime ? new Date(s.startTime) : new Date(Date.now() + 60000),
+      endTime:            s.endTime   ? new Date(s.endTime)   : new Date(Date.now() + 7*86400000),
+      participantLimit:   parseInt(s.limit) || 16,
+      participantCount:   1,
+      createdBy:          uid,
+      createdByName:      _myName(),
+      rewards:            s.rewards || '',
+      rules:              s.rules   || '',
+      prizePoolXP:        prizePoolXP,
+      rewardDistribution: rewardDistribution,
+      donatedBy:          prizePoolXP > 0 ? uid : null,
+      prizeStatus:        prizePoolXP > 0 ? 'active' : 'none',
+      rewardedUsers:      [],
+      createdAt:          sts,
     });
     batch.set(db2.collection('tournaments').doc(tid).collection('participants').doc(uid), {
       uid, name: _myName(), score: 0, rank: 1, joinedAt: sts,
     });
 
+    // Deduct XP from admin if prize pool set
+    if (prizePoolXP > 0) {
+      try { window.appUI?.addXP?.(-prizePoolXP, 'tournament_prize_donation'); } catch(_e) {}
+      const userRef = db2.collection('users').doc(uid);
+      batch.set(userRef, { prizesDonated: (window.firebase?.firestore?.FieldValue?.increment?.(prizePoolXP) || 0) }, { merge: true });
+    }
+
     batch.commit()
-      .then(() => _toast('🏆 Tournament created!', 'success', 3000))
+      .then(() => {
+        _toast(`🏆 Tournament created!${prizePoolXP > 0 ? ' Prize pool: ' + prizePoolXP + ' XP' : ''}`, 'success', 3000);
+      })
       .catch(() => _toast('Failed to create tournament', 'error'));
+  }
+
+  // ─── DISTRIBUTE PRIZES ──────────────────────────────────────────────────────
+  function _distributePrizes(tid) {
+    const db2 = _db(), fb = _fb(), uid = _uid();
+    if (!db2 || !fb) return;
+    const t = _groupTournaments.find(x => x.id === tid);
+    if (!t || !t.prizePoolXP || !t.rewardDistribution?.length) return;
+    if (t.prizeStatus === 'distributed') return;
+
+    db2.collection('tournaments').doc(tid).collection('participants')
+      .orderBy('score', 'desc').limit(10)
+      .get()
+      .then(snap => {
+        const parts = snap.docs.map(d => ({ ...d.data(), _id: d.id }));
+        const batch2 = db2.batch();
+        const rewardedUsers = [];
+
+        t.rewardDistribution.forEach(reward => {
+          const idx = reward.rank - 1;
+          if (idx < 0 || idx >= parts.length) return;
+          const winner = parts[idx];
+          if (!winner.uid) return;
+
+          const userRef = db2.collection('users').doc(winner.uid);
+          batch2.set(userRef, { 'xp': { total: fb.firestore.FieldValue.increment(reward.xp) } }, { merge: true });
+          const lbRef = db2.collection('global_lb').doc(winner.uid);
+          batch2.set(lbRef, { xp: fb.firestore.FieldValue.increment(reward.xp), name: winner.name }, { merge: true });
+          rewardedUsers.push({ uid: winner.uid, name: winner.name, rank: reward.rank, xp: reward.xp });
+
+          if (winner.uid === uid) {
+            try { window.appUI?.addXP?.(reward.xp, 'tournament_prize_rank_' + reward.rank); } catch(_e) {}
+          }
+        });
+
+        batch2.update(db2.collection('tournaments').doc(tid), {
+          prizeStatus:    'distributed',
+          rewardedUsers:  rewardedUsers,
+          distributedAt:  _sts(),
+        });
+        return batch2.commit();
+      })
+      .then(() => _toast('🎉 Tournament prizes distributed!', 'success', 4000))
+      .catch(() => {});
   }
 
   function _joinTournament(tid) {
@@ -916,7 +1028,8 @@
     if (t.status === 'completed' || _toMs(t.endTime) < Date.now()) {
       _toast('Tournament has ended', 'warn'); return;
     }
-    if (t.participantLimit && (t.participantCount || 0) >= t.participantLimit) {
+    const realCount = _tournParticipantCounts[tid] ?? (t.participantCount || 0);
+    if (t.participantLimit && realCount >= t.participantLimit) {
       _toast('Tournament is full', 'warn'); return;
     }
 
@@ -978,20 +1091,39 @@
     if (role !== 'owner' && role !== 'admin') {
       _toast('Only owners and admins can delete tournaments', 'warn'); return;
     }
+    const t = _groupTournaments.find(x => x.id === tid);
+    const hasPrize = t && t.prizePoolXP > 0 && t.prizeStatus === 'active' && t.donatedBy;
+    const confirmMsg = hasPrize
+      ? `Delete this tournament? The ${t.prizePoolXP} XP prize pool will be refunded to the donor.`
+      : 'Delete this tournament permanently? This action cannot be undone.';
+
     _confirm(
-      'Delete this tournament permanently? This action cannot be undone.',
+      confirmMsg,
       () => {
+        // Refund prize XP if tournament had an active prize pool
+        if (hasPrize) {
+          const donorUid = t.donatedBy;
+          const refundXP = t.prizePoolXP;
+          if (donorUid === uid) {
+            try { window.appUI?.addXP?.(refundXP, 'tournament_prize_refund'); } catch(_e) {}
+          }
+          const fb2 = _fb();
+          if (fb2 && donorUid) {
+            db2.collection('users').doc(donorUid).set(
+              { 'xp': { total: fb2.firestore.FieldValue.increment(refundXP) } }, { merge: true }
+            ).catch(() => {});
+          }
+        }
         // Mark as deleted (soft delete so listeners clean up gracefully)
         db2.collection('tournaments').doc(tid).update({
-          deleted: true, status: 'deleted', deletedAt: _sts(), deletedBy: uid
+          deleted: true, status: 'deleted', deletedAt: _sts(), deletedBy: uid,
+          prizeStatus: hasPrize ? 'refunded' : (t?.prizeStatus || 'none'),
         }).then(() => {
-          // Clean up participant subscription
-          if (_partSubsMap[tid]) {
-            try { _partSubsMap[tid](); } catch(_) {}
-            delete _partSubsMap[tid];
-          }
+          if (_partSubsMap[tid]) { try { _partSubsMap[tid](); } catch(_) {} delete _partSubsMap[tid]; }
+          if (_partCountSubsMap[tid]) { try { _partCountSubsMap[tid](); } catch(_) {} delete _partCountSubsMap[tid]; }
+          delete _tournParticipantCounts[tid];
           _myJoinedTournaments.delete(tid);
-          _groupTournaments = _groupTournaments.filter(t => t.id !== tid);
+          _groupTournaments = _groupTournaments.filter(x => x.id !== tid);
           _toast('🗑️ Tournament deleted', 'success');
           _rerender();
         }).catch(() => _toast('Delete failed — try again', 'error'));
@@ -1003,13 +1135,17 @@
   function _endTournamentEarly(tid) {
     const db2 = _db();
     if (!db2) return;
+    const t = _groupTournaments.find(x => x.id === tid);
+    const hasPrize = t && t.prizePoolXP > 0 && t.prizeStatus === 'active';
     _confirm(
-      'End this tournament now? Scores will be frozen and rewards distributed.',
+      `End this tournament now? Scores will be frozen${hasPrize ? ' and ' + t.prizePoolXP + ' XP prizes will be distributed to winners' : ''}.`,
       () => {
         db2.collection('tournaments').doc(tid).update({
-          status: 'completed', endTime: new Date(), endedAt: _sts(), endedEarly: true
+          status: 'completed', tournamentStatus: 'completed',
+          endTime: new Date(), endedAt: _sts(), endedEarly: true
         }).then(() => {
           _toast('Tournament ended early', 'success');
+          if (hasPrize) _distributePrizes(tid);
         }).catch(() => _toast('Failed to end tournament', 'error'));
       },
       { title: 'End Tournament Early?', yesLabel: 'End Now', yesClass: 'btn btn-danger', noLabel: 'Cancel' }
@@ -1019,10 +1155,24 @@
   function _openAdminSheet(tid, g) {
     const t = _groupTournaments.find(x => x.id === tid);
     if (!t) return;
+    const hasPrize    = t.prizePoolXP > 0;
+    const prizeDist   = t.prizeStatus === 'distributed';
+    const prizeActive = t.prizeStatus === 'active';
+
+    const prizeSection = hasPrize ? `
+      <div style="background:rgba(251,191,36,0.07);border:1px solid rgba(251,191,36,0.2);border-radius:10px;padding:12px;margin-bottom:10px">
+        <div style="font-size:12px;font-weight:700;color:#fbbf24;margin-bottom:8px">🎁 Prize Pool</div>
+        <div style="font-size:13px;color:#e2e8f0;font-weight:600">Total: ${t.prizePoolXP.toLocaleString()} XP</div>
+        ${(t.rewardDistribution||[]).map(r => `<div style="font-size:12px;color:#94a3b8;margin-top:4px">${r.rank===1?'🥇':r.rank===2?'🥈':'🥉'} ${r.rank}st/nd/rd: ${r.xp.toLocaleString()} XP</div>`).join('')}
+        <div style="font-size:11px;color:${prizeDist?'#10b981':prizeActive?'#f59e0b':'#64748b'};margin-top:6px;font-weight:600">Status: ${prizeDist?'Distributed ✓':prizeActive?'Active (awaiting end)':'None'}</div>
+        ${prizeActive ? `<button class="dt-btn dt-btn-sm" id="tn-adm-prize" style="margin-top:8px;background:rgba(16,185,129,.15);color:#10b981;border:1px solid rgba(16,185,129,.3);width:100%">🎉 Distribute Prizes Now</button>` : ''}
+      </div>` : '';
+
     _modal(`
       <div class="dt-chal-modal">
         <h3 class="sc-modal-title">⚙️ Admin Controls</h3>
-        <p style="font-size:13px;color:var(--sc-muted,#8892a4);margin:0 0 16px">${_esc(t.title)}</p>
+        <p style="font-size:13px;color:var(--sc-muted,#8892a4);margin:0 0 12px">${_esc(t.title)}</p>
+        ${prizeSection}
         <div style="display:flex;flex-direction:column;gap:10px">
           <button class="dt-btn dt-btn-outline" id="tn-adm-end" style="justify-content:flex-start;gap:10px">
             <span>🏁</span><span>End Tournament Early</span>
@@ -1031,17 +1181,18 @@
             <span>🗑️</span><span>Delete Tournament</span>
           </button>
         </div>
-        <div style="margin-top:14px;padding:10px;background:rgba(239,68,68,.06);border-radius:8px;border:1px solid rgba(239,68,68,.15)">
-          <div style="font-size:11px;color:#ef4444;font-weight:600">⚠️ This action cannot be undone</div>
-          <div style="font-size:11px;color:var(--sc-muted);margin-top:4px">Deleting will remove the tournament for all members immediately.</div>
+        <div style="margin-top:12px;padding:10px;background:rgba(239,68,68,.06);border-radius:8px;border:1px solid rgba(239,68,68,.15)">
+          <div style="font-size:11px;color:#ef4444;font-weight:600">⚠️ Destructive actions cannot be undone</div>
+          <div style="font-size:11px;color:var(--sc-muted);margin-top:4px">Deleting will remove the tournament for all members. Active prize pools will be refunded.</div>
         </div>
         <div class="actions" style="margin-top:16px">
           <button class="btn btn-ghost" data-close>Cancel</button>
         </div>
       </div>
     `, root => {
-      root.querySelector('#tn-adm-end').addEventListener('click', () => { _close(); _endTournamentEarly(tid); });
-      root.querySelector('#tn-adm-del').addEventListener('click', () => { _close(); _deleteTournament(tid, g); });
+      root.querySelector('#tn-adm-end')?.addEventListener('click', () => { _close(); _endTournamentEarly(tid); });
+      root.querySelector('#tn-adm-del')?.addEventListener('click', () => { _close(); _deleteTournament(tid, g); });
+      root.querySelector('#tn-adm-prize')?.addEventListener('click', () => { _close(); _distributePrizes(tid); });
     });
   }
 
@@ -1364,7 +1515,8 @@
     const isActive    = t.status === 'active' || (t.status !== 'completed' && now >= startMs && now <= endMs);
     const isCompleted = t.status === 'completed' || (endMs > 0 && now > endMs);
     const isUpcoming  = !isActive && !isCompleted;
-    const isFull      = t.participantLimit && (t.participantCount || 0) >= t.participantLimit;
+    const realCount   = _tournParticipantCounts[t.id] ?? (t.participantCount || 0);
+    const isFull      = t.participantLimit && realCount >= t.participantLimit;
     const joined      = _myJoinedTournaments.has(t.id);
 
     const statusLabel = isCompleted ? 'ENDED' : isActive ? 'LIVE' : 'SOON';
@@ -1420,7 +1572,7 @@
       <div class="tn-card-meta">
         <span>📅 ${fmtDate(startMs)}</span>
         <span>→ ${fmtDate(endMs)}</span>
-        <span>👥 ${t.participantCount||0}${t.participantLimit ? '/'+t.participantLimit : ''}</span>
+        <span data-tn-count="${_esc(t.id)}">👥 ${_tournParticipantCounts[t.id] ?? (t.participantCount||0)}${t.participantLimit ? '/'+t.participantLimit : ''}</span>
       </div>
       ${timeHint}
       ${t.rewards ? `<div class="tn-reward">🎁 ${_esc(t.rewards.slice(0,60))}</div>` : ''}
@@ -1518,7 +1670,8 @@
   }
 
   function _openCreateTournamentModal(groupCode) {
-    let selType = 'focus_time';
+    let selType      = 'focus_time';
+    let showPrize    = false;
 
     const typeGrid = TOURNAMENT_TYPES.map((t, i) => `
       <button class="dt-mode-chip${i===0?' dt-chip-on':''}" data-ttype="${t.id}" type="button">
@@ -1537,6 +1690,10 @@
           <label class="sc-label">Tournament Name *</label>
           <input id="tn-t" type="text" maxlength="50" class="sc-input" placeholder="e.g. November Focus Marathon" autocomplete="off"/>
         </div>
+        <div class="sc-field">
+          <label class="sc-label">Description (optional)</label>
+          <input id="tn-desc" type="text" maxlength="120" class="sc-input" placeholder="Brief description…"/>
+        </div>
         <label class="sc-label" style="margin-top:10px">Type</label>
         <div class="dt-mode-grid dt-mode-grid-sm" id="tn-type-g">${typeGrid}</div>
         <div class="sc-field sc-field-row" style="margin-top:12px">
@@ -1547,14 +1704,41 @@
           <label class="sc-label">Max Participants</label>
           <input id="tn-lim" type="number" min="2" max="64" value="16" class="sc-input" style="text-align:center"/>
         </div>
-        <div class="sc-field">
-          <label class="sc-label">Rewards (optional)</label>
-          <input id="tn-rew" type="text" maxlength="80" class="sc-input" placeholder="e.g. Top 3 earn XP bonus + badge"/>
-        </div>
+
         <div class="sc-field">
           <label class="sc-label">Rules (optional)</label>
-          <textarea id="tn-rul" rows="2" maxlength="200" class="sc-textarea" placeholder="Any special rules…"></textarea>
+          <textarea id="tn-rul" rows="2" maxlength="300" class="sc-textarea" placeholder="e.g. No fake sessions. Study at least 30 min/day."></textarea>
         </div>
+
+        <div class="tn-prize-toggle-row">
+          <button type="button" id="tn-prize-toggle" class="dt-btn dt-btn-outline dt-btn-sm" style="width:100%;justify-content:space-between">
+            <span>🎁 Add XP Prize Pool</span><span id="tn-prize-arrow">▼</span>
+          </button>
+        </div>
+        <div id="tn-prize-panel" style="display:none;margin-top:10px;background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.2);border-radius:12px;padding:14px">
+          <div style="font-size:12px;font-weight:700;color:#fbbf24;margin-bottom:12px">🎁 XP Prize Distribution</div>
+          <div class="sc-field" style="margin-bottom:10px">
+            <label class="sc-label" style="color:#fbbf24">Total XP to Donate</label>
+            <input id="tn-prize-total" type="number" min="100" max="100000" step="100" class="sc-input" placeholder="e.g. 10000"/>
+            <div style="font-size:11px;color:#64748b;margin-top:4px">Will be deducted from your XP immediately on creation</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+            <div>
+              <label class="sc-label" style="font-size:11px">🥇 1st Place</label>
+              <input id="tn-p1" type="number" min="0" class="sc-input" placeholder="5000" style="text-align:center"/>
+            </div>
+            <div>
+              <label class="sc-label" style="font-size:11px">🥈 2nd Place</label>
+              <input id="tn-p2" type="number" min="0" class="sc-input" placeholder="3000" style="text-align:center"/>
+            </div>
+            <div>
+              <label class="sc-label" style="font-size:11px">🥉 3rd Place</label>
+              <input id="tn-p3" type="number" min="0" class="sc-input" placeholder="2000" style="text-align:center"/>
+            </div>
+          </div>
+          <div style="font-size:11px;color:#64748b;margin-top:8px">Leave blank for auto-split. Prizes auto-distribute when tournament ends.</div>
+        </div>
+
         <div class="actions" style="margin-top:18px">
           <button class="btn btn-ghost" data-close>Cancel</button>
           <button class="btn sc-modal-submit" id="tn-go">🏆 Create</button>
@@ -1565,17 +1749,59 @@
           selType = b.dataset.ttype;
           root.querySelectorAll('[data-ttype]').forEach(x => x.classList.toggle('dt-chip-on', x.dataset.ttype === selType));
         });
+
+        root.querySelector('#tn-prize-toggle').addEventListener('click', () => {
+          showPrize = !showPrize;
+          root.querySelector('#tn-prize-panel').style.display = showPrize ? 'block' : 'none';
+          root.querySelector('#tn-prize-arrow').textContent   = showPrize ? '▲' : '▼';
+        });
+
+        root.querySelector('#tn-prize-total').addEventListener('input', e => {
+          const total = parseInt(e.target.value) || 0;
+          if (total > 0) {
+            const p1El = root.querySelector('#tn-p1');
+            const p2El = root.querySelector('#tn-p2');
+            const p3El = root.querySelector('#tn-p3');
+            if (!p1El.value && !p2El.value && !p3El.value) {
+              p1El.value = Math.round(total * 0.5);
+              p2El.value = Math.round(total * 0.3);
+              p3El.value = Math.round(total * 0.2);
+            }
+          }
+        });
+
         root.querySelector('#tn-go').addEventListener('click', () => {
           const title = root.querySelector('#tn-t').value.trim();
           if (!title) { _toast('Enter a tournament name', 'warn'); return; }
+
+          const prizeTotal = showPrize ? (parseInt(root.querySelector('#tn-prize-total').value) || 0) : 0;
+          if (prizeTotal > 0) {
+            const p1 = parseInt(root.querySelector('#tn-p1').value) || 0;
+            const p2 = parseInt(root.querySelector('#tn-p2').value) || 0;
+            const p3 = parseInt(root.querySelector('#tn-p3').value) || 0;
+            const distSum = p1 + p2 + p3;
+            if (distSum > prizeTotal) {
+              _toast(`Prize distribution (${distSum} XP) exceeds pool (${prizeTotal} XP)`, 'warn'); return;
+            }
+            const curXP = _ms()?.xp?.total || 0;
+            if (prizeTotal > curXP) {
+              _toast(`Not enough XP — you have ${curXP} XP, need ${prizeTotal} XP`, 'warn'); return;
+            }
+          }
+
           _close();
           _createTournament(groupCode, {
-            title, type: selType,
-            startTime: root.querySelector('#tn-s').value,
-            endTime:   root.querySelector('#tn-e').value,
-            limit:     root.querySelector('#tn-lim').value,
-            rewards:   root.querySelector('#tn-rew').value,
-            rules:     root.querySelector('#tn-rul').value,
+            title,
+            desc:       root.querySelector('#tn-desc').value.trim(),
+            type:       selType,
+            startTime:  root.querySelector('#tn-s').value,
+            endTime:    root.querySelector('#tn-e').value,
+            limit:      root.querySelector('#tn-lim').value,
+            rules:      root.querySelector('#tn-rul').value,
+            prizePoolXP: prizeTotal,
+            prize1:     showPrize ? root.querySelector('#tn-p1').value : '',
+            prize2:     showPrize ? root.querySelector('#tn-p2').value : '',
+            prize3:     showPrize ? root.querySelector('#tn-p3').value : '',
           });
         });
       });
@@ -1586,59 +1812,141 @@
     if (!t) return;
     const type        = TOURNAMENT_TYPES.find(x => x.id === t.type) || TOURNAMENT_TYPES[0];
     const endMs       = _toMs(t.endTime);
-    const isCompleted = t.status === 'completed' || (endMs > 0 && endMs < Date.now());
+    const startMs     = _toMs(t.startTime);
+    const now         = Date.now();
+    const isCompleted = t.status === 'completed' || (endMs > 0 && endMs < now);
+    const isUpcoming  = !isCompleted && startMs > now;
+    const isLive      = !isCompleted && !isUpcoming;
     const joined      = _myJoinedTournaments.has(tid);
-    const isFull      = t.participantLimit && (t.participantCount || 0) >= t.participantLimit;
+    const realCount   = _tournParticipantCounts[tid] ?? (t.participantCount || 0);
+    const isFull      = t.participantLimit && realCount >= t.participantLimit;
+    const uid         = _uid();
 
-    // Determine join button initial state
+    const hasPrize = t.prizePoolXP > 0 && t.rewardDistribution?.length;
+    const prizeDistributed = t.prizeStatus === 'distributed';
+
+    // ─── Prize Pool Banner ────────────────────────────────────────────────────
+    const prizeBanner = hasPrize ? `
+      <div class="tn-prize-banner${prizeDistributed ? ' tn-prize-done' : ''}">
+        <div class="tn-prize-banner-top">
+          <span class="tn-prize-icon">🏆</span>
+          <span class="tn-prize-total">${t.prizePoolXP.toLocaleString()} XP Prize Pool</span>
+          ${prizeDistributed ? '<span class="tn-prize-dist-badge">Distributed ✓</span>' : ''}
+        </div>
+        <div class="tn-prize-splits">
+          ${(t.rewardDistribution||[]).map(r => `
+            <div class="tn-prize-split">
+              <span>${r.rank===1?'🥇 1st':r.rank===2?'🥈 2nd':'🥉 3rd'}</span>
+              <span class="tn-prize-xp">${r.xp.toLocaleString()} XP</span>
+            </div>`).join('')}
+        </div>
+        ${prizeDistributed && t.rewardedUsers?.length ? `
+          <div class="tn-prize-winners">
+            ${t.rewardedUsers.map(u => `<div class="tn-prize-winner-chip">
+              <span class="tn-prize-winner-av" style="background:${_avatarBg(u.name||'')}">${(u.name||'?')[0].toUpperCase()}</span>
+              <span>${_esc(u.name||'')}</span>
+              <span class="tn-prize-winner-xp">+${u.xp.toLocaleString()}</span>
+            </div>`).join('')}
+          </div>` : ''}
+      </div>` : '';
+
+    // ─── Rules Section ────────────────────────────────────────────────────────
+    const rulesSection = `
+      <div class="tn-rules-section">
+        <div class="tn-rules-header"><span>📜</span><span>Rules</span></div>
+        <div class="tn-rules-body">${t.rules?.trim() ? _esc(t.rules) : '<span class="tn-rules-empty">No rules added yet</span>'}</div>
+      </div>`;
+
+    // ─── Countdown Box ────────────────────────────────────────────────────────
+    let countdownBox = '';
+    if (!isCompleted && endMs) {
+      const left = Math.max(0, endMs - now);
+      countdownBox = `
+        <div class="tn-countdown-box${isLive ? ' tn-countdown-live' : ' tn-countdown-soon'}">
+          <div class="tn-countdown-label">${isLive ? '⏱ Time Remaining' : '🕐 Starts In'}</div>
+          <div class="tn-countdown-time" id="tn-detail-cd" data-tn-end="${endMs}">${_fmtMsLong(left)}</div>
+        </div>`;
+    } else if (isCompleted) {
+      countdownBox = `<div class="tn-countdown-box tn-countdown-ended"><div class="tn-countdown-label">Tournament Ended</div></div>`;
+    }
+
+    // ─── Join Button ──────────────────────────────────────────────────────────
     let joinBtnHtml = '';
     if (!isCompleted) {
       if (joined) {
         joinBtnHtml = `<button class="btn sc-modal-submit tn-btn-joined" id="tn-join-modal" data-tid="${_esc(tid)}" disabled>✓ Joined</button>`;
       } else if (isFull) {
-        joinBtnHtml = `<button class="btn sc-modal-submit" id="tn-join-modal" data-tid="${_esc(tid)}" disabled style="opacity:.5">Tournament Full</button>`;
+        joinBtnHtml = `<button class="btn sc-modal-submit tn-btn-full" id="tn-join-modal" data-tid="${_esc(tid)}" disabled>Full</button>`;
       } else {
-        joinBtnHtml = `<button class="btn sc-modal-submit" id="tn-join-modal" data-tid="${_esc(tid)}">Join</button>`;
+        joinBtnHtml = `<button class="btn sc-modal-submit" id="tn-join-modal" data-tid="${_esc(tid)}">🏆 Join Tournament</button>`;
       }
     }
 
+    const fmtDate = ms => {
+      if (!ms) return 'TBD';
+      return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    };
+
     _modal(`
-      <div class="dt-chal-modal dt-tourn-detail">
-        <div class="tn-detail-hdr">
-          <h3 class="sc-modal-title" style="margin:0">${type.icon} ${_esc(t.title)}</h3>
-          <span class="tn-badge ${isCompleted ? 'tn-badge-done' : 'tn-badge-live'}" style="flex-shrink:0">
-            ${isCompleted ? '' : '<span class="tn-live-dot"></span>'}${isCompleted ? 'FINAL' : 'LIVE'}
+      <div class="tn-detail-modal">
+
+        <div class="tn-detail-hero">
+          <div class="tn-detail-hero-left">
+            <div class="tn-detail-type-chip">${type.icon} ${type.label}</div>
+            <h2 class="tn-detail-title">${_esc(t.title)}</h2>
+            ${t.description ? `<p class="tn-detail-desc">${_esc(t.description)}</p>` : ''}
+          </div>
+          <span class="tn-badge ${isCompleted ? 'tn-badge-done' : isUpcoming ? 'tn-badge-soon' : 'tn-badge-live'}">
+            ${isLive ? '<span class="tn-live-dot"></span>' : ''}${isCompleted ? 'FINAL' : isUpcoming ? 'SOON' : 'LIVE'}
           </span>
         </div>
-        ${t.description ? `<p style="color:var(--sc-muted,#8892a4);font-size:13px;margin:8px 0 12px">${_esc(t.description)}</p>` : ''}
-        ${t.rewards ? `<div class="tn-reward" style="margin-bottom:10px">🎁 ${_esc(t.rewards)}</div>` : ''}
-        ${t.rules   ? `<div class="tn-rules">📜 ${_esc(t.rules)}</div>` : ''}
-        ${!isCompleted && endMs ? `<div class="tn-detail-countdown"><span class="tn-cd-icon">⏱</span><span id="tn-detail-cd" data-tn-end="${endMs}">${_fmtMsLong(Math.max(0, endMs - Date.now()))} remaining</span></div>` : ''}
-        <div class="tn-lb-header">
-          <span>🏆 Live Leaderboard</span>
+
+        <div class="tn-detail-meta-row">
+          <div class="tn-detail-meta-item">
+            <span class="tn-detail-meta-label">Start</span>
+            <span class="tn-detail-meta-val">${fmtDate(startMs)}</span>
+          </div>
+          <div class="tn-detail-meta-item">
+            <span class="tn-detail-meta-label">End</span>
+            <span class="tn-detail-meta-val">${fmtDate(endMs)}</span>
+          </div>
+          <div class="tn-detail-meta-item">
+            <span class="tn-detail-meta-label">Players</span>
+            <span class="tn-detail-meta-val" id="tn-detail-count" data-tid="${_esc(tid)}">${realCount}${t.participantLimit ? '/'+t.participantLimit : ''}</span>
+          </div>
+        </div>
+
+        ${countdownBox}
+        ${prizeBanner}
+        ${rulesSection}
+
+        <div class="tn-detail-lb-header">
+          <span>🏆 Leaderboard</span>
           <span class="tn-lb-badge${isCompleted ? ' tn-lb-done' : ' tn-lb-live'}">${isCompleted ? 'FINAL' : '● LIVE'}</span>
         </div>
-        <div id="tn-part-list" class="tn-rank-list-wrap"><div class="dt-loading-msg">Loading…</div></div>
-        <div class="actions" style="margin-top:16px;position:sticky;bottom:0;background:var(--sc-surface,#1e293b);padding-top:10px">
+        <div id="tn-part-list" class="tn-rank-list-wrap">
+          <div class="tn-rank-loading"><div class="tn-rank-spinner"></div><span>Loading…</span></div>
+        </div>
+
+        <div class="tn-detail-actions">
           <button class="btn btn-ghost" data-close>Close</button>
           ${joinBtnHtml}
         </div>
       </div>`, root => {
-        // Join button handler — updates in-place after join
+
+        // Join button handler
         const joinEl = root.querySelector('#tn-join-modal');
         if (joinEl && !joinEl.disabled) {
           joinEl.addEventListener('click', () => {
             joinEl.textContent = 'Joining…';
             joinEl.disabled = true;
             _joinTournament(tid);
-            // The participant listener will update _myJoinedTournaments and call _updateJoinButtonDOM
-            // which handles the card; update modal button directly here too
             setTimeout(() => {
               if (_myJoinedTournaments.has(tid)) {
                 joinEl.textContent = '✓ Joined';
                 joinEl.classList.add('tn-btn-joined');
               } else {
-                joinEl.textContent = 'Join';
+                joinEl.textContent = '🏆 Join Tournament';
                 joinEl.disabled = false;
               }
             }, 2500);
@@ -1649,56 +1957,95 @@
         if (!db2) return;
 
         let prevParts = [];
+        const seenUids = new Set();
+
         const renderList = snap => {
-          const uid  = _uid();
-          const docs = snap.docs || snap;
-          const parts = docs.map(d => ({ ...d.data(), _id: d.id }));
-          parts.sort((a, b) => (b.score||0) - (a.score||0));
+          const myUid = _uid();
+          const docs  = snap.docs || snap;
+
+          // De-duplicate by uid
+          seenUids.clear();
+          const parts = [];
+          docs.forEach(d => {
+            const data = { ...d.data(), _id: d.id };
+            const key  = data.uid || d.id;
+            if (!seenUids.has(key)) {
+              seenUids.add(key);
+              parts.push(data);
+            }
+          });
+
+          // Sort by score descending, tie-break by join time
+          parts.sort((a, b) => {
+            const sd = (b.score||0) - (a.score||0);
+            if (sd !== 0) return sd;
+            return _toMs(a.joinedAt) - _toMs(b.joinedAt);
+          });
 
           // Detect rank changes for animation
           const prevMap = {};
-          prevParts.forEach((p, i) => { prevMap[p.uid] = i; });
-          prevParts = parts;
+          prevParts.forEach((p, i) => { prevMap[p.uid || p._id] = i; });
+          prevParts = [...parts];
 
-          const maxScore = parts[0]?.score || 1;
+          const maxScore = Math.max(parts[0]?.score || 0, 1);
 
           const rows = parts.map((p, i) => {
-            const isMe     = p.uid === uid;
-            const prevRank = prevMap[p.uid];
+            const isMe     = (p.uid || p._id) === myUid;
+            const pKey     = p.uid || p._id;
+            const prevRank = prevMap[pKey];
             const moved    = prevRank !== undefined && prevRank !== i;
+
             const rankIcon = i === 0 ? '<span class="tn-crown">👑</span>'
                            : i === 1 ? '<span class="tn-medal">🥈</span>'
                            : i === 2 ? '<span class="tn-medal">🥉</span>'
                            : `<span class="tn-rank-pos">#${i+1}</span>`;
-            const scoreFmt = t.type === 'focus_time' ? _fmtMs(p.score||0) : String(p.score||0);
-            const barPct   = maxScore > 0 ? Math.min(100, (p.score||0) / maxScore * 100) : 0;
+
+            const scoreFmt = t.type === 'focus_time' ? _fmtMs(p.score||0)
+                           : t.type === 'most_xp'    ? `${(p.score||0).toLocaleString()} XP`
+                           : String(p.score||0);
+
+            const barPct = Math.min(100, (p.score||0) / maxScore * 100);
+
+            // Prize indicator for this rank
+            const prizeForRank = hasPrize ? (t.rewardDistribution||[]).find(r => r.rank === i+1) : null;
+            const prizeTip = prizeForRank ? `<span class="tn-rank-prize-tip">+${prizeForRank.xp.toLocaleString()} XP</span>` : '';
+
             return `<div class="tn-rank-row${isMe?' tn-rank-me':''}${i===0?' tn-rank-first':''}${moved?' tn-rank-moved':''}">
               ${rankIcon}
               <div class="tn-rank-av" style="background:${_avatarBg(p.name||'')}">${(p.name||'?')[0].toUpperCase()}</div>
               <div class="tn-rank-info">
-                <span class="tn-rank-nm">${_esc(p.name||'Unknown')}${isMe?' <span class="dt-you-tag">You</span>':''}</span>
-                <div class="tn-rank-bar-track"><div class="tn-rank-bar" style="width:${barPct}%"></div></div>
+                <div class="tn-rank-name-row">
+                  <span class="tn-rank-nm">${_esc(p.name||'Unknown')}</span>
+                  ${isMe ? '<span class="dt-you-tag">You</span>' : ''}
+                  ${prizeTip}
+                </div>
+                <div class="tn-rank-bar-track"><div class="tn-rank-bar" style="width:${barPct.toFixed(1)}%"></div></div>
               </div>
               <span class="tn-rank-sc">${scoreFmt}</span>
             </div>`;
           }).join('');
 
           const el = root.querySelector('#tn-part-list');
-          if (el) el.innerHTML = `<div class="tn-rank-list">${rows||'<div class="dt-loading-msg">No participants yet</div>'}</div>`;
+          if (el) {
+            el.innerHTML = rows
+              ? `<div class="tn-rank-list">${rows}</div>`
+              : `<div class="tn-rank-empty"><span>👤</span><span>No participants yet</span></div>`;
+          }
         };
 
         // Realtime leaderboard subscription
-        if (_tournDetailSub) { try { _tournDetailSub(); } catch(_) {} _tournDetailSub = null; }
-        _tournDetailSub = db2.collection('tournaments').doc(tid).collection('participants')
+        if (_tournDetailSub) { try { _tournDetailSub(); } catch(_e) {} _tournDetailSub = null; }
+        _tournDetailSub = db2.collection('tournaments').doc(tid)
+          .collection('participants')
           .orderBy('score', 'desc').limit(50)
           .onSnapshot(renderList, () => {
             const el = root.querySelector('#tn-part-list');
-            if (el) el.innerHTML = '<div class="dt-loading-msg">Unable to load rankings</div>';
+            if (el) el.innerHTML = '<div class="tn-rank-empty"><span>⚠️</span><span>Unable to load rankings</span></div>';
           });
 
         // Clean up on modal close
         root.addEventListener('modal-close', () => {
-          if (_tournDetailSub) { try { _tournDetailSub(); } catch(_) {} _tournDetailSub = null; }
+          if (_tournDetailSub) { try { _tournDetailSub(); } catch(_e) {} _tournDetailSub = null; }
         });
       });
   }

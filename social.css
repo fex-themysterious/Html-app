@@ -4984,3 +4984,482 @@
   transition: opacity 0.5s ease;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   TOURNAMENT DETAIL MODAL — Redesigned v3
+═══════════════════════════════════════════════════════════════════════════ */
+
+.tn-detail-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-height: 85vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0;
+  scroll-behavior: smooth;
+}
+
+/* ── Hero Header ── */
+.tn-detail-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 18px 14px;
+  background: linear-gradient(135deg, rgba(99,102,241,0.08), rgba(236,72,153,0.06));
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.tn-detail-hero-left { flex: 1; min-width: 0; }
+.tn-detail-type-chip {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(148,163,184,0.8);
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 20px;
+  padding: 3px 10px;
+  margin-bottom: 8px;
+  letter-spacing: 0.3px;
+}
+.tn-detail-title {
+  font-size: 18px;
+  font-weight: 900;
+  color: #f1f5f9;
+  line-height: 1.25;
+  margin: 0 0 4px;
+  letter-spacing: -0.3px;
+}
+.tn-detail-desc {
+  font-size: 13px;
+  color: rgba(148,163,184,0.75);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ── Meta Row ── */
+.tn-detail-meta-row {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.tn-detail-meta-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 14px;
+  border-right: 1px solid rgba(255,255,255,0.05);
+}
+.tn-detail-meta-item:last-child { border-right: none; }
+.tn-detail-meta-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(148,163,184,0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+.tn-detail-meta-val {
+  font-size: 12px;
+  font-weight: 700;
+  color: #e2e8f0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Countdown Box ── */
+.tn-countdown-box {
+  margin: 12px 16px 0;
+  border-radius: 14px;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.tn-countdown-live {
+  background: linear-gradient(135deg, rgba(249,115,22,0.12), rgba(239,68,68,0.08));
+  border: 1px solid rgba(249,115,22,0.3);
+  animation: cdGlow 2.5s ease-in-out infinite;
+}
+.tn-countdown-soon {
+  background: rgba(245,158,11,0.08);
+  border: 1px solid rgba(245,158,11,0.25);
+}
+.tn-countdown-ended {
+  background: rgba(100,116,139,0.07);
+  border: 1px solid rgba(100,116,139,0.15);
+}
+.tn-countdown-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(148,163,184,0.6);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.tn-countdown-time {
+  font-size: 26px;
+  font-weight: 900;
+  color: #f97316;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.5px;
+  line-height: 1.1;
+}
+.tn-countdown-soon .tn-countdown-time { color: #f59e0b; }
+.tn-countdown-ended .tn-countdown-time { font-size: 16px; color: #64748b; }
+
+/* ── Prize Pool Banner ── */
+.tn-prize-banner {
+  margin: 12px 16px 0;
+  background: linear-gradient(135deg, rgba(251,191,36,0.1), rgba(245,158,11,0.07));
+  border: 1px solid rgba(251,191,36,0.25);
+  border-radius: 14px;
+  padding: 14px 16px;
+  animation: prizePulse 3s ease-in-out infinite;
+}
+.tn-prize-done {
+  background: rgba(16,185,129,0.07);
+  border-color: rgba(16,185,129,0.25);
+  animation: none;
+}
+@keyframes prizePulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(251,191,36,0); }
+  50%       { box-shadow: 0 0 20px rgba(251,191,36,0.12); }
+}
+.tn-prize-banner-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.tn-prize-icon { font-size: 18px; }
+.tn-prize-total {
+  font-size: 15px;
+  font-weight: 900;
+  color: #fbbf24;
+  flex: 1;
+}
+.tn-prize-dist-badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: #10b981;
+  background: rgba(16,185,129,0.12);
+  border: 1px solid rgba(16,185,129,0.3);
+  border-radius: 99px;
+  padding: 2px 8px;
+}
+.tn-prize-splits {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.tn-prize-split {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 10px;
+  padding: 7px 12px;
+  flex: 1;
+  min-width: 70px;
+  font-size: 12px;
+  color: rgba(203,213,225,0.8);
+  font-weight: 600;
+  align-items: center;
+}
+.tn-prize-xp {
+  font-size: 13px;
+  font-weight: 900;
+  color: #fbbf24;
+  font-variant-numeric: tabular-nums;
+}
+.tn-prize-winners {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+.tn-prize-winner-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(16,185,129,0.1);
+  border: 1px solid rgba(16,185,129,0.2);
+  border-radius: 99px;
+  padding: 4px 10px 4px 4px;
+  font-size: 12px;
+  color: #10b981;
+  font-weight: 600;
+}
+.tn-prize-winner-av {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+  color: #fff;
+  flex-shrink: 0;
+}
+.tn-prize-winner-xp {
+  font-weight: 800;
+  color: #fbbf24;
+  font-size: 11px;
+}
+
+/* ── Rules Section ── */
+.tn-rules-section {
+  margin: 12px 16px 0;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.tn-rules-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(148,163,184,0.8);
+  padding: 9px 14px;
+  background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+.tn-rules-body {
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #94a3b8;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.tn-rules-empty {
+  font-style: italic;
+  color: rgba(148,163,184,0.4);
+  font-size: 12px;
+}
+
+/* ── Leaderboard Header ── */
+.tn-detail-lb-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 8px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #e2e8f0;
+}
+
+/* ── Rank List Improvements ── */
+.tn-rank-list-wrap {
+  max-height: none;
+  overflow-y: visible;
+  padding: 0 12px 4px;
+}
+.tn-rank-list { display: flex; flex-direction: column; gap: 6px; }
+
+.tn-rank-row {
+  display: grid;
+  grid-template-columns: 28px 34px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.05);
+  background: rgba(255,255,255,0.03);
+  transition: background 0.2s, border-color 0.2s, transform 0.3s;
+}
+.tn-rank-first {
+  background: rgba(251,191,36,0.09);
+  border-color: rgba(251,191,36,0.22);
+  box-shadow: 0 2px 12px rgba(251,191,36,0.08);
+}
+.tn-rank-me {
+  background: rgba(99,102,241,0.1);
+  border-color: rgba(99,102,241,0.3);
+}
+.tn-rank-av {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 800;
+  color: #fff;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+.tn-rank-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tn-rank-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.tn-rank-nm {
+  font-size: 13px;
+  font-weight: 700;
+  color: #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+.tn-rank-prize-tip {
+  font-size: 10px;
+  font-weight: 700;
+  color: #fbbf24;
+  background: rgba(251,191,36,0.12);
+  border: 1px solid rgba(251,191,36,0.2);
+  border-radius: 99px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+.tn-rank-sc {
+  font-size: 14px;
+  font-weight: 900;
+  color: #f97316;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.tn-rank-bar-track {
+  width: 100%;
+  height: 3px;
+  background: rgba(255,255,255,0.07);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.tn-rank-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #ec4899);
+  border-radius: 99px;
+  transition: width 0.6s cubic-bezier(0.4,0,0.2,1);
+}
+.tn-rank-moved {
+  animation: tnRankSlide 0.45s cubic-bezier(0.34,1.56,0.64,1);
+}
+@keyframes tnRankSlide {
+  0%   { transform: translateY(-8px) scale(0.97); opacity: 0.6; }
+  100% { transform: translateY(0)    scale(1);    opacity: 1; }
+}
+
+/* ── Loading / Empty States ── */
+.tn-rank-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px 16px;
+  color: rgba(148,163,184,0.5);
+  font-size: 13px;
+}
+.tn-rank-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(99,102,241,0.3);
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: tnSpinRank 0.8s linear infinite;
+}
+@keyframes tnSpinRank {
+  to { transform: rotate(360deg); }
+}
+.tn-rank-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 16px;
+  color: rgba(148,163,184,0.45);
+  font-size: 13px;
+}
+.tn-rank-empty span:first-child { font-size: 28px; }
+
+/* ── Sticky Action Row ── */
+.tn-detail-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--sc-surface, #1e293b);
+  border-top: 1px solid rgba(255,255,255,0.07);
+  margin-top: 12px;
+  backdrop-filter: blur(16px);
+}
+
+/* ── Prize Toggle Row ── */
+.tn-prize-toggle-row {
+  margin-top: 10px;
+}
+
+/* ── Reward card card ── */
+.tn-reward-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(251,191,36,0.07);
+  border: 1px solid rgba(251,191,36,0.18);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+/* ── Fix: dt-tourn-detail max-height override ── */
+.dt-tourn-detail {
+  max-height: none !important;
+  overflow-y: visible !important;
+  padding: 0 !important;
+}
+
+/* ── Crown / Medal icons in redesigned modal ── */
+.tn-crown, .tn-medal {
+  font-size: 18px;
+  text-align: center;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.tn-crown { filter: drop-shadow(0 0 5px rgba(251,191,36,0.65)); }
+.tn-rank-pos {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(148,163,184,0.55);
+  min-width: 28px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* ── "You" badge in rank rows ── */
+.dt-you-tag {
+  font-size: 9px;
+  font-weight: 700;
+  color: #6366f1;
+  background: rgba(99,102,241,0.15);
+  border: 1px solid rgba(99,102,241,0.3);
+  border-radius: 99px;
+  padding: 1px 6px;
+  vertical-align: middle;
+  letter-spacing: 0.5px;
+}
+
+
