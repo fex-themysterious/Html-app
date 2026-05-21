@@ -8781,10 +8781,12 @@
             gamificationManager.addTaskXP(_ck, el);
             onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, true);
             _justPoppedKey = `auto:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`;
+            try { window.DuelSystem?.updateTournamentScore?.(); } catch(_) {}
           } else {
             gamificationManager.removeTaskXP(_ck, el);
             trackCompletion(_ck, false);
             onTopicDoneChanged(el.dataset.sub, el.dataset.ch, el.dataset.t, false);
+            try { window.DuelSystem?.updateTournamentScore?.(); } catch(_) {}
           }
           const tasks = getActivePlanTasks();
           if (tasks.length > 0 && tasks.every(x => x.done) && !wasDone) _justCompletedDay = todayKey();
@@ -8801,8 +8803,10 @@
             if (ct.done) {
               bumpActivity();
               gamificationManager.addTaskXP(_ck, el);
+              try { window.DuelSystem?.updateTournamentScore?.(); } catch(_) {}
             } else {
               gamificationManager.removeTaskXP(_ck, el);
+              try { window.DuelSystem?.updateTournamentScore?.(); } catch(_) {}
             }
             saveState();
             renderAll();
