@@ -700,6 +700,195 @@
     } catch(_) {}
   }
 
+  // ── Kick / ban a member — shared by both MM modal and legacy sgs-kick/ban ─
+  function _execKickMember(g, targetUid, name, ban) {
+    const db_ = getDb(), fb_ = getFb();
+    if (!g || !g.code) return;
+    const gRef = db_ && db_.collection('groups').doc(g.code);
+    if (gRef && fb_) {
+      gRef.collection('members').doc(targetUid).delete().then(() => {
+        const patch = { memberCount: fb_.firestore.FieldValue.increment(-1) };
+        if (ban) patch.bannedUids = fb_.firestore.FieldValue.arrayUnion(targetUid);
+        gRef.set(patch, { merge: true }).catch(() => {});
+      }).catch(() => {});
+      db_.collection('users').doc(targetUid).set({
+        joinedRooms:  fb_.firestore.FieldValue.arrayRemove(g.code),
+        joinedGroups: fb_.firestore.FieldValue.arrayRemove(g.code),
+      }, { merge: true }).catch(() => {});
+    }
+    // Purge from _liveMembers immediately so UI reflects change at once
+    delete _liveMembers[targetUid];
+    // Update local state
+    const sc_ = scLoad(), g_ = sc_.groups.find(x => x.code === g.code || x.id === g.id);
+    if (g_) {
+      g_.members = (g_.members||[]).filter(m => (m.id||m.uid) !== targetUid);
+      if (ban) { if (!g_.bannedUids) g_.bannedUids = []; if (!g_.bannedUids.includes(targetUid)) g_.bannedUids.push(targetUid); }
+      scSave(sc_);
+    }
+    toast(ban ? `${name} has been banned` : `${name} removed from group`, 'info');
+    closeModal();
+    renderSocial();
+  }
+
+  // ── Manage Members modal — realtime Firebase onSnapshot ──────────────────
+  function _openManageMembersModal(g) {
+    const db_mm = getDb(), myUid_mm = getUserId(), fb_mm = getFb();
+    if (!db_mm || !g.code) { toast('Cannot load members — Firebase unavailable', 'warn'); return; }
+    const myRole   = _getMyRole(g);
+    const iAmOwner = myRole === 'owner';
+    const iAmAdmin = iAmOwner || myRole === 'admin';
+    if (!iAmAdmin) return;
+
+    // Avatar color derived from uid/name (deterministic)
+    const _avatarColor = (uid) => {
+      const COLORS = ['#7c3aed','#2563eb','#059669','#d97706','#dc2626','#7c3aed','#0891b2','#9333ea'];
+      let hash = 0; for (let i = 0; i < uid.length; i++) hash = (hash * 31 + uid.charCodeAt(i)) | 0;
+      return COLORS[Math.abs(hash) % COLORS.length];
+    };
+
+    // Build one member row HTML
+    const _mmRow = (m) => {
+      const isMe       = m.uid === myUid_mm;
+      const isOwnerMem = m.role === 'owner' || m.uid === (g.ownerUid||g.createdByUid||g.createdBy);
+      const isAdminMem = isOwnerMem || m.role === 'admin' || (Array.isArray(g.admins) && g.admins.includes(m.uid));
+      const roleLbl    = isOwnerMem ? '<span style="color:#f59e0b;font-size:11px;font-weight:700">👑 Owner</span>' : isAdminMem ? '<span style="color:#7c3aed;font-size:11px;font-weight:700">⚡ Admin</span>' : '<span style="color:var(--text-muted);font-size:11px">✓ Member</span>';
+      const lm         = _liveMembers[m.uid] || {};
+      const isOnline   = lm.isStudying || (typeof _activeSessionsCache !== 'undefined' && _activeSessionsCache[m.uid]?.active);
+      const onlineDot  = `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${isOnline ? '#10b981' : '#6b7280'};margin-left:5px;vertical-align:middle" title="${isOnline ? 'Studying now' : 'Offline'}"></span>`;
+      const focusMins  = lm.elapsedTimeToday || m.elapsedTimeToday || m.todayMins || 0;
+      const focusTxt   = focusMins > 0 ? `<span style="font-size:11px;color:var(--text-muted);margin-left:6px">📚 ${minsToHrs(focusMins)} today</span>` : '';
+      const joinedTxt  = (m.joinedAt && m.joinedAt > 0) ? `<div style="font-size:11px;color:var(--text-dim);margin-top:2px">Joined ${new Date(typeof m.joinedAt?.toMillis === 'function' ? m.joinedAt.toMillis() : m.joinedAt).toLocaleDateString()}</div>` : '';
+      const initials   = esc((m.displayName||m.name||'?').slice(0,2).toUpperCase());
+      const dispName   = esc(m.displayName || m.name || 'Unknown');
+
+      // Admin action buttons (only for non-self, non-owner targets)
+      let actions = '';
+      if (!isMe && !isOwnerMem && iAmAdmin) {
+        const promoteBtn = !isAdminMem
+          ? `<button class="btn mm-act" data-mmact="promote" data-uid="${esc(m.uid)}" data-name="${dispName}" style="padding:4px 10px;font-size:11px;background:rgba(16,185,129,.15);color:#10b981;border:1px solid rgba(16,185,129,.3);border-radius:6px;cursor:pointer">Promote</button>`
+          : (iAmOwner ? `<button class="btn mm-act" data-mmact="demote" data-uid="${esc(m.uid)}" data-name="${dispName}" style="padding:4px 10px;font-size:11px;background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.3);border-radius:6px;cursor:pointer">Demote</button>` : '');
+        actions = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+          ${promoteBtn}
+          <button class="btn mm-act" data-mmact="kick" data-uid="${esc(m.uid)}" data-name="${dispName}" style="padding:4px 10px;font-size:11px;background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.3);border-radius:6px;cursor:pointer">Kick</button>
+          <button class="btn mm-act" data-mmact="ban" data-uid="${esc(m.uid)}" data-name="${dispName}" style="padding:4px 10px;font-size:11px;background:rgba(239,68,68,.07);color:#ef4444;border:1px solid rgba(239,68,68,.2);border-radius:6px;cursor:pointer;opacity:.8">Ban</button>
+        </div>`;
+      }
+
+      return `<div class="adm-member-row" style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+        <div style="width:38px;height:38px;border-radius:50%;background:${_avatarColor(m.uid)};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex-shrink:0">${initials}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:14px;display:flex;align-items:center;flex-wrap:wrap;gap:3px">
+            ${dispName}${isMe ? ' <span style="color:#7c3aed;font-size:11px">(you)</span>' : ''}${onlineDot}${focusTxt}
+          </div>
+          <div style="margin-top:2px">${roleLbl}</div>
+          ${joinedTxt}
+          ${actions}
+        </div>
+      </div>`;
+    };
+
+    let _mmUnsub = null;
+    let _modalEl = null;
+    let _latestMembers = [];
+
+    const _renderList = (docs) => {
+      const listEl = _modalEl && _modalEl.querySelector('#mm-list');
+      const headEl = _modalEl && _modalEl.querySelector('#mm-count');
+      if (!listEl) return;
+      // Sort: owner → admin → member, then alphabetically
+      const roleOrder = (m) => {
+        const isOwner = m.role === 'owner' || m.uid === (g.ownerUid||g.createdByUid||g.createdBy);
+        const isAdmin = isOwner || m.role === 'admin' || (Array.isArray(g.admins) && g.admins.includes(m.uid));
+        return isOwner ? 0 : isAdmin ? 1 : 2;
+      };
+      docs.sort((a, b) => roleOrder(a) - roleOrder(b) || (a.displayName||a.name||'').localeCompare(b.displayName||b.name||''));
+      if (headEl) headEl.textContent = `${docs.length} member${docs.length !== 1 ? 's' : ''}`;
+      listEl.innerHTML = docs.length ? docs.map(_mmRow).join('') : '<div style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px">No members found</div>';
+    };
+
+    openModal(`
+      <h3 class="sc-modal-title">👥 Manage Members</h3>
+      <p id="mm-count" style="font-size:13px;color:var(--text-muted);margin:0 0 10px">Loading…</p>
+      <div id="mm-list" style="max-height:55vh;overflow-y:auto;margin:0 -4px">
+        <div style="text-align:center;padding:28px;color:var(--text-muted);font-size:13px">
+          <div style="width:28px;height:28px;border:2px solid #7c3aed;border-top-color:transparent;border-radius:50%;margin:0 auto 10px;animation:spin .7s linear infinite"></div>
+          Loading members…
+        </div>
+      </div>
+      <div class="actions" style="margin-top:16px"><button class="btn btn-ghost" data-close>Close</button></div>
+    `, (modalEl) => {
+      _modalEl = modalEl;
+
+      // Subscribe to groups/{code}/members in realtime
+      try {
+        _mmUnsub = db_mm.collection('groups').doc(g.code).collection('members')
+          .onSnapshot(snap => {
+            _latestMembers = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+            _renderList(_latestMembers);
+          }, () => {
+            const listEl = modalEl.querySelector('#mm-list');
+            if (listEl) listEl.innerHTML = '<div style="text-align:center;padding:24px;color:#ef4444;font-size:13px">Failed to load members — check connection</div>';
+          });
+      } catch(_) {}
+
+      // Event delegation for action buttons inside the list
+      modalEl.addEventListener('click', (ev) => {
+        const btn = ev.target.closest('.mm-act');
+        if (!btn) return;
+        const act  = btn.dataset.mmact;
+        const tuid = btn.dataset.uid;
+        const name = btn.dataset.name || 'Member';
+        if (!act || !tuid) return;
+
+        if (act === 'kick') {
+          confirmModal(`Remove ${name} from the group?`, () => {
+            if (_mmUnsub) { try { _mmUnsub(); } catch(_) {} _mmUnsub = null; }
+            _execKickMember(g, tuid, name, false);
+          }, { title:`Kick ${name}?`, yesLabel:'Remove', yesClass:'btn btn-danger' });
+          return;
+        }
+        if (act === 'ban') {
+          confirmModal(`Ban ${name}? They will be removed and blocked from rejoining.`, () => {
+            if (_mmUnsub) { try { _mmUnsub(); } catch(_) {} _mmUnsub = null; }
+            _execKickMember(g, tuid, name, true);
+          }, { title:`Ban ${name}?`, yesLabel:'Ban', yesClass:'btn btn-danger' });
+          return;
+        }
+        if (act === 'promote') {
+          confirmModal(`Promote ${name} to Admin? They can manage group settings.`, () => {
+            if (db_mm && fb_mm) {
+              db_mm.collection('groups').doc(g.code).set({ admins: fb_mm.firestore.FieldValue.arrayUnion(tuid) }, { merge: true }).catch(() => {});
+              db_mm.collection('groups').doc(g.code).collection('members').doc(tuid).set({ role: 'admin' }, { merge: true }).catch(() => {});
+            }
+            const sc_ = scLoad(), g_ = sc_.groups.find(x => x.code === g.code || x.id === g.id);
+            if (g_) { if (!g_.admins) g_.admins = []; if (!g_.admins.includes(tuid)) g_.admins.push(tuid); scSave(sc_); }
+            toast(`${name} promoted to Admin ⚡`, 'success');
+          }, { title:`Promote ${name}?`, yesLabel:'Promote', yesClass:'btn sc-modal-submit' });
+          return;
+        }
+        if (act === 'demote') {
+          if (!iAmOwner) return;
+          confirmModal(`Remove ${name}'s Admin role?`, () => {
+            if (db_mm && fb_mm) {
+              db_mm.collection('groups').doc(g.code).set({ admins: fb_mm.firestore.FieldValue.arrayRemove(tuid) }, { merge: true }).catch(() => {});
+              db_mm.collection('groups').doc(g.code).collection('members').doc(tuid).set({ role: 'member' }, { merge: true }).catch(() => {});
+            }
+            const sc_ = scLoad(), g_ = sc_.groups.find(x => x.code === g.code || x.id === g.id);
+            if (g_) { if (g_.admins) g_.admins = g_.admins.filter(a => a !== tuid); scSave(sc_); }
+            toast(`${name} demoted to Member`, 'info');
+          }, { title:`Demote ${name}?`, yesLabel:'Demote', yesClass:'btn btn-danger' });
+          return;
+        }
+      });
+
+      // Clean up listener when modal closes
+      const closeBtn = modalEl.querySelector('[data-close]');
+      if (closeBtn) closeBtn.addEventListener('click', () => { if (_mmUnsub) { try { _mmUnsub(); } catch(_) {} _mmUnsub = null; } }, { once: true });
+      const backdrop = modalEl.closest?.('.modal-backdrop') || modalEl.parentElement;
+      if (backdrop) backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop && _mmUnsub) { try { _mmUnsub(); } catch(_) {} _mmUnsub = null; } }, { once: true });
+    });
+  }
+
   // ── Real-time join-requests subscription (admins/owners only) ────────────
   const _joinRequestsUnsubs = {};
   function _subscribeJoinRequests(code) {
@@ -5119,159 +5308,78 @@
       case 'sgs-manage-members': {
         const sc = scLoad();
         const g  = sc.groups.find(x => x.id === el.dataset.gid);
-        if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
-        const gid = g.id;
-        const members = (g.members || []);
-        if (!members.length) {
-          toast('No members in this group yet', 'info');
-          break;
-        }
-        const myUid_mm  = getUserId();
-        const iAmOwner  = _getMyRole(g) === 'owner';
-        const rows = members.map(m => {
-          const isMe       = m.id === myUid_mm || m.id === 'me';
-          const isOwnerMem = m.role === 'owner' || m.id === g.ownerUid || m.id === g.createdByUid;
-          const isAdminMem = isOwnerMem || m.role === 'admin' || (Array.isArray(g.admins) && g.admins.includes(m.id));
-          const roleLabel  = isOwnerMem ? '👑 Owner' : isAdminMem ? '⚡ Admin' : '✓ Member';
-          const canManage  = !isMe && !isOwnerMem;
-          const actions = canManage ? `
-            <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end;margin-top:4px">
-              ${!isAdminMem
-                ? `<button class="btn" style="padding:4px 9px;font-size:11px;background:rgba(16,185,129,.15);color:#10b981;border:1px solid rgba(16,185,129,.3)" data-sc="sgs-promote-member" data-gid="${esc(gid)}" data-uid="${esc(m.id)}" data-name="${esc(m.name||'Member')}">Promote</button>`
-                : (iAmOwner ? `<button class="btn" style="padding:4px 9px;font-size:11px;background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.3)" data-sc="sgs-demote-member" data-gid="${esc(gid)}" data-uid="${esc(m.id)}" data-name="${esc(m.name||'Member')}">Demote</button>` : '')}
-              <button class="btn btn-danger" style="padding:4px 9px;font-size:11px" data-sc="sgs-kick" data-gid="${esc(gid)}" data-uid="${esc(m.id)}" data-name="${esc(m.name||'Member')}">Kick</button>
-              <button class="btn btn-danger" style="padding:4px 9px;font-size:11px;opacity:.85" data-sc="sgs-ban" data-gid="${esc(gid)}" data-uid="${esc(m.id)}" data-name="${esc(m.name||'Member')}">Ban</button>
-            </div>` : '';
-          return `
-            <div class="adm-member-row" style="margin-bottom:12px;display:flex;align-items:flex-start;gap:10px">
-              <div style="width:38px;height:38px;border-radius:50%;background:#7c3aed;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex-shrink:0">${esc((m.name||'?').slice(0,2).toUpperCase())}</div>
-              <div style="flex:1;min-width:0">
-                <div style="font-weight:600;font-size:14px">${esc(m.name||'Unknown')} ${isMe ? '<span style="color:#7c3aed;font-size:11px">(you)</span>' : ''}</div>
-                <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${roleLabel}</div>
-                ${m.joinedAt ? `<div style="font-size:11px;color:var(--text-dim);margin-top:1px">Joined ${new Date(m.joinedAt).toLocaleDateString()}</div>` : ''}
-                ${actions}
-              </div>
-            </div>`;
-        }).join('');
-        openModal(`
-          <h3 class="sc-modal-title">👥 Manage Members</h3>
-          <p style="font-size:13px;color:var(--text-muted);margin:0 0 14px">${members.length} member${members.length!==1?'s':''}</p>
-          <div id="mm-list" style="max-height:55vh;overflow-y:auto">${rows}</div>
-          <div class="actions" style="margin-top:16px"><button class="btn btn-ghost" data-close>Close</button></div>
-        `);
+        if (!g) break;
+        const myRole = _getMyRole(g);
+        if (myRole !== 'owner' && myRole !== 'admin') { toast('Admin access required', 'warn'); break; }
+        _openManageMembersModal(g);
         break;
       }
 
       case 'sgs-kick': {
         const sc   = scLoad();
         const gid  = el.dataset.gid;
-        const uid  = el.dataset.uid;
+        const tuid = el.dataset.uid;
         const name = el.dataset.name || 'Member';
         const g    = sc.groups.find(x => x.id === gid);
         if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
         confirmModal(`Remove ${name} from the group?`, () => {
-          const sc2 = scLoad();
-          const g2  = sc2.groups.find(x => x.id === gid);
-          if (!g2) return;
-          g2.members = (g2.members||[]).filter(m => m.id !== uid);
-          scSave(sc2);
-          const db_k = getDb(), fb_k = getFb();
-          if (db_k && fb_k && g2.code) {
-            const gRef_k = db_k.collection('groups').doc(g2.code);
-            gRef_k.collection('members').doc(uid).delete().then(() => {
-              gRef_k.set({ memberCount: fb_k.firestore.FieldValue.increment(-1) }, { merge: true }).catch(() => {});
-            }).catch(() => {});
-            db_k.collection('users').doc(uid).set({ joinedRooms: fb_k.firestore.FieldValue.arrayRemove(g2.code) }, { merge: true }).catch(() => {});
-          }
-          toast(`${name} removed from group`, 'info');
-          closeModal();
-          renderSocial();
-        }, { title:`Kick ${name}?`, yesLabel:'Remove', yesClass:'btn btn-danger', noLabel:'Cancel' });
+          _execKickMember(g, tuid, name, false);
+        }, { title:`Kick ${name}?`, yesLabel:'Remove', yesClass:'btn btn-danger' });
         break;
       }
 
       case 'sgs-ban': {
         const sc   = scLoad();
         const gid  = el.dataset.gid;
-        const uid  = el.dataset.uid;
+        const tuid = el.dataset.uid;
         const name = el.dataset.name || 'Member';
         const g    = sc.groups.find(x => x.id === gid);
         if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
         confirmModal(`Ban ${name}? They will be removed and blocked from rejoining.`, () => {
-          const sc2 = scLoad();
-          const g2  = sc2.groups.find(x => x.id === gid);
-          if (!g2) return;
-          g2.members = (g2.members||[]).filter(m => m.id !== uid);
-          if (!g2.bannedUids) g2.bannedUids = [];
-          if (!g2.bannedUids.includes(uid)) g2.bannedUids.push(uid);
-          scSave(sc2);
-          const db_b = getDb(), fb_b = getFb();
-          if (db_b && fb_b && g2.code) {
-            const gRef_b = db_b.collection('groups').doc(g2.code);
-            gRef_b.collection('members').doc(uid).delete().then(() => {
-              gRef_b.set({
-                memberCount: fb_b.firestore.FieldValue.increment(-1),
-                bannedUids:  fb_b.firestore.FieldValue.arrayUnion(uid),
-              }, { merge: true }).catch(() => {});
-            }).catch(() => {});
-            db_b.collection('users').doc(uid).set({ joinedRooms: fb_b.firestore.FieldValue.arrayRemove(g2.code) }, { merge: true }).catch(() => {});
-          }
-          toast(`${name} has been banned`, 'info');
-          closeModal(); renderSocial();
-        }, { title:`Ban ${name}?`, yesLabel:'Ban', yesClass:'btn btn-danger', noLabel:'Cancel' });
+          _execKickMember(g, tuid, name, true);
+        }, { title:`Ban ${name}?`, yesLabel:'Ban', yesClass:'btn btn-danger' });
         break;
       }
 
       case 'sgs-promote-member': {
         const sc   = scLoad();
         const gid  = el.dataset.gid;
-        const uid  = el.dataset.uid;
+        const tuid = el.dataset.uid;
         const name = el.dataset.name || 'Member';
         const g    = sc.groups.find(x => x.id === gid);
         if (!g || (_getMyRole(g) !== 'owner' && _getMyRole(g) !== 'admin')) break;
         confirmModal(`Promote ${name} to Admin? They can manage group settings.`, () => {
-          const sc2 = scLoad();
-          const g2  = sc2.groups.find(x => x.id === gid);
-          if (!g2) return;
-          const mem = (g2.members||[]).find(m => m.id === uid);
-          if (mem) mem.role = 'admin';
-          if (!g2.admins) g2.admins = [];
-          if (!g2.admins.includes(uid)) g2.admins.push(uid);
-          scSave(sc2);
           const db_p = getDb(), fb_p = getFb();
-          if (db_p && fb_p && g2.code) {
-            db_p.collection('groups').doc(g2.code).set({ admins: fb_p.firestore.FieldValue.arrayUnion(uid) }, { merge: true }).catch(() => {});
-            db_p.collection('groups').doc(g2.code).collection('members').doc(uid).set({ role: 'admin' }, { merge: true }).catch(() => {});
+          if (db_p && fb_p && g.code) {
+            db_p.collection('groups').doc(g.code).set({ admins: fb_p.firestore.FieldValue.arrayUnion(tuid) }, { merge: true }).catch(() => {});
+            db_p.collection('groups').doc(g.code).collection('members').doc(tuid).set({ role: 'admin' }, { merge: true }).catch(() => {});
           }
+          const sc2 = scLoad(), g2 = sc2.groups.find(x => x.id === gid);
+          if (g2) { const m = (g2.members||[]).find(x => x.id === tuid); if (m) m.role = 'admin'; if (!g2.admins) g2.admins = []; if (!g2.admins.includes(tuid)) g2.admins.push(tuid); scSave(sc2); }
           toast(`${name} promoted to Admin ⚡`, 'success');
           closeModal(); renderSocial();
-        }, { title:`Promote ${name}?`, yesLabel:'Promote', yesClass:'btn sc-modal-submit', noLabel:'Cancel' });
+        }, { title:`Promote ${name}?`, yesLabel:'Promote', yesClass:'btn sc-modal-submit' });
         break;
       }
 
       case 'sgs-demote-member': {
         const sc   = scLoad();
         const gid  = el.dataset.gid;
-        const uid  = el.dataset.uid;
+        const tuid = el.dataset.uid;
         const name = el.dataset.name || 'Member';
         const g    = sc.groups.find(x => x.id === gid);
         if (!g || _getMyRole(g) !== 'owner') break;
         confirmModal(`Remove ${name}'s Admin role?`, () => {
-          const sc2 = scLoad();
-          const g2  = sc2.groups.find(x => x.id === gid);
-          if (!g2) return;
-          const mem = (g2.members||[]).find(m => m.id === uid);
-          if (mem) mem.role = 'member';
-          if (g2.admins) g2.admins = g2.admins.filter(a => a !== uid);
-          scSave(sc2);
           const db_d = getDb(), fb_d = getFb();
-          if (db_d && fb_d && g2.code) {
-            db_d.collection('groups').doc(g2.code).set({ admins: fb_d.firestore.FieldValue.arrayRemove(uid) }, { merge: true }).catch(() => {});
-            db_d.collection('groups').doc(g2.code).collection('members').doc(uid).set({ role: 'member' }, { merge: true }).catch(() => {});
+          if (db_d && fb_d && g.code) {
+            db_d.collection('groups').doc(g.code).set({ admins: fb_d.firestore.FieldValue.arrayRemove(tuid) }, { merge: true }).catch(() => {});
+            db_d.collection('groups').doc(g.code).collection('members').doc(tuid).set({ role: 'member' }, { merge: true }).catch(() => {});
           }
+          const sc2 = scLoad(), g2 = sc2.groups.find(x => x.id === gid);
+          if (g2) { const m = (g2.members||[]).find(x => x.id === tuid); if (m) m.role = 'member'; if (g2.admins) g2.admins = g2.admins.filter(a => a !== tuid); scSave(sc2); }
           toast(`${name} demoted to Member`, 'info');
           closeModal(); renderSocial();
-        }, { title:`Demote ${name}?`, yesLabel:'Demote', yesClass:'btn btn-danger', noLabel:'Cancel' });
+        }, { title:`Demote ${name}?`, yesLabel:'Demote', yesClass:'btn btn-danger' });
         break;
       }
 
