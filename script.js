@@ -544,10 +544,33 @@
         updatedAt:    firebase.firestore.FieldValue.serverTimestamp()
       }, { merge: true }).then(() => {
         console.log('[Sync] Cloud upload OK — syncVersion:', syncVer);
+        // Keep SyncEngine's last-known version in sync so it won't re-apply our own write
+        try { if (window.SyncEngine) window.SyncEngine._myLastVersion = syncVer; } catch(_) {}
       }).catch(e => {
         console.warn('[Sync] Cloud upload failed:', e.message);
       });
     }, 3000);
+  }
+
+  // ── Remote state merge — called by SyncEngine when cloud is newer ─────────
+  // Merges incoming cloud state into the local state object, saves to
+  // localStorage, and re-renders the active tab. Does NOT call saveState()
+  // to avoid triggering another cloud upload cycle.
+  function _onSyncEngineRemoteUpdate(parsed) {
+    if (_cloudRestoreInProgress) return; // never interrupt an active restore
+    try {
+      const migrated = migrate(JSON.parse(JSON.stringify(parsed)));
+      // Preserve the cloud syncVersion exactly — do NOT increment
+      state = migrated;
+      state._savedAt = Date.now();
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {}
+      renderAll();
+      if (_currentTab === 'social') renderSocial();
+      gamificationManager._updateXPBar();
+      console.log('[SyncEngine] Remote state merged — syncVersion:', parsed._syncVersion || 0);
+    } catch (e) {
+      console.warn('[SyncEngine] Remote merge error:', e.message);
+    }
   }
 
   // ── Force-restore from cloud: manual recovery triggered from Settings ─────
@@ -701,6 +724,14 @@
             setTimeout(() => { if (window._socialRestoreGroups) window._socialRestoreGroups(); }, 800);
             // Reconcile presence: writes real today-minutes to all group member docs
             setTimeout(() => { if (window._socialReconcilePresence) window._socialReconcilePresence(); }, 1200);
+            // Start global realtime sync engine for instant cross-device updates
+            setTimeout(() => {
+              try {
+                if (window.SyncEngine && _db && _userId) {
+                  window.SyncEngine.start(_db, _userId, window._getSyncState, _onSyncEngineRemoteUpdate);
+                }
+              } catch(e) { console.warn('[Auth] SyncEngine start failed:', e); }
+            }, 2000);
             // Check for duplicate username and force re-entry if clashing
             setTimeout(() => _checkAndEnforceUniqueUsername().catch(() => {}), 2500);
             // ── Offline recovery: credit any Pomodoro session that completed while the app was closed ──
@@ -764,6 +795,14 @@
           renderAll();
           refreshSettingsIfOpen();
           toast('\u2705 Account linked! Data saved to cloud.', 'success', 4000);
+          // Start live sync for newly-registered users too
+          setTimeout(() => {
+            try {
+              if (window.SyncEngine && _db && _userId) {
+                window.SyncEngine.start(_db, _userId, window._getSyncState, _onSyncEngineRemoteUpdate);
+              }
+            } catch(e) { console.warn('[Auth] SyncEngine start failed:', e); }
+          }, 1500);
         } else {
           // Doc exists but app data was missing or unreadable — preserve it.
           console.warn('[Sync] Cloud doc exists but app data was unreadable — preserving cloud data.');
@@ -771,6 +810,14 @@
           _hideSyncScreen();
           renderAll();
           refreshSettingsIfOpen();
+          // Start live sync even for unreadable-data path
+          setTimeout(() => {
+            try {
+              if (window.SyncEngine && _db && _userId) {
+                window.SyncEngine.start(_db, _userId, window._getSyncState, _onSyncEngineRemoteUpdate);
+              }
+            } catch(e) { console.warn('[Auth] SyncEngine start failed:', e); }
+          }, 1500);
           if (_myGroupCodes.length) {
             _db.collection('users').doc(user.uid).set({
               uid:         user.uid,
@@ -832,6 +879,8 @@
     } else {
       _userId = null;
       _userHasCloudData = false; // reset so next sign-in re-confirms cloud data existence
+      // Stop the global realtime sync engine on sign-out
+      try { if (window.SyncEngine) window.SyncEngine.stop(); } catch(_) {}
       // Leave room and clean up all social listeners on sign-out
       if (_socialRoomCode) _sLeaveRoom();
       if (_globalLbUnsub) { _globalLbUnsub(); _globalLbUnsub = null; }
@@ -1416,7 +1465,14 @@
   function _updateGlobalLb()           {}
   function _loadPublicRooms()          {}
   function _loadGlobalLeaderboard()    { return Promise.resolve(); }
-  function _debouncedSocialSync()      {}
+  function _debouncedSocialSync() {
+    // Sync XP total to global leaderboard whenever XP changes
+    try {
+      if (window.SyncEngine && state.xp) {
+        window.SyncEngine.syncXPToLeaderboard(state.xp.total || 0);
+      }
+    } catch(_) {}
+  }
   function _sSocialInit()              { return Promise.resolve(); }
   function _sJoinRoom()                { return Promise.resolve(); }
   function _sLeaveRoom()               {}
@@ -1510,7 +1566,11 @@
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true }).catch(e => console.warn('[OfflineSync] Immediate sync failed:', e.message));
   };
-  window._renderActiveTab = function() { try { renderAll(); } catch(_) {} };
+  window._renderActiveTab          = function() { try { renderAll(); } catch(_) {} };
+  // SyncEngine bridges — provide read-only access to IIFE-scoped state flags
+  window._getSyncState             = function() { return state; };
+  window._isCloudRestoreInProgress = function() { return _cloudRestoreInProgress; };
+  window._getUserHasCloudData      = function() { return _userHasCloudData; };
 
   // ========== Theme System ==========
   const _THEMES = [
@@ -9098,6 +9158,8 @@
           if (tasks.length > 0 && tasks.every(x => x.done) && !wasDone) _justCompletedDay = todayKey();
           saveState();
           renderAll();
+          // Fast-path cloud write so task state reaches other devices immediately
+          try { if (window.SyncEngine) window.SyncEngine.schedulePush(window.SyncEngine.PRIORITY.FAST); } catch(_) {}
         }
       } else {
         const plan = state.dailyPlans[todayKey()];
@@ -9116,6 +9178,8 @@
             }
             saveState();
             renderAll();
+            // Fast-path cloud write for custom tasks too
+            try { if (window.SyncEngine) window.SyncEngine.schedulePush(window.SyncEngine.PRIORITY.FAST); } catch(_) {}
           }
         }
       }

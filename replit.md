@@ -81,8 +81,19 @@ An offline-capable Progressive Web App for tracking study progress with spaced r
 - **Migration** — runs once at startup (`_migrateStatsToLocalDates`): re-keys any old UTC-midnight keys to their local-date equivalent, then persists.
 - **Chart instant update** — focus session end (`onVfmComplete`) AND Pomodoro session end both call `renderStats()` if the Stats tab is visible. No page refresh needed.
 
+## Global Realtime Sync Engine (`sync-engine.js`)
+- **File:** `sync-engine.js?v=1` — loaded before `script.js`, exposes `window.SyncEngine`
+- **Cross-device listener:** `onSnapshot` on `users/{uid}` — detects remote state changes, merges if newer, calls `_onSyncEngineRemoteUpdate()` in script.js
+- **Conflict resolution:** `_syncVersion` (incrementing counter) + `_savedAt` (timestamp) — cloud wins only if its version is strictly higher, or same version but >10 s newer
+- **Priority write queue:** `IMMEDIATE` (0 ms), `FAST` (600 ms), `NORMAL` (handled by existing `_scheduledCloudSync`). Task completion and XP changes use `FAST`.
+- **XP leaderboard sync:** `syncXPToLeaderboard(xpTotal)` — debounced 1.5 s write to `global_lb/{uid}` after every XP change. Called via `_debouncedSocialSync()` which is now active.
+- **Offline queue:** mutations during offline stored in `localStorage._se_queue`, replayed on reconnect
+- **Heartbeat:** 30 s writes to `users/{uid}._lastSeen + _online` for presence
+- **Guards:** respects `_cloudRestoreInProgress`, `_userHasCloudData`, `hasPendingWrites`, `_myLastVersion` to avoid loops and stale overwrites
+- **Window bridges:** `window._getSyncState()`, `window._isCloudRestoreInProgress()`, `window._getUserHasCloudData()` — allow SyncEngine to safely read IIFE-scoped state
+
 ## Gotchas
-- Cache-busting: `script.js?v=210`, `social.js?v=37`, `style.css?v=134`, `social.css?v=26`, `duel.js?v=3` — increment when making changes; SW cache is `syllabus-tracker-v207`
+- Cache-busting: `script.js?v=211`, `sync-engine.js?v=1`, `social.js?v=37`, `style.css?v=134`, `social.css?v=26`, `duel.js?v=3` — increment when making changes; SW cache is `syllabus-tracker-v208`
 - Audio files need HTTP Range request support (already handled in `server.js` and `sw.js`)
 - Global orientation is **portrait-locked** (manifest + JS `lock('portrait')` on startup). Full Focus Mode and Video Player expose a ⤢ landscape toggle button that calls `toggleOrientLock()`; exiting either mode calls `lockPortrait()` to restore portrait. `--real-vh` CSS var is set by JS on every `orientationchange`/`resize` for iOS Safari.
 - Full Focus overlay uses a **flat CSS Grid** layout. Direct children of `.fs-content`: `fs-top` (badge+dots), `fs-task-box`, `fs-timer-wrap`, `fs-ctrl-col`, `fs-motivation-box`, `fs-footer` (hint only). Portrait grid: `"top task" / "ring ctrl" / "moti moti" / "foot foot"`. Landscape grid (both mobile ≤500px and desktop): 3-column `"top ring task" / "moti ring ctrl" / "foot foot foot"` — left=navy motivation panel, center=dominant timer (270px/76px mobile, 300px/80px desktop), right=indigo panel (task top + controls bottom, `border-top: none` to appear seamless). `_fsMotiQuote` set once in `startFullSession()`.
