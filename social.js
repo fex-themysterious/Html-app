@@ -457,7 +457,7 @@
   // Writes the same presence snapshot to ALL joined groups atomically.
   // This is the only function that should push presence data to Firestore —
   // never write per-group directly, or timers will diverge between groups.
-  function _writePresenceAllGroups(isStudying, todayMins, avStage) {
+  function _writePresenceAllGroups(isStudying, todayMins, avStage, studyMode, currentSubject) {
     const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
     if (!db_ || !uid_ || !fb_) return;
     const sc_ = scLoad();
@@ -481,6 +481,8 @@
       elapsedTimeToday: todayMins || 0,
       dateKey:          tk_,
       avatarStage:      typeof avStage === 'number' ? avStage : (window._lsGetCurrentAvStage?.() || 0),
+      studyMode:        isStudying ? (studyMode || null) : null,
+      currentSubject:   isStudying ? (currentSubject || null) : null,
       lastUpdated:      fb_.firestore.FieldValue.serverTimestamp(),
     };
     // studyStartedAt is kept stable for the entire session so remote clients
@@ -497,6 +499,8 @@
         todayFocusMinutes: todayMins || 0,
         todayDateKey:      tk_,
         isStudying:        !!isStudying,
+        studyMode:         isStudying ? (studyMode || null) : null,
+        currentSubject:    isStudying ? (currentSubject || null) : null,
         presenceUpdatedAt: fb_.firestore.FieldValue.serverTimestamp(),
       };
       if (isStudying && _mySessionStartedAt) {
@@ -536,7 +540,10 @@
 
     // Also write to the top-level activeSessions/{uid} doc — a single write
     // that ALL group rooms subscribe to, ensuring instant cross-group sync.
-    _writeActiveSession(isStudying);
+    _writeActiveSession(isStudying, studyMode, currentSubject);
+
+    // Write activity feed event on session start/stop
+    _writeActivityEvent(isStudying, studyMode, currentSubject, codes);
   }
 
   // ── activeSessions/{uid} writer ───────────────────────────────────────────
@@ -544,13 +551,16 @@
   // This is the single canonical doc ALL groups subscribe to — one write per
   // event, not one write per group.  Falls back silently if security rules
   // haven't been deployed for this collection yet.
-  function _writeActiveSession(isStudying) {
+  function _writeActiveSession(isStudying, studyMode, currentSubject) {
     const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
     if (!db_ || !uid_ || !fb_) return;
+    const modeStr = isStudying ? (studyMode || 'focus') : 'idle';
     const sessionDoc = {
       uid:              uid_,
       active:           !!isStudying,
-      mode:             isStudying ? 'focus' : 'idle',
+      mode:             modeStr,
+      studyMode:        isStudying ? (studyMode || null) : null,
+      currentSubject:   isStudying ? (currentSubject || null) : null,
       updatedAt:        fb_.firestore.FieldValue.serverTimestamp(),
       // lastHeartbeatAt is refreshed on every write so remote viewers can detect
       // ghost sessions: active && (now - lastHeartbeatAt) > PRESENCE_STALE_MS → offline.
@@ -566,8 +576,43 @@
     }
     db_.collection('activeSessions').doc(uid_)
       .set(sessionDoc, { merge: true })
-      .then(() => { console.log('[Presence] activeSessions write OK — active:', !!isStudying); })
+      .then(() => { console.log('[Presence] activeSessions write OK — active:', !!isStudying, '| mode:', modeStr); })
       .catch(err => { console.warn('[Presence] activeSessions write failed:', err.code, '— check Firestore rules for activeSessions collection'); });
+  }
+
+  // ── Activity feed writer ──────────────────────────────────────────────────
+  // Writes a single event to each group's activity feed when a session starts/stops.
+  // Throttled: at most one start + one stop event per session.
+  let _lastActivityEventType = null;
+  function _writeActivityEvent(isStudying, studyMode, currentSubject, codes) {
+    const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
+    if (!db_ || !uid_ || !fb_) return;
+    const eventType = isStudying ? 'start' : 'stop';
+    if (_lastActivityEventType === eventType) return; // deduplicate
+    _lastActivityEventType = eventType;
+    const displayName = _getUserDisplayName();
+    const modeLabel = studyMode === 'live_focus' ? 'Live Focus'
+      : studyMode === 'pomodoro' ? 'Pomodoro'
+      : studyMode === 'stopwatch' ? 'Stopwatch'
+      : 'Focus';
+    const text = isStudying
+      ? `${displayName} started ${modeLabel}${currentSubject ? ` — ${currentSubject}` : ''}`
+      : `${displayName} ended a study session`;
+    const event = {
+      uid:        uid_,
+      name:       displayName,
+      type:       eventType,
+      studyMode:  studyMode || null,
+      subject:    currentSubject || null,
+      text,
+      createdAt:  fb_.firestore.FieldValue.serverTimestamp(),
+    };
+    (codes || []).forEach(code => {
+      try {
+        db_.collection('groups').doc(code).collection('activityFeed')
+          .add(event).catch(() => {});
+      } catch(_) {}
+    });
   }
 
   // ── Global heartbeat ──────────────────────────────────────────────────────
@@ -1439,7 +1484,11 @@
   // Written on every focus start/stop. Subscribed per-member in every room.
   // Falls back to users/{uid} if Firestore rules block the collection.
   let _activeSessionsUnsubs = {}; // { uid: unsubFn }
-  let _activeSessionsCache  = {}; // { uid: { active, startedAt, mode } }
+  let _activeSessionsCache  = {}; // { uid: { active, startedAt, mode, studyMode, currentSubject } }
+  // Activity feed — live events from groups/{code}/activityFeed
+  let _activityFeedUnsub    = null;
+  let _activityFeedCode     = null;
+  let _activityFeedEvents   = []; // last N events
   // UIDs confirmed to have no users/{uid} doc — orphaned members (deleted accounts).
   // Filtered out of member renders; cleaned from Firestore if current user is owner/admin.
   let _confirmedOrphans    = new Set();
@@ -2261,13 +2310,66 @@
     return (m.todayKey === tk ? (m.todayMins || 0) : 0) * 60;
   }
 
+  // ── Activity feed subscription ────────────────────────────────────────────
+  function _subscribeActivityFeed(code) {
+    if (_activityFeedCode === code && _activityFeedUnsub) return;
+    if (_activityFeedUnsub) { try { _activityFeedUnsub(); } catch(_) {} _activityFeedUnsub = null; }
+    _activityFeedCode   = code;
+    _activityFeedEvents = [];
+    const db = getDb();
+    if (!db || !code) return;
+    try {
+      _activityFeedUnsub = db.collection('groups').doc(code)
+        .collection('activityFeed')
+        .orderBy('createdAt', 'desc')
+        .limit(20)
+        .onSnapshot(snap => {
+          _activityFeedEvents = snap.docs.map(d => d.data());
+          // Patch-update the activity feed element if it's visible — avoid full re-render
+          const feedEl = document.querySelector('.sr-activity-feed-items');
+          if (feedEl) feedEl.innerHTML = _renderActivityFeedItems();
+        }, () => {
+          // Likely missing index or rules — silently ignore
+          _activityFeedUnsub = null;
+        });
+    } catch(_) {}
+  }
+
+  function _fmtActivityTime(ts) {
+    if (!ts) return '';
+    const ms = typeof ts.toMillis === 'function' ? ts.toMillis() : (typeof ts === 'number' ? ts : Date.now());
+    const diff = Date.now() - ms;
+    if (diff < 60000)        return 'just now';
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60)           return `${mins}m ago`;
+    return `${Math.floor(mins / 60)}h ago`;
+  }
+
+  function _renderActivityFeedItems() {
+    if (!_activityFeedEvents.length) {
+      return `<div class="sr-activity-empty">No activity yet — start studying!</div>`;
+    }
+    return _activityFeedEvents.slice(0, 10).map(ev => {
+      const isStart = ev.type === 'start';
+      return `
+        <div class="sr-activity-item">
+          <div class="sr-activity-dot${isStart ? '' : ' sr-activity-dot--stop'}"></div>
+          <div class="sr-activity-text">${esc(ev.text || '')}</div>
+          <div class="sr-activity-time">${_fmtActivityTime(ev.createdAt)}</div>
+        </div>`;
+    }).join('');
+  }
+
   function _startSrTicker(gid) {
     _stopSrTicker();
     _srTickCount = 0;
     // Subscribe to Firebase member presence for this room
     const sc0 = scLoad();
     const g0  = sc0.groups.find(x => x.id === gid);
-    if (g0 && g0.code) _subscribeRoomMembers(g0.code);
+    if (g0 && g0.code) {
+      _subscribeRoomMembers(g0.code);
+      _subscribeActivityFeed(g0.code);
+    }
 
     _srTickInterval = setInterval(() => {
       if (document.hidden) return;
@@ -2545,12 +2647,16 @@
                         active:          !!as.active,
                         startedAt:       as.startedAt ?? null,
                         mode:            as.mode || 'idle',
+                        studyMode:       as.studyMode ?? null,
+                        currentSubject:  as.currentSubject ?? null,
                         lastHeartbeatAt: as.lastHeartbeatAt ?? null,
                         lastActiveAt:    as.lastActiveAt ?? null,
                       };
                       // Merge into _liveMembers so existing render code stays correct
                       if (_liveMembers[mUid]) {
-                        _liveMembers[mUid].isStudying = !!as.active;
+                        _liveMembers[mUid].isStudying     = !!as.active;
+                        _liveMembers[mUid].studyMode      = as.active ? (as.studyMode || null) : null;
+                        _liveMembers[mUid].currentSubject = as.active ? (as.currentSubject || null) : null;
                         if (as.startedAt) _liveMembers[mUid].studyStartedAt = as.startedAt;
                         else              delete _liveMembers[mUid].studyStartedAt;
                         // Treat the activeSessions updatedAt as a fresh heartbeat
@@ -2595,6 +2701,8 @@
                       todayDateKey:      uData.todayDateKey,
                       isStudying:        uData.isStudying,
                       studyStartedAt:    uData.studyStartedAt ?? null,
+                      studyMode:         uData.studyMode ?? null,
+                      currentSubject:    uData.currentSubject ?? null,
                       presenceUpdatedAt: uData.presenceUpdatedAt,
                     };
 
@@ -2609,6 +2717,8 @@
                           delete _liveMembers[mUid].studyStartedAt;
                         }
                         if (uData.isStudying != null) _liveMembers[mUid].isStudying = uData.isStudying;
+                        if (uData.studyMode != null)     _liveMembers[mUid].studyMode = uData.isStudying ? uData.studyMode : null;
+                        if (uData.currentSubject != null) _liveMembers[mUid].currentSubject = uData.isStudying ? uData.currentSubject : null;
                         if (uData.presenceUpdatedAt) _liveMembers[mUid].lastUpdated = uData.presenceUpdatedAt;
                       }
                       // Instantly update all timer elements (chip + card) if the room is visible
@@ -3672,7 +3782,10 @@
       const secs    = _srMemberSeconds(m);
       const name    = m.name || 'Unknown';
       const lm      = _liveMembers[uid] || null;
-      const subject = (lm?.currentSubject || '').trim();
+      const isMe    = (m.id === 'me' || m.id === myUid);
+      const subject = isMe
+        ? (window._lsGetCurrentSubject?.() || lm?.currentSubject || '').trim()
+        : (_activeSessionsCache[uid]?.currentSubject || lm?.currentSubject || '').trim();
       const avStage = (m.id === 'me' || m.id === myUid)
         ? (window._lsGetCurrentAvStage?.() || 0)
         : (lm?.avatarStage || 0);
@@ -3706,6 +3819,19 @@
       const lmData      = realUid && _liveMembers[realUid] ? _liveMembers[realUid] : null;
       const showLastSeen = !active && !isOff && timerId !== 'me' && lmData;
       const lastSeenStr  = showLastSeen ? _fmtLastSeen(lmData) : '';
+      const isMe_card    = (m.id === 'me' || m.id === myUid);
+      const cardSubject  = active ? (
+        isMe_card
+          ? (window._lsGetCurrentSubject?.() || lmData?.currentSubject || _activeSessionsCache[realUid]?.currentSubject || '')
+          : (lmData?.currentSubject || _activeSessionsCache[realUid]?.currentSubject || '')
+      ) : '';
+      const cardMode     = active ? (
+        isMe_card
+          ? (window._lsGetStudyMode?.() || lmData?.studyMode || _activeSessionsCache[realUid]?.studyMode || '')
+          : (lmData?.studyMode || _activeSessionsCache[realUid]?.studyMode || '')
+      ) : '';
+      const modeLabelMap = { live_focus: '🔴 Live', pomodoro: '🍅 Pomodoro', stopwatch: '⏱ Watch' };
+      const modeChip     = active && cardMode ? (modeLabelMap[cardMode] || '') : '';
       return `
         <div class="sr-member-card ${cardClass}" data-sr-card="${esc(m.id)}"
              data-sc="sr-view-profile" data-uid="${esc(realUid)}" data-name="${esc(name)}" data-code="${esc(g.code||g.id||'')}">
@@ -3716,6 +3842,8 @@
           <div class="sr-card-name">${esc(displayName)}</div>
           ${m.equippedBadge ? `<div class="sr-card-badge">${window._cmkBadgeHTML?.(m.equippedBadge) || ''}</div>` : ''}
           <div class="sr-card-timer${active ? ' sr-timer-live' : ''}" data-sr-timer="${esc(timerId)}">${isOff ? '—' : _fmtSecs(secs)}</div>
+          ${modeChip ? `<div class="sr-card-mode-chip">${modeChip}</div>` : ''}
+          ${active && cardSubject ? `<div class="sr-card-subject">📚 ${esc(cardSubject.length > 14 ? cardSubject.slice(0,13)+'…' : cardSubject)}</div>` : ''}
           ${showLastSeen ? `<div class="sr-card-lastseen" data-sr-lastseen="${esc(timerId)}">${lastSeenStr}</div>` : ''}
           ${showPill ? `<div class="sr-av-pill ${_avPillCls(avStage)}">${_avLabel(avStage)}</div>` : ''}
         </div>`;
@@ -3771,6 +3899,15 @@
           ${memberCards.length
             ? memberCards.join('')
             : `<div class="sr-empty-grid">No members in this group yet.</div>`}
+        </div>
+
+        <div class="sr-activity-feed">
+          <div class="sr-activity-feed-hd">
+            <span class="sr-activity-feed-title">⚡ Activity</span>
+          </div>
+          <div class="sr-activity-feed-items">
+            ${_renderActivityFeedItems()}
+          </div>
         </div>
 
       </div>`;
@@ -6653,9 +6790,11 @@
       // Broadcast to ALL joined groups simultaneously so every group shows
       // the same timer for this user. _writePresenceAllGroups manages the
       // studyStartedAt session-start timestamp correctly (set once, never reset).
-      const studying_ = ui().focusIsRunning?.() === true;
-      const avStage_  = window._lsGetCurrentAvStage?.() || 0;
-      _writePresenceAllGroups(studying_, todayMins, avStage_);
+      const studying_       = ui().focusIsRunning?.() === true;
+      const avStage_        = window._lsGetCurrentAvStage?.() || 0;
+      const studyMode_      = window._lsGetStudyMode?.() || null;
+      const currentSubject_ = studying_ ? (window._lsGetCurrentSubject?.() || null) : null;
+      _writePresenceAllGroups(studying_, todayMins, avStage_, studyMode_, currentSubject_);
       // Start/stop the global heartbeat based on focus state.
       // The heartbeat keeps activeSessions/{uid}.lastHeartbeatAt fresh so
       // remote viewers can detect ghost sessions via staleness.
@@ -6677,6 +6816,8 @@
         _liveMembers[myUid_].elapsedTimeToday = todayMins;
         _liveMembers[myUid_].dateKey           = tk;
         _liveMembers[myUid_].lastUpdated       = Date.now();
+        _liveMembers[myUid_].studyMode         = studying_ ? studyMode_ : null;
+        _liveMembers[myUid_].currentSubject    = studying_ ? currentSubject_ : null;
         if (studying_ && _mySessionStartedAt) {
           _liveMembers[myUid_].studyStartedAt  = _mySessionStartedAt;
         } else if (!studying_) {
@@ -6685,9 +6826,11 @@
         // Mirror to activeSessions cache so _srMemberIsActive/_srMemberSeconds
         // (and remote users who subscribe to activeSessions) see consistent data.
         _activeSessionsCache[myUid_] = {
-          active:    !!studying_,
-          startedAt: studying_ ? (_mySessionStartedAt || Date.now()) : null,
-          mode:      studying_ ? 'focus' : 'idle',
+          active:         !!studying_,
+          startedAt:      studying_ ? (_mySessionStartedAt || Date.now()) : null,
+          mode:           studying_ ? (studyMode_ || 'focus') : 'idle',
+          studyMode:      studying_ ? studyMode_ : null,
+          currentSubject: studying_ ? currentSubject_ : null,
         };
       }
 

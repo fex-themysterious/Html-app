@@ -1480,8 +1480,11 @@
       state:             function()       { return state; },
       todayKey:          function()       { return todayKey(); },
       minsToHrs:         function(m)      { return minsToHrs(m); },
-      focusIsRunning:    function()       { return focusRunning === true; },
-      focusStartTime:    function()       { return focusRunning ? focusStartTime : null; },
+      focusIsRunning:    function()       { return focusRunning === true || _lsRunning === true; },
+      focusStartTime:    function()       {
+        if (_lsRunning && _lsStartTime !== null) return _lsStartTime;
+        return focusRunning ? focusStartTime : null;
+      },
       getDb:             function()       { return _db; },
       getUserId:         function()       { return _userId; },
       getUserName:       function()       {
@@ -5543,13 +5546,20 @@
       xpTotal:         state.xp ? (state.xp.total || 0) : 0,
       updatedAt:       firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true }).catch(() => {});
-    // Keep group presence alive while the live timer is running on any tab.
-    // Only update isStudying + elapsed — never overwrite studyStartedAt here
-    // (that is set once by _sUpdatePresence when focusing begins).
+    // Keep ALL group member docs alive with subject + mode on every 10s tick.
+    // This ensures remote viewers get subject/mode from group docs even if they
+    // missed the initial _writePresenceAllGroups write.
+    const subjectName = curSub ? curSub.name : null;
+    try {
+      if (typeof window._socialFocusUpdate === 'function') window._socialFocusUpdate();
+    } catch(_) {}
+    // Legacy single-group write as fallback (for groups that aren't in _socialFocusUpdate's scope)
     if (_socialRoomCode) {
       _db.collection('groups').doc(_socialRoomCode).collection('members').doc(_userId)
         .set({
           isStudying:       true,
+          studyMode:        'live_focus',
+          currentSubject:   subjectName,
           elapsedTimeToday: storedMins,
           lastUpdated:      firebase.firestore.FieldValue.serverTimestamp(),
         }, { merge: true }).catch(() => {});
@@ -5790,6 +5800,16 @@
   // Expose for social.js
   window._lsAvLabels            = _LS_AV_LABELS;
   window._lsGetCurrentAvStage   = () => (_lsCurrentAvatarStage >= 0 ? _lsCurrentAvatarStage : 0);
+  window._lsGetCurrentSubject   = () => {
+    if (!_lsSubjectId) return null;
+    const sub = findSubject(_lsSubjectId);
+    return sub ? sub.name : null;
+  };
+  window._lsGetStudyMode = () => {
+    if (_lsRunning) return 'live_focus';
+    if (typeof focusRunning !== 'undefined' && focusRunning) return 'pomodoro';
+    return null;
+  };
 
   function _lsGetAvatarStage(secs) {
     let s = 0;
