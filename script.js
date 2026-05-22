@@ -610,6 +610,32 @@
             setTimeout(() => { if (window._socialReconcilePresence) window._socialReconcilePresence(); }, 1200);
             // Check for duplicate username and force re-entry if clashing
             setTimeout(() => _checkAndEnforceUniqueUsername().catch(() => {}), 2500);
+            // ── Offline recovery: credit any Pomodoro session that completed while the app was closed ──
+            setTimeout(() => {
+              try {
+                if (!window.OfflineSync) return;
+                const interrupted = window.OfflineSync.checkInterruptedTimer();
+                if (!interrupted) return;
+                if (interrupted.type === 'completed' && interrupted.minutes >= 1) {
+                  const d = interrupted.date || todayKey();
+                  state.focusStats.minutesByDate[d] = (state.focusStats.minutesByDate[d] || 0) + interrupted.minutes;
+                  if (!state.focusStats.sessions) state.focusStats.sessions = {};
+                  state.focusStats.sessions[d] = (state.focusStats.sessions[d] || 0) + 1;
+                  awardXP(interrupted.minutes, d);
+                  saveState(); renderAll();
+                  toast(`✅ Offline session recovered: ${interrupted.minutes} min!`, 'success', 5500);
+                  window.OfflineSync.onSessionComplete({ sessionId: interrupted.sessionId, minutes: interrupted.minutes, date: d, subjectId: interrupted.subjectId, type: 'pomodoro_recovered' });
+                  window.OfflineSync.showSyncingBanner('🔄 Syncing recovered session…', 4000);
+                } else if (interrupted.type === 'restore') {
+                  focusMode = interrupted.mode || 'work';
+                  focusSeconds = Math.max(1, interrupted.remainingSeconds);
+                  _currentSessionId = interrupted.sessionId;
+                  if (interrupted.subjectId && findSubject(interrupted.subjectId)) _lsSubjectId = interrupted.subjectId;
+                  toast(`⏱ Timer restored — ${Math.ceil(interrupted.remainingSeconds / 60)} min left`, 'info', 4000);
+                  if (_currentTab === 'focus') renderFocus();
+                }
+              } catch(_) {}
+            }, 500);
             return;
           }
         }
@@ -1328,6 +1354,17 @@
       },
     };
   }, 0);
+
+  // ── Offline sync helpers exposed for offline-sync.js ─────────────────────
+  window._triggerImmediateCloudSync = function() {
+    if (!_db || !_userId || !_auth || !_auth.currentUser || _cloudRestoreInProgress) return;
+    if (typeof firebase === 'undefined') return;
+    _db.collection('users').doc(_userId).set({
+      data: JSON.stringify(state), uid: _userId,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true }).catch(e => console.warn('[OfflineSync] Immediate sync failed:', e.message));
+  };
+  window._renderActiveTab = function() { try { renderAll(); } catch(_) {} };
 
   // ========== Theme System ==========
   const _THEMES = [
@@ -3617,6 +3654,7 @@
   // ========== Focus Timer State ==========
   let focusMode = 'work', focusSeconds = 25 * 60;
   let focusRunning = false, focusTimer = null;
+  let _currentSessionId = null;           // unique ID for current Pomodoro session (dedup + offline recovery)
   let focusSessions = state.focusStats.sessions[todayKey()] || 0;
   let focusSubTab = 'timer';
   let focusLocked = false;
@@ -3639,6 +3677,7 @@
   let _lsVisibilityHandler = null;  // visibilitychange listener reference
   let _lsHeartbeatTick = 0;         // heartbeat counter
   let _lsCurrentAvatarStage = -1;   // tracks current avatar evolution stage
+  let _lsSessionId    = null;       // unique ID for current live-study session (dedup + offline sync)
   let _fsMotiQuote = ''; /* set once on entering full session, shown in motivation box */
   const customDurations = { work: 25, short: 5, long: 15 };
   let focusStartTime = null;
@@ -5432,6 +5471,7 @@
     _lsRunning = false;
     _lsOverlayActive = false;
     _lsElapsedBase = 0;
+    _lsSessionId = null;
     _lsStartTime = null;
     _lsHeartbeatTick = 0;
     window._focusActive = false;
@@ -5463,6 +5503,23 @@
       _sContributeToGoals(elapsedMin).catch(() => {});
       checkBadges({ sessionMinutes: elapsedMin });
       saveState();
+      try {
+        const _syncSub   = _lsSubjectId ? findSubject(_lsSubjectId) : null;
+        const _syncChap  = _syncSub && _lsChapterId ? (_syncSub.chapters||[]).find(c=>c.id===_lsChapterId) : null;
+        const _syncTopic = _syncChap && _lsTopicId  ? (_syncChap.topics||[]).find(t=>t.id===_lsTopicId)    : null;
+        window.OfflineSync?.onSessionComplete({
+          sessionId:   _lsSessionId,
+          minutes:     elapsedMin,
+          date:        todayStr,
+          subjectId:   _lsSubjectId   || null,
+          subjectName: _syncSub  ? _syncSub.name  : null,
+          chapterId:   _lsChapterId   || null,
+          chapterName: _syncChap ? _syncChap.name : null,
+          topicId:     _lsTopicId     || null,
+          topicName:   _syncTopic ? _syncTopic.name : null,
+          type:        'live_study',
+        });
+      } catch(_) {}
       toast(`Saved ${elapsedMin}m live study session!`, 'success');
       if (document.getElementById('view-stats') && document.getElementById('view-stats').classList.contains('active')) renderStats();
     } else if (save !== false && elapsed > 0 && elapsed < 60) {
@@ -5482,7 +5539,8 @@
     const curSub = _lsSubjectId ? findSubject(_lsSubjectId) : null;
     const curChapLog = _lsSubjectId && _lsChapterId ? (curSub ? (curSub.chapters||[]).find(c=>c.id===_lsChapterId) : null) : null;
     const curTopicLog = curChapLog && _lsTopicId ? (curChapLog.topics||[]).find(t=>t.id===_lsTopicId) : null;
-    _db.collection('users').doc(uid).collection('syllabus_logs').doc().set({
+    const _logDocId = _lsSessionId || ('ls_' + uid + '_' + Date.now());
+    _db.collection('users').doc(uid).collection('syllabus_logs').doc(_logDocId).set({
       date: todayKey(), subjectId: _lsSubjectId || null,
       subjectName: curSub ? curSub.name : null,
       chapterId: _lsChapterId || null,
@@ -6164,6 +6222,7 @@
         }, { merge: true }).catch(() => {});
       }
       bumpActivity(); saveState();
+      try { window.OfflineSync?.onSessionComplete({ sessionId: _currentSessionId, minutes: elapsedMin, date: todayStr, subjectId: _lsSubjectId || null, type: 'pomodoro' }); } catch(_) {}
       checkBadges({ sessionMinutes: elapsedMin });
       // Re-render the active tab, and patch live stats widgets on home/dashboard if visible
       if (document.body.classList.contains('tab-stats')) renderStats();
@@ -9038,6 +9097,7 @@
         }
       } else {
         _lsRunning = true;
+        _lsSessionId = window.OfflineSync ? window.OfflineSync.generateSessionId() : ('ls_' + Date.now());
         _lsStartTime = Date.now();
         _lsTimer = setInterval(_lsTick, 1000);
         if (pb) {
@@ -9064,7 +9124,7 @@
     if (act === 'focus-mode') {
       const newMode = el.dataset.mode;
       if (!focusRunning) { focusMode = newMode; focusSeconds = customDurations[newMode] * 60; renderFocus(); }
-      else { if (confirm('Stop current timer and switch mode?')) { clearInterval(focusTimer); focusTimer = null; focusRunning = false; focusStartTime = null; focusStartSeconds = null; focusMode = newMode; focusSeconds = customDurations[newMode] * 60; renderFocus(); document.title = 'Syllabus Tracker'; updateMiniTimer(); } }
+      else { if (confirm('Stop current timer and switch mode?')) { clearInterval(focusTimer); focusTimer = null; focusRunning = false; focusStartTime = null; focusStartSeconds = null; try { window.OfflineSync?.onTimerStop(); } catch(_) {} focusMode = newMode; focusSeconds = customDurations[newMode] * 60; renderFocus(); document.title = 'Syllabus Tracker'; updateMiniTimer(); } }
       return;
     }
     // ── Social Study System ──────────────────────────────────────────────
@@ -9819,6 +9879,7 @@
         if (_socialRoomCode) _sUpdatePresence('break').catch(() => {});
         clearInterval(focusTimer); focusTimer = null; focusRunning = false;
         focusStartTime = null; focusStartSeconds = null;
+        try { window.OfflineSync?.onTimerStop(); } catch(_) {}
         updateMiniTimer();
         if (_socialRoomCode && _currentTab === 'social') renderSocial();
       } else if (focusOvertime) {
@@ -9836,11 +9897,13 @@
           checkBadges({ sessionStartHour: new Date().getHours() });
         }
         if (notifPermission() === 'default') requestNotifPermission();
+        _currentSessionId = window.OfflineSync ? window.OfflineSync.generateSessionId() : ('p_' + Date.now());
         focusRunning = true;
         pickNewQuote();
         focusStartTime = Date.now();
         focusStartSeconds = focusSeconds;
         focusTimer = setInterval(focusTick, 1000);
+        try { window.OfflineSync?.onTimerStart(focusMode, focusSeconds, _currentSessionId, _lsSubjectId); } catch(_) {}
         if (_socialRoomCode) _sUpdatePresence('focusing').catch(() => {});
         resumeAmbientIfNeeded();
         if (_socialRoomCode && _currentTab === 'social') renderSocial();
@@ -9884,7 +9947,7 @@
         if (_socialRoomCode && focusSeconds > 0) _sHandleFocusBounty().catch(() => {});
         if (_socialRoomCode) _sUpdatePresence('break').catch(() => {});
       }
-      stopOvertimeMode(); clearInterval(focusTimer); focusTimer = null; focusRunning = false; focusStartTime = null; focusStartSeconds = null; focusSeconds = customDurations[focusMode] * 60; focusMultitaskMode = false;
+      stopOvertimeMode(); clearInterval(focusTimer); focusTimer = null; focusRunning = false; focusStartTime = null; focusStartSeconds = null; try { window.OfflineSync?.onTimerStop(); } catch(_) {} focusSeconds = customDurations[focusMode] * 60; focusMultitaskMode = false;
       renderFocus(); document.title = 'Syllabus Tracker'; updateMiniTimer();
       if (document.getElementById('view-stats') && document.getElementById('view-stats').classList.contains('active')) renderStats();
       return;
@@ -9936,6 +9999,7 @@
         if (_socialRoomCode) _sUpdatePresence('break').catch(() => {});
         clearInterval(focusTimer); focusTimer = null; focusRunning = false;
         focusStartTime = null; focusStartSeconds = null;
+        try { window.OfflineSync?.onTimerStop(); } catch(_) {}
         if (_socialRoomCode && _currentTab === 'social') renderSocial();
       } else if (focusOvertime) {
         // User ending overtime in full-session view — save extra minutes, switch to break
@@ -9952,11 +10016,13 @@
           checkBadges({ sessionStartHour: new Date().getHours() });
         }
         if (notifPermission() === 'default') requestNotifPermission();
+        _currentSessionId = window.OfflineSync ? window.OfflineSync.generateSessionId() : ('p_' + Date.now());
         focusRunning = true;
         pickNewQuote();
         focusStartTime = Date.now();
         focusStartSeconds = focusSeconds;
         focusTimer = setInterval(focusTick, 1000);
+        try { window.OfflineSync?.onTimerStart(focusMode, focusSeconds, _currentSessionId, _lsSubjectId); } catch(_) {}
         if (_socialRoomCode) _sUpdatePresence('focusing').catch(() => {});
         resumeAmbientIfNeeded();
         if (_socialRoomCode && _currentTab === 'social') renderSocial();
