@@ -4892,6 +4892,59 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 
 /* ── Cloud Sync Icon ──────────────────────────────────────────────────────── */
 
+/* ── Cloud Sync / Restore Overlay ────────────────────────────────────────── */
+.sync-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9500;
+  background: rgba(9, 14, 21, 0.97);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: all;
+}
+.sync-overlay.hidden { display: none; }
+.sync-overlay-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 44px 36px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,122,26,0.15);
+  border-radius: 24px;
+  max-width: 300px;
+  width: 88%;
+  text-align: center;
+  box-shadow: 0 0 60px rgba(255,122,26,0.07);
+}
+.sync-spinner {
+  width: 60px;
+  height: 60px;
+  margin-bottom: 4px;
+}
+.sync-spinner-ring {
+  width: 60px;
+  height: 60px;
+  border: 3px solid rgba(255,122,26,0.18);
+  border-top-color: #ff7a1a;
+  border-radius: 50%;
+  animation: sync-spin 0.85s linear infinite;
+}
+@keyframes sync-spin { to { transform: rotate(360deg); } }
+.sync-msg {
+  font-size: 15px;
+  font-weight: 700;
+  color: #f8fafc;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+.sync-sub {
+  font-size: 12px;
+  color: #475569;
+  margin: 0;
+}
+
 /* ── Auth Overlay (Login / Sign-up Modal) ────────────────────────────────── */
 .auth-overlay {
   position: fixed;

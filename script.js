@@ -8,6 +8,12 @@
   let _cloudSyncTimer = null;
   let _cloudRestoreInProgress = false; // blocks cloud writes during initial restore
   let _userHasCloudData = false;       // true once we confirm the user has a valid Firestore document
+  let _saveCount = 0;                  // incremented on every saveState call, used for periodic backups
+
+  // ── Rotating local backup slots ─────────────────────────────────────────
+  const BACKUP_SLOTS      = 5;
+  const BACKUP_KEY_PREFIX = 'stk_backup_';
+  const BACKUP_INDEX_KEY  = 'stk_backup_idx';
   let _authMode       = 'login'; // 'login' | 'signup'
   let _authConfigured = false;   // true once Firebase config validated & auth object created
 
@@ -139,7 +145,8 @@
       xp: { total: 0, streakBonusDate: null },
       focusStreak: { count: 0, lastDate: null, best: 0 },
       badges: {},
-      eyeCareMode: false
+      eyeCareMode: false,
+      _syncVersion: 0
     };
   }
 
@@ -283,9 +290,21 @@
     catch (e) { return defaultState(); }
   }
   function saveState() {
+    // During cloud restore, only write to localStorage — never schedule a cloud upload.
+    // This prevents any in-flight interaction from overwriting real cloud data.
+    if (_cloudRestoreInProgress) {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+      return;
+    }
     // Stamp a local timestamp so conflict resolution can compare against cloud updatedAt
     state._savedAt = Date.now();
+    // Increment syncVersion on every save for reliable conflict resolution
+    if (typeof state._syncVersion !== 'number') state._syncVersion = 0;
+    state._syncVersion += 1;
+    _saveCount++;
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+    // Take a rotating backup every 20 saves to guard against data loss
+    if (_saveCount % 20 === 0 && _isStateMeaningful(state)) _saveRotatingBackup();
     _scheduledCloudSync();
   }
 
@@ -437,34 +456,96 @@
     try { return JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || 'null'); } catch (_) { return null; }
   }
 
+  // ── State quality check ────────────────────────────────────────────────────
+  // Returns true when state contains real user data (not a blank or demo install).
+  function _isStateMeaningful(s) {
+    if (!s || typeof s !== 'object') return false;
+    if (Array.isArray(s.subjects) && s.subjects.length > 0) return true;
+    if (s.xp && typeof s.xp.total === 'number' && s.xp.total > 0) return true;
+    if (s.streak && typeof s.streak.count === 'number' && s.streak.count > 0) return true;
+    if (s.focusStats && s.focusStats.minutesByDate &&
+        Object.keys(s.focusStats.minutesByDate).length > 0) return true;
+    return false;
+  }
+
+  // ── Rotating local backup system (5 slots) ────────────────────────────────
+  // Keeps the last 5 meaningful snapshots so users can recover from corruption.
+  function _saveRotatingBackup() {
+    try {
+      if (!_isStateMeaningful(state)) return;
+      const idx = parseInt(localStorage.getItem(BACKUP_INDEX_KEY) || '0', 10);
+      const nextIdx = (idx + 1) % BACKUP_SLOTS;
+      const backup = {
+        takenAt: Date.now(),
+        version: typeof state._syncVersion === 'number' ? state._syncVersion : 0,
+        state:   JSON.parse(JSON.stringify(state))
+      };
+      localStorage.setItem(BACKUP_KEY_PREFIX + nextIdx, JSON.stringify(backup));
+      localStorage.setItem(BACKUP_INDEX_KEY, String(nextIdx));
+      console.log('[Backup] Rotating backup saved → slot', nextIdx, '| syncVersion:', backup.version);
+    } catch (_) {}
+  }
+  function _getBackups() {
+    const backups = [];
+    for (let i = 0; i < BACKUP_SLOTS; i++) {
+      try {
+        const raw = localStorage.getItem(BACKUP_KEY_PREFIX + i);
+        if (raw) { const b = JSON.parse(raw); backups.push({ slot: i, ...b }); }
+      } catch (_) {}
+    }
+    return backups.sort((a, b) => b.takenAt - a.takenAt);
+  }
+  // Expose for Settings "restore backup" UI
+  window._getLocalBackups = _getBackups;
+
+  // ── Sync screen helpers ────────────────────────────────────────────────────
+  // Full-screen overlay shown during cloud restore to prevent user interaction.
+  function _showSyncScreen(msg, sub) {
+    const el = document.getElementById('sync-overlay');
+    if (!el) return;
+    const msgEl = document.getElementById('sync-msg');
+    const subEl = document.getElementById('sync-sub');
+    if (msgEl) msgEl.textContent = msg || 'Restoring your study data…';
+    if (subEl) subEl.textContent = sub || 'Please wait, do not close the app';
+    el.classList.remove('hidden');
+    console.log('[Sync] Screen shown:', msg);
+  }
+  function _hideSyncScreen() {
+    const el = document.getElementById('sync-overlay');
+    if (el) el.classList.add('hidden');
+    console.log('[Sync] Screen hidden');
+  }
+
   function _scheduledCloudSync() {
     if (!_db || !_userId || !(_auth && _auth.currentUser)) return;
-    if (_cloudRestoreInProgress) return; // never upload local state while a cloud restore is in flight
-    // Safety net: if we know this user has real cloud data but local state looks empty
-    // (e.g. fresh tab, corrupted localStorage), refuse to upload and let the next
-    // onAuthStateChanged cycle restore from cloud instead.
-    if (_userHasCloudData && (!Array.isArray(state.subjects) || state.subjects.length === 0)) {
-      console.warn('[Firestore] Blocked upload: user has cloud data but local subjects array is empty — skipping to protect cloud data.');
+    if (_cloudRestoreInProgress) {
+      console.log('[Sync] Upload blocked — restore in progress');
+      return;
+    }
+    // Safety net: if we know this user has real cloud data but local state is not
+    // meaningful (empty or no XP/streak/minutes), refuse to upload.
+    if (_userHasCloudData && !_isStateMeaningful(state)) {
+      console.warn('[Sync] Blocked upload: cloud data exists but local state is not meaningful — protecting cloud data.');
       return;
     }
     clearTimeout(_cloudSyncTimer);
     const uid = _userId;
     _cloudSyncTimer = setTimeout(() => {
       if (!uid || _cloudRestoreInProgress) return;
-      // Final empty-state guard inside the timeout (state could change in the 3 s window)
-      if (_userHasCloudData && (!Array.isArray(state.subjects) || state.subjects.length === 0)) {
-        console.warn('[Firestore] Blocked deferred upload: empty subjects, cloud data exists — skipping.');
+      if (_userHasCloudData && !_isStateMeaningful(state)) {
+        console.warn('[Sync] Blocked deferred upload: local state not meaningful, cloud data exists — skipping.');
         return;
       }
-      // Use merge:true to never accidentally wipe fields (e.g. joinedRooms) that are
-      // managed by separate join/leave operations. Only update data + metadata here.
-      // joinedRooms is only written when it actually changes (join/leave group logic).
+      const syncVer = typeof state._syncVersion === 'number' ? state._syncVersion : 0;
       _db.collection('users').doc(uid).set({
-        data:      JSON.stringify(state),
-        uid:       uid,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      }, { merge: true }).catch(e => {
-        console.warn('[Firestore] Write failed:', e.message);
+        data:         JSON.stringify(state),
+        uid:          uid,
+        _syncVersion: syncVer,
+        updatedAt:    firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true }).then(() => {
+        console.log('[Sync] Cloud upload OK — syncVersion:', syncVer);
+      }).catch(e => {
+        console.warn('[Sync] Cloud upload failed:', e.message);
       });
     }, 3000);
   }
@@ -539,15 +620,22 @@
       hideAuthModal();
       // Always land on Home tab after login
       switchTab('home');
-      renderAll();
-      refreshSettingsIfOpen();
+      // Show the sync screen IMMEDIATELY to block all interaction while we fetch cloud data.
+      // renderAll() is deferred until after the Firestore fetch to prevent the user from
+      // modifying demo/empty local state that would then overwrite their real cloud data.
+      _showSyncScreen('Restoring your study data\u2026', 'Please wait, do not close the app');
       console.log('[Auth] Signed in:', user.email || user.uid);
       // Kick off FCM + notification permission after login (non-blocking)
       setTimeout(() => {
         _requestNotifPermissionFlow();
         if (typeof Notification !== 'undefined' && Notification.permission === 'granted') _initFCM();
       }, 1000);
-      if (!_db) return;
+      if (!_db) {
+        _hideSyncScreen();
+        renderAll();
+        refreshSettingsIfOpen();
+        return;
+      }
       // ── GUARD: block all cloud writes until restore is complete ──────────
       _cloudRestoreInProgress = true;
       clearTimeout(_cloudSyncTimer);
@@ -557,27 +645,31 @@
           const parsed = JSON.parse(snap.data().data);
           if (parsed && Array.isArray(parsed.subjects)) {
             // ── Conflict resolution: prefer whichever copy is newer ──────
-            // Cloud timestamp (Firestore serverTimestamp stored as seconds)
             const cloudTs = (snap.data().updatedAt && snap.data().updatedAt.seconds)
               ? snap.data().updatedAt.seconds * 1000
               : 0;
-            // Local timestamp stored by saveState on every user action
             const localTs = state._savedAt || 0;
-            // Always use cloud data if it has any real content, regardless of
-            // timestamp — empty local state must NEVER win over existing cloud data.
-            const localHasRealData = Array.isArray(state.subjects) && state.subjects.length > 0;
-            const cloudHasRealData = Array.isArray(parsed.subjects) && parsed.subjects.length > 0;
-            const useCloud = cloudHasRealData || !localHasRealData || cloudTs >= localTs;
-            // Mark that this user definitely has cloud data — guards future empty-state uploads
+            const localHasRealData = _isStateMeaningful(state);
+            const cloudHasRealData = _isStateMeaningful(parsed);
+            const cloudVersion = snap.data()._syncVersion || 0;
+            const localVersion = typeof state._syncVersion === 'number' ? state._syncVersion : 0;
+            // Use cloud when it has real content and local doesn't, or cloud is newer by
+            // version or timestamp. Local only wins if it's strictly newer by both metrics.
+            const useCloud = cloudHasRealData || !localHasRealData || cloudVersion >= localVersion || cloudTs >= localTs;
+            // Mark that this user definitely has cloud data — guards future non-meaningful uploads
             _userHasCloudData = true;
+            console.log('[Sync] Conflict resolution — cloud:', { cloudTs, cloudVersion, cloudHasRealData }, '| local:', { localTs, localVersion, localHasRealData }, '| useCloud:', useCloud);
             if (useCloud) {
-              console.log('[Auth] Restoring from cloud data (cloudTs=' + cloudTs + ', localTs=' + localTs + ')');
+              console.log('[Sync] Restoring from cloud data (cloudTs=' + cloudTs + ', cloudVersion=' + cloudVersion + ')');
               // Snapshot local state before overwriting so the user can recover it if needed
               _takeLocalSnapshot();
               state = migrate(JSON.parse(JSON.stringify(parsed)));
+              state._savedAt = Date.now();
               try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {}
+              // Save a rotating backup right after a successful restore
+              _saveRotatingBackup();
             } else {
-              console.log('[Auth] Local data is newer — will sync to cloud after restore guard lifts');
+              console.log('[Sync] Local data is newer (localVersion=' + localVersion + ') — will push to cloud after restore guard lifts');
             }
             // Restore joined rooms from Firestore profile
             const savedRooms = snap.data().joinedRooms;
@@ -598,7 +690,9 @@
               if (_db && user.uid) _db.collection('users').doc(user.uid).set({ joinedRooms: _myGroupCodes }, { merge: true }).catch(() => {});
             } catch(_) {}
             _cloudRestoreInProgress = false;
+            _hideSyncScreen();
             renderAll();
+            refreshSettingsIfOpen();
             if (_currentTab === 'social') renderSocial();
             // If local was newer, now push it up to cloud
             if (!useCloud) _scheduledCloudSync();
@@ -606,7 +700,6 @@
             // logged in when social.js first initialised (auth modal was showing).
             setTimeout(() => { if (window._socialRestoreGroups) window._socialRestoreGroups(); }, 800);
             // Reconcile presence: writes real today-minutes to all group member docs
-            // so stale 0-minute entries are corrected immediately after sign-in.
             setTimeout(() => { if (window._socialReconcilePresence) window._socialReconcilePresence(); }, 1200);
             // Check for duplicate username and force re-entry if clashing
             setTimeout(() => _checkAndEnforceUniqueUsername().catch(() => {}), 2500);
@@ -623,15 +716,15 @@
                   state.focusStats.sessions[d] = (state.focusStats.sessions[d] || 0) + 1;
                   awardXP(interrupted.minutes, d);
                   saveState(); renderAll();
-                  toast(`✅ Offline session recovered: ${interrupted.minutes} min!`, 'success', 5500);
+                  toast(`\u2705 Offline session recovered: ${interrupted.minutes} min!`, 'success', 5500);
                   window.OfflineSync.onSessionComplete({ sessionId: interrupted.sessionId, minutes: interrupted.minutes, date: d, subjectId: interrupted.subjectId, type: 'pomodoro_recovered' });
-                  window.OfflineSync.showSyncingBanner('🔄 Syncing recovered session…', 4000);
+                  window.OfflineSync.showSyncingBanner('\uD83D\uDD04 Syncing recovered session\u2026', 4000);
                 } else if (interrupted.type === 'restore') {
                   focusMode = interrupted.mode || 'work';
                   focusSeconds = Math.max(1, interrupted.remainingSeconds);
                   _currentSessionId = interrupted.sessionId;
                   if (interrupted.subjectId && findSubject(interrupted.subjectId)) _lsSubjectId = interrupted.subjectId;
-                  toast(`⏱ Timer restored — ${Math.ceil(interrupted.remainingSeconds / 60)} min left`, 'info', 4000);
+                  toast(`\u23F1 Timer restored \u2014 ${Math.ceil(interrupted.remainingSeconds / 60)} min left`, 'info', 4000);
                   if (_currentTab === 'focus') renderFocus();
                 }
               } catch(_) {}
@@ -660,18 +753,24 @@
         // NEVER overwrite an existing cloud document — that would destroy real data.
         if (!snap.exists) {
           _cloudRestoreInProgress = false;
+          _hideSyncScreen();
           await _db.collection('users').doc(user.uid).set({
-            data:        JSON.stringify(state),
-            uid:         user.uid,
-            joinedRooms: _myGroupCodes,
-            updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
+            data:         JSON.stringify(state),
+            uid:          user.uid,
+            _syncVersion: typeof state._syncVersion === 'number' ? state._syncVersion : 0,
+            joinedRooms:  _myGroupCodes,
+            updatedAt:    firebase.firestore.FieldValue.serverTimestamp()
           });
+          renderAll();
+          refreshSettingsIfOpen();
           toast('\u2705 Account linked! Data saved to cloud.', 'success', 4000);
         } else {
-          // Doc exists but app data was missing or unreadable — preserve it,
-          // just update the joinedRooms and uid fields safely.
-          console.warn('[Auth] Cloud doc exists but app data was unreadable — preserving cloud data.');
+          // Doc exists but app data was missing or unreadable — preserve it.
+          console.warn('[Sync] Cloud doc exists but app data was unreadable — preserving cloud data.');
           _cloudRestoreInProgress = false;
+          _hideSyncScreen();
+          renderAll();
+          refreshSettingsIfOpen();
           if (_myGroupCodes.length) {
             _db.collection('users').doc(user.uid).set({
               uid:         user.uid,
@@ -683,8 +782,52 @@
         // Check for duplicate username even for new accounts
         setTimeout(() => _checkAndEnforceUniqueUsername().catch(() => {}), 2500);
       } catch (e) {
-        console.warn('[Auth] Sync error:', e.message);
-        _cloudRestoreInProgress = false; // always clear guard on error
+        console.warn('[Sync] Cloud restore failed:', e.message);
+        _hideSyncScreen();
+        // ── CRITICAL: for returning users, keep the upload guard active ────
+        // If we can't reach Firestore, we CANNOT know the state of cloud data.
+        // Setting _userHasCloudData=true blocks any non-meaningful state from
+        // being uploaded and prevents demo/empty state from overwriting real data.
+        if (_wasLoggedIn()) {
+          _userHasCloudData = true;
+          console.warn('[Sync] Fetch failed for returning user — keeping upload guard. Retry in 20s.');
+          toast('\u26A0\uFE0F Cloud sync issue \u2014 your local data is safe. Retrying\u2026', 'warn', 6000);
+          // Retry once after 20 seconds (handles transient network outages)
+          setTimeout(() => {
+            if (!_db || !_userId) { _cloudRestoreInProgress = false; return; }
+            console.log('[Sync] Retrying cloud restore...');
+            _showSyncScreen('Reconnecting to cloud\u2026', 'Almost there\u2026');
+            _db.collection('users').doc(_userId).get()
+              .then(retrySnap => {
+                _cloudRestoreInProgress = false;
+                if (retrySnap.exists && retrySnap.data() && retrySnap.data().data) {
+                  const p = JSON.parse(retrySnap.data().data);
+                  if (p && Array.isArray(p.subjects)) {
+                    _takeLocalSnapshot();
+                    state = migrate(JSON.parse(JSON.stringify(p)));
+                    state._savedAt = Date.now();
+                    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {}
+                    _saveRotatingBackup();
+                    toast('\u2705 Cloud sync restored!', 'success', 3000);
+                    console.log('[Sync] Retry restore successful. Subjects:', p.subjects.length);
+                  }
+                }
+                _hideSyncScreen();
+                renderAll();
+              })
+              .catch(e2 => {
+                console.warn('[Sync] Retry also failed:', e2.message);
+                _cloudRestoreInProgress = false; // give up after one retry
+                _hideSyncScreen();
+                renderAll();
+              });
+          }, 20000);
+        } else {
+          // First-time user or fresh sign-up — no existing cloud data to protect
+          _cloudRestoreInProgress = false;
+        }
+        renderAll();
+        refreshSettingsIfOpen();
       }
     } else {
       _userId = null;

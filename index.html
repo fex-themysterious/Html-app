@@ -68,6 +68,15 @@
     <div id="lock-overlay" class="lock-overlay hidden"></div>
   </div>
 
+  <!-- ── Cloud Sync / Restore Overlay (blocks UI until data is loaded) ── -->
+  <div id="sync-overlay" class="sync-overlay hidden" role="status" aria-label="Restoring data" aria-live="polite">
+    <div class="sync-overlay-card">
+      <div class="sync-spinner"><div class="sync-spinner-ring"></div></div>
+      <p class="sync-msg" id="sync-msg">Restoring your study data…</p>
+      <p class="sync-sub" id="sync-sub">Please wait, do not close the app</p>
+    </div>
+  </div>
+
   <!-- ── Firebase Auth Overlay ────────────────────────────────────────── -->
   <div id="auth-overlay" class="auth-overlay hidden auth-loading" role="dialog" aria-modal="true" aria-label="Sign in">
     <canvas id="auth-particles" class="auth-particles-canvas"></canvas>
@@ -99,7 +108,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script src="./offline-sync.js?v=1"></script>
-  <script src="./script.js?v=208"></script>
+  <script src="./script.js?v=209"></script>
   <script src="./social.js?v=37"></script>
   <script src="./duel.js?v=3"></script>
   <script>
