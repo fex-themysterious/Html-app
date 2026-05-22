@@ -3386,7 +3386,18 @@
     if (_timerWakeLock) return; // already held
     navigator.wakeLock.request('screen').then(wl => {
       _timerWakeLock = wl;
-      wl.addEventListener('release', () => { _timerWakeLock = null; });
+      wl.addEventListener('release', () => {
+        _timerWakeLock = null;
+        // Auto-reacquire: OS releases the lock on screen-off or battery saver.
+        // Reacquire it as soon as the tab is visible again and timer is still running.
+        if (focusRunning && focusMode === 'work' && !document.hidden) {
+          setTimeout(() => {
+            if (focusRunning && focusMode === 'work' && !_timerWakeLock && !document.hidden) {
+              _acquireTimerWakeLock();
+            }
+          }, 500);
+        }
+      });
       console.log('[WakeLock] Timer wake lock acquired');
     }).catch(e => console.log('[WakeLock] Timer lock failed:', e.message));
   }
@@ -3842,6 +3853,7 @@
   let focusStartSeconds = null;
   let focusMultitaskMode = false;
   let focusOvertime = false, focusOvertimeSeconds = 0, focusOvertimeTimer = null;
+  let _overtimeStartTime = null; // wall-clock anchor for timestamp-based overtime tracking
   let _alarmAudio = null, _alarmStopTimer = null;
 
   // ========== Ambient Sound (MP3-based) ==========
@@ -6277,23 +6289,39 @@
     _alarmStopTimer = setTimeout(() => stopOvertimeAlarm(), 5000);
   }
   function startOvertimeMode() {
-    focusOvertime = true; focusOvertimeSeconds = 0;
+    focusOvertime = true;
+    _overtimeStartTime = Date.now();
+    focusOvertimeSeconds = 0;
+    // Timestamp-based tick: accurate even when browser throttles or backgrounds this tab.
+    // The counter is derived from wall-clock elapsed time, not a simple increment.
     focusOvertimeTimer = setInterval(() => {
-      focusOvertimeSeconds++;
+      if (_overtimeStartTime !== null) {
+        focusOvertimeSeconds = Math.floor((Date.now() - _overtimeStartTime) / 1000);
+      }
       updateFocusDisplay();
       updateMiniTimer();
     }, 1000);
   }
   function stopOvertimeMode() {
+    // Compute final value from timestamp before clearing (background accuracy)
+    if (_overtimeStartTime !== null) {
+      focusOvertimeSeconds = Math.floor((Date.now() - _overtimeStartTime) / 1000);
+    }
     if (focusOvertimeTimer) { clearInterval(focusOvertimeTimer); focusOvertimeTimer = null; }
-    focusOvertime = false; focusOvertimeSeconds = 0;
+    focusOvertime = false; _overtimeStartTime = null;
+    // Note: focusOvertimeSeconds is intentionally kept here so saveOvertimeMinutes()
+    // can read it when called immediately before stopOvertimeMode() in finishOvertimeAndSwitch().
     stopOvertimeAlarm();
     const overlay = document.getElementById('fs-overlay');
     if (overlay) overlay.classList.remove('fs-overtime');
   }
   function saveOvertimeMinutes() {
-    if (focusOvertimeSeconds >= 30) {
-      const overtimeMin = Math.round(focusOvertimeSeconds / 60);
+    // Always recompute from timestamp so background time is never lost
+    const finalOtSecs = _overtimeStartTime !== null
+      ? Math.floor((Date.now() - _overtimeStartTime) / 1000)
+      : focusOvertimeSeconds;
+    if (finalOtSecs >= 30) {
+      const overtimeMin = Math.round(finalOtSecs / 60);
       if (overtimeMin > 0) {
         state.focusStats.minutesByDate[todayKey()] = (state.focusStats.minutesByDate[todayKey()] || 0) + overtimeMin;
         try { if (window._socialOnStudyTimeUpdate) window._socialOnStudyTimeUpdate(state.focusStats.minutesByDate[todayKey()]); } catch(_) {}
@@ -10679,12 +10707,21 @@
       if (focusRunning && focusStartTime !== null) {
         const elapsed = Math.floor((Date.now() - focusStartTime) / 1000);
         focusSeconds = Math.max(0, focusStartSeconds - elapsed);
+        // Re-sync overtime seconds from its own timestamp anchor
+        if (focusOvertime && _overtimeStartTime !== null) {
+          focusOvertimeSeconds = Math.floor((Date.now() - _overtimeStartTime) / 1000);
+        }
         updateFocusDisplay();
         updateMiniTimer();
         // If timer expired while app was backgrounded, trigger completion now
-        if (focusSeconds <= 0) focusTick();
+        if (focusSeconds <= 0 && !focusOvertime) focusTick();
         // Re-acquire wake lock (OS releases it when screen turns off)
         else if (focusMode === 'work') _acquireTimerWakeLock();
+      } else if (focusOvertime && _overtimeStartTime !== null) {
+        // Overtime running without main timer — still re-sync display
+        focusOvertimeSeconds = Math.floor((Date.now() - _overtimeStartTime) / 1000);
+        updateFocusDisplay();
+        updateMiniTimer();
       }
       // Re-validate notification schedule (catches any missed/expired timers)
       scheduleAllNotifications();
@@ -10725,6 +10762,12 @@
           // Keep offline-sync.js timer state current with the new baseline
           try { window.OfflineSync?.onTimerStart(focusMode, _bgRemaindSec, _currentSessionId, _lsSubjectId); } catch(_) {}
         }
+      }
+      // Background during overtime: the overtime start time is a timestamp anchor,
+      // so no re-baseline needed — but save the start time to localStorage for
+      // crash recovery so we can restore accurately if the app is killed.
+      if (focusOvertime && _overtimeStartTime !== null) {
+        try { localStorage.setItem('_pom_overtime_start', String(_overtimeStartTime)); } catch (_) {}
       }
       // Background: write offline/studying status to the members collection and slow the heartbeat.
       // This fixes the ghost-presence bug where a backgrounded tab still showed as "1 ACTIVE".
@@ -10777,12 +10820,142 @@
     if (focusRunning && focusStartTime !== null) {
       const elapsed = Math.floor((Date.now() - focusStartTime) / 1000);
       focusSeconds = Math.max(0, focusStartSeconds - elapsed);
+      if (focusOvertime && _overtimeStartTime !== null) {
+        focusOvertimeSeconds = Math.floor((Date.now() - _overtimeStartTime) / 1000);
+      }
       updateFocusDisplay();
       updateMiniTimer();
-      if (focusSeconds <= 0) { focusTick(); }
+      if (focusSeconds <= 0 && !focusOvertime) { focusTick(); }
       else if (focusMode === 'work') _acquireTimerWakeLock();
     }
   });
+
+  // ── window.blur / focus — fallback for MIUI, Oppo, Vivo, Realme ───────────
+  // Many aggressive Android OEMs do not reliably fire visibilitychange when
+  // switching apps. window.blur fires on app-switch; window.focus fires on return.
+  window.addEventListener('blur', () => {
+    // Save focus progress baseline — mirrors what visibilitychange:hidden does.
+    if (focusRunning && focusMode === 'work' && focusStartTime !== null) {
+      const _blurElapsedSec = Math.floor((Date.now() - focusStartTime) / 1000);
+      const _blurRemaindSec = Math.max(0, focusStartSeconds - _blurElapsedSec);
+      const _blurElapsedMin = Math.round(_blurElapsedSec / 60);
+      if (_blurElapsedMin > 0 && _blurRemaindSec < focusStartSeconds) {
+        const _blurToday = todayKey();
+        state.focusStats.minutesByDate[_blurToday] = (state.focusStats.minutesByDate[_blurToday] || 0) + _blurElapsedMin;
+        _recordSubjectMinutes(_blurElapsedMin);
+        awardXP(_blurElapsedMin, _blurToday);
+        _sContributeToGoals(_blurElapsedMin).catch(() => {});
+        focusStartTime    = Date.now();
+        focusStartSeconds = _blurRemaindSec;
+        focusSeconds      = _blurRemaindSec;
+        saveState();
+        try { window.OfflineSync?.onTimerStart(focusMode, _blurRemaindSec, _currentSessionId, _lsSubjectId); } catch(_) {}
+      }
+    }
+  });
+
+  window.addEventListener('focus', () => {
+    // Re-sync timer from wall-clock and check for expiry
+    if (focusRunning && focusStartTime !== null) {
+      const elapsed = Math.floor((Date.now() - focusStartTime) / 1000);
+      focusSeconds = Math.max(0, focusStartSeconds - elapsed);
+      if (focusOvertime && _overtimeStartTime !== null) {
+        focusOvertimeSeconds = Math.floor((Date.now() - _overtimeStartTime) / 1000);
+      }
+      updateFocusDisplay();
+      updateMiniTimer();
+      if (focusSeconds <= 0 && !focusOvertime) focusTick();
+      else if (focusMode === 'work' && !_timerWakeLock) _acquireTimerWakeLock();
+    }
+  });
+
+  // ── Page Lifecycle API: freeze / resume (Chrome Android PWA) ─────────────
+  // Chrome freezes the page when a PWA is pushed to background. freeze fires
+  // synchronously before the page is frozen; resume fires when it thaws.
+  document.addEventListener('freeze', () => {
+    console.log('[BgTimer] Page frozen — saving timer baseline');
+    if (focusRunning && focusMode === 'work' && focusStartTime !== null) {
+      const _frzElapsedSec = Math.floor((Date.now() - focusStartTime) / 1000);
+      const _frzRemaindSec = Math.max(0, focusStartSeconds - _frzElapsedSec);
+      const _frzElapsedMin = Math.round(_frzElapsedSec / 60);
+      if (_frzElapsedMin > 0) {
+        const _frzToday = todayKey();
+        state.focusStats.minutesByDate[_frzToday] = (state.focusStats.minutesByDate[_frzToday] || 0) + _frzElapsedMin;
+        focusStartTime    = Date.now();
+        focusStartSeconds = _frzRemaindSec;
+        focusSeconds      = _frzRemaindSec;
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {}
+        try { window.OfflineSync?.onTimerStart(focusMode, _frzRemaindSec, _currentSessionId, _lsSubjectId); } catch(_) {}
+      }
+    }
+  });
+
+  document.addEventListener('resume', () => {
+    console.log('[BgTimer] Page resumed — re-syncing timer');
+    if (focusRunning && focusStartTime !== null) {
+      const elapsed = Math.floor((Date.now() - focusStartTime) / 1000);
+      focusSeconds = Math.max(0, focusStartSeconds - elapsed);
+      if (focusOvertime && _overtimeStartTime !== null) {
+        focusOvertimeSeconds = Math.floor((Date.now() - _overtimeStartTime) / 1000);
+      }
+      updateFocusDisplay();
+      updateMiniTimer();
+      if (focusSeconds <= 0 && !focusOvertime) focusTick();
+      else if (focusMode === 'work') _acquireTimerWakeLock();
+    }
+  });
+
+  // ── Service Worker → page messaging ──────────────────────────────────────
+  // When the SW fires the timer-end notification it also posts a 'timer-completed'
+  // message to all open page clients. This ensures completion is handled even when
+  // the main setInterval was killed by an aggressive battery-saver browser.
+  if (navigator.serviceWorker) {
+    navigator.serviceWorker.addEventListener('message', e => {
+      if (!e.data || e.data.type !== 'timer-completed') return;
+      console.log('[BgTimer] SW timer-completed message received — checking timer state');
+      if (focusRunning && focusStartTime !== null) {
+        const elapsed = Math.floor((Date.now() - focusStartTime) / 1000);
+        focusSeconds = Math.max(0, focusStartSeconds - elapsed);
+        if (focusSeconds <= 0 && !focusOvertime) {
+          focusTick(); // trigger proper session completion
+        } else {
+          updateFocusDisplay();
+          updateMiniTimer();
+        }
+      }
+    });
+  }
+
+  // ── Background Timer Watchdog — 10 s heartbeat ───────────────────────────
+  // Runs every 10 s while the app is open. Three jobs:
+  //   1. Re-sync focusSeconds from wall-clock (catches dead/throttled intervals).
+  //   2. Persist the current remaining time so crash recovery is accurate to 10 s.
+  //   3. Detect timer expiry that setInterval missed (battery-saver kills JS).
+  setInterval(() => {
+    if (!focusRunning) return;
+    // 1. Re-sync from wall-clock timestamp
+    if (focusStartTime !== null) {
+      focusSeconds = Math.max(0, focusStartSeconds - Math.floor((Date.now() - focusStartTime) / 1000));
+    }
+    if (focusOvertime && _overtimeStartTime !== null) {
+      focusOvertimeSeconds = Math.floor((Date.now() - _overtimeStartTime) / 1000);
+    }
+    // 2. Persist timer state for crash recovery (accurate to within 10 s)
+    if (focusMode === 'work' && focusSeconds > 0 && focusStartTime !== null) {
+      try { window.OfflineSync?.onTimerStart(focusMode, focusSeconds, _currentSessionId, _lsSubjectId); } catch(_) {}
+    }
+    // 3. Dead-interval detection — trigger completion if interval was killed
+    if (focusSeconds <= 0 && !focusOvertime) {
+      console.log('[BgTimer] Watchdog: timer expired — triggering completion');
+      focusTick();
+      return;
+    }
+    // 4. Refresh display only when visible (no wasted work while backgrounded)
+    if (!document.hidden) {
+      updateFocusDisplay();
+      updateMiniTimer();
+    }
+  }, 10000);
 
   // ── Global presence heartbeat ─────────────────────────────────────────────
   // Runs every 15 s regardless of which tab is active. Keeps lastUpdated fresh

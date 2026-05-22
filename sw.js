@@ -1,11 +1,11 @@
-const CACHE_NAME = 'syllabus-tracker-v206';
+const CACHE_NAME = 'syllabus-tracker-v207';
 const STATIC = [
   '/',
   '/index.html',
-  '/style.css?v=132',
+  '/style.css?v=134',
   '/social.css?v=26',
   '/offline-sync.js?v=1',
-  '/script.js?v=208',
+  '/script.js?v=210',
   '/social.js?v=37',
   '/duel.js?v=3',
   '/manifest.json',
@@ -198,17 +198,28 @@ self.addEventListener('message', e => {
     if (_timerEndTimer) { clearTimeout(_timerEndTimer); _timerEndTimer = null; }
     const delay = Math.max(0, (e.data.fireAt || 0) - Date.now());
     if (delay > 24 * 60 * 60 * 1000) return; // sanity: ignore if > 24 h away
-    _timerEndTimer = setTimeout(() => {
+    const _timerTitle = e.data.title || '🎉 Focus Session Complete!';
+    const _timerBody  = e.data.body  || 'Great work! Take a well-earned break.';
+    _timerEndTimer = setTimeout(async () => {
       _timerEndTimer = null;
-      self.registration.showNotification(e.data.title || '🎉 Focus Session Complete!', {
-        body:             e.data.body || 'Great work! Take a well-earned break.',
-        icon:             '/icon-192.png',
-        badge:            '/icon-192.png',
-        tag:              'timer-complete',
-        data:             { url: './' },
+      // 1. Show the user notification
+      self.registration.showNotification(_timerTitle, {
+        body:               _timerBody,
+        icon:               '/icon-192.png',
+        badge:              '/icon-192.png',
+        tag:                'timer-complete',
+        data:               { url: './' },
         requireInteraction: false,
-        vibrate:          [200, 100, 200],
+        vibrate:            [200, 100, 200],
       });
+      // 2. Post a message to all open page clients so they can trigger completion
+      //    even if the main setInterval was killed by an aggressive battery saver.
+      try {
+        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        clients.forEach(client => {
+          try { client.postMessage({ type: 'timer-completed' }); } catch (_) {}
+        });
+      } catch (_) {}
     }, delay);
     return;
   }
