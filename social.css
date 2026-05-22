@@ -4082,6 +4082,11 @@
   border: 1px solid rgba(255,255,255,.07);
   border-radius: 12px;
   padding: 11px 13px;
+  transition: background .15s;
+}
+.dt-chal-av-wrap {
+  position: relative;
+  flex-shrink: 0;
 }
 .dt-chal-av {
   width: 38px;
@@ -4093,11 +4098,38 @@
   font-size: 16px;
   font-weight: 800;
   color: #fff;
-  flex-shrink: 0;
+}
+/* Status dot */
+.dt-dot {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid #0c1118;
+}
+.dt-dot--studying {
+  background: #ff7a1a;
+  box-shadow: 0 0 0 2px rgba(255,122,26,.35), 0 0 8px rgba(255,122,26,.6);
+  animation: dt-pulse 1.6s ease-in-out infinite;
+}
+.dt-dot--online {
+  background: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59,130,246,.25);
+}
+.dt-dot--offline {
+  background: #374151;
+}
+@keyframes dt-pulse {
+  0%,100% { box-shadow: 0 0 0 2px rgba(255,122,26,.35), 0 0 6px rgba(255,122,26,.5); }
+  50%      { box-shadow: 0 0 0 3px rgba(255,122,26,.2), 0 0 12px rgba(255,122,26,.7); }
 }
 .dt-chal-info { flex: 1; min-width: 0; }
 .dt-chal-name { font-size: 14px; font-weight: 600; color: #e8edf5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dt-chal-st   { font-size: 12px; color: #64748b; margin-top: 1px; }
+.dt-chal-st             { font-size: 12px; color: #64748b; margin-top: 2px; }
+.dt-chal-st--studying   { color: #ff7a1a; font-weight: 600; }
+.dt-chal-st--offline    { color: #475569; font-style: italic; }
 
 /* ── DUEL HISTORY ─────────────────────────────────────────────────────────── */
 .dt-hist-sec {

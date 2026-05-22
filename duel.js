@@ -1591,10 +1591,15 @@
   }
 
   function _renderLobby(g) {
-    const uid     = _uid();
-    const members = Object.entries(window._scLiveMembers?.() || {})
+    const uid       = _uid();
+    const getStatus = window._scGetMemberStatus;
+    const getLastSeen = window._scFmtLastSeen2;
+    const members   = Object.entries(window._scLiveMembers?.() || {})
       .filter(([mUid]) => mUid !== uid)
-      .map(([mUid, d]) => ({ uid:mUid, name:d.displayName||'Member', studying:d.isStudying }));
+      .map(([mUid, d]) => {
+        const status = getStatus ? getStatus(mUid) : (d.isStudying ? 'studying' : 'offline');
+        return { uid: mUid, name: d.displayName || 'Member', status };
+      });
 
     if (!members.length) {
       return `<div class="dt-empty">
@@ -1604,15 +1609,35 @@
       </div>`;
     }
 
-    const cards = members.map(m => `
+    const cards = members.map(m => {
+      const isStudying = m.status === 'studying';
+      const isOnline   = m.status === 'online';
+      const isOffline  = m.status === 'offline';
+
+      const dotCls  = isStudying ? 'dt-dot dt-dot--studying'
+                    : isOnline   ? 'dt-dot dt-dot--online'
+                    :              'dt-dot dt-dot--offline';
+      const stLabel = isStudying ? '🔥 Studying now'
+                    : isOnline   ? '🟦 Online'
+                    :              '⚫ Offline';
+      const lastSeen = isOffline && getLastSeen ? getLastSeen(m.uid) : '';
+      const subLine  = isOffline && lastSeen
+        ? `<div class="dt-chal-st dt-chal-st--offline">Last active ${lastSeen}</div>`
+        : `<div class="dt-chal-st ${isStudying ? 'dt-chal-st--studying' : ''}">${stLabel}</div>`;
+
+      return `
       <div class="dt-chal-card">
-        <div class="dt-chal-av" style="background:${_avatarBg(m.name)}">${(m.name[0]||'?').toUpperCase()}</div>
+        <div class="dt-chal-av-wrap">
+          <div class="dt-chal-av" style="background:${_avatarBg(m.name)}">${(m.name[0]||'?').toUpperCase()}</div>
+          <span class="${dotCls}"></span>
+        </div>
         <div class="dt-chal-info">
           <div class="dt-chal-name">${_esc(m.name)}</div>
-          <div class="dt-chal-st">${m.studying ? '🔥 Studying now' : '⏸ Online'}</div>
+          ${subLine}
         </div>
         <button class="dt-btn dt-btn-duel" data-sc="ds-open-challenge" data-uid="${_esc(m.uid)}" data-name="${_esc(m.name)}">⚔️ Duel</button>
-      </div>`).join('');
+      </div>`;
+    }).join('');
 
     return `
     <div class="dt-lobby">

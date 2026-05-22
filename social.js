@@ -649,15 +649,92 @@
     }
   }
 
+  // ── Online-presence heartbeat ─────────────────────────────────────────────
+  // Separate from the study heartbeat — fires every 25 s while the app is
+  // visible regardless of whether the user is studying.  Writes online:true
+  // and lastOnlineAt so remote clients can distinguish "Online" from "Offline".
+  function _startOnlineHeartbeat() {
+    _stopOnlineHeartbeat();
+    const _tick = () => {
+      if (document.hidden) return;
+      const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
+      if (!db_ || !uid_ || !fb_) return;
+      const now = fb_.firestore.FieldValue.serverTimestamp();
+      db_.collection('activeSessions').doc(uid_)
+        .set({ online: true, lastOnlineAt: now }, { merge: true })
+        .catch(() => {});
+      if (_liveMembers[uid_]) _liveMembers[uid_].lastUpdated = Date.now();
+    };
+    _tick();
+    _onlineHeartbeatInterval = setInterval(_tick, 25000);
+  }
+
+  function _stopOnlineHeartbeat() {
+    if (_onlineHeartbeatInterval !== null) {
+      clearInterval(_onlineHeartbeatInterval);
+      _onlineHeartbeatInterval = null;
+    }
+  }
+
+  // Returns 'studying' | 'online' | 'offline' for any member uid.
+  // Used by both social member cards and duel lobby.
+  function _getMemberStatus(uid) {
+    if (uid === getUserId()) {
+      return ui().focusIsRunning?.() === true ? 'studying' : 'online';
+    }
+    const as  = _activeSessionsCache[uid];
+    const lm  = _liveMembers[uid];
+    const now = Date.now();
+
+    // Primary source: activeSessions — most authoritative
+    if (as) {
+      const hbMs = _toMs(as.lastHeartbeatAt);
+      if (as.active && hbMs && (now - hbMs) <= PRESENCE_STALE_MS) return 'studying';
+      const onlineMs = _toMs(as.lastOnlineAt);
+      if (as.online && onlineMs && (now - onlineMs) <= PRESENCE_STALE_MS) return 'online';
+    }
+
+    // Fallback: group member doc heartbeat
+    if (lm) {
+      const lastMs = _getMemberLastUpdatedMs(lm);
+      if (lastMs && (now - lastMs) <= PRESENCE_STALE_MS) {
+        return lm.isStudying ? 'studying' : 'online';
+      }
+    }
+
+    return 'offline';
+  }
+
+  // Expose helpers for duel.js (same bundle, cross-module bridge)
+  window._scGetMemberStatus = _getMemberStatus;
+  window._scFmtLastSeen2    = (uid) => {
+    const lm = _liveMembers[uid];
+    const as = _activeSessionsCache[uid];
+    // Prefer the most recent of lastOnlineAt (activeSessions) vs lm.lastUpdated
+    const asMs = _toMs(as?.lastOnlineAt) || _toMs(as?.lastHeartbeatAt);
+    const lmMs = _getMemberLastUpdatedMs(lm);
+    const best = Math.max(asMs || 0, lmMs || 0);
+    if (!best) return '';
+    const diff = Date.now() - best;
+    if (diff < 60000) return 'just now';
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60)   return `${mins}m ago`;
+    const hrs  = Math.floor(mins / 60);
+    if (hrs < 24)    return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+  };
+
   // Best-effort "I'm gone" write used by visibility/unload handlers.
   // Uses sendBeacon when available for reliability on tab close.
   function _writeOfflineNow() {
     const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
     if (!db_ || !uid_ || !fb_) return;
     _stopGlobalHeartbeat();
+    _stopOnlineHeartbeat();
     db_.collection('activeSessions').doc(uid_)
       .set({
         active:        false,
+        online:        false,
         lastActiveAt:  fb_.firestore.FieldValue.serverTimestamp(),
         updatedAt:     fb_.firestore.FieldValue.serverTimestamp(),
       }, { merge: true })
@@ -1446,6 +1523,7 @@
   // Keeps activeSessions/{uid}.lastHeartbeatAt fresh so remote viewers can
   // detect ghost sessions via staleness rather than relying only on explicit stops.
   let _globalHeartbeatInterval = null;
+  let _onlineHeartbeatInterval = null;
   let _publicGroups        = [];
   let _publicGroupsUnsub   = null;
   let _myGroupsUnsub       = null;
@@ -2219,7 +2297,7 @@
   // A member is stale when their heartbeat is this old.
   // Global heartbeat fires every 30 s; 75 s = 2.5 intervals — resilient
   // against brief blips while clearing ghosts within ~2 minutes.
-  const PRESENCE_STALE_MS = 75000;
+  const PRESENCE_STALE_MS = 60000;
 
   function _getMemberLastUpdatedMs(lm) {
     const lu = lm && lm.lastUpdated;
@@ -2368,7 +2446,6 @@
     const g0  = sc0.groups.find(x => x.id === gid);
     if (g0 && g0.code) {
       _subscribeRoomMembers(g0.code);
-      _subscribeActivityFeed(g0.code);
     }
 
     _srTickInterval = setInterval(() => {
@@ -2651,6 +2728,8 @@
                         currentSubject:  as.currentSubject ?? null,
                         lastHeartbeatAt: as.lastHeartbeatAt ?? null,
                         lastActiveAt:    as.lastActiveAt ?? null,
+                        online:          !!as.online,
+                        lastOnlineAt:    as.lastOnlineAt ?? null,
                       };
                       // Merge into _liveMembers so existing render code stays correct
                       if (_liveMembers[mUid]) {
@@ -3901,14 +3980,6 @@
             : `<div class="sr-empty-grid">No members in this group yet.</div>`}
         </div>
 
-        <div class="sr-activity-feed">
-          <div class="sr-activity-feed-hd">
-            <span class="sr-activity-feed-title">⚡ Activity</span>
-          </div>
-          <div class="sr-activity-feed-items">
-            ${_renderActivityFeedItems()}
-          </div>
-        </div>
 
       </div>`;
   }
@@ -6846,7 +6917,8 @@
 
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) {
-        // Tab became visible — resume heartbeat if still studying
+        // Tab became visible — resume heartbeats
+        _startOnlineHeartbeat();
         if (ui().focusIsRunning?.()) {
           console.log('[Presence] Tab visible — resuming heartbeat');
           _startGlobalHeartbeat();
@@ -6867,12 +6939,10 @@
         }
         return;
       }
-      // Tab hidden: stop heartbeat so it doesn't fire in background.
-      // Staleness detection (PRESENCE_STALE_MS) will naturally mark the
-      // user offline after 75 s without a heartbeat — no extra write needed
-      // for simply minimizing. Only write active:false if focus was paused.
+      // Tab hidden: stop all heartbeats; write offline immediately.
       _stopGlobalHeartbeat();
-      if (!ui().focusIsRunning?.()) _writeOfflineNow();
+      _stopOnlineHeartbeat();
+      _writeOfflineNow();
     });
 
     const _handleUnload = () => {
@@ -6884,12 +6954,16 @@
     window.addEventListener('beforeunload', _handleUnload, { capture: true });
     window.addEventListener('pagehide',     _handleUnload, { capture: true });
 
-    // Network offline: stop heartbeat; staleness detection handles the rest.
-    window.addEventListener('offline', () => { _stopGlobalHeartbeat(); });
-    // Network back online: resume heartbeat if still studying.
+    // Network offline: stop heartbeats; staleness detection handles the rest.
+    window.addEventListener('offline', () => { _stopGlobalHeartbeat(); _stopOnlineHeartbeat(); });
+    // Network back online: resume heartbeats.
     window.addEventListener('online',  () => {
+      _startOnlineHeartbeat();
       if (ui().focusIsRunning?.()) _startGlobalHeartbeat();
     });
+
+    // Start online presence heartbeat immediately on auth
+    _startOnlineHeartbeat();
 
     // Start real-time Firebase listeners
     // Use a small delay to ensure the appUI bridge is ready
