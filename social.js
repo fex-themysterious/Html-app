@@ -1477,17 +1477,135 @@
         .where('admins', 'array-contains', uid)
         .onSnapshot(snap => {
           const sc = scLoad(); let dirty = false;
+          const myName = _getUserDisplayName();
           snap.docs.forEach(d => {
             const data = d.data(), code = d.id;
             const existing = sc.groups.find(g => g.code === code);
             if (existing) {
               if (existing.role !== 'admin') { existing.role = 'admin'; dirty = true; }
               if (!existing.ownerUid) { existing.ownerUid = data.ownerUid || data.createdByUid || uid; dirty = true; }
+              if (typeof data.memberCount === 'number' && existing.memberCount !== data.memberCount) {
+                existing.memberCount = data.memberCount; dirty = true;
+              }
+            } else {
+              // Group is in Firestore admins array but not in local state — add it
+              const rawCat = data.category || 'General';
+              sc.groups.push({
+                id:           data.groupId || code,
+                name:         data.name || `Group ${code}`,
+                icon:         data.icon || '📚',
+                code,
+                isPrivate:    data.isPrivate || false,
+                description:  data.description || '',
+                category:     rawCat === 'camstudy' ? 'General' : rawCat,
+                dailyGoalHrs: data.dailyGoalHrs || 8,
+                maxMembers:   data.maxMembers || 50,
+                leader:       (data.leader && data.leader !== 'You') ? data.leader : (data.createdByName || myName),
+                promoted:     false,
+                createdAt:    data.createdAt?.toMillis?.() ?? Date.now(),
+                dailyMinsTotal: 0, attendancePct: 0,
+                role:         'admin',
+                ownerUid:     data.ownerUid || data.createdByUid || data.createdBy || null,
+                createdByUid: data.createdByUid || data.createdBy || null,
+                admins:       Array.isArray(data.admins) ? data.admins : [uid],
+                members:      [{ id: uid, name: myName, role: 'admin', joinedAt: Date.now() }],
+                _isLocalMember: true,
+                memberCount:  data.memberCount || 0,
+              });
+              dirty = true;
+              // Also ensure joinedRooms is updated
+              const fb_a = getFb();
+              if (fb_a) {
+                db.collection('users').doc(uid).set({
+                  joinedRooms: fb_a.firestore.FieldValue.arrayUnion(code),
+                }, { merge: true }).catch(() => {});
+              }
             }
           });
-          if (dirty) { scSave(sc); if ((_tab === 'groups' || _tab === 'rooms') && !_groupView && !_destroyed) _scheduleRender(); }
+          if (dirty) { scSave(sc); setTimeout(_ensureGroupDocSubs, 200); if ((_tab === 'groups' || _tab === 'rooms') && !_groupView && !_destroyed) _scheduleRender(); }
         }, () => { _myGroupsByAdminUnsub = null; });
     } catch(_) { _myGroupsByAdminUnsub = null; }
+  }
+
+  // ── Query groups where uid appears in members subcollection (golden path) ─
+  // Uses a Firestore collectionGroup query — the most reliable membership
+  // restoration mechanism because it queries actual Firestore member docs,
+  // not just the joinedRooms array which may be stale or missing.
+  let _myGroupsByMemberUnsub = null;
+  function _subscribeMyGroupsByMember() {
+    if (_myGroupsByMemberUnsub) { try { _myGroupsByMemberUnsub(); } catch(_) {} _myGroupsByMemberUnsub = null; }
+    const db = getDb(), uid = getUserId();
+    if (!db || !uid) return;
+    try {
+      _myGroupsByMemberUnsub = db.collectionGroup('members')
+        .where('uid', '==', uid)
+        .onSnapshot(async snap => {
+          if (snap.empty) return;
+          // Extract group codes from member doc paths: groups/{code}/members/{uid}
+          const codes = snap.docs.map(d => {
+            const parts = d.ref.path.split('/');
+            return parts.length >= 4 ? parts[1] : null;
+          }).filter(Boolean);
+
+          const sc = scLoad();
+          const existing = new Set(sc.groups.map(g => g.code));
+          const missing  = codes.filter(c => !existing.has(c));
+          if (!missing.length) return;
+
+          const myName = _getUserDisplayName();
+          const fb_    = getFb();
+          await Promise.all(missing.map(async code => {
+            try {
+              const gSnap = await db.collection('groups').doc(code).get();
+              if (!gSnap.exists) return;
+              const data = gSnap.data();
+              const sc2 = scLoad();
+              if (sc2.groups.some(g => g.code === code)) return;
+              const isCreator = data.createdBy === uid || data.createdByUid === uid || data.ownerUid === uid;
+              const mDoc = snap.docs.find(d => d.ref.path === `groups/${code}/members/${uid}`);
+              const myRole = mDoc?.data()?.role || (isCreator ? 'admin' : 'member');
+              const rawCat = data.category || 'General';
+              sc2.groups.push({
+                id:           data.groupId || code,
+                name:         data.name || `Group ${code}`,
+                icon:         data.icon || '📚',
+                code,
+                isPrivate:    data.isPrivate || false,
+                description:  data.description || '',
+                category:     rawCat === 'camstudy' ? 'General' : rawCat,
+                dailyGoalHrs: data.dailyGoalHrs || 8,
+                maxMembers:   data.maxMembers || 50,
+                leader:       (data.leader && data.leader !== 'You') ? data.leader : (data.createdByName || 'Admin'),
+                promoted:     false,
+                createdAt:    data.createdAt?.toMillis?.() ?? Date.now(),
+                dailyMinsTotal: 0, attendancePct: 0,
+                role:         myRole,
+                ownerUid:     data.ownerUid || data.createdByUid || data.createdBy || null,
+                createdByUid: data.createdByUid || data.createdBy || null,
+                admins:       Array.isArray(data.admins) ? data.admins : (isCreator ? [uid] : []),
+                members:      [{ id: uid, name: myName, role: myRole, joinedAt: Date.now() }],
+                _isLocalMember: true,
+                memberCount:  data.memberCount || 0,
+              });
+              scSave(sc2);
+              // Ensure joinedRooms is kept in sync
+              if (fb_) {
+                db.collection('users').doc(uid).set({
+                  joinedRooms: fb_.firestore.FieldValue.arrayUnion(code),
+                }, { merge: true }).catch(() => {});
+              }
+            } catch(_) {}
+          }));
+
+          if (missing.length > 0) {
+            setTimeout(_ensureGroupDocSubs, 300);
+            setTimeout(() => {
+              missing.forEach(code => _subscribeSelfMembership(code));
+            }, 600);
+            if ((_tab === 'groups' || _tab === 'rooms') && !_groupView && !_destroyed) _scheduleRender();
+          }
+        }, () => { _myGroupsByMemberUnsub = null; });
+    } catch(_) { _myGroupsByMemberUnsub = null; }
   }
 
   // ── Data ─────────────────────────────────────────────────────────────────
@@ -3400,11 +3518,29 @@
           }).catch(() => {});
       });
 
+      // Also gather codes from actual member docs via collectionGroup query
+      // This is the ultimate fallback — directly queries Firestore member subcollections
+      try {
+        const memberSnap = await db.collectionGroup('members').where('uid', '==', uid).get();
+        memberSnap.docs.forEach(d => {
+          const parts = d.ref.path.split('/');
+          const code = parts.length >= 4 ? parts[1] : null;
+          if (code && !allCodes.includes(code)) allCodes.push(code);
+        });
+      } catch(_) {} // collectionGroup may fail if index not ready — silent fallback
+
       if (!allCodes.length) return;
       const sc = scLoad();
       const existingCodes = sc.groups.map(g => g.code);
       const missing = allCodes.filter(c => !existingCodes.includes(c));
-      if (!missing.length) return;
+      // Even if nothing is missing from localStorage, ensure joinedRooms is up-to-date
+      if (!missing.length) {
+        const fb_chk = getFb();
+        if (fb_chk && allCodes.length) {
+          db.collection('users').doc(uid).set({ joinedRooms: allCodes }, { merge: true }).catch(() => {});
+        }
+        return;
+      }
 
       await Promise.all(missing.map(async code => {
         try {
@@ -6965,24 +7101,45 @@
     // Start online presence heartbeat immediately on auth
     _startOnlineHeartbeat();
 
+    // ── Full group restoration — runs on init AND after every login ──────────
+    // Must re-run ALL group subscriptions (not just _restoreGroupsFromFirebase)
+    // because the 500ms init timeout fires before auth is ready, leaving uid=null.
+    // Without this, creator/owner subscriptions are never attached after login.
+    let _fullRestoreRunning = false;
+    function _fullGroupRestoreOnAuth() {
+      if (_fullRestoreRunning) return;
+      const uid_ = getUserId();
+      if (!uid_) return; // still not authed — will be called again after login
+      _fullRestoreRunning = true;
+      // Re-attach all group membership subscriptions with the now-valid uid
+      _subscribeMyGroups();
+      _subscribeMyGroupsByOwner();
+      _subscribeMyGroupsByAdmin();
+      _subscribeMyGroupsByMember();   // collectionGroup — golden fallback path
+      _subscribeGroupDocs();
+      _subscribeMyPendingRequests();
+      _restoreGroupsFromFirebase().catch(() => {});
+      // Release guard after a tick so rapid re-calls are deduplicated
+      setTimeout(() => { _fullRestoreRunning = false; }, 2000);
+    }
+
     // Start real-time Firebase listeners
     // Use a small delay to ensure the appUI bridge is ready
     setTimeout(() => {
       _subscribePublicGroups();
       _subscribeGlobalLb();
-      _subscribeMyGroups();
-      _subscribeMyGroupsByOwner();
-      _subscribeMyGroupsByAdmin();
-      _subscribeGroupDocs();            // per-group doc listeners for live memberCount
-      _subscribeMyPendingRequests();    // watch user's own pending join requests
-      _restoreGroupsFromFirebase().catch(() => {});
+      _fullGroupRestoreOnAuth();    // runs all membership subscriptions
     }, 500);
 
     // Expose restoration hook so script.js can re-trigger after login.
     // This is needed when the user wasn't logged in at page load (auth modal showing):
     // the 500ms init timeout above fires with uid=null and returns early, so groups
     // would never appear after login without this re-entry point.
-    window._socialRestoreGroups = () => { _restoreGroupsFromFirebase().catch(() => {}); };
+    window._socialRestoreGroups = () => {
+      // Reset guard so login always triggers a fresh full restore
+      _fullRestoreRunning = false;
+      _fullGroupRestoreOnAuth();
+    };
 
     // Exposed so script.js can trigger a member-count recalculation after
     // account-deletion cascade without needing access to the social IIFE scope.
