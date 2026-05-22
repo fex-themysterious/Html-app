@@ -4553,20 +4553,44 @@
             const type = btn.dataset.type;
             if (type === 'auto') {
               const t = findTopic(btn.dataset.sub, btn.dataset.ch, btn.dataset.tid);
-              if (t) { t.done = !t.done; bumpActivity(); saveState(); renderTaskSection(); renderDashboard(); }
+              if (t) {
+                t.done = !t.done;
+                const _ck = `topic:${btn.dataset.sub}:${btn.dataset.ch}:${btn.dataset.tid}`;
+                if (t.done) {
+                  bumpActivity();
+                  try { window.DuelSystem?.onTaskCompleted?.(_ck); } catch(_) {}
+                } else {
+                  try { window.DuelSystem?.onTaskUnchecked?.(_ck); } catch(_) {}
+                }
+                saveState(); renderTaskSection(); renderDashboard();
+              }
             } else if (type === 'syllabus') {
               const i = parseInt(btn.dataset.idx, 10);
               if (!isNaN(i) && plan.syllabus[i]) {
                 plan.syllabus[i].done = !plan.syllabus[i].done;
+                const _ck = `topic:${btn.dataset.subid}:${btn.dataset.chid}:${btn.dataset.topicid}`;
                 if (plan.syllabus[i].done) {
                   const t = findTopic(plan.syllabus[i].subjectId, plan.syllabus[i].chapterId, plan.syllabus[i].topicId);
-                  if (t && !t.done) { t.done = true; trackCompletion(`topic:${plan.syllabus[i].subjectId}:${plan.syllabus[i].chapterId}:${plan.syllabus[i].topicId}`, true); onTopicDoneChanged(plan.syllabus[i].subjectId, plan.syllabus[i].chapterId, plan.syllabus[i].topicId, true); }
+                  if (t && !t.done) { t.done = true; trackCompletion(_ck, true); onTopicDoneChanged(plan.syllabus[i].subjectId, plan.syllabus[i].chapterId, plan.syllabus[i].topicId, true); }
+                  try { window.DuelSystem?.onTaskCompleted?.(_ck); } catch(_) {}
+                } else {
+                  try { window.DuelSystem?.onTaskUnchecked?.(_ck); } catch(_) {}
                 }
                 bumpActivity(); saveState(); renderTaskSection(); renderDashboard();
               }
             } else if (type === 'custom') {
               const i = parseInt(btn.dataset.idx, 10);
-              if (!isNaN(i) && plan.custom[i]) { plan.custom[i].done = !plan.custom[i].done; bumpActivity(); saveState(); renderTaskSection(); renderDashboard(); }
+              if (!isNaN(i) && plan.custom[i]) {
+                plan.custom[i].done = !plan.custom[i].done;
+                const _ck = `custom:${plan.custom[i].id}`;
+                if (plan.custom[i].done) {
+                  bumpActivity();
+                  try { window.DuelSystem?.onTaskCompleted?.(_ck); } catch(_) {}
+                } else {
+                  try { window.DuelSystem?.onTaskUnchecked?.(_ck); } catch(_) {}
+                }
+                saveState(); renderTaskSection(); renderDashboard();
+              }
             }
           };
         });
@@ -4576,8 +4600,19 @@
           btn.onclick = e => {
             e.stopPropagation();
             const type = btn.dataset.type, i = parseInt(btn.dataset.idx, 10);
-            if (type === 'syllabus' && !isNaN(i)) { plan.syllabus.splice(i, 1); saveState(); renderTaskSection(); renderDashboard(); toast('Task removed', 'info'); }
-            else if (type === 'custom' && !isNaN(i)) { plan.custom.splice(i, 1); saveState(); renderTaskSection(); renderDashboard(); toast('Task removed', 'info'); }
+            if (type === 'syllabus' && !isNaN(i) && plan.syllabus[i]) {
+              const wasDone = plan.syllabus[i].done;
+              const _ck = `topic:${plan.syllabus[i].subjectId}:${plan.syllabus[i].chapterId}:${plan.syllabus[i].topicId}`;
+              plan.syllabus.splice(i, 1);
+              if (wasDone) { try { window.DuelSystem?.onTaskUnchecked?.(_ck); } catch(_) {} }
+              saveState(); renderTaskSection(); renderDashboard(); toast('Task removed', 'info');
+            } else if (type === 'custom' && !isNaN(i) && plan.custom[i]) {
+              const wasDone = plan.custom[i].done;
+              const _ck = `custom:${plan.custom[i].id}`;
+              plan.custom.splice(i, 1);
+              if (wasDone) { try { window.DuelSystem?.onTaskUnchecked?.(_ck); } catch(_) {} }
+              saveState(); renderTaskSection(); renderDashboard(); toast('Task removed', 'info');
+            }
           };
         });
       }
@@ -8901,8 +8936,11 @@
         const key = autoKey(el.dataset.sub, el.dataset.ch, el.dataset.t);
         const t = findTopic(el.dataset.sub, el.dataset.ch, el.dataset.t);
         if (t) {
-          // If the topic was done, reverse its XP award before removing
-          if (t.done) gamificationManager.removeTaskXP(`topic:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`);
+          const _ck = `topic:${el.dataset.sub}:${el.dataset.ch}:${el.dataset.t}`;
+          if (t.done) {
+            gamificationManager.removeTaskXP(_ck);
+            try { window.DuelSystem?.onTaskUnchecked?.(_ck); } catch(_) {}
+          }
           t.skipCount = (t.skipCount || 0) + 1;
           t.lastSkippedAt = todayKey();
         }
@@ -8913,14 +8951,20 @@
         if (rid) {
           confirmModal('This is a daily recurring task. Remove it forever so it stops repeating?', () => {
             const cTask = plan.custom.find(c => c.id === el.dataset.id);
-            if (cTask && cTask.done) gamificationManager.removeTaskXP(`custom:${cTask.id}`);
+            if (cTask && cTask.done) {
+              gamificationManager.removeTaskXP(`custom:${cTask.id}`);
+              try { window.DuelSystem?.onTaskUnchecked?.(`custom:${cTask.id}`); } catch(_) {}
+            }
             state.recurringTasks = (state.recurringTasks || []).filter(r => r.id !== rid);
             plan.custom = plan.custom.filter(c => c.id !== el.dataset.id);
             saveState(); renderAll();
           }, { title: 'Stop Recurring Task?', yesLabel: 'Remove Forever', yesClass: 'btn', noLabel: 'Keep' });
         } else {
           const cTask = plan.custom.find(c => c.id === el.dataset.id);
-          if (cTask && cTask.done) gamificationManager.removeTaskXP(`custom:${cTask.id}`);
+          if (cTask && cTask.done) {
+            gamificationManager.removeTaskXP(`custom:${cTask.id}`);
+            try { window.DuelSystem?.onTaskUnchecked?.(`custom:${cTask.id}`); } catch(_) {}
+          }
           plan.custom = plan.custom.filter(c => c.id !== el.dataset.id);
           saveState(); renderAll();
         }
