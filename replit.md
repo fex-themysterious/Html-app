@@ -92,8 +92,18 @@ An offline-capable Progressive Web App for tracking study progress with spaced r
 - **Guards:** respects `_cloudRestoreInProgress`, `_userHasCloudData`, `hasPendingWrites`, `_myLastVersion` to avoid loops and stale overwrites
 - **Window bridges:** `window._getSyncState()`, `window._isCloudRestoreInProgress()`, `window._getUserHasCloudData()` — allow SyncEngine to safely read IIFE-scoped state
 
+## Background Timer Persistence (Android/OPPO/Realme/Vivo)
+- **`timer-worker.js`** — Web Worker that fires a `tick` message every 500 ms; more resilient than UI-thread `setInterval` on aggressive battery optimisers
+- **`_SharedWorkerTimer`** singleton in `script.js`: `add(id, fn)` / `remove(id)` / `restart()` — shared tick source for both Pomodoro and Live Study. Auto-starts the Worker on first listener; falls back to `setInterval` if Worker creation fails. 200 ms dedup window prevents double-fire when Worker + setInterval both tick.
+- **Belt-and-suspenders**: both `setInterval` (existing) and Web Worker tick the same functions simultaneously. Since both `focusTick` and `_lsTick` are timestamp-based (not counter-based), calling them more frequently is idempotent — only the display updates faster.
+- **`focusTick` guard**: `if (!focusRunning) return;` at the very top prevents double-completion and stale ticks from the Worker after session ends.
+- **`_onTimerResume()`** global handler — called on `visibilitychange` (foreground), `pageshow` (bfcache), `window.focus` (OPPO app-switch), and `document.resume` (Chrome PWA thaw). Checks if timer completed in background → calls `focusTick()` directly. Calls `_SharedWorkerTimer.restart()` to revive a killed Worker.
+- **WakeLock for Live Study** (`_lsWakeLock`): acquired on session start, auto-reacquired on `release` event if still running. Mirrors existing Pomodoro `_timerWakeLock` pattern.
+- **Heartbeat**: Live Study saves `{startTime, elapsedBase, subjectId}` to `_ls_heartbeat` in localStorage every tick for crash/kill recovery. Pomodoro uses `OfflineSync._pom_timer_state` (timestamp-based, no per-second update needed).
+- **Duplicate timer prevention**: `_SharedWorkerTimer.add()` is idempotent per id — re-registering the same id just overwrites the function reference. `focusTick` guard prevents double-fire.
+
 ## Gotchas
-- Cache-busting: `script.js?v=211`, `sync-engine.js?v=1`, `social.js?v=37`, `style.css?v=134`, `social.css?v=26`, `duel.js?v=3` — increment when making changes; SW cache is `syllabus-tracker-v208`
+- Cache-busting: `script.js?v=212`, `sync-engine.js?v=1`, `social.js?v=37`, `style.css?v=134`, `social.css?v=26`, `duel.js?v=3` — increment when making changes; SW cache is `syllabus-tracker-v209`
 - Audio files need HTTP Range request support (already handled in `server.js` and `sw.js`)
 - Global orientation is **portrait-locked** (manifest + JS `lock('portrait')` on startup). Full Focus Mode and Video Player expose a ⤢ landscape toggle button that calls `toggleOrientLock()`; exiting either mode calls `lockPortrait()` to restore portrait. `--real-vh` CSS var is set by JS on every `orientationchange`/`resize` for iOS Safari.
 - Full Focus overlay uses a **flat CSS Grid** layout. Direct children of `.fs-content`: `fs-top` (badge+dots), `fs-task-box`, `fs-timer-wrap`, `fs-ctrl-col`, `fs-motivation-box`, `fs-footer` (hint only). Portrait grid: `"top task" / "ring ctrl" / "moti moti" / "foot foot"`. Landscape grid (both mobile ≤500px and desktop): 3-column `"top ring task" / "moti ring ctrl" / "foot foot foot"` — left=navy motivation panel, center=dominant timer (270px/76px mobile, 300px/80px desktop), right=indigo panel (task top + controls bottom, `border-top: none` to appear seamless). `_fsMotiQuote` set once in `startFullSession()`.

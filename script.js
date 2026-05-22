@@ -3321,6 +3321,7 @@
   let _alarmMoveTimer = null;
   let _alarmWakeLock  = null;
   let _timerWakeLock  = null;   // screen wake lock held while Pomodoro is running
+  let _lsWakeLock     = null;   // screen wake lock held while Live Study is running
   let _activeAlarmId  = null;
 
   function _getAlarmQuote() {
@@ -3466,6 +3467,26 @@
   }
   function _releaseTimerWakeLock() {
     if (_timerWakeLock) { try { _timerWakeLock.release(); } catch (_) {} _timerWakeLock = null; }
+  }
+
+  // ── Live Study WakeLock ──────────────────────────────────────────────────
+  function _acquireLsWakeLock() {
+    if (!('wakeLock' in navigator)) return;
+    if (_lsWakeLock) return;
+    navigator.wakeLock.request('screen').then(wl => {
+      _lsWakeLock = wl;
+      wl.addEventListener('release', () => {
+        _lsWakeLock = null;
+        // Auto-reacquire when tab becomes visible again and session still running
+        if (_lsRunning && !document.hidden) {
+          setTimeout(() => { if (_lsRunning && !_lsWakeLock && !document.hidden) _acquireLsWakeLock(); }, 500);
+        }
+      });
+      console.log('[WakeLock] Live Study wake lock acquired');
+    }).catch(e => console.log('[WakeLock] Live Study lock failed:', e.message));
+  }
+  function _releaseLsWakeLock() {
+    if (_lsWakeLock) { try { _lsWakeLock.release(); } catch (_) {} _lsWakeLock = null; }
   }
 
   // ========== Eye-Care Mode (Night Study Mode) ==========
@@ -3882,6 +3903,112 @@
       nextMotivationQuote();
     }, 30000);
   }
+
+  // ── Shared Worker Timer ──────────────────────────────────────────────────
+  // Web Worker-based tick source shared by Pomodoro + Live Study timers.
+  // Survives UI-thread throttling on OPPO/Realme/Vivo aggressive battery savers.
+  // The existing setInterval timers remain as belt-and-suspenders backup.
+  // A 200 ms dedup window prevents double-fire when both sources tick.
+  const _SharedWorkerTimer = (() => {
+    let _worker   = null;
+    let _fallback = null;
+    const _ls     = new Map();  // id → tick function
+    let _lastTs   = 0;
+
+    function _dispatch(ts) {
+      if (ts - _lastTs < 200) return; // deduplicate rapid ticks
+      _lastTs = ts;
+      _ls.forEach(fn => { try { fn(); } catch (_) {} });
+    }
+
+    function _startWorker() {
+      try {
+        if (_worker) return;
+        _worker = new Worker('/timer-worker.js');
+        _worker.onmessage = e => {
+          if (e.data && e.data.type === 'tick') _dispatch(e.data.ts || Date.now());
+        };
+        _worker.onerror = err => {
+          console.warn('[TimerWorker] error — using setInterval fallback');
+          _worker = null;
+          _startFallback();
+        };
+        _worker.postMessage({ type: 'start' });
+        console.log('[TimerWorker] Web Worker started');
+      } catch (e) {
+        console.warn('[TimerWorker] unavailable:', e.message, '— using setInterval');
+        _startFallback();
+      }
+    }
+
+    function _startFallback() {
+      if (_fallback) return;
+      _fallback = setInterval(() => _dispatch(Date.now()), 1000);
+    }
+
+    function _shutDown() {
+      if (_worker)   { try { _worker.postMessage({ type: 'stop' }); _worker.terminate(); } catch(_) {} _worker = null; }
+      if (_fallback) { clearInterval(_fallback); _fallback = null; }
+      _lastTs = 0;
+    }
+
+    return {
+      add(id, fn) {
+        _ls.set(id, fn);
+        if (_ls.size === 1) _startWorker();
+      },
+      remove(id) {
+        _ls.delete(id);
+        if (_ls.size === 0) _shutDown();
+      },
+      restart() {
+        if (_ls.size === 0) return;
+        if (_worker) {
+          try { _worker.postMessage({ type: 'stop' }); _worker.postMessage({ type: 'start' }); } catch(_) {}
+        } else {
+          _shutDown();
+          _startWorker();
+        }
+        _lastTs = 0;
+        console.log('[TimerWorker] Restarted after app resume');
+      }
+    };
+  })();
+
+  // ── Global timer resume handler ──────────────────────────────────────────
+  // Fires on visibilitychange (app foreground) and pageshow (bfcache restore).
+  // Handles timers that completed while the screen was off / app was minimised,
+  // and revives the Worker tick if the OS killed it.
+  function _onTimerResume() {
+    // ── Pomodoro: check background completion ──────────────────────────────
+    if (focusRunning && focusStartTime !== null) {
+      const elapsed = Math.floor((Date.now() - focusStartTime) / 1000);
+      focusSeconds = Math.max(0, focusStartSeconds - elapsed);
+      if (focusSeconds === 0) {
+        console.log('[Timer] Pomodoro completed while backgrounded — crediting now');
+        focusTick(); // runs completion logic (awards XP, saves state, shows overtime)
+      } else {
+        updateFocusDisplay();
+        updateMiniTimer();
+        _SharedWorkerTimer.restart(); // revive if OS killed the worker
+        if (!document.hidden) _acquireTimerWakeLock();
+      }
+    }
+    // ── Live Study: refresh display and revive ticker ──────────────────────
+    if (_lsRunning && _lsStartTime !== null) {
+      _lsUpdateDisplay();
+      updateMiniTimer();
+      _SharedWorkerTimer.restart();
+      if (!document.hidden) _acquireLsWakeLock();
+    }
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) _onTimerResume();
+  });
+  window.addEventListener('pageshow', e => {
+    if (e.persisted) _onTimerResume(); // bfcache restore on Android
+  });
 
   // ========== Focus Timer State ==========
   let focusMode = 'work', focusSeconds = 25 * 60;
@@ -5716,13 +5843,20 @@
     }
     renderLiveOverlay();
     _lsTimer = setInterval(_lsTick, 1000);
+    _SharedWorkerTimer.add('ls', _lsTick);
+    _acquireLsWakeLock();
 
-    // ── Visibility change: keep time accurate when app goes to background ──
+    // ── Visibility change: recover display and ticker after background suspension ──
     _lsVisibilityHandler = () => {
-      if (!document.hidden && _lsRunning && _lsStartTime !== null) {
-        // Recalculate elapsed from wall-clock time — prevents timer drift
-        // when the browser throttles intervals in the background.
-        // Nothing to do here since _lsGetElapsed() already uses Date.now().
+      if (!document.hidden && _lsRunning) {
+        // App returned to foreground — recalculate elapsed from wall-clock timestamp
+        _lsUpdateDisplay();
+        updateMiniTimer();
+        // Revive the Worker/interval if the OS killed it while backgrounded
+        _SharedWorkerTimer.restart();
+        // Re-acquire WakeLock (OS releases it on screen-off / battery saver)
+        _acquireLsWakeLock();
+        console.log('[LiveStudy] Resumed from background — elapsed:', _lsGetElapsed(), 's');
       }
     };
     document.addEventListener('visibilitychange', _lsVisibilityHandler);
@@ -5741,6 +5875,8 @@
   function exitLiveSession(save) {
     if (!_lsOverlayActive) return;
     clearInterval(_lsTimer); _lsTimer = null;
+    _SharedWorkerTimer.remove('ls');
+    _releaseLsWakeLock();
     _lsStopParticles();
     const elapsed = _lsGetElapsed();
     _lsRunning = false;
@@ -6476,6 +6612,7 @@
   }
 
   function focusTick() {
+    if (!focusRunning) return; // guard: prevents stale ticks and double-completion
     // Timestamp-based: stays accurate when tab is backgrounded/throttled
     if (focusStartTime !== null) {
       const elapsed = Math.floor((Date.now() - focusStartTime) / 1000);
@@ -6485,7 +6622,9 @@
 
     // Timer hit zero
     const _plannedSecs = focusStartSeconds; // capture before clearing
-    clearInterval(focusTimer); focusTimer = null; focusRunning = false;
+    clearInterval(focusTimer); focusTimer = null;
+    _SharedWorkerTimer.remove('pom');
+    focusRunning = false;
     focusStartTime = null; focusStartSeconds = null;
     _releaseTimerWakeLock();
     document.title = 'Syllabus Tracker';
@@ -9440,7 +9579,7 @@
     if (act === 'focus-mode') {
       const newMode = el.dataset.mode;
       if (!focusRunning) { focusMode = newMode; focusSeconds = customDurations[newMode] * 60; renderFocus(); }
-      else { if (confirm('Stop current timer and switch mode?')) { clearInterval(focusTimer); focusTimer = null; focusRunning = false; focusStartTime = null; focusStartSeconds = null; try { window.OfflineSync?.onTimerStop(); } catch(_) {} focusMode = newMode; focusSeconds = customDurations[newMode] * 60; renderFocus(); document.title = 'Syllabus Tracker'; updateMiniTimer(); } }
+      else { if (confirm('Stop current timer and switch mode?')) { clearInterval(focusTimer); focusTimer = null; _SharedWorkerTimer.remove('pom'); focusRunning = false; focusStartTime = null; focusStartSeconds = null; try { window.OfflineSync?.onTimerStop(); } catch(_) {} focusMode = newMode; focusSeconds = customDurations[newMode] * 60; renderFocus(); document.title = 'Syllabus Tracker'; updateMiniTimer(); } }
       return;
     }
     // ── Social Study System ──────────────────────────────────────────────
@@ -10193,7 +10332,7 @@
         }
         if (_socialRoomCode && focusMode === 'work' && focusSeconds > 0) _sHandleFocusBounty().catch(() => {});
         if (_socialRoomCode) _sUpdatePresence('break').catch(() => {});
-        clearInterval(focusTimer); focusTimer = null; focusRunning = false;
+        clearInterval(focusTimer); focusTimer = null; _SharedWorkerTimer.remove('pom'); focusRunning = false;
         focusStartTime = null; focusStartSeconds = null;
         try { window.OfflineSync?.onTimerStop(); } catch(_) {}
         _releaseTimerWakeLock();
@@ -10220,6 +10359,7 @@
         focusStartTime = Date.now();
         focusStartSeconds = focusSeconds;
         focusTimer = setInterval(focusTick, 1000);
+        _SharedWorkerTimer.add('pom', focusTick);
         try { window.OfflineSync?.onTimerStart(focusMode, focusSeconds, _currentSessionId, _lsSubjectId); } catch(_) {}
         _acquireTimerWakeLock();
         if (_socialRoomCode) _sUpdatePresence('focusing').catch(() => {});
@@ -10265,7 +10405,7 @@
         if (_socialRoomCode && focusSeconds > 0) _sHandleFocusBounty().catch(() => {});
         if (_socialRoomCode) _sUpdatePresence('break').catch(() => {});
       }
-      stopOvertimeMode(); clearInterval(focusTimer); focusTimer = null; focusRunning = false; focusStartTime = null; focusStartSeconds = null; try { window.OfflineSync?.onTimerStop(); } catch(_) {} _releaseTimerWakeLock(); focusSeconds = customDurations[focusMode] * 60; focusMultitaskMode = false;
+      stopOvertimeMode(); clearInterval(focusTimer); focusTimer = null; _SharedWorkerTimer.remove('pom'); focusRunning = false; focusStartTime = null; focusStartSeconds = null; try { window.OfflineSync?.onTimerStop(); } catch(_) {} _releaseTimerWakeLock(); focusSeconds = customDurations[focusMode] * 60; focusMultitaskMode = false;
       renderFocus(); document.title = 'Syllabus Tracker'; updateMiniTimer();
       if (document.getElementById('view-stats') && document.getElementById('view-stats').classList.contains('active')) renderStats();
       return;
@@ -10315,7 +10455,7 @@
         }
         if (_socialRoomCode && focusMode === 'work' && focusSeconds > 0) _sHandleFocusBounty().catch(() => {});
         if (_socialRoomCode) _sUpdatePresence('break').catch(() => {});
-        clearInterval(focusTimer); focusTimer = null; focusRunning = false;
+        clearInterval(focusTimer); focusTimer = null; _SharedWorkerTimer.remove('pom'); focusRunning = false;
         focusStartTime = null; focusStartSeconds = null;
         try { window.OfflineSync?.onTimerStop(); } catch(_) {}
         _releaseTimerWakeLock();
@@ -10341,6 +10481,7 @@
         focusStartTime = Date.now();
         focusStartSeconds = focusSeconds;
         focusTimer = setInterval(focusTick, 1000);
+        _SharedWorkerTimer.add('pom', focusTick);
         try { window.OfflineSync?.onTimerStart(focusMode, focusSeconds, _currentSessionId, _lsSubjectId); } catch(_) {}
         _acquireTimerWakeLock();
         if (_socialRoomCode) _sUpdatePresence('focusing').catch(() => {});
@@ -10951,6 +11092,9 @@
       if (focusSeconds <= 0 && !focusOvertime) focusTick();
       else if (focusMode === 'work' && !_timerWakeLock) _acquireTimerWakeLock();
     }
+    // Revive Web Worker for both timers on app-switch return (OPPO/Realme/Vivo)
+    if (focusRunning || _lsRunning) _SharedWorkerTimer.restart();
+    if (_lsRunning) { _lsUpdateDisplay(); updateMiniTimer(); _acquireLsWakeLock(); }
   });
 
   // ── Page Lifecycle API: freeze / resume (Chrome Android PWA) ─────────────
@@ -10987,6 +11131,9 @@
       if (focusSeconds <= 0 && !focusOvertime) focusTick();
       else if (focusMode === 'work') _acquireTimerWakeLock();
     }
+    // Revive Web Worker and Live Study on Chrome-Android PWA thaw
+    if (focusRunning || _lsRunning) _SharedWorkerTimer.restart();
+    if (_lsRunning) { _lsUpdateDisplay(); updateMiniTimer(); _acquireLsWakeLock(); }
   });
 
   // ── Service Worker → page messaging ──────────────────────────────────────
