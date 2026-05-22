@@ -566,7 +566,8 @@
     }
     db_.collection('activeSessions').doc(uid_)
       .set(sessionDoc, { merge: true })
-      .catch(() => {}); // silent — rules may not cover this collection yet
+      .then(() => { console.log('[Presence] activeSessions write OK — active:', !!isStudying); })
+      .catch(err => { console.warn('[Presence] activeSessions write failed:', err.code, '— check Firestore rules for activeSessions collection'); });
   }
 
   // ── Global heartbeat ──────────────────────────────────────────────────────
@@ -575,16 +576,18 @@
   // clients can detect disconnects via the lastHeartbeatAt staleness check.
   function _startGlobalHeartbeat() {
     _stopGlobalHeartbeat();
+    console.log('[Heartbeat] Started (every 30s)');
     _globalHeartbeatInterval = setInterval(() => {
       // Stop automatically if no longer studying
-      if (!ui().focusIsRunning?.()) { _stopGlobalHeartbeat(); return; }
+      if (!ui().focusIsRunning?.()) { _stopGlobalHeartbeat(); console.log('[Heartbeat] Stopped — focus no longer running'); return; }
       const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
       if (!db_ || !uid_ || !fb_) return;
       const now = fb_.firestore.FieldValue.serverTimestamp();
       // Single-doc write — no per-group fan-out, no battery drain
       db_.collection('activeSessions').doc(uid_)
         .set({ lastHeartbeatAt: now, updatedAt: now, active: true }, { merge: true })
-        .catch(() => {});
+        .then(() => { console.log('[Heartbeat] activeSessions write OK'); })
+        .catch(err => { console.warn('[Heartbeat] activeSessions write failed:', err.code); });
       // Also keep users/{uid} fresh so the users/{uid} fallback path stays alive
       db_.collection('users').doc(uid_)
         .set({ presenceUpdatedAt: now }, { merge: true })
@@ -2274,10 +2277,10 @@
       const g  = sc.groups.find(x => x.id === gid);
       if (!g) { _stopSrTicker(); return; }
 
-      // Update timers for local members
+      // Update timers for local members (querySelectorAll so both chip + card update)
       (g.members || []).forEach(m => {
-        const timerEl = view.querySelector(`[data-sr-timer="${m.id}"]`);
-        if (timerEl) timerEl.textContent = _fmtSecs(_srMemberSeconds(m));
+        const secs = _fmtSecs(_srMemberSeconds(m));
+        view.querySelectorAll(`[data-sr-timer="${m.id}"]`).forEach(el => { el.textContent = secs; });
       });
       // Update timers, last-seen labels, and detect staleness-based state changes
       // for Firebase members. The Firestore listener handles isStudying flips that
@@ -2286,8 +2289,8 @@
       const _tickMyUid = getUserId();
       let _remoteStateDirty = false;
       Object.keys(_liveMembers).forEach(uid => {
-        const timerEl = view.querySelector(`[data-sr-timer="${uid}"]`);
-        if (timerEl) timerEl.textContent = _fmtSecs(_srMemberSeconds({ id: uid }));
+        const secs = _fmtSecs(_srMemberSeconds({ id: uid }));
+        view.querySelectorAll(`[data-sr-timer="${uid}"]`).forEach(el => { el.textContent = secs; });
         const lsEl = view.querySelector(`[data-sr-lastseen="${uid}"]`);
         if (lsEl) lsEl.textContent = _fmtLastSeen(_liveMembers[uid]);
         // Detect staleness-based active→idle flip (not covered by Firestore listener)
@@ -2553,14 +2556,25 @@
                         // Treat the activeSessions updatedAt as a fresh heartbeat
                         if (as.updatedAt) _liveMembers[mUid].lastUpdated = as.updatedAt;
                       }
-                      // Instantly refresh the timer chip if the room is visible
+                      // Instantly refresh all timer elements (chip + card) for this member
                       const vw = document.getElementById('view-social');
                       if (vw) {
-                        const te = vw.querySelector(`[data-sr-timer="${mUid}"]`);
-                        if (te) te.textContent = _fmtSecs(_srMemberSeconds({ id: mUid }));
+                        const secs = _fmtSecs(_srMemberSeconds({ id: mUid }));
+                        vw.querySelectorAll(`[data-sr-timer="${mUid}"]`).forEach(el => { el.textContent = secs; });
                       }
-                    }, () => {
-                      // Permission denied — collection rules not deployed yet; fall through
+                      // If state changed, trigger a full re-render so card class updates
+                      if (vw && vw.querySelector('.sr-room')) {
+                        const cardEl = vw.querySelector(`[data-sr-card="${mUid}"]`);
+                        if (cardEl) {
+                          const shouldBeActive = _srMemberIsActive({ id: mUid });
+                          if (shouldBeActive !== cardEl.classList.contains('sr-card-active')) {
+                            console.log('[Presence] activeSessions state change for', mUid, '→ active:', shouldBeActive);
+                            renderSocial();
+                          }
+                        }
+                      }
+                    }, (err) => {
+                      console.warn('[Presence] activeSessions listener error for', mUid, err.code);
                       delete _activeSessionsUnsubs[mUid];
                     });
                 } catch(_) {}
@@ -2597,11 +2611,11 @@
                         if (uData.isStudying != null) _liveMembers[mUid].isStudying = uData.isStudying;
                         if (uData.presenceUpdatedAt) _liveMembers[mUid].lastUpdated = uData.presenceUpdatedAt;
                       }
-                      // Instantly update the timer chip if the card is visible
+                      // Instantly update all timer elements (chip + card) if the room is visible
                       const vw = document.getElementById('view-social');
                       if (vw) {
-                        const te = vw.querySelector(`[data-sr-timer="${mUid}"]`);
-                        if (te) te.textContent = _fmtSecs(_srMemberSeconds({ id: mUid }));
+                        const secs = _fmtSecs(_srMemberSeconds({ id: mUid }));
+                        vw.querySelectorAll(`[data-sr-timer="${mUid}"]`).forEach(el => { el.textContent = secs; });
                       }
                     }
                   }, () => {
@@ -2663,8 +2677,8 @@
           if (stateChanged) { renderSocial(); return; }
 
           Object.keys(_liveMembers).forEach(uid => {
-            const el = view.querySelector(`[data-sr-timer="${uid}"]`);
-            if (el) el.textContent = _fmtSecs(_srMemberSeconds({ id: uid }));
+            const secs = _fmtSecs(_srMemberSeconds({ id: uid }));
+            view.querySelectorAll(`[data-sr-timer="${uid}"]`).forEach(el => { el.textContent = secs; });
           });
           const meIsActive  = !!(view.querySelector('[data-sr-card="me"]')?.classList.contains('sr-card-active'));
           // Filter stale members (heartbeat expired) so active count matches card state
@@ -3662,12 +3676,13 @@
       const avStage = (m.id === 'me' || m.id === myUid)
         ? (window._lsGetCurrentAvStage?.() || 0)
         : (lm?.avatarStage || 0);
+      const chipTimerId = (m.id === 'me' || m.id === myUid) ? 'me' : uid;
       return `
         <div class="sr-active-chip">
           <div class="sr-active-chip-av" style="background:${_avatarColor(name)}">${name[0].toUpperCase()}</div>
           <div class="sr-active-chip-body">
             <div class="sr-active-chip-name">${esc(name.length > 12 ? name.slice(0,11)+'…' : name)}</div>
-            <div class="sr-active-chip-time">${_fmtSecs(secs)}</div>
+            <div class="sr-active-chip-time" data-sr-timer="${esc(chipTimerId)}">${_fmtSecs(secs)}</div>
             ${subject ? `<div class="sr-active-chip-subj">${esc(subject.length > 14 ? subject.slice(0,13)+'…' : subject)}</div>` : ''}
           </div>
           ${avStage > 0 ? `<div class="sr-active-chip-stage ${_avPillCls(avStage)}">${_avLabel(avStage)}</div>` : ''}
@@ -6689,7 +6704,24 @@
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) {
         // Tab became visible — resume heartbeat if still studying
-        if (ui().focusIsRunning?.()) _startGlobalHeartbeat();
+        if (ui().focusIsRunning?.()) {
+          console.log('[Presence] Tab visible — resuming heartbeat');
+          _startGlobalHeartbeat();
+        }
+        // Re-subscribe any presence listeners that were killed (e.g. by prior
+        // permission errors before rules were deployed, or by network drops).
+        // If we're inside a group room, force a fresh subscription cycle.
+        if (_liveSubscribedCode) {
+          const deadActive  = Object.keys(_liveMembers).filter(uid => uid !== getUserId() && !_activeSessionsUnsubs[uid]);
+          const deadPresence = Object.keys(_liveMembers).filter(uid => uid !== getUserId() && !_memberPresenceUnsubs[uid]);
+          if (deadActive.length || deadPresence.length) {
+            console.log('[Presence] Reconnecting', deadActive.length, 'activeSessions +', deadPresence.length, 'users listeners after visibility restore');
+            // Force _subscribeRoomMembers to re-attach by clearing the guard
+            _liveSubscribedCode = null;
+            const code = scLoad().groups.find(g => g.id === _groupView)?.code;
+            if (code) _subscribeRoomMembers(code);
+          }
+        }
         return;
       }
       // Tab hidden: stop heartbeat so it doesn't fire in background.

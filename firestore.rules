@@ -47,8 +47,20 @@ service cloud.firestore {
     }
 
     // ── User profiles ─────────────────────────────────────────────────────────
+    // All authenticated users can read presence/profile data (needed for live
+    // study presence: timers, isStudying, studyStartedAt across group members).
+    // Only the owner can write their own doc.
     match /users/{uid} {
-      allow read:  if request.auth != null && request.auth.uid == uid;
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ── Active sessions (real-time presence + heartbeat) ─────────────────────
+    // Primary source of truth for live study presence across all groups.
+    // Any authenticated user can read (needed to show who is studying in rooms).
+    // Only the owner can write their own session doc.
+    match /activeSessions/{uid} {
+      allow read:  if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == uid;
     }
 
