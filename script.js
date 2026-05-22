@@ -4014,7 +4014,16 @@
       }
     }
     // ── Live Study: refresh display and revive ticker ──────────────────────
-    if (_lsRunning && _lsStartTime !== null) {
+    // _lsStartTime may be null if the visibilitychange handler already re-anchored it,
+    // OR if the global visibilitychange fires before _lsVisibilityHandler.
+    // Re-anchor here only if _lsStartTime is still null (i.e. timer was mid-hide).
+    if (_lsRunning) {
+      if (_lsStartTime === null) {
+        // Re-anchor from the time we know we came back (now)
+        _lsStartTime  = Date.now();
+        _lsLastTickTs = Date.now();
+        _lsHiddenAt   = null;
+      }
       _lsUpdateDisplay();
       updateMiniTimer();
       _SharedWorkerTimer.restart();
@@ -4028,6 +4037,32 @@
   window.addEventListener('pageshow', e => {
     if (e.persisted) _onTimerResume(); // bfcache restore on Android
   });
+
+  // ── pagehide / beforeunload: flush heartbeat before page is discarded ────
+  // Marks the heartbeat as NOT running so that if the app is killed immediately
+  // after (e.g. swipe-close on Android), the next session open does NOT
+  // auto-restore a ghost session.
+  function _lsFlushOnUnload() {
+    if (_lsRunning && _lsOverlayActive) {
+      // Snapshot current elapsed into the heartbeat so it CAN be recovered, but
+      // mark running: true so the recovery logic picks it up correctly.
+      try {
+        localStorage.setItem('_ls_heartbeat', JSON.stringify({
+          startTime:   _lsStartTime,
+          elapsedBase: _lsGetElapsed(),
+          subjectId:   _lsSubjectId,
+          sessionId:   _lsSessionId,
+          running:     true,
+          ts:          Date.now()
+        }));
+      } catch(_) {}
+    } else {
+      // No active session — ensure no stale heartbeat lingers
+      try { localStorage.removeItem('_ls_heartbeat'); } catch(_) {}
+    }
+  }
+  window.addEventListener('pagehide',    _lsFlushOnUnload);
+  window.addEventListener('beforeunload', _lsFlushOnUnload);
 
   // ========== Focus Timer State ==========
   let focusMode = 'work', focusSeconds = 25 * 60;
@@ -4056,6 +4091,11 @@
   let _lsHeartbeatTick = 0;         // heartbeat counter
   let _lsCurrentAvatarStage = -1;   // tracks current avatar evolution stage
   let _lsSessionId    = null;       // unique ID for current live-study session (dedup + offline sync)
+  let _lsSessionSaved = false;      // guard: prevents double-save on a single session
+  let _lsHiddenAt     = null;       // timestamp when tab went hidden (for background gap detection)
+  let _lsLastTickTs   = 0;          // wall-clock of last _lsTick call (gap detection)
+  const _LS_MAX_SESSION_SECS = 12 * 3600; // anti-cheat: reject sessions > 12 h
+  const _LS_MAX_GAP_SECS     = 300;       // cap background gap at 5 min
   let _fsMotiQuote = ''; /* set once on entering full session, shown in motivation box */
   const customDurations = { work: 25, short: 5, long: 15 };
   let focusStartTime = null;
@@ -5665,6 +5705,30 @@
 
   function _lsTick() {
     if (!_lsRunning) return;
+
+    // ── Gap detection: if the interval fired after a long sleep/background gap,
+    //    absorb the missed wall-clock time into _lsElapsedBase capped at _LS_MAX_GAP_SECS
+    //    so background sleep is not counted as focus time. ──────────────────────
+    const _now = Date.now();
+    if (_lsLastTickTs > 0) {
+      const _gapSecs = Math.floor((_now - _lsLastTickTs) / 1000);
+      if (_gapSecs > _LS_MAX_GAP_SECS + 2) {
+        // Advance elapsed only by the allowed cap, then re-anchor start time
+        _lsElapsedBase += _LS_MAX_GAP_SECS;
+        _lsStartTime    = _now;
+        console.log(`[LiveStudy] Gap ${_gapSecs}s detected — capped at ${_LS_MAX_GAP_SECS}s`);
+      }
+    }
+    _lsLastTickTs = _now;
+
+    // ── Anti-cheat: terminate impossibly long sessions ──────────────────────
+    const _totalElapsed = _lsGetElapsed();
+    if (_totalElapsed > _LS_MAX_SESSION_SECS) {
+      console.warn('[LiveStudy] Anti-cheat: session exceeded max duration — auto-exiting');
+      exitLiveSession(true);
+      return;
+    }
+
     _lsFbTick++;
     _lsHeartbeatTick++;
     _lsUpdateDisplay();
@@ -5676,7 +5740,9 @@
           startTime:   _lsStartTime,
           elapsedBase: _lsElapsedBase,
           subjectId:   _lsSubjectId,
-          ts:          Date.now()
+          sessionId:   _lsSessionId,
+          running:     true,
+          ts:          _now
         }));
       } catch (_) {}
     }
@@ -5714,6 +5780,7 @@
   }
 
   function _lsBroadcastFb() {
+    if (!_lsRunning) return; // do not broadcast if timer is not actively running
     if (!_db || !_userId || typeof firebase === 'undefined') return;
     const elapsed = _lsGetElapsed();
     const curSub = _lsSubjectId ? findSubject(_lsSubjectId) : null;
@@ -5827,32 +5894,53 @@
     if (_lsOverlayActive) return;
 
     // ── Session recovery: check for an interrupted session ─────────────
+    // IMPORTANT: only count time up to the last heartbeat (hb.ts), NOT
+    // the current time — otherwise sleep/closed-app time inflates focus time.
     let recoveredElapsed = 0;
+    let recoveredSessionId = null;
     try {
       const hb = JSON.parse(localStorage.getItem('_ls_heartbeat') || 'null');
-      if (hb && hb.ts && hb.startTime && (Date.now() - hb.ts) < 3_600_000) {
-        // Compute true elapsed from stored start + elapsed base + time since last heartbeat
-        const recoveredSecs = hb.elapsedBase + Math.floor((Date.now() - hb.startTime) / 1000);
-        if (recoveredSecs > 60) {
-          recoveredElapsed = recoveredSecs;
+      // Only recover if: heartbeat exists, was marked as running, and is < 1 h stale
+      if (hb && hb.ts && hb.startTime && hb.running === true && (Date.now() - hb.ts) < 3_600_000) {
+        // Compute elapsed only up to the LAST HEARTBEAT timestamp (not current time)
+        // This prevents counting time when the app was closed/sleeping
+        const elapsedAtLastHeartbeat = hb.elapsedBase + Math.floor((hb.ts - hb.startTime) / 1000);
+        // Clamp to max session length and ensure positive
+        const clampedSecs = Math.max(0, Math.min(elapsedAtLastHeartbeat, _LS_MAX_SESSION_SECS));
+        if (clampedSecs > 60) {
+          recoveredElapsed   = clampedSecs;
+          recoveredSessionId = hb.sessionId || null;
           // Restore subject if it still exists
           if (hb.subjectId && !_lsSubjectId) {
             const sub = findSubject(hb.subjectId);
             if (sub) _lsSubjectId = hb.subjectId;
           }
-          toast(`Recovered session: ${_secsToHMS(recoveredSecs)}`, 'info');
+          toast(`Recovered session: ${_secsToHMS(clampedSecs)}`, 'info');
+          console.log('[LiveStudy] Recovered', clampedSecs, 's from heartbeat (raw gap ignored)');
         }
       }
+      // Clear any stale heartbeat regardless — fresh session will write a new one
+      localStorage.removeItem('_ls_heartbeat');
     } catch (_) {}
 
     _lsOverlayActive         = true;
     _lsRunning               = true;
     _lsElapsedBase           = recoveredElapsed;
     _lsStartTime             = Date.now();
+    _lsLastTickTs            = Date.now();
     _lsFbTick                = 0;
     _lsHeartbeatTick         = 0;
+    _lsSessionSaved          = false;
+    _lsHiddenAt              = null;
     _lsCurrentAvatarStage    = -1;
     window._focusActive      = true;
+    // Re-use recovered session ID so that if Firebase was already written for this session,
+    // we don't create a duplicate document
+    if (recoveredSessionId) {
+      _lsSessionId = recoveredSessionId;
+    } else {
+      _lsSessionId = window.OfflineSync ? window.OfflineSync.generateSessionId() : ('ls_' + Date.now());
+    }
 
     let overlay = document.getElementById('ls-overlay');
     if (!overlay) {
@@ -5865,10 +5953,28 @@
     _SharedWorkerTimer.add('ls', _lsTick);
     _acquireLsWakeLock();
 
-    // ── Visibility change: recover display and ticker after background suspension ──
+    // ── Visibility change: handle background/foreground transitions ────────────
     _lsVisibilityHandler = () => {
-      if (!document.hidden && _lsRunning) {
-        // App returned to foreground — recalculate elapsed from wall-clock timestamp
+      if (document.hidden) {
+        // App going to background — record the moment
+        _lsHiddenAt = Date.now();
+        // Snapshot elapsed into _lsElapsedBase so we can cap background time on resume
+        if (_lsRunning && _lsStartTime !== null) {
+          _lsElapsedBase = _lsGetElapsed();
+          _lsStartTime   = null; // stop wall-clock accumulation while hidden
+        }
+      } else if (_lsRunning) {
+        // App returning to foreground
+        const hiddenDur = _lsHiddenAt ? Math.floor((Date.now() - _lsHiddenAt) / 1000) : 0;
+        // Re-anchor start time; if gap > cap, only credit the cap
+        const creditedGap = Math.min(hiddenDur, _LS_MAX_GAP_SECS);
+        _lsElapsedBase += creditedGap;
+        _lsStartTime    = Date.now();
+        _lsLastTickTs   = Date.now();
+        _lsHiddenAt     = null;
+        if (hiddenDur > _LS_MAX_GAP_SECS) {
+          console.log(`[LiveStudy] Background gap ${hiddenDur}s capped to ${_LS_MAX_GAP_SECS}s`);
+        }
         _lsUpdateDisplay();
         updateMiniTimer();
         // Revive the Worker/interval if the OS killed it while backgrounded
@@ -5893,16 +5999,31 @@
 
   function exitLiveSession(save) {
     if (!_lsOverlayActive) return;
+    // ── Dedup guard: only save once per session ──────────────────────────────
+    if (_lsSessionSaved && save !== false) {
+      console.warn('[LiveStudy] exitLiveSession called again after already saved — ignoring duplicate save');
+      save = false;
+    }
+
     clearInterval(_lsTimer); _lsTimer = null;
     _SharedWorkerTimer.remove('ls');
     _releaseLsWakeLock();
     _lsStopParticles();
     const elapsed = _lsGetElapsed();
-    _lsRunning = false;
+
+    // ── Capture all session metadata BEFORE clearing state ─────────────────
+    const _savedSessionId = _lsSessionId;
+    const _savedSubjectId = _lsSubjectId;
+    const _savedChapterId = _lsChapterId;
+    const _savedTopicId   = _lsTopicId;
+
+    _lsRunning       = false;
     _lsOverlayActive = false;
-    _lsElapsedBase = 0;
-    _lsSessionId = null;
-    _lsStartTime = null;
+    _lsElapsedBase   = 0;
+    _lsSessionId     = null;
+    _lsStartTime     = null;
+    _lsLastTickTs    = 0;
+    _lsHiddenAt      = null;
     _lsHeartbeatTick = 0;
     window._focusActive = false;
     // Remove visibility listener
@@ -5910,20 +6031,24 @@
       document.removeEventListener('visibilitychange', _lsVisibilityHandler);
       _lsVisibilityHandler = null;
     }
-    // Clear heartbeat
-    try { localStorage.removeItem('_ls_heartbeat'); } catch (_) {}
+    // Clear heartbeat — mark it as NOT running so recovery does not auto-restore
+    try {
+      localStorage.setItem('_ls_heartbeat', JSON.stringify({ running: false, ts: Date.now() }));
+      setTimeout(() => { try { localStorage.removeItem('_ls_heartbeat'); } catch(_) {} }, 500);
+    } catch (_) {}
     const overlay = document.getElementById('ls-overlay'); if (overlay) overlay.remove();
     document.title = 'Syllabus Tracker';
     if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
     lockPortrait();
     if (save !== false && elapsed >= 60) {
+      _lsSessionSaved = true;
       const elapsedMin = Math.round(elapsed / 60);
       const todayStr = todayKey();
       state.focusStats.minutesByDate[todayStr] = (state.focusStats.minutesByDate[todayStr] || 0) + elapsedMin;
       try { if (window._socialOnStudyTimeUpdate) window._socialOnStudyTimeUpdate(state.focusStats.minutesByDate[todayStr]); } catch(_) {}
-      if (_lsSubjectId) {
+      if (_savedSubjectId) {
         if (!state.focusStats.minutesBySubject) state.focusStats.minutesBySubject = {};
-        state.focusStats.minutesBySubject[_lsSubjectId] = (state.focusStats.minutesBySubject[_lsSubjectId] || 0) + elapsedMin;
+        state.focusStats.minutesBySubject[_savedSubjectId] = (state.focusStats.minutesBySubject[_savedSubjectId] || 0) + elapsedMin;
       }
       // ── Count the session — always, regardless of Firebase login ──
       focusSessions++;
@@ -5934,18 +6059,18 @@
       checkBadges({ sessionMinutes: elapsedMin });
       saveState();
       try {
-        const _syncSub   = _lsSubjectId ? findSubject(_lsSubjectId) : null;
-        const _syncChap  = _syncSub && _lsChapterId ? (_syncSub.chapters||[]).find(c=>c.id===_lsChapterId) : null;
-        const _syncTopic = _syncChap && _lsTopicId  ? (_syncChap.topics||[]).find(t=>t.id===_lsTopicId)    : null;
+        const _syncSub   = _savedSubjectId ? findSubject(_savedSubjectId) : null;
+        const _syncChap  = _syncSub && _savedChapterId ? (_syncSub.chapters||[]).find(c=>c.id===_savedChapterId) : null;
+        const _syncTopic = _syncChap && _savedTopicId  ? (_syncChap.topics||[]).find(t=>t.id===_savedTopicId)    : null;
         window.OfflineSync?.onSessionComplete({
-          sessionId:   _lsSessionId,
+          sessionId:   _savedSessionId,
           minutes:     elapsedMin,
           date:        todayStr,
-          subjectId:   _lsSubjectId   || null,
+          subjectId:   _savedSubjectId  || null,
           subjectName: _syncSub  ? _syncSub.name  : null,
-          chapterId:   _lsChapterId   || null,
+          chapterId:   _savedChapterId  || null,
           chapterName: _syncChap ? _syncChap.name : null,
-          topicId:     _lsTopicId     || null,
+          topicId:     _savedTopicId    || null,
           topicName:   _syncTopic ? _syncTopic.name : null,
           type:        'live_study',
         });
@@ -5955,27 +6080,33 @@
     } else if (save !== false && elapsed > 0 && elapsed < 60) {
       toast('Session under 1 min — not saved', 'warn');
     }
-    _lsSaveToFirebase(elapsed);
+    _lsSaveToFirebase(elapsed, _savedSessionId, _savedSubjectId, _savedChapterId, _savedTopicId);
     if (typeof window._socialFocusUpdate === 'function') { try { window._socialFocusUpdate(); } catch(_) {} }
     renderFocus();
   }
 
-  function _lsSaveToFirebase(totalSecs) {
+  function _lsSaveToFirebase(totalSecs, sessionId, subjectId, chapterId, topicId) {
+    // Accept explicit params so this works even after module-level state is cleared
+    const _sid = sessionId !== undefined ? sessionId : _lsSessionId;
+    const _sub = subjectId !== undefined ? subjectId : _lsSubjectId;
+    const _chp = chapterId !== undefined ? chapterId : _lsChapterId;
+    const _top = topicId   !== undefined ? topicId   : _lsTopicId;
     if (!_db || !_userId || typeof firebase === 'undefined') return;
     const uid = _userId;
     _db.collection('users').doc(uid).set({ liveSession: { isStudying: false, currentSessionSeconds: 0 } }, { merge: true }).catch(() => {});
     const elapsedMin = Math.round(totalSecs / 60);
     if (elapsedMin < 1) return;
-    const curSub = _lsSubjectId ? findSubject(_lsSubjectId) : null;
-    const curChapLog = _lsSubjectId && _lsChapterId ? (curSub ? (curSub.chapters||[]).find(c=>c.id===_lsChapterId) : null) : null;
-    const curTopicLog = curChapLog && _lsTopicId ? (curChapLog.topics||[]).find(t=>t.id===_lsTopicId) : null;
-    const _logDocId = _lsSessionId || ('ls_' + uid + '_' + Date.now());
+    const curSub = _sub ? findSubject(_sub) : null;
+    const curChapLog = _sub && _chp ? (curSub ? (curSub.chapters||[]).find(c=>c.id===_chp) : null) : null;
+    const curTopicLog = curChapLog && _top ? (curChapLog.topics||[]).find(t=>t.id===_top) : null;
+    // Use the deterministic session ID so duplicate calls produce the same doc (idempotent)
+    const _logDocId = _sid || ('ls_' + uid + '_' + Date.now());
     _db.collection('users').doc(uid).collection('syllabus_logs').doc(_logDocId).set({
-      date: todayKey(), subjectId: _lsSubjectId || null,
+      date: todayKey(), subjectId: _sub || null,
       subjectName: curSub ? curSub.name : null,
-      chapterId: _lsChapterId || null,
+      chapterId: _chp || null,
       chapterName: curChapLog ? curChapLog.name : null,
-      topicId: _lsTopicId || null,
+      topicId: _top || null,
       topicName: curTopicLog ? curTopicLog.name : null,
       minutes: elapsedMin, seconds: totalSecs,
       type: 'live_study', createdAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -9548,10 +9679,15 @@
         setTimeout(() => pb.classList.remove('lsf-ripple-active'), 600);
       }
       if (_lsRunning) {
+        // ── PAUSE ──────────────────────────────────────────────────────────
+        // Snapshot elapsed and stop BOTH the interval AND the SharedWorkerTimer
+        // to prevent duplicate ticks when resuming.
         _lsElapsedBase = _lsGetElapsed();
-        _lsStartTime = null;
-        _lsRunning = false;
+        _lsStartTime   = null;
+        _lsLastTickTs  = 0;
+        _lsRunning     = false;
         clearInterval(_lsTimer); _lsTimer = null;
+        _SharedWorkerTimer.remove('ls'); // must remove or worker keeps ticking
         if (pb) {
           const icon = pb.querySelector('.lsf-play-icon');
           if (icon) icon.textContent = '▶';
@@ -9570,10 +9706,17 @@
           ca.appendChild(badge);
         }
       } else {
-        _lsRunning = true;
-        _lsSessionId = window.OfflineSync ? window.OfflineSync.generateSessionId() : ('ls_' + Date.now());
-        _lsStartTime = Date.now();
+        // ── RESUME ─────────────────────────────────────────────────────────
+        // Keep existing _lsSessionId (do NOT generate a new one — that would
+        // create duplicate Firebase docs for a single study session).
+        _lsRunning    = true;
+        _lsStartTime  = Date.now();
+        _lsLastTickTs = Date.now();
+        _lsHiddenAt   = null;
+        // Always clear before creating a new interval to prevent duplicates
+        clearInterval(_lsTimer); _lsTimer = null;
         _lsTimer = setInterval(_lsTick, 1000);
+        _SharedWorkerTimer.add('ls', _lsTick); // re-register with shared worker
         if (pb) {
           const icon = pb.querySelector('.lsf-play-icon');
           if (icon) icon.textContent = '⏸';
