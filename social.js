@@ -7545,18 +7545,31 @@
     const upcomingExam = exams.filter(e => e.date >= today).sort((a, b) => a.date.localeCompare(b.date))[0] || null;
 
     // ── Syllabus progress (chapter-based) ─────────────────────────────────
-    const subjects = Array.isArray(parsedState?.subjects) ? parsedState.subjects : [];
+    // Normalize: tolerate alternative field names that may exist in older synced data
+    const subjects = Array.isArray(parsedState?.subjects)
+      ? parsedState.subjects
+      : Array.isArray(parsedState?.syllabusSubjects)
+        ? parsedState.syllabusSubjects
+        : Array.isArray(parsedState?.subjectList)
+          ? parsedState.subjectList
+          : Array.isArray(parsedState?.groupSubjects)
+            ? parsedState.groupSubjects
+            : [];
     function _mpChDone(ch) {
       const tops = ch.topics || [];
       if (tops.length === 0) return !!ch.done;
       return tops.every(t => t.done);
     }
-    const subjectProgress = subjects.map(sub => {
-      let chTot = 0, chDn = 0;
-      for (const ch of (sub.chapters || [])) { chTot++; if (_mpChDone(ch)) chDn++; }
-      const pct = chTot ? Math.round((chDn / chTot) * 100) : 0;
-      return { name: sub.name, color: sub.color || '#ff7a1a', pct, chDn, chTot };
-    }).filter(s => s.chTot > 0);
+    // Include ALL subjects — even those without chapters yet (show as 0/0)
+    const subjectProgress = subjects
+      .filter(sub => sub && (sub.name || sub.title))
+      .map(sub => {
+        const subName = (sub.name || sub.title || '').trim();
+        let chTot = 0, chDn = 0;
+        for (const ch of (sub.chapters || [])) { chTot++; if (_mpChDone(ch)) chDn++; }
+        const pct = chTot ? Math.round((chDn / chTot) * 100) : 0;
+        return { name: subName, color: sub.color || '#ff7a1a', pct, chDn, chTot };
+      });
     let allChTot = 0, allChDn = 0;
     subjectProgress.forEach(s => { allChTot += s.chTot; allChDn += s.chDn; });
     const overallSylPct = allChTot > 0 ? Math.round((allChDn / allChTot) * 100) : 0;
@@ -7724,19 +7737,25 @@
           <span class="mp-syl2-overall-pct">${overallSylPct}%</span>
         </div>
         <div class="mp-syl2-grid">
-          ${subjectProgress.slice(0, 6).map(s => `
-          <div class="mp-syl2-card" style="--sc:${s.color}">
+          ${subjectProgress.map(s => `
+          <div class="mp-syl2-card${s.chTot === 0 ? ' mp-syl2-card--empty' : ''}" style="--sc:${s.color}">
             <div class="mp-syl2-card-header">
               <span class="mp-syl2-dot" style="background:${s.color};box-shadow:0 0 5px ${s.color}66"></span>
               <span class="mp-syl2-name">${esc(s.name)}</span>
-              <span class="mp-syl2-pct" style="color:${s.color}">${s.pct}%</span>
+              <span class="mp-syl2-pct" style="color:${s.chTot === 0 ? 'rgba(100,116,139,0.7)' : s.color}">${s.chTot === 0 ? '—' : s.pct + '%'}</span>
             </div>
+            ${s.chTot > 0 ? `
             <div class="mp-syl2-bar-track">
               <div class="mp-syl2-bar-fill" style="width:${s.pct}%;background:linear-gradient(90deg,${s.color},${s.color}88)"></div>
             </div>
-            <div class="mp-syl2-ch-label">${s.chDn} / ${s.chTot} Chapter${s.chTot !== 1 ? 's' : ''}</div>
+            <div class="mp-syl2-ch-label">${s.chDn} / ${s.chTot} Chapter${s.chTot !== 1 ? 's' : ''}</div>` : `
+            <div class="mp-syl2-ch-label mp-syl2-ch-label--empty">No chapters added yet</div>`}
           </div>`).join('')}
-        </div>` : ''}
+        </div>
+        ` : `
+        <div class="mp-section-title">Syllabus</div>
+        <div class="mp-no-data">No syllabus subjects added yet</div>
+        `}
 
         <!-- Achievements -->
         <div class="mp-section-title">Achievements <span class="mp-section-sub">${unlockedAchs.length} / ${ACHS.length}</span></div>
