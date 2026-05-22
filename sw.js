@@ -1,4 +1,4 @@
-const CACHE_NAME = 'syllabus-tracker-v205';
+const CACHE_NAME = 'syllabus-tracker-v206';
 const STATIC = [
   '/',
   '/index.html',
@@ -151,6 +151,7 @@ self.addEventListener('push', e => {
 
 // ── In-page notification scheduling via message ─────────────────────────────
 let _swTimers = [];
+let _timerEndTimer = null; // single timer-completion notification
 
 function _swScheduleNext(schedule) {
   const [h, m] = schedule.time.split(':').map(Number);
@@ -189,5 +190,31 @@ self.addEventListener('message', e => {
     _swTimers = [];
     const schedules = e.data.schedules || [];
     schedules.forEach(_swScheduleNext);
+    return;
+  }
+
+  // ── Timer completion notification: fires at exact wall-clock time ──────────
+  if (e.data.type === 'schedule-timer-end') {
+    if (_timerEndTimer) { clearTimeout(_timerEndTimer); _timerEndTimer = null; }
+    const delay = Math.max(0, (e.data.fireAt || 0) - Date.now());
+    if (delay > 24 * 60 * 60 * 1000) return; // sanity: ignore if > 24 h away
+    _timerEndTimer = setTimeout(() => {
+      _timerEndTimer = null;
+      self.registration.showNotification(e.data.title || '🎉 Focus Session Complete!', {
+        body:             e.data.body || 'Great work! Take a well-earned break.',
+        icon:             '/icon-192.png',
+        badge:            '/icon-192.png',
+        tag:              'timer-complete',
+        data:             { url: './' },
+        requireInteraction: false,
+        vibrate:          [200, 100, 200],
+      });
+    }, delay);
+    return;
+  }
+
+  if (e.data.type === 'cancel-timer-end') {
+    if (_timerEndTimer) { clearTimeout(_timerEndTimer); _timerEndTimer = null; }
+    return;
   }
 });

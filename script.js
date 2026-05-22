@@ -3114,6 +3114,7 @@
   let _alarmRampTimer = null;
   let _alarmMoveTimer = null;
   let _alarmWakeLock  = null;
+  let _timerWakeLock  = null;   // screen wake lock held while Pomodoro is running
   let _activeAlarmId  = null;
 
   function _getAlarmQuote() {
@@ -3234,6 +3235,20 @@
 
   function _releaseAlarmWakeLock() {
     if (_alarmWakeLock) { try { _alarmWakeLock.release(); } catch (_) {} _alarmWakeLock = null; }
+  }
+
+  // ── Timer Wake Lock (keeps screen active while Pomodoro runs) ─────────────
+  function _acquireTimerWakeLock() {
+    if (!('wakeLock' in navigator)) return;
+    if (_timerWakeLock) return; // already held
+    navigator.wakeLock.request('screen').then(wl => {
+      _timerWakeLock = wl;
+      wl.addEventListener('release', () => { _timerWakeLock = null; });
+      console.log('[WakeLock] Timer wake lock acquired');
+    }).catch(e => console.log('[WakeLock] Timer lock failed:', e.message));
+  }
+  function _releaseTimerWakeLock() {
+    if (_timerWakeLock) { try { _timerWakeLock.release(); } catch (_) {} _timerWakeLock = null; }
   }
 
   // ========== Eye-Care Mode (Night Study Mode) ==========
@@ -6186,6 +6201,7 @@
     const _plannedSecs = focusStartSeconds; // capture before clearing
     clearInterval(focusTimer); focusTimer = null; focusRunning = false;
     focusStartTime = null; focusStartSeconds = null;
+    _releaseTimerWakeLock();
     document.title = 'Syllabus Tracker';
     updateMiniTimer();
 
@@ -6222,6 +6238,7 @@
         }, { merge: true }).catch(() => {});
       }
       bumpActivity(); saveState();
+      _releaseTimerWakeLock();
       try { window.OfflineSync?.onSessionComplete({ sessionId: _currentSessionId, minutes: elapsedMin, date: todayStr, subjectId: _lsSubjectId || null, type: 'pomodoro' }); } catch(_) {}
       checkBadges({ sessionMinutes: elapsedMin });
       // Re-render the active tab, and patch live stats widgets on home/dashboard if visible
@@ -9880,6 +9897,7 @@
         clearInterval(focusTimer); focusTimer = null; focusRunning = false;
         focusStartTime = null; focusStartSeconds = null;
         try { window.OfflineSync?.onTimerStop(); } catch(_) {}
+        _releaseTimerWakeLock();
         updateMiniTimer();
         if (_socialRoomCode && _currentTab === 'social') renderSocial();
       } else if (focusOvertime) {
@@ -9904,6 +9922,7 @@
         focusStartSeconds = focusSeconds;
         focusTimer = setInterval(focusTick, 1000);
         try { window.OfflineSync?.onTimerStart(focusMode, focusSeconds, _currentSessionId, _lsSubjectId); } catch(_) {}
+        _acquireTimerWakeLock();
         if (_socialRoomCode) _sUpdatePresence('focusing').catch(() => {});
         resumeAmbientIfNeeded();
         if (_socialRoomCode && _currentTab === 'social') renderSocial();
@@ -9947,7 +9966,7 @@
         if (_socialRoomCode && focusSeconds > 0) _sHandleFocusBounty().catch(() => {});
         if (_socialRoomCode) _sUpdatePresence('break').catch(() => {});
       }
-      stopOvertimeMode(); clearInterval(focusTimer); focusTimer = null; focusRunning = false; focusStartTime = null; focusStartSeconds = null; try { window.OfflineSync?.onTimerStop(); } catch(_) {} focusSeconds = customDurations[focusMode] * 60; focusMultitaskMode = false;
+      stopOvertimeMode(); clearInterval(focusTimer); focusTimer = null; focusRunning = false; focusStartTime = null; focusStartSeconds = null; try { window.OfflineSync?.onTimerStop(); } catch(_) {} _releaseTimerWakeLock(); focusSeconds = customDurations[focusMode] * 60; focusMultitaskMode = false;
       renderFocus(); document.title = 'Syllabus Tracker'; updateMiniTimer();
       if (document.getElementById('view-stats') && document.getElementById('view-stats').classList.contains('active')) renderStats();
       return;
@@ -10000,6 +10019,7 @@
         clearInterval(focusTimer); focusTimer = null; focusRunning = false;
         focusStartTime = null; focusStartSeconds = null;
         try { window.OfflineSync?.onTimerStop(); } catch(_) {}
+        _releaseTimerWakeLock();
         if (_socialRoomCode && _currentTab === 'social') renderSocial();
       } else if (focusOvertime) {
         // User ending overtime in full-session view — save extra minutes, switch to break
@@ -10023,6 +10043,7 @@
         focusStartSeconds = focusSeconds;
         focusTimer = setInterval(focusTick, 1000);
         try { window.OfflineSync?.onTimerStart(focusMode, focusSeconds, _currentSessionId, _lsSubjectId); } catch(_) {}
+        _acquireTimerWakeLock();
         if (_socialRoomCode) _sUpdatePresence('focusing').catch(() => {});
         resumeAmbientIfNeeded();
         if (_socialRoomCode && _currentTab === 'social') renderSocial();
@@ -10475,6 +10496,8 @@
         updateMiniTimer();
         // If timer expired while app was backgrounded, trigger completion now
         if (focusSeconds <= 0) focusTick();
+        // Re-acquire wake lock (OS releases it when screen turns off)
+        else if (focusMode === 'work') _acquireTimerWakeLock();
       }
       // Re-validate notification schedule (catches any missed/expired timers)
       scheduleAllNotifications();
@@ -10512,6 +10535,8 @@
           focusStartSeconds = _bgRemaindSec;
           focusSeconds = _bgRemaindSec;
           saveState();
+          // Keep offline-sync.js timer state current with the new baseline
+          try { window.OfflineSync?.onTimerStart(focusMode, _bgRemaindSec, _currentSessionId, _lsSubjectId); } catch(_) {}
         }
       }
       // Background: write offline/studying status to the members collection and slow the heartbeat.
@@ -10555,6 +10580,21 @@
     }
     // Re-render social lobby to show offline banner
     if (_currentTab === 'social' && !_socialRoomCode) renderSocial();
+  });
+
+  // Page-show: fires when iOS restores the page from bfcache (Safari back-forward)
+  // The standard `visibilitychange` does not fire in this case, so without this
+  // handler the timer would stay frozen after the user navigates away and returns.
+  window.addEventListener('pageshow', (e) => {
+    if (!e.persisted) return; // normal load — already handled by init
+    if (focusRunning && focusStartTime !== null) {
+      const elapsed = Math.floor((Date.now() - focusStartTime) / 1000);
+      focusSeconds = Math.max(0, focusStartSeconds - elapsed);
+      updateFocusDisplay();
+      updateMiniTimer();
+      if (focusSeconds <= 0) { focusTick(); }
+      else if (focusMode === 'work') _acquireTimerWakeLock();
+    }
   });
 
   // ── Global presence heartbeat ─────────────────────────────────────────────

@@ -112,10 +112,35 @@
     return 'sess_' + uid9();
   }
 
+  /* ── Service Worker Timer Completion Notification ────────────────────────── */
+  function _getSwController() {
+    return (typeof navigator !== 'undefined' &&
+            navigator.serviceWorker &&
+            navigator.serviceWorker.controller) || null;
+  }
+
+  function _scheduleSwTimerNotification(startSeconds) {
+    const ctrl = _getSwController();
+    if (!ctrl) return;
+    const mins = Math.floor(Math.max(1, startSeconds) / 60);
+    ctrl.postMessage({
+      type:   'schedule-timer-end',
+      fireAt: Date.now() + startSeconds * 1000,
+      title:  '🎉 Focus Session Complete!',
+      body:   `${mins} min session done — great work! Time for a break.`,
+    });
+  }
+
+  function _cancelSwTimerNotification() {
+    const ctrl = _getSwController();
+    if (!ctrl) return;
+    ctrl.postMessage({ type: 'cancel-timer-end' });
+  }
+
   /* ── Pomodoro Timer State Persistence ─────────────────────────────────── */
   /**
-   * Called by script.js when the Pomodoro timer STARTS.
-   * Saves everything needed to restore or credit the session later.
+   * Called by script.js when the Pomodoro timer STARTS, and also when the
+   * background-visibility handler resets the baseline (to keep saved state fresh).
    */
   function onTimerStart(mode, startSeconds, sessionId, subjectId) {
     lsSet(K_TIMER, {
@@ -128,12 +153,15 @@
       subjectId:    subjectId || null,
       date:         todayKey(),
     });
+    // Tell SW to fire a notification when this timer should complete
+    _scheduleSwTimerNotification(startSeconds);
   }
 
   /**
    * Called when the timer is manually cancelled/stopped (no session credit).
    */
   function onTimerStop() {
+    _cancelSwTimerNotification();
     lsDel(K_TIMER);
   }
 
@@ -142,6 +170,7 @@
    * Queues the session for guaranteed Firebase sync.
    */
   function onSessionComplete(sessionData) {
+    _cancelSwTimerNotification();
     if (sessionData && sessionData.sessionId) {
       _queueSession(sessionData);
     }
