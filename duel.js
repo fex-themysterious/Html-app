@@ -198,8 +198,8 @@
       container.appendChild(el);
     };
 
-    _confettiInterval = setInterval(spawn, 30);
-    setTimeout(_stopConfetti, 5000);
+    _confettiInterval = setInterval(spawn, 80);
+    setTimeout(_stopConfetti, 4000);
   }
 
   function _stopConfetti() {

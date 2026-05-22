@@ -621,18 +621,16 @@
   // clients can detect disconnects via the lastHeartbeatAt staleness check.
   function _startGlobalHeartbeat() {
     _stopGlobalHeartbeat();
-    console.log('[Heartbeat] Started (every 30s)');
     _globalHeartbeatInterval = setInterval(() => {
       // Stop automatically if no longer studying
-      if (!ui().focusIsRunning?.()) { _stopGlobalHeartbeat(); console.log('[Heartbeat] Stopped — focus no longer running'); return; }
+      if (!ui().focusIsRunning?.()) { _stopGlobalHeartbeat(); return; }
       const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
       if (!db_ || !uid_ || !fb_) return;
       const now = fb_.firestore.FieldValue.serverTimestamp();
       // Single-doc write — no per-group fan-out, no battery drain
       db_.collection('activeSessions').doc(uid_)
         .set({ lastHeartbeatAt: now, updatedAt: now, active: true }, { merge: true })
-        .then(() => { console.log('[Heartbeat] activeSessions write OK'); })
-        .catch(err => { console.warn('[Heartbeat] activeSessions write failed:', err.code); });
+        .catch(() => {});
       // Also keep users/{uid} fresh so the users/{uid} fallback path stays alive
       db_.collection('users').doc(uid_)
         .set({ presenceUpdatedAt: now }, { merge: true })
@@ -666,7 +664,7 @@
       if (_liveMembers[uid_]) _liveMembers[uid_].lastUpdated = Date.now();
     };
     _tick();
-    _onlineHeartbeatInterval = setInterval(_tick, 25000);
+    _onlineHeartbeatInterval = setInterval(_tick, 35000);
   }
 
   function _stopOnlineHeartbeat() {
@@ -1938,6 +1936,7 @@
     _stopLbLive();
     _lbLiveTick = 0;
     _lbLiveInterval = setInterval(() => {
+      if (document.hidden) return; // skip ticks while app is backgrounded
       if (_tab !== 'leaderboard' || window._currentTab !== 'social') { _stopLbLive(); return; }
       _lbLiveTick++;
 
@@ -1987,12 +1986,14 @@
   function _scheduleRender() {
     if (_destroyed) return;
     if (_renderTimer) return; // already scheduled
-    _renderTimer = setTimeout(() => { _renderTimer = null; renderSocial(); }, 60);
+    _renderTimer = setTimeout(() => { _renderTimer = null; renderSocial(); }, 150);
   }
 
   // ── Main render ───────────────────────────────────────────────────────────
   function renderSocial() {
     if (_destroyed) return;
+    // Skip full render when tab is backgrounded — reschedule for when visible
+    if (document.hidden) { _scheduleRender(); return; }
     const view = document.getElementById('view-social');
     if (!view) return;
     try {
@@ -3133,22 +3134,30 @@
               }
             }
           } catch(_) {}
+          const prevMsgs   = _chatMessages[code] || [];
+          const prevCount  = prevMsgs.length;
+          const prevLastId = prevMsgs[prevCount - 1]?.id;
           _chatMessages[code] = allMsgs.filter(m => !m._deleted);
+          const newMsgs    = _chatMessages[code];
+          const newCount   = newMsgs.length;
+          const newLastId  = newMsgs[newCount - 1]?.id;
           // Recompute unread count for this group (updates badge in DOM)
           if (_srTab !== 'chat' || _groupView !== ((() => { const sc_u = scLoad(); return sc_u.groups.find(x => x.code === code)?.id; })())) {
             _recomputeUnread(code);
           }
-          // Patch chat DOM without full re-render when chat view is active
+          // Skip DOM update if message list is identical (e.g. metadata-only update)
           const msgsEl = document.getElementById('sr-chat-msgs');
           if (!msgsEl) return;
+          if (newCount === prevCount && newLastId === prevLastId) return;
           const uid     = getUserId();
           const myName  = _getUserDisplayName();
           const sc      = scLoad();
           const g       = sc.groups.find(x => x.code === code);
           if (!g) return;
+          const wasAtBottom = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 80;
           msgsEl.innerHTML = _renderChatMessages(code, uid, myName);
           _bindChatLongPress(msgsEl, code, g);
-          setTimeout(() => { msgsEl.scrollTop = msgsEl.scrollHeight; }, 30);
+          if (wasAtBottom) setTimeout(() => { msgsEl.scrollTop = msgsEl.scrollHeight; }, 30);
         }, () => {});
     } catch(_) {}
   }

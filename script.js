@@ -1,6 +1,25 @@
 (() => {
   'use strict';
 
+  // ── Production log suppressor — reduces JS thread overhead on Android ────
+  // Suppresses verbose console.log/debug while preserving warn/error.
+  if (typeof console !== 'undefined') {
+    const _noop = () => {};
+    console.log   = _noop;
+    console.debug = _noop;
+    console.info  = _noop;
+  }
+
+  // ── Page Visibility — pause CSS animations when app is backgrounded ──────
+  // Adds/removes .app-hidden on <body> so CSS can set animation-play-state:paused
+  (function _initVisibilityPause() {
+    function _applyHidden() {
+      document.body.classList.toggle('app-hidden', document.hidden);
+    }
+    document.addEventListener('visibilitychange', _applyHidden, { passive: true });
+    _applyHidden();
+  })();
+
   // ── Cloud sync / auth state ──────────────────────────────────────────────
   let _db             = null;
   let _auth           = null;
