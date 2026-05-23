@@ -4890,7 +4890,7 @@
         }
         for (let i = 0; i < (plan.syllabus || []).length; i++) {
           const s = plan.syllabus[i];
-          allTasks.push({ type: 'syllabus', idx: i, text: s.topicName, subject: s.subjectName, chapter: s.chapterName, color: s.subjectColor || '#4da8ff', done: !!s.done, estMin: s.estimatedMinutes || 0, subjectId: s.subjectId, chapterId: s.chapterId, topicId: s.topicId });
+          allTasks.push({ type: 'syllabus', idx: i, text: s.topicName, subject: s.subjectName, chapter: s.chapterName, color: s.subjectColor || '#4da8ff', done: !!s.done, estMin: s.estimatedMinutes || 0, subjectId: s.subjectId, chapterId: s.chapterId, topicId: s.topicId, revision: !!s.revision });
         }
         for (let i = 0; i < (plan.custom || []).length; i++) {
           const c = plan.custom[i];
@@ -4926,7 +4926,7 @@
           <div class="dps-task-cards">
             ${allTasks.map((t, i) => {
               const estHtml   = t.estMin > 0 ? `<span class="dps-est-badge">⏱ ${t.estMin}m</span>` : '';
-              const typeBadge = `<span class="dps-type-badge dps-type-badge-${t.type}">${t.type === 'auto' ? 'Revision' : t.type === 'syllabus' ? 'Syllabus' : 'Custom'}</span>`;
+              const typeBadge = `<span class="dps-type-badge dps-type-badge-${t.type}${t.revision ? ' dps-type-badge-revision' : ''}">${t.type === 'auto' ? 'Auto' : t.type === 'syllabus' ? (t.revision ? '↻ Revision' : 'Syllabus') : 'Custom'}</span>`;
               const subLine   = t.subject
                 ? `<div class="dps-task-subject"><span class="dps-subject-dot" style="background:${t.color}"></span><span class="dps-subject-name">${escapeHTML(t.subject)}</span>${t.chapter ? `<span class="dps-subject-sep"> · </span><span class="dps-chapter-name">${escapeHTML(t.chapter)}</span>` : ''}</div>`
                 : '';
@@ -5033,7 +5033,6 @@
             return;
           }
 
-          // Recently used subject IDs for this date
           const recentIds = new Set((plan.syllabus || []).map(s => s.subjectId));
 
           wiz.innerHTML = `
@@ -5059,6 +5058,7 @@
         } else if (wStep === 2 && wSubject) {
           const chapters = wSubject.chapters || [];
           const filtered = wChSearch ? chapters.filter(c => c.name.toLowerCase().includes(wChSearch.toLowerCase())) : chapters;
+          const addedChIds = new Set((plan.syllabus || []).filter(s => s.date === dateISO).map(s => s.chapterId));
 
           wiz.innerHTML = `
             <div class="dps-step-nav">
@@ -5080,13 +5080,16 @@
                 ? `<div class="dps-wiz-empty-sm">No chapters found</div>`
                 : filtered.map(ch => {
                     const isDone = isChapterEffectivelyDone(ch);
+                    const hasTopics = ch.topics && ch.topics.length > 0;
                     const pct = chapterProgress(ch);
+                    const isAdded = addedChIds.has(ch.id);
                     return `<button class="dps-ch-row${isDone ? ' dps-ch-done' : ''}" data-ch-id="${ch.id}">
-                      <span class="dps-ch-status">${isDone ? '✅' : '📖'}</span>
+                      <span class="dps-ch-status">${isDone ? '✅' : (hasTopics ? '📖' : '📋')}</span>
                       <div class="dps-ch-body">
                         <div class="dps-ch-name">${escapeHTML(ch.name)}</div>
-                        ${pct > 0 ? `<div class="dps-ch-bar-wrap"><div class="dps-ch-bar" style="width:${pct}%;background:${wSubject.color}"></div></div>` : ''}
+                        ${!hasTopics ? `<div class="dps-ch-sub-hint">No topics · add as chapter task</div>` : (pct > 0 ? `<div class="dps-ch-bar-wrap"><div class="dps-ch-bar" style="width:${pct}%;background:${wSubject.color}"></div></div>` : '')}
                       </div>
+                      ${isAdded ? `<span class="dps-ch-added-tag">Added</span>` : ''}
                       <svg class="dps-ch-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
                     </button>`;
                   }).join('')}
@@ -5101,7 +5104,12 @@
 
         } else if (wStep === 3 && wSubject && wChapter) {
           const topics = wChapter.topics || [];
-          const existingIds = new Set((plan.syllabus || []).filter(s => s.date === dateISO).map(s => s.topicId));
+          const hasTopics = topics.length > 0;
+          // Map topicId -> count of times already in this day's plan
+          const existingMap = {};
+          for (const s of (plan.syllabus || [])) {
+            if (s.date === dateISO) existingMap[s.topicId] = (existingMap[s.topicId] || 0) + 1;
+          }
           const selCount = wTopicIds.size;
           const estTotal = selCount * 20;
 
@@ -5116,81 +5124,101 @@
               </div>
               <span class="dps-step-hint-inline">Step 3 of 3</span>
             </div>
-            <div class="dps-step-hint-sub">Select topics to add · ${selCount > 0 ? `<b>${selCount} selected</b>` : 'none selected'}</div>
-            <div class="dps-topic-list">
-              ${!topics.length
-                ? `<div class="dps-wiz-empty-sm">No topics in this chapter</div>`
-                : topics.map(t => {
-                    const added = existingIds.has(t.id);
-                    const checked = wTopicIds.has(t.id);
-                    return `<label class="dps-topic-row${added ? ' dps-topic-added' : ''}${t.done ? ' dps-topic-completed' : ''}">
-                      <span class="dps-topic-cb-wrap${checked ? ' dps-cb-checked' : ''}" style="${checked ? `--cbcolor:${wSubject.color}` : ''}">
-                        <input type="checkbox" class="dps-topic-cb" data-tid="${t.id}" ${checked ? 'checked' : ''} ${added ? 'disabled' : ''} style="display:none">
-                        ${checked ? `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>` : ''}
-                      </span>
-                      <div class="dps-topic-info">
-                        <span class="dps-topic-name${t.done ? ' dps-topic-name-done' : ''}">${escapeHTML(t.name)}</span>
-                        <div class="dps-topic-tags">
-                          ${t.done ? `<span class="dps-tag dps-tag-done">✓ Done</span>` : ''}
-                          ${added ? `<span class="dps-tag dps-tag-added">Already added</span>` : ''}
-                          ${t.priority ? `<span class="dps-tag dps-tag-${t.priority}">${t.priority}</span>` : ''}
-                        </div>
-                      </div>
-                    </label>`;
-                  }).join('')}
-            </div>
-            ${topics.length ? `
+            ${hasTopics
+              ? `<div class="dps-step-hint-sub">Select topics · ${selCount > 0 ? `<b>${selCount} selected</b>` : 'tap to select'}</div>
+                 <div class="dps-topic-list">
+                   ${topics.map((t, ti) => {
+                     const existCount = existingMap[t.id] || 0;
+                     const isRevision = existCount > 0;
+                     const checked = wTopicIds.has(t.id);
+                     const displayName = t.name && t.name.trim() ? t.name : `Topic ${ti + 1}`;
+                     return `<div class="dps-topic-row${t.done ? ' dps-topic-completed' : ''}${checked ? ' dps-topic-selected' : ''}" data-topic-id="${t.id}">
+                       <span class="dps-topic-cb-wrap${checked ? ' dps-cb-checked' : ''}" style="${checked ? `--cbcolor:${wSubject.color}` : ''}">
+                         ${checked ? `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>` : ''}
+                       </span>
+                       <div class="dps-topic-info">
+                         <span class="dps-topic-name${t.done ? ' dps-topic-name-done' : ''}">${escapeHTML(displayName)}</span>
+                         ${(t.done || isRevision || t.priority) ? `<div class="dps-topic-tags">
+                           ${t.done ? `<span class="dps-tag dps-tag-done">✓ Done</span>` : ''}
+                           ${isRevision ? `<span class="dps-tag dps-tag-revision">↻ Re-add</span>` : ''}
+                           ${t.priority ? `<span class="dps-tag dps-tag-${t.priority}">${t.priority}</span>` : ''}
+                         </div>` : ''}
+                       </div>
+                     </div>`;
+                   }).join('')}
+                 </div>`
+              : `<div class="dps-no-topics-box">
+                   <span class="dps-no-topics-icon">📋</span>
+                   <div class="dps-no-topics-title">No topics in this chapter</div>
+                   <div class="dps-no-topics-hint">Add the whole chapter as a study task below</div>
+                 </div>`
+            }
             <div class="dps-wiz-footer">
-              <div class="dps-est-row">
-                <span class="dps-est-label">Estimated time</span>
-                <div class="dps-est-input-wrap">
-                  <input type="number" id="dps-est-inp" class="dps-est-input" min="5" max="600" step="5" value="${estTotal}" placeholder="0"/>
-                  <span class="dps-est-unit">min</span>
+              ${hasTopics ? `
+                <div class="dps-est-row">
+                  <span class="dps-est-label">Est. time</span>
+                  <div class="dps-est-input-wrap">
+                    <input type="number" id="dps-est-inp" class="dps-est-input" min="5" max="600" step="5" value="${estTotal}" placeholder="0"/>
+                    <span class="dps-est-unit">min</span>
+                  </div>
                 </div>
-              </div>
-              <button class="dps-add-btn${selCount > 0 ? ' dps-add-btn-on' : ''}" id="dps-add-syl-btn" ${selCount === 0 ? 'disabled' : ''}>
-                ${selCount > 0 ? `Add ${selCount} topic${selCount > 1 ? 's' : ''} to this day` : 'Select topics above'}
-              </button>
-            </div>` : ''}`;
+                <button class="dps-add-btn${selCount > 0 ? ' dps-add-btn-on' : ''}" id="dps-add-syl-btn" ${selCount === 0 ? 'disabled' : ''}>
+                  ${selCount > 0 ? `Add ${selCount} topic${selCount > 1 ? 's' : ''} to ${isToday ? 'today' : 'this day'}` : 'Tap topics above to select'}
+                </button>
+              ` : `
+                <button class="dps-add-btn dps-add-btn-on" id="dps-add-chapter-btn">
+                  📖 Add "${escapeHTML(wChapter.name)}" as study task
+                </button>
+              `}
+            </div>`;
 
           root.querySelector('#dps-back2').onclick = () => { wStep = 2; wChapter = null; wTopicIds = new Set(); renderWizard(); };
 
-          wiz.querySelectorAll('.dps-topic-cb').forEach(cb => {
-            cb.onchange = () => { if (cb.checked) wTopicIds.add(cb.dataset.tid); else wTopicIds.delete(cb.dataset.tid); renderWizard(); };
-            // Also make the label's checkbox work
-            cb.closest('label').onclick = e => {
-              if (cb.disabled) return;
-              if (e.target.tagName === 'INPUT') return;
-              cb.checked = !cb.checked;
-              if (cb.checked) wTopicIds.add(cb.dataset.tid); else wTopicIds.delete(cb.dataset.tid);
-              renderWizard();
-            };
-          });
+          if (hasTopics) {
+            // Topic row click toggles selection
+            wiz.querySelectorAll('.dps-topic-row[data-topic-id]').forEach(row => {
+              row.onclick = () => {
+                const tid = row.dataset.topicId;
+                if (wTopicIds.has(tid)) wTopicIds.delete(tid); else wTopicIds.add(tid);
+                renderWizard();
+              };
+            });
 
-          const addBtn = root.querySelector('#dps-add-syl-btn');
-          if (addBtn) {
-            addBtn.onclick = () => {
-              if (!wTopicIds.size) return;
-              const estInp = root.querySelector('#dps-est-inp');
-              const totalEst = estInp ? (parseInt(estInp.value, 10) || 0) : 0;
-              const perTopic = wTopicIds.size > 0 ? Math.max(5, Math.round(totalEst / wTopicIds.size)) : 20;
-              let added = 0;
-              for (const tId of wTopicIds) {
-                const t = wChapter.topics.find(tp => tp.id === tId);
-                if (!t) continue;
-                if ((plan.syllabus || []).some(s => s.topicId === tId && s.date === dateISO)) continue;
-                plan.syllabus.push({ id: uid(), date: dateISO, subjectId: wSubject.id, subjectName: wSubject.name, subjectColor: wSubject.color, chapterId: wChapter.id, chapterName: wChapter.name, topicId: t.id, topicName: t.name, estimatedMinutes: perTopic, done: false, source: 'syllabus' });
-                added++;
-              }
-              if (added > 0) {
+            const addBtn = root.querySelector('#dps-add-syl-btn');
+            if (addBtn) {
+              addBtn.onclick = () => {
+                if (!wTopicIds.size) return;
+                const estInp = root.querySelector('#dps-est-inp');
+                const totalEst = estInp ? (parseInt(estInp.value, 10) || 0) : 0;
+                const perTopic = wTopicIds.size > 0 ? Math.max(5, Math.round(totalEst / wTopicIds.size)) : 20;
+                let added = 0;
+                for (const tId of wTopicIds) {
+                  const t = wChapter.topics.find(tp => tp.id === tId);
+                  if (!t) continue;
+                  const isRevision = (existingMap[tId] || 0) > 0;
+                  plan.syllabus.push({ id: uid(), date: dateISO, subjectId: wSubject.id, subjectName: wSubject.name, subjectColor: wSubject.color, chapterId: wChapter.id, chapterName: wChapter.name, topicId: t.id, topicName: t.name || `Topic ${wChapter.topics.indexOf(t) + 1}`, estimatedMinutes: perTopic, done: false, source: 'syllabus', revision: isRevision });
+                  added++;
+                }
+                if (added > 0) {
+                  saveState();
+                  toast(`${added} topic${added > 1 ? 's' : ''} added to ${isToday ? 'today' : 'this day'} ✓`, 'success');
+                  wStep = 1; wSubject = null; wChapter = null; wTopicIds = new Set(); wChSearch = '';
+                  renderWizard(); renderTaskSection(); renderDashboard();
+                }
+              };
+            }
+          } else {
+            // Empty chapter — add the chapter itself as a custom task
+            const chBtn = root.querySelector('#dps-add-chapter-btn');
+            if (chBtn) {
+              chBtn.onclick = () => {
+                plan.custom.push({ id: uid(), text: `Study: ${wChapter.name} (${wSubject.name})`, done: false });
                 saveState();
-                toast(`${added} topic${added > 1 ? 's' : ''} added to ${isToday ? 'today' : 'this day'} ✓`, 'success');
+                toast(`"${wChapter.name}" added as task ✓`, 'success');
                 wStep = 1; wSubject = null; wChapter = null; wTopicIds = new Set(); wChSearch = '';
                 renderWizard(); renderTaskSection(); renderDashboard();
-              } else {
-                toast('All selected topics already added', 'warn');
-              }
-            };
+              };
+            }
           }
         }
       }
