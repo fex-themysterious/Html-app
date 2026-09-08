@@ -4531,11 +4531,10 @@
       : _profAvatarEl;
     const _badgeHTML  = _cmkBadgeHTML(state.customBadgeOwned ? state.selectedBadge : '');
     const nameHtml    = profName
-      ? `<div class="home-profile-name">${escapeHTML(profName)}${_titleHTML ? ' ' + _titleHTML : ''}</div>${_badgeHTML ? `<div class="home-profile-badge">${_badgeHTML}</div>` : ''}`
+      ? `<div class="home-profile-name">${escapeHTML(profName)}${_titleHTML ? ' ' + _titleHTML : ''}</div>`
       : `<div class="home-profile-name home-profile-name--empty" style="opacity:.55;font-style:italic;font-size:14px">Tap to set name</div>`;
-    const taglineHtml = profTagline
-      ? `<div class="home-profile-sub">${escapeHTML(profTagline)}</div>`
-      : '';
+    const profileBio = String(profTagline).trim() || 'MEN ARE BRAVE';
+    const taglineHtml = `<div class="home-profile-bio" aria-label="Profile bio"><span class="home-profile-bio-mark" aria-hidden="true">“</span><span class="home-profile-bio-text">${escapeHTML(profileBio)}</span></div>`;
     const tasksHtml = totalCount === 0
       ? `<div class="empty" style="text-align:center;padding:28px 16px 8px">No tasks for today — head to Dashboard to build your plan.</div>`
       : renderTasksList(tasks);
@@ -4544,7 +4543,7 @@
     const _nextRankLabel = _rankInfo.next ? _rankInfo.next.label : 'Max rank';
     const _rankPct = Math.max(0, Math.min(100, Number(_rankInfo.pct) || 0));
     const _rankIcon = _rankInfo.icon || '📖';
-    const _profileBadges = `<div class="home-profile-badges" aria-label="Profile badges"><span class="home-profile-badge-pill home-profile-badge-pill--gold">💪 <span>Hardworker</span></span><span class="home-profile-badge-pill home-profile-badge-pill--blue">💀 <span>The Grinder</span></span></div>`;
+    const _profileBadges = `<div class="home-profile-badges" aria-label="Profile badges in rank section">${_badgeHTML ? `<div class="home-profile-custom-badge">${_badgeHTML}</div>` : ''}<span class="home-profile-badge-pill home-profile-badge-pill--gold">💪 <span>Hardworker</span></span><span class="home-profile-badge-pill home-profile-badge-pill--blue">💀 <span>The Grinder</span></span></div>`;
     view.innerHTML = `<div class="home-profile" data-act="open-settings" role="button" tabindex="0" title="Edit profile">
       <button class="home-profile-edit" type="button" data-act="open-settings" aria-label="Edit profile">${ic('edit')}<span>Edit</span></button>
       <div class="home-profile-main">
