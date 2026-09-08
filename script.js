@@ -1748,6 +1748,7 @@
         state.profile.avatarDataUrl = canvas.toDataURL('image/jpeg', 0.75);
         saveState();
         _scheduledCloudSync();
+        window._socialSyncProfile?.();
         renderAll();
         toast('✅ Profile picture updated!', 'success');
         modalSettings();
@@ -10447,7 +10448,7 @@
     if (act === 'shop-back') { switchTab('home'); renderHome(); return; }
     if (act === 'remove-avatar') {
       state.profile.avatarDataUrl = null;
-      saveState(); _scheduledCloudSync(); renderAll(); toast('Avatar removed', 'info'); modalSettings(); return;
+      saveState(); _scheduledCloudSync(); window._socialSyncProfile?.(); renderAll(); toast('Avatar removed', 'info'); modalSettings(); return;
     }
     if (act === 'social-add-goal') {
       const t = (document.getElementById('gg-title-input')?.value || '').trim();

@@ -357,6 +357,92 @@
   const _unreadCounts   = {};  // { [groupCode]: number }
   const _lastSeenTs     = {};  // { [groupCode]: ms timestamp }
   const _nudgeListeners = {};  // { [groupCode]: unsub fn }
+  const _tabUnread      = {};  // { [groupCode]: { attendance, rankings, duels } }
+  const _tabSeenTs      = {};  // { [groupCode]: { tab: ms timestamp } }
+  const _tabReady       = {};  // ignore existing records on the first snapshot
+  const _tabActivityUnsubs = {}; // { [groupCode]: unsub fn }
+
+  function _timestampMs(value) {
+    if (!value) return 0;
+    if (typeof value.toMillis === 'function') return value.toMillis();
+    if (typeof value.toDate === 'function') return value.toDate().getTime();
+    return typeof value === 'number' ? value : (Number(value) || 0);
+  }
+
+  function _ensureTabState(code) {
+    if (!_tabUnread[code]) _tabUnread[code] = {};
+    if (!_tabSeenTs[code]) _tabSeenTs[code] = {};
+    return _tabUnread[code];
+  }
+
+  function _tabIsUnread(code, tab) {
+    return !!(_tabUnread[code] && _tabUnread[code][tab]);
+  }
+
+  function _setTabUnread(code, tab) {
+    if (!code || !tab || tab === 'home') return;
+    const state = _ensureTabState(code);
+    const sc = scLoad();
+    const groupId = sc.groups.find(g => g.code === code)?.id;
+    if (_groupView === groupId && _srTab === tab) return;
+    state[tab] = true;
+    _refreshUnreadBadges();
+  }
+
+  function _markTabRead(code, tab) {
+    if (!code || !tab) return;
+    const state = _ensureTabState(code);
+    state[tab] = false;
+    _tabSeenTs[code][tab] = Date.now();
+    if (tab === 'chat') _updateLastSeen(code);
+
+    const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
+    if (db_ && uid_ && fb_) {
+      const seen = {};
+      Object.entries(_tabSeenTs[code]).forEach(([key, value]) => { seen[key] = value; });
+      const update = { tabSeen: seen };
+      if (tab === 'chat') update.lastSeen = fb_.firestore.FieldValue.serverTimestamp();
+      db_.collection('groups').doc(code).collection('members').doc(uid_)
+        .set(update, { merge: true })
+        .catch(() => {});
+    }
+    _refreshUnreadBadges();
+  }
+
+  function _refreshUnreadBadges() {
+    try {
+      const sc_ = scLoad();
+      const code = _groupView ? sc_.groups.find(x => x.id === _groupView)?.code : null;
+      document.querySelectorAll('.sr-nav-btn[data-tab]').forEach(btn => {
+        const tab = btn.dataset.tab;
+        const unread = code && _tabIsUnread(code, tab);
+        let dot = btn.querySelector('.sr-unread-dot');
+        if (unread && !dot) {
+          dot = document.createElement('span');
+          dot.className = 'sr-unread-dot';
+          btn.appendChild(dot);
+        } else if (!unread) {
+          dot?.remove();
+        }
+      });
+      const chatBtn = document.querySelector('.sr-nav-btn[data-tab="chat"]');
+      if (chatBtn) {
+        const cnt = code ? (_unreadCounts[code] || 0) : 0;
+        let badge = chatBtn.querySelector('.sr-unread-badge');
+        if (cnt > 0) {
+          if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'sr-unread-badge';
+            chatBtn.style.position = 'relative';
+            chatBtn.appendChild(badge);
+          }
+          badge.textContent = cnt > 99 ? '99+' : String(cnt);
+        } else {
+          badge?.remove();
+        }
+      }
+    } catch(_) {}
+  }
 
   function _updateLastSeen(code) {
     if (!code) return;
@@ -368,6 +454,7 @@
         .set({ lastSeen: fb_.firestore.FieldValue.serverTimestamp() }, { merge: true })
         .catch(() => {});
     }
+    _ensureTabState(code).chat = false;
     _refreshUnreadBadges();
   }
 
@@ -383,30 +470,69 @@
       if (ts > lastSeen && m.authorId !== uid_) count++;
     });
     _unreadCounts[code] = count;
+    if (count > 0) _setTabUnread(code, 'chat');
+    else _ensureTabState(code).chat = false;
     _refreshUnreadBadges();
   }
 
-  function _refreshUnreadBadges() {
-    try {
-      const chatBtn = document.querySelector('.sr-nav-btn[data-tab="chat"]');
-      if (chatBtn) {
-        const sc_  = scLoad();
-        const code = _groupView ? sc_.groups.find(x => x.id === _groupView)?.code : null;
-        const cnt  = code ? (_unreadCounts[code] || 0) : 0;
-        let badge  = chatBtn.querySelector('.sr-unread-badge');
-        if (cnt > 0) {
-          if (!badge) {
-            badge = document.createElement('span');
-            badge.className = 'sr-unread-badge';
-            chatBtn.style.position = 'relative';
-            chatBtn.appendChild(badge);
-          }
-          badge.textContent = cnt > 99 ? '99+' : String(cnt);
-        } else {
-          badge?.remove();
-        }
+  function _subscribeTabActivity(code) {
+    if (!code || _tabActivityUnsubs[code]) return;
+    const db_ = getDb(), uid_ = getUserId();
+    if (!db_ || !uid_) return;
+    const unsubs = [];
+    let activityInitialized = false;
+    let duelInitialized = false;
+    const markActivity = snap => {
+      const changes = snap.docChanges().filter(change => {
+        const data = change.doc.data() || {};
+        return data.uid !== uid_;
+      });
+      if (!activityInitialized) {
+        activityInitialized = true;
+        const newest = snap.docs.reduce((latest, doc) => {
+          const ms = _timestampMs(doc.data()?.createdAt);
+          return Math.max(latest, ms);
+        }, 0);
+        const seen = _tabSeenTs[code] || {};
+        if (newest && seen.attendance && newest > seen.attendance) _setTabUnread(code, 'attendance');
+        if (newest && seen.rankings && newest > seen.rankings) _setTabUnread(code, 'rankings');
+        return;
       }
-    } catch(_) {}
+      if (changes.length) {
+        _setTabUnread(code, 'attendance');
+        _setTabUnread(code, 'rankings');
+      }
+    };
+    try {
+      unsubs.push(db_.collection('groups').doc(code).collection('activityFeed')
+        .orderBy('createdAt', 'desc')
+        .limit(50)
+        .onSnapshot(markActivity, () => {}));
+      unsubs.push(db_.collection('duels')
+        .where('groupCode', '==', code)
+        .limit(50)
+        .onSnapshot(snap => {
+          if (!duelInitialized) {
+            duelInitialized = true;
+            const newest = snap.docs.reduce((latest, doc) => {
+              const data = doc.data() || {};
+              if (data.challengerUid === uid_ || data.opponentUid === uid_) return latest;
+              return Math.max(latest, _timestampMs(data.createdAt || data.sentAt));
+            }, 0);
+            const seen = _tabSeenTs[code] || {};
+            if (newest && seen.duels && newest > seen.duels) _setTabUnread(code, 'duels');
+            return;
+          }
+          const relevant = snap.docChanges().some(change => {
+            const data = change.doc.data() || {};
+            return data.challengerUid !== uid_ && data.opponentUid !== uid_;
+          });
+          if (relevant) _setTabUnread(code, 'duels');
+        }, () => {}));
+      _tabActivityUnsubs[code] = () => unsubs.forEach(unsub => { try { unsub(); } catch(_) {} });
+    } catch(_) {
+      unsubs.forEach(unsub => { try { unsub(); } catch(_) {} });
+    }
   }
 
   function _subscribeNudges(code) {
@@ -477,6 +603,7 @@
     const update = {
       uid:              uid_,
       displayName:      _getUserDisplayName(),
+      avatarDataUrl:    getMainState().profile?.avatarDataUrl || null,
       isStudying:       !!isStudying,
       elapsedTimeToday: todayMins || 0,
       dateKey:          tk_,
@@ -3937,9 +4064,10 @@
             const isChatTab = t.id === 'chat';
             const code_     = g.code;
             const unread_   = isChatTab ? (_unreadCounts[code_] || 0) : 0;
+            const tabUnread  = _tabIsUnread(code_, t.id);
             const badgeHtml = (isChatTab && unread_ > 0)
               ? `<span class="sr-unread-badge">${unread_ > 99 ? '99+' : unread_}</span>`
-              : '';
+              : (tabUnread ? `<span class="sr-unread-dot" aria-label="Unread updates"></span>` : '');
             return `
             <button class="sr-nav-btn${_srTab === t.id ? ' sr-nav-active' : ''}" data-sc="sr-tab" data-tab="${t.id}" style="position:relative">
               <span class="sr-nav-icon">${t.icon}${badgeHtml}</span>
@@ -5718,6 +5846,11 @@
         if (_srTab !== newTab) {
           _srTab = newTab;
           _stopSrTicker();
+          if (_groupView) {
+            const sc0 = scLoad();
+            const g0 = sc0.groups.find(x => x.id === _groupView);
+            if (g0?.code) _markTabRead(g0.code, newTab);
+          }
           if (_srTab === 'chat' && _groupView) {
             const sc0 = scLoad();
             const g0  = sc0.groups.find(x => x.id === _groupView);
@@ -7197,15 +7330,16 @@
       const db_ = getDb(), uid_ = getUserId(), fb_ = getFb();
       if (!db_ || !uid_ || !fb_) return;
       const newName = _getUserDisplayName();
+      const avatarDataUrl = getMainState().profile?.avatarDataUrl || null;
       // Update displayNameAuto on the user's own doc
       db_.collection('users').doc(uid_)
-        .set({ displayNameAuto: newName }, { merge: true }).catch(() => {});
+        .set({ displayNameAuto: newName, avatarDataUrl }, { merge: true }).catch(() => {});
       const sc_ = scLoad();
       // Patch every group member doc this user belongs to
       sc_.groups.forEach(g => {
         if (!g.code) return;
         db_.collection('groups').doc(g.code).collection('members').doc(uid_)
-          .set({ displayName: newName }, { merge: true }).catch(() => {});
+          .set({ displayName: newName, avatarDataUrl }, { merge: true }).catch(() => {});
       });
       // Also update createdByName / leader for groups this user owns
       sc_.groups.forEach(g => {
@@ -7403,6 +7537,7 @@
       const lm    = _liveMembers[uid] || {};
       userData = {
         displayName:      _getUserDisplayName() || displayName,
+        avatarDataUrl:    getMainState().profile?.avatarDataUrl || null,
         isStudying:       !!(window._scIsStudying?.() || lm.isStudying),
         studyStartedAt:   lm.studyStartedAt || null,
         currentSubject:   lm.currentSubject  || '',
@@ -7429,6 +7564,7 @@
       if (lm.studyStartedAt)         userData.studyStartedAt  = lm.studyStartedAt;
       if (lm.displayName && !userData.displayName) userData.displayName = lm.displayName;
       if (lm.role)                   userData.role            = lm.role;
+      if (!userData.avatarDataUrl && lm.avatarDataUrl) userData.avatarDataUrl = lm.avatarDataUrl;
     }
 
     // ── Render ────────────────────────────────────────────────────────────
@@ -7591,7 +7727,9 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
         <div class="mp-av-wrap">
-          <div class="mp-avatar" style="background:${avatarColor};box-shadow:0 0 0 3px ${rank.color}66,0 0 22px ${rank.color}33">${avatarLetter}</div>
+          ${userData.avatarDataUrl || parsedState?.profile?.avatarDataUrl
+            ? `<img class="mp-avatar mp-avatar--img" src="${esc(userData.avatarDataUrl || parsedState.profile.avatarDataUrl)}" alt="" style="background:${avatarColor};box-shadow:0 0 0 3px ${rank.color}66,0 0 22px ${rank.color}33"/>`
+            : `<div class="mp-avatar" style="background:${avatarColor};box-shadow:0 0 0 3px ${rank.color}66,0 0 22px ${rank.color}33">${avatarLetter}</div>`}
           <div class="mp-status-dot ${isStudying ? 'mp-dot-live' : isOnline ? 'mp-dot-online' : 'mp-dot-offline'}"></div>
         </div>
         <div class="mp-banner-status">

@@ -1390,6 +1390,23 @@
   border: 1.5px solid var(--bg-card, #1a1a2e);
   animation: sr-badge-pop .22s cubic-bezier(.34,1.56,.64,1) both;
 }
+.sr-unread-dot {
+  position: absolute;
+  top: 6px;
+  right: calc(50% - 16px);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ff3b30;
+  border: 1.5px solid var(--bg-card, #1a1a2e);
+  box-shadow: 0 1px 6px rgba(255,59,48,.55);
+  pointer-events: none;
+  animation: sr-badge-pop .22s cubic-bezier(.34,1.56,.64,1) both;
+}
+.mp-avatar--img {
+  object-fit: cover;
+  display: block;
+}
 @keyframes sr-badge-pop {
   from { transform: scale(0); opacity: 0; }
   to   { transform: scale(1); opacity: 1; }
