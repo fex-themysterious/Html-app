@@ -7240,7 +7240,7 @@
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  GROUP MEMBER PROFILE MODAL
-  //  Opens a full-screen slide-up sheet with study stats, heatmap, level/rank,
+  //  Opens a full-screen slide-up sheet with study stats, heatmap, and rank,
   //  achievements and social info for any group member.
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -7449,11 +7449,8 @@
     const avatarColor = _avatarColor(name);
     const avatarLetter= (name[0] || '?').toUpperCase();
 
-    // ── XP & Level ────────────────────────────────────────────────────────
+    // ── XP ────────────────────────────────────────────────────────────────
     const xpTotal = parsedState?.xp?.total || 0;
-    const lvInfo  = window._sc_calculateLevel
-      ? window._sc_calculateLevel(xpTotal)
-      : { level: 1, percent: 0, currentLevelXP: 0, nextLevelXP: 100 };
 
     // ── Focus stats ────────────────────────────────────────────────────────
     const mbd      = parsedState?.focusStats?.minutesByDate || {};
@@ -7619,18 +7616,10 @@
           ${joinedStr ? `<div class="mp-joined-str">📅 Since ${joinedStr}</div>` : ''}
         </div>
 
-        <!-- XP Bar -->
+        <!-- XP total -->
         <div class="mp-xp-section">
           <div class="mp-xp-label-row">
-            <span class="mp-xp-level" style="color:${rank.color}">Level ${lvInfo.level}</span>
             <span class="mp-xp-nums">${xpTotal.toLocaleString()} XP total</span>
-          </div>
-          <div class="mp-xp-track">
-            <div class="mp-xp-fill" style="width:${lvInfo.percent}%;background:linear-gradient(90deg,${rank.color}88,${rank.color})${lvInfo.percent > 0 ? ';min-width:6px' : ''}"></div>
-          </div>
-          <div class="mp-xp-sub-row">
-            <span>${lvInfo.currentLevelXP.toLocaleString()} / ${lvInfo.nextLevelXP.toLocaleString()} XP to next level</span>
-            ${groupRankStr ? `<span class="mp-group-rank-str">${groupRankStr}</span>` : ''}
           </div>
         </div>
 

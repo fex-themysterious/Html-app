@@ -57,7 +57,7 @@ An offline-capable Progressive Web App for tracking study progress with spaced r
 - `window.appUI` bridge extended with `addXP(amt, reason)` and `checkBadges(badgeId)` for cross-module gamification
 - `window._scLiveMembers()` → live presence map; `window._scSetSrTab(tab)` → set group sub-tab programmatically; `window._socialRender()` → trigger social re-render (all exported from social.js)
 - Navigation (6 tabs): Home → Dashboard → Syllabus → Focus → Social → Stats. Home is the default landing tab.
-- Home tab: Welcome greeting, XP/level bar, progress bento grid, Today's Plan (task list with checkboxes + delete only — NO add-from-syllabus), motivational quote at bottom.
+- Home tab: Welcome greeting, XP total, progress bento grid, Today's Plan (task list with checkboxes + delete only — NO add-from-syllabus), motivational quote at bottom.
 - Dashboard tab: Study Calendar/Heatmap, Goals, Smart Suggestions, Weak Areas, Revision Zone (Due Today + Upcoming). Plan adder (add from syllabus) stays on Dashboard only.
 
 ## User preferences

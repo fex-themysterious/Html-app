@@ -3177,7 +3177,7 @@
   color: #64748b;
 }
 
-/* ── XP Bar ───────────────────────────────────────────────────────────────── */
+/* ── XP total ─────────────────────────────────────────────────────────────── */
 .mp-xp-section {
   margin-top: 14px;
   background: rgba(255,255,255,0.04);
@@ -3187,36 +3187,13 @@
 }
 .mp-xp-label-row {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
-  margin-bottom: 7px;
-}
-.mp-xp-level {
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: .02em;
+  margin-bottom: 0;
 }
 .mp-xp-nums {
   font-size: 11px;
   color: #64748b;
-}
-.mp-xp-track {
-  height: 8px;
-  background: rgba(255,255,255,0.08);
-  border-radius: 4px;
-  overflow: hidden;
-}
-.mp-xp-fill {
-  height: 100%;
-  border-radius: 4px;
-  transition: width .6s cubic-bezier(.32,1,.23,1);
-}
-.mp-xp-sub-row {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 5px;
-  font-size: 10px;
-  color: #475569;
 }
 .mp-group-rank-str {
   font-weight: 700;

@@ -585,7 +585,6 @@
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {}
       renderAll();
       if (_currentTab === 'social') renderSocial();
-      gamificationManager._updateXPBar();
       console.log('[SyncEngine] Remote state merged — syncVersion:', parsed._syncVersion || 0);
     } catch (e) {
       console.warn('[SyncEngine] Remote merge error:', e.message);
@@ -1948,38 +1947,13 @@
   }
 
   // ========== XP & Gamification System ==========
-  // Triangular leveling: Level N requires N×100 XP to complete.
-  // Total XP at start of level N = 100×(1+2+…+(N-1)) = 50×N×(N-1)
   const gamificationManager = {
-
-    calculateLevel(totalXP) {
-      let level = 1, threshold = 0;
-      while (true) {
-        const needed = level * 100;                      // XP to finish this level
-        if (totalXP < threshold + needed)
-          return { level, currentLevelXP: totalXP - threshold, nextLevelXP: needed,
-            percent: Math.min(100, Math.round(((totalXP - threshold) / needed) * 100)) };
-        threshold += needed;
-        level++;
-        if (level > 9999) break;
-      }
-      return { level: 9999, currentLevelXP: 0, nextLevelXP: 100, percent: 100 };
-    },
 
     // Core XP addition — does NOT call saveState (caller's responsibility)
     addXP(amount, reason) {
       if (!amount || amount <= 0) return 0;
       if (!state.xp || typeof state.xp !== 'object') state.xp = { total: 0, streakBonusDate: null };
-      const prev = this.calculateLevel(state.xp.total || 0);
       state.xp.total = (state.xp.total || 0) + amount;
-      const next = this.calculateLevel(state.xp.total);
-      if (next.level > prev.level) {
-        setTimeout(() => {
-          toast(`⚡ Level Up! You are now Level ${next.level} — keep grinding!`, 'success', 5500);
-          this._flashGlow('rgba(99,102,241,0.22)');
-        }, 700);
-      }
-      this._updateXPBar();
       // Push updated stats to Firebase instantly so social LB reflects new XP
       _debouncedSocialSync();
       return amount;
@@ -2025,7 +1999,6 @@
       if (!amount) return;                      // task was never awarded XP — nothing to do
       delete state.xp.taskAwards[taskKey];
       state.xp.total = Math.max(0, (state.xp.total || 0) - amount);
-      this._updateXPBar();
       _debouncedSocialSync();
       if (sourceEl) showXPFloat(-amount, sourceEl);
     },
@@ -2053,7 +2026,7 @@
       }
     },
 
-    // Momentary full-screen color flash (level-ups / streak bonuses)
+    // Momentary full-screen color flash for streak bonuses
     _flashGlow(color) {
       const el = document.createElement('div');
       el.style.cssText = `position:fixed;inset:0;background:${color};opacity:0;z-index:99998;pointer-events:none;transition:opacity 0.38s ease`;
@@ -2062,25 +2035,6 @@
         el.style.opacity = '1';
         setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 420); }, 560);
       });
-    },
-
-    // Update the XP widgets in the current DOM without a full re-render
-    _updateXPBar() {
-      const info = this.calculateLevel((state.xp && state.xp.total) || 0);
-      // Header XP bar (focus / dashboard header)
-      const badge = document.querySelector('.xp-level-badge');
-      const fill  = document.querySelector('.xp-bar-fill');
-      const label = document.querySelector('.xp-label');
-      if (badge) badge.textContent = `Lv.${info.level}`;
-      if (fill)  fill.style.width  = `${info.percent}%`;
-      if (label) label.textContent = `${info.currentLevelXP}/${info.nextLevelXP} XP`;
-      // Home tab XP board — patch in-place so tab switch isn't needed
-      const homeLv   = document.querySelector('.xp-board-lv-num');
-      const homeBar  = document.querySelector('.xp-board-bar-fill');
-      const homeLbls = document.querySelectorAll('.xp-board-bar-label span');
-      if (homeLv)  homeLv.textContent   = info.level;
-      if (homeBar) { homeBar.style.width = `${info.percent}%`; homeBar.style.minWidth = info.percent > 0 ? '4px' : ''; }
-      if (homeLbls.length >= 2) { homeLbls[0].textContent = `${info.currentLevelXP} XP earned`; homeLbls[1].textContent = `${info.nextLevelXP} XP next`; }
     },
 
     // Focus-streak tracker (was embedded in old awardXP)
@@ -2099,10 +2053,6 @@
     }
   };
 
-  // Compatibility wrapper — used in renderHome / renderStats HTML templates
-  function xpLevel() {
-    return gamificationManager.calculateLevel((state.xp && state.xp.total) || 0).level;
-  }
   // Legacy wrapper — existing call sites (focus timer, video, classroom) delegate here
   function awardXP(minutes, dateStr) {
     gamificationManager.addFocusXP(minutes, dateStr);
@@ -2498,7 +2448,7 @@
     } else if (it.cat === 'music_track') {
       state.inventory[it.id] = 1;
       toast(`${it.icon} ${it.name} unlocked! Play it in the Focus tab.`, 'success', 4000);
-      saveState(); gamificationManager._updateXPBar();
+      saveState();
       const balEl2 = document.querySelector('.mkt-bal-num');
       if (balEl2) { showXPFloat(-it.cost, balEl2); balEl2.textContent = _xpBalance().toLocaleString(); }
       renderShop(); renderFocus(); return;
@@ -2522,7 +2472,6 @@
 
     saveState();
     if (it.equip && !it.stackable) _cmkSyncAfterEquip();
-    gamificationManager._updateXPBar();
     const balEl = document.querySelector('.mkt-bal-num');
     if (balEl) { showXPFloat(-it.cost, balEl); balEl.textContent = _xpBalance().toLocaleString(); }
     renderShop();
@@ -4591,14 +4540,14 @@
     const taglineHtml = profTagline
       ? `<div class="home-profile-sub">${escapeHTML(profTagline)}</div>`
       : '';
-    const _lvInfo = gamificationManager.calculateLevel((state.xp && state.xp.total) || 0);
     const tasksHtml = totalCount === 0
       ? `<div class="empty" style="text-align:center;padding:28px 16px 8px">No tasks for today — head to Dashboard to build your plan.</div>`
       : renderTasksList(tasks);
     const _totalFocusMin = Object.values((state.focusStats && state.focusStats.minutesByDate) || {}).reduce((a, b) => a + b, 0);
     const _rankInfo = calculateRank(_totalFocusMin / 60 + (state.rankTestHours || 0)) || {};
     const _streakCount = state.streak.count || 0;
-    view.innerHTML = `<div class="home-profile" data-act="open-settings" role="button" tabindex="0" style="cursor:pointer" title="Edit profile">${profAvatarHTML}<div class="home-profile-info">${nameHtml}${taglineHtml}</div><span class="home-profile-greeting">${greeting()} 👋</span></div><div class="home-moti-card"><span class="home-moti-icon">💡</span><p class="home-moti-text" id="home-moti-text">${escapeHTML(motivationMsg)}</p></div><div class="home-xp-board"><div class="xp-board-header"><span class="xp-board-eyebrow">⚡ STATS BOARD</span><span class="xp-board-rank-pill">${escapeHTML(_rankInfo.label || 'Seeker')}</span></div><div class="xp-board-body"><div class="xp-board-level-wrap"><span class="xp-board-lv-label">LEVEL</span><span class="xp-board-lv-num">${_lvInfo.level}</span></div><div class="xp-board-bar-col"><div class="xp-board-bar-track"><div class="xp-board-bar-fill" style="width:${_lvInfo.percent}%;${_lvInfo.percent>0?'min-width:4px':''}"></div></div><div class="xp-board-bar-label"><span>${_lvInfo.currentLevelXP} XP earned</span><span>${_lvInfo.nextLevelXP} XP next</span></div></div><div class="xp-board-streak-wrap"><span class="xp-board-streak-num">${_streakCount}</span><span class="xp-board-streak-label">🔥 streak</span></div></div></div>${renderBentoGrid()}${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${tasksHtml}`;
+    const xpTotal = (state.xp && state.xp.total) || 0;
+    view.innerHTML = `<div class="home-profile" data-act="open-settings" role="button" tabindex="0" style="cursor:pointer" title="Edit profile">${profAvatarHTML}<div class="home-profile-info">${nameHtml}${taglineHtml}</div><span class="home-profile-greeting">${greeting()} 👋</span></div><div class="home-moti-card"><span class="home-moti-icon">💡</span><p class="home-moti-text" id="home-moti-text">${escapeHTML(motivationMsg)}</p></div><div class="home-xp-board"><div class="xp-board-header"><span class="xp-board-eyebrow">⚡ STATS BOARD</span><span class="xp-board-rank-pill">${escapeHTML(_rankInfo.label || 'Seeker')}</span></div><div class="xp-board-body"><div class="xp-board-xp-wrap"><span class="xp-board-xp-num">${xpTotal.toLocaleString()}</span><span class="xp-board-xp-label">XP earned</span></div><div class="xp-board-streak-wrap"><span class="xp-board-streak-num">${_streakCount}</span><span class="xp-board-streak-label">🔥 streak</span></div></div></div>${renderBentoGrid()}${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${tasksHtml}`;
     if (_justPoppedKey) requestAnimationFrame(() => { _justPoppedKey = null; });
     if (_justCompletedDay) setTimeout(() => { _justCompletedDay = null; }, 1800);
     } catch(e) { console.error('renderHome error', e); }
@@ -6418,8 +6367,6 @@
     const curSub = _lsSubjectId ? findSubject(_lsSubjectId) : null;
     const curChap = (curSub && _lsChapterId) ? findChapter(_lsSubjectId, _lsChapterId) : null;
     const curTopic = (curChap && _lsTopicId) ? findTopic(_lsSubjectId, _lsChapterId, _lsTopicId) : null;
-    const xpTot = (state.xp && state.xp.total) || 0;
-    const lvInfo = gamificationManager.calculateLevel(xpTot);
     const streak = (state.streak && state.streak.count) || 0;
     const mult = _isBoosterActive() ? 2 : 1;
     const subjectLog = Object.entries(state.focusStats.minutesBySubject || {})
@@ -11400,7 +11347,6 @@
   //  Updates the in-memory state so tab-switches show fresh data.
   // ═══════════════════════════════════════════════════════════
   // ── Profile helpers exposed for social.js ─────────────────────────────────
-  window._sc_calculateLevel = xp  => gamificationManager.calculateLevel(xp);
   window._sc_calculateRank  = hrs => calculateRank(hrs);
   window._sc_ACHIEVEMENTS   = ACHIEVEMENTS;
   window._sc_getMyState     = ()  => state;
@@ -11420,7 +11366,6 @@
       if (xpEarned > 0) {
         if (!state.xp || typeof state.xp !== 'object') state.xp = { total: 0 };
         state.xp.total = (state.xp.total || 0) + xpEarned;
-        gamificationManager._updateXPBar();
         dirty = true;
       }
       if (dirty) {
