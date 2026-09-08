@@ -1822,7 +1822,6 @@
     if (isNaN(h) || isNaN(m)) return hhmm;
     return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
   }
-  function greeting() { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; }
   function daysUntil(iso) { return iso ? Math.ceil((new Date(iso + 'T00:00:00') - new Date(todayKey() + 'T00:00:00')) / 86400000) : null; }
   function signedDaysUntil(iso) { return Math.round((new Date(iso + 'T00:00:00') - new Date(todayKey() + 'T00:00:00')) / 86400000); }
   function daysFromStart(startISO) { return Math.max(0, Math.round((new Date(todayKey() + 'T00:00:00') - new Date(startISO + 'T00:00:00')) / 86400000)); }
@@ -1924,9 +1923,6 @@
     const weekMin = [0,1,2,3,4,5,6].reduce((a, i) => a + (state.focusStats.minutesByDate[addDaysISO(today, -i)] || 0), 0);
     // Streak badges (class-based, used in Home XP board + stats tile)
     document.querySelectorAll('.live-streak-count').forEach(el => { el.textContent = streak + ' 🔥'; });
-    // Home XP board streak number
-    const homeStreakNum = document.querySelector('.xp-board-streak-num');
-    if (homeStreakNum) homeStreakNum.textContent = streak;
     // Focus today (focus tab + any live label)
     document.querySelectorAll('.live-focus-today').forEach(el => { el.textContent = minsToHrs(todayMin); });
     // Total focus badges
@@ -4545,18 +4541,12 @@
       : renderTasksList(tasks);
     const _totalFocusMin = Object.values((state.focusStats && state.focusStats.minutesByDate) || {}).reduce((a, b) => a + b, 0);
     const _rankInfo = calculateRank(_totalFocusMin / 60 + (state.rankTestHours || 0)) || {};
-    const _streakCount = state.streak.count || 0;
-    const xpTotal = (state.xp && state.xp.total) || 0;
     const _nextRankLabel = _rankInfo.next ? _rankInfo.next.label : 'Max rank';
     const _rankPct = Math.max(0, Math.min(100, Number(_rankInfo.pct) || 0));
     const _rankIcon = _rankInfo.icon || '📖';
     const _profileBadges = `<div class="home-profile-badges" aria-label="Profile badges"><span class="home-profile-badge-pill home-profile-badge-pill--gold">💪 <span>Hardworker</span></span><span class="home-profile-badge-pill home-profile-badge-pill--blue">💀 <span>The Grinder</span></span></div>`;
     view.innerHTML = `<div class="home-profile" data-act="open-settings" role="button" tabindex="0" title="Edit profile">
-      <div class="home-profile-streaks">
-        <span class="home-profile-online"><span class="home-profile-online-dot"></span>Online</span>
-        <span class="home-profile-greeting">${greeting()} 👋</span>
-        <button class="home-profile-edit" type="button" data-act="open-settings" aria-label="Edit profile">${ic('edit')}<span>Edit</span></button>
-      </div>
+      <button class="home-profile-edit" type="button" data-act="open-settings" aria-label="Edit profile">${ic('edit')}<span>Edit</span></button>
       <div class="home-profile-main">
         <div class="home-profile-avatar-wrap" data-act="open-settings" aria-label="Change profile picture">
           ${profAvatarHTML}
@@ -4565,11 +4555,12 @@
           </span>
         </div>
         <div class="home-profile-info">
+          <span class="home-profile-online"><span class="home-profile-online-dot"></span>Online</span>
           ${nameHtml}
           ${taglineHtml}
         </div>
       </div>
-      <div class="home-profile-rank" aria-label="App rank ${escapeHTML(_rankInfo.label || 'Seeker')}">
+      <div class="home-profile-rank" data-act="open-rank-system" role="button" tabindex="0" aria-label="View all app ranks" title="View all ranks">
         <div class="home-profile-rank-badge" aria-hidden="true">${escapeHTML(_rankIcon)}</div>
         <div class="home-profile-rank-copy">
           <div class="home-profile-rank-label">APP RANK</div>
@@ -4580,7 +4571,7 @@
         <span class="home-profile-rank-arrow" aria-hidden="true">›</span>
       </div>
       ${_profileBadges}
-    </div><div class="home-moti-card"><span class="home-moti-icon">💡</span><p class="home-moti-text" id="home-moti-text">${escapeHTML(motivationMsg)}</p></div><div class="home-xp-board"><div class="xp-board-header"><span class="xp-board-eyebrow">⚡ STATS BOARD</span><span class="xp-board-rank-pill">${escapeHTML(_rankInfo.label || 'Seeker')}</span></div><div class="xp-board-body"><div class="xp-board-xp-wrap"><span class="xp-board-xp-num">${xpTotal.toLocaleString()}</span><span class="xp-board-xp-label">XP earned</span></div><div class="xp-board-streak-wrap"><span class="xp-board-streak-num">${_streakCount}</span><span class="xp-board-streak-label">🔥 streak</span></div></div></div>${renderBentoGrid()}${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${tasksHtml}`;
+    </div><div class="home-moti-card"><span class="home-moti-icon">💡</span><p class="home-moti-text" id="home-moti-text">${escapeHTML(motivationMsg)}</p></div>${renderBentoGrid()}${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${tasksHtml}`;
     if (_justPoppedKey) requestAnimationFrame(() => { _justPoppedKey = null; });
     if (_justCompletedDay) setTimeout(() => { _justCompletedDay = null; }, 1800);
     } catch(e) { console.error('renderHome error', e); }
@@ -8031,6 +8022,37 @@
     return { ...tier, tierIndex: tierIdx, next, pct, hrsToNext };
   }
 
+  function openRankSystem() {
+    const totalFocusMin = Object.values((state.focusStats && state.focusStats.minutesByDate) || {}).reduce((a, b) => a + b, 0);
+    const currentRank = calculateRank(totalFocusMin / 60 + (state.rankTestHours || 0)) || {};
+    const rankRows = RANK_TIERS.map((tier, index) => {
+      const isCurrent = index === currentRank.tierIndex;
+      const requirement = tier.minHrs === 0 ? 'Starting rank' : `Unlocks at ${tier.minHrs}h focus`;
+      const range = tier.maxHrs === null ? `${tier.minHrs}h+` : `${tier.minHrs}h–${tier.maxHrs}h`;
+      return `<div class="rank-system-row${isCurrent ? ' is-current' : ''}" style="--rank-color:${tier.color};--rank-glow:${tier.glow}">
+        <div class="rank-system-index">${index + 1}</div>
+        <div class="rank-system-icon" aria-hidden="true">${tier.icon}</div>
+        <div class="rank-system-copy">
+          <div class="rank-system-name">${escapeHTML(tier.label)}${isCurrent ? '<span class="rank-system-current">Current</span>' : ''}</div>
+          <div class="rank-system-meta">${escapeHTML(tier.group)} · ${escapeHTML(requirement)}</div>
+        </div>
+        <div class="rank-system-range">${escapeHTML(range)}</div>
+      </div>`;
+    }).join('');
+
+    openModal(`<div class="rank-system-modal">
+      <div class="rank-system-header">
+        <div>
+          <div class="rank-system-eyebrow">APP RANK</div>
+          <h3>Rank System</h3>
+          <p>Every rank in your study journey, from first step to highest tier.</p>
+        </div>
+        <button class="rank-system-close" type="button" data-close aria-label="Close rank system">×</button>
+      </div>
+      <div class="rank-system-list" aria-label="All app ranks">${rankRows}</div>
+    </div>`);
+  }
+
   let _lastRankIdx  = -1;
   let _hmViewDate   = null;  // Tracks which month the calendar is showing
 
@@ -9345,6 +9367,7 @@
 
     if (el.hasAttribute('data-close')) { closeModal(); return; }
     if (act === 'open-settings')    { modalSettings(); return; }
+    if (act === 'open-rank-system') { openRankSystem(); return; }
     if (act === 'auth-toggle-form') { _authToggleMode(); return; }
     if (act === 'auth-submit')      { _authSubmit(); return; }
     if (act === 'auth-forgot')      { _authForgotPassword(); return; }
