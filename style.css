@@ -10332,11 +10332,6 @@ body.page-bg *::after {
   animation: cmk-badge-pulse 2.8s ease-in-out infinite;
 }
 
-/* Badge below user name in home profile header */
-.home-profile-badge {
-  margin-top: 4px;
-}
-
 /* Badge in account card of settings */
 .stg-ac-badge {
   margin: 3px 0 4px;
