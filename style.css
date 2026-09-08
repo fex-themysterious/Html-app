@@ -983,48 +983,290 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
 @keyframes fadeQuote { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
 .motivation-line { animation: fadeQuote 0.45s var(--ease); }
 
-/* ── Home Profile Header ──────────────────────────────────────── */
+/* ── Home Profile Card — compact futuristic glass header ───────── */
 .home-profile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  width: 100%;
+  padding: 12px;
+  margin: calc(env(safe-area-inset-top, 0px) + 4px) 0 14px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: 22px;
+  background:
+    linear-gradient(145deg, rgba(8, 24, 52, 0.98), rgba(10, 13, 35, 0.98) 55%, rgba(22, 12, 51, 0.97)) padding-box,
+    linear-gradient(115deg, rgba(46, 181, 255, 0.9), rgba(99, 102, 241, 0.58) 48%, rgba(211, 112, 255, 0.85)) border-box;
+  box-shadow:
+    0 14px 32px rgba(0, 0, 0, 0.38),
+    0 0 24px rgba(39, 137, 255, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  isolation: isolate;
+}
+.home-profile::before {
+  content: '';
+  position: absolute;
+  inset: -45% -12%;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.72;
+  background:
+    linear-gradient(132deg, transparent 0 26%, rgba(91, 173, 255, 0.1) 26.3% 27%, transparent 27.4% 45%, rgba(177, 151, 252, 0.08) 45.3% 46%, transparent 46.4% 66%, rgba(91, 173, 255, 0.07) 66.3% 66.8%, transparent 67.2%),
+    radial-gradient(70% 100% at 0% 0%, rgba(27, 142, 255, 0.22), transparent 66%),
+    radial-gradient(70% 90% at 100% 100%, rgba(148, 74, 255, 0.2), transparent 68%);
+  transform: rotate(-4deg);
+}
+.home-profile::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 12%; right: 12%; height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(132, 208, 255, 0.72), rgba(191, 133, 255, 0.65), transparent);
+}
+.home-profile-streaks {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
-  gap: 15px;
-  padding: calc(env(safe-area-inset-top, 0px) + 14px) 0 20px;
+  gap: 8px;
+  min-height: 25px;
 }
-.home-profile-avatar {
-  width: 50px; height: 50px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #5badff 0%, #b197fc 100%);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 22px; font-weight: 900; color: #fff;
-  flex-shrink: 0;
-  box-shadow: 0 6px 20px rgba(91,173,255,0.35), 0 1px 0 rgba(255,255,255,0.2) inset;
-  letter-spacing: -1px;
+.home-profile-online {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 25px;
+  padding: 4px 10px;
+  border: 1px solid rgba(34, 211, 238, 0.16);
+  border-radius: 999px;
+  background: rgba(4, 35, 52, 0.72);
+  color: #6fffd7;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  box-shadow: 0 0 13px rgba(52, 211, 153, 0.12);
 }
-.home-profile-info { flex: 1; min-width: 0; }
-.home-profile-name {
-  font-size: 28px;
-  font-weight: 900;
-  letter-spacing: -0.8px;
-  line-height: 1.05;
-  background: linear-gradient(100deg, #e8f0fe 0%, #a8d0ff 45%, #c4b5fd 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-.home-profile-sub {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-muted);
-  margin-top: 3px;
-  letter-spacing: 0.01em;
+.home-profile-online-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #28f49f;
+  box-shadow: 0 0 8px rgba(40, 244, 159, 0.95);
 }
 .home-profile-greeting {
-  font-size: 12px;
+  margin-left: auto;
+  color: rgba(191, 211, 240, 0.62);
+  font-size: 10px;
   font-weight: 600;
-  color: var(--text-muted);
   white-space: nowrap;
-  text-align: right;
-  flex-shrink: 0;
+}
+.home-profile-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  margin-left: 2px;
+  padding: 5px 10px;
+  border: 1px solid rgba(84, 159, 255, 0.42);
+  border-radius: 999px;
+  background: rgba(21, 52, 110, 0.4);
+  color: #9ec7ff;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 0 13px rgba(61, 137, 255, 0.11);
+}
+.home-profile-edit svg { width: 14px; height: 14px; }
+.home-profile-edit:hover,
+.home-profile-edit:focus-visible {
+  color: #e5f2ff;
+  border-color: rgba(113, 191, 255, 0.85);
+  background: rgba(37, 84, 167, 0.48);
+}
+.home-profile-main {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.home-profile-avatar-wrap {
+  position: relative;
+  width: 110px; height: 110px;
+  flex: 0 0 110px;
+  cursor: pointer;
+}
+.home-profile-avatar {
+  width: 110px; height: 110px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: linear-gradient(135deg, #1679ff 0%, #a05bff 100%);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 42px; font-weight: 900; color: #fff;
+  letter-spacing: -1px;
+  border: 2px solid rgba(115, 204, 255, 0.96);
+  box-shadow:
+    0 0 0 4px rgba(67, 144, 255, 0.12),
+    0 0 22px rgba(58, 167, 255, 0.58),
+    0 0 38px rgba(161, 92, 255, 0.22),
+    0 1px 0 rgba(255,255,255,0.45) inset;
+}
+.home-profile-avatar--img { display: block; object-fit: cover; }
+.home-profile-avatar-wrap > .cmk-aura {
+  width: 110px; height: 110px;
+}
+.home-profile-avatar-wrap > .cmk-aura > .home-profile-avatar { width: 100%; height: 100%; }
+.home-profile-camera {
+  position: absolute;
+  right: -2px; bottom: -1px;
+  display: flex; align-items: center; justify-content: center;
+  width: 31px; height: 31px;
+  border: 2px solid #0b1630;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #d8f2ff, #82bfff);
+  color: #102b61;
+  box-shadow: 0 0 12px rgba(83, 178, 255, 0.8), 0 3px 9px rgba(0,0,0,0.45);
+  pointer-events: none;
+}
+.home-profile-camera svg { width: 16px; height: 16px; }
+.home-profile-info {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.home-profile-name {
+  max-width: 100%;
+  font-size: clamp(32px, 9.2vw, 40px);
+  font-weight: 900;
+  letter-spacing: -1.7px;
+  line-height: 0.98;
+  overflow-wrap: anywhere;
+  color: #f5f8ff;
+  text-shadow: 0 0 18px rgba(121, 185, 255, 0.22);
+}
+.home-profile-name--empty { letter-spacing: -0.5px; }
+.home-profile-sub {
+  margin-top: 7px;
+  color: #a7d7ff;
+  font-size: 12px;
+  font-style: italic;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-shadow: 0 0 12px rgba(110, 202, 255, 0.27);
+}
+.home-profile-rank {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 76px;
+  padding: 9px 10px;
+  border: 1px solid rgba(71, 144, 255, 0.35);
+  border-radius: 16px;
+  background: rgba(4, 17, 42, 0.7);
+  box-shadow: inset 0 1px 0 rgba(133, 211, 255, 0.06), 0 0 18px rgba(30, 124, 255, 0.08);
+}
+.home-profile-rank-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px; height: 58px;
+  flex: 0 0 52px;
+  color: #b8d4ff;
+  font-size: 24px;
+  background: linear-gradient(145deg, rgba(117, 91, 255, 0.86), rgba(25, 125, 255, 0.52));
+  border: 2px solid rgba(113, 186, 255, 0.92);
+  clip-path: polygon(50% 0%, 92% 24%, 92% 76%, 50% 100%, 8% 76%, 8% 24%);
+  filter: drop-shadow(0 0 8px rgba(70, 140, 255, 0.7));
+}
+.home-profile-rank-copy { flex: 1; min-width: 0; }
+.home-profile-rank-label {
+  color: #7197cb;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+}
+.home-profile-rank-name {
+  margin-top: -1px;
+  color: #35e7ff;
+  font-size: 21px;
+  font-weight: 900;
+  letter-spacing: -0.5px;
+  line-height: 1.05;
+  text-shadow: 0 0 12px rgba(35, 228, 255, 0.34);
+}
+.home-profile-rank-next {
+  margin-top: 2px;
+  color: #8daee0;
+  font-size: 10px;
+  font-weight: 600;
+}
+.home-profile-rank-track {
+  height: 5px;
+  margin-top: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(99, 135, 190, 0.2);
+}
+.home-profile-rank-fill {
+  height: 100%;
+  min-width: 4px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #20caff, #25f0e2);
+  box-shadow: 0 0 9px rgba(32, 215, 255, 0.84);
+}
+.home-profile-rank-arrow {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: #73aefc;
+  font-size: 31px;
+  font-weight: 300;
+  line-height: 1;
+  text-shadow: 0 0 10px rgba(83, 156, 255, 0.58);
+}
+.home-profile-badges {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 8px;
+}
+.home-profile-badge-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 42px;
+  flex: 1;
+  padding: 7px 9px;
+  border: 1px solid;
+  border-radius: 999px;
+  background: rgba(4, 16, 38, 0.62);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.home-profile-badge-pill--gold {
+  border-color: rgba(251, 191, 36, 0.48);
+  color: #ffd875;
+  box-shadow: 0 0 14px rgba(245, 158, 11, 0.13), inset 0 0 12px rgba(245, 158, 11, 0.05);
+}
+.home-profile-badge-pill--blue {
+  border-color: rgba(65, 163, 255, 0.52);
+  color: #8bc9ff;
+  box-shadow: 0 0 14px rgba(58, 150, 255, 0.15), inset 0 0 12px rgba(58, 150, 255, 0.05);
+}
+@media (max-width: 500px) and (orientation: portrait) {
+  .home-profile {
+    width: min(calc(100% + 8px), 350px);
+    margin-left: auto;
+    margin-right: auto;
+  }
 }
 
 /* ── Home Motivation Card ─────────────────────────────────────────────────── */
@@ -1683,11 +1925,8 @@ body.kb-open .modal { max-height: calc(100vh - var(--kb-h) - 16px); }
   /* ═══════════════════════════════════════════════════════════════
      HOME TAB — two-column hero cards
      ═══════════════════════════════════════════════════════════════ */
-  .home-profile { padding-top: 4px; padding-bottom: 10px; gap: 10px; }
-  .home-profile-avatar { width: 38px; height: 38px; font-size: 16px; border-radius: 12px; }
-  .home-profile-name { font-size: 20px; letter-spacing: -0.5px; }
-  .home-profile-sub { font-size: 11px; margin-top: 1px; }
-  .home-profile-greeting { font-size: 11px; }
+  /* Keep the Home profile card's compact portrait proportions in landscape. */
+  .home-profile { gap: 8px; }
   .motivation-line { font-size: 11px; margin-top: 2px; }
 
   /* Bento grid: stays 3-column in landscape, more compact */

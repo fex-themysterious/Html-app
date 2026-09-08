@@ -4547,7 +4547,40 @@
     const _rankInfo = calculateRank(_totalFocusMin / 60 + (state.rankTestHours || 0)) || {};
     const _streakCount = state.streak.count || 0;
     const xpTotal = (state.xp && state.xp.total) || 0;
-    view.innerHTML = `<div class="home-profile" data-act="open-settings" role="button" tabindex="0" style="cursor:pointer" title="Edit profile">${profAvatarHTML}<div class="home-profile-info">${nameHtml}${taglineHtml}</div><span class="home-profile-greeting">${greeting()} 👋</span></div><div class="home-moti-card"><span class="home-moti-icon">💡</span><p class="home-moti-text" id="home-moti-text">${escapeHTML(motivationMsg)}</p></div><div class="home-xp-board"><div class="xp-board-header"><span class="xp-board-eyebrow">⚡ STATS BOARD</span><span class="xp-board-rank-pill">${escapeHTML(_rankInfo.label || 'Seeker')}</span></div><div class="xp-board-body"><div class="xp-board-xp-wrap"><span class="xp-board-xp-num">${xpTotal.toLocaleString()}</span><span class="xp-board-xp-label">XP earned</span></div><div class="xp-board-streak-wrap"><span class="xp-board-streak-num">${_streakCount}</span><span class="xp-board-streak-label">🔥 streak</span></div></div></div>${renderBentoGrid()}${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${tasksHtml}`;
+    const _nextRankLabel = _rankInfo.next ? _rankInfo.next.label : 'Max rank';
+    const _rankPct = Math.max(0, Math.min(100, Number(_rankInfo.pct) || 0));
+    const _rankIcon = _rankInfo.icon || '📖';
+    const _profileBadges = `<div class="home-profile-badges" aria-label="Profile badges"><span class="home-profile-badge-pill home-profile-badge-pill--gold">💪 <span>Hardworker</span></span><span class="home-profile-badge-pill home-profile-badge-pill--blue">💀 <span>The Grinder</span></span></div>`;
+    view.innerHTML = `<div class="home-profile" data-act="open-settings" role="button" tabindex="0" title="Edit profile">
+      <div class="home-profile-streaks">
+        <span class="home-profile-online"><span class="home-profile-online-dot"></span>Online</span>
+        <span class="home-profile-greeting">${greeting()} 👋</span>
+        <button class="home-profile-edit" type="button" data-act="open-settings" aria-label="Edit profile">${ic('edit')}<span>Edit</span></button>
+      </div>
+      <div class="home-profile-main">
+        <div class="home-profile-avatar-wrap" data-act="open-settings" aria-label="Change profile picture">
+          ${profAvatarHTML}
+          <span class="home-profile-camera" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h3l1.5-2h7L17 7h3v12H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+          </span>
+        </div>
+        <div class="home-profile-info">
+          ${nameHtml}
+          ${taglineHtml}
+        </div>
+      </div>
+      <div class="home-profile-rank" aria-label="App rank ${escapeHTML(_rankInfo.label || 'Seeker')}">
+        <div class="home-profile-rank-badge" aria-hidden="true">${escapeHTML(_rankIcon)}</div>
+        <div class="home-profile-rank-copy">
+          <div class="home-profile-rank-label">APP RANK</div>
+          <div class="home-profile-rank-name">${escapeHTML(_rankInfo.label || 'Seeker')}</div>
+          <div class="home-profile-rank-next">Next Rank: ${escapeHTML(_nextRankLabel)}</div>
+          <div class="home-profile-rank-track"><div class="home-profile-rank-fill" style="width:${_rankPct}%"></div></div>
+        </div>
+        <span class="home-profile-rank-arrow" aria-hidden="true">›</span>
+      </div>
+      ${_profileBadges}
+    </div><div class="home-moti-card"><span class="home-moti-icon">💡</span><p class="home-moti-text" id="home-moti-text">${escapeHTML(motivationMsg)}</p></div><div class="home-xp-board"><div class="xp-board-header"><span class="xp-board-eyebrow">⚡ STATS BOARD</span><span class="xp-board-rank-pill">${escapeHTML(_rankInfo.label || 'Seeker')}</span></div><div class="xp-board-body"><div class="xp-board-xp-wrap"><span class="xp-board-xp-num">${xpTotal.toLocaleString()}</span><span class="xp-board-xp-label">XP earned</span></div><div class="xp-board-streak-wrap"><span class="xp-board-streak-num">${_streakCount}</span><span class="xp-board-streak-label">🔥 streak</span></div></div></div>${renderBentoGrid()}${achievedBadge}<div class="section-head"><h2>Today's Tasks</h2><button class="btn-link" data-act="open-dashboard">+ Add tasks ›</button></div>${tasksHtml}`;
     if (_justPoppedKey) requestAnimationFrame(() => { _justPoppedKey = null; });
     if (_justCompletedDay) setTimeout(() => { _justCompletedDay = null; }, 1800);
     } catch(e) { console.error('renderHome error', e); }
